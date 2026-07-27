@@ -6,7 +6,7 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
-- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_try with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_stop with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop."
+- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop."
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -19,22 +19,25 @@
 - button:
   - img
 - text: Inspect temporary
+- 'button "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."':
+  - img
+  - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
 - button [expanded]:
   - img
-- text: Try temporary Plugin typescript
+- text: Mount temporary Plugin typescript
 - button "复制"
 - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
-- button "Think The cordis_try returned \"dyn-1\" as the temporary plugin id. Now I need to call cordis_stop with that exact id.":
+- 'button "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."':
   - img
-  - text: Think The cordis_try returned "dyn-1" as the temporary plugin id. Now I need to call cordis_stop with that exact id.
+  - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
 - button:
   - img
-- text: Stop temporary Plugin dyn-1
-- button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\".":
+- text: Unmount temporary Plugin dyn-1
+- button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\" and stop.":
   - img
-  - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE".
+  - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- text: cache hit 71% · 50,140 tokens · 1 turns · 3 steps
+- text: cache hit 77% · 66,813 tokens · 1 turns · 4 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

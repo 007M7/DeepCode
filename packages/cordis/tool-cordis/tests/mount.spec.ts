@@ -5,7 +5,7 @@ import { syntaxErrorContext } from '../src/sandbox.ts'
 import { call, CONTENT_OUTPUT_CODE, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
 
 /**
- * The `cordis_try` success/failure family: real plugins land on a genuine
+ * The `cordis_mount` success/failure family: real plugins land on a genuine
  * cordis fiber tree, their registrations are observable through the real
  * registry/event bus, and every rejection path teaches the fix.
  */
@@ -14,7 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('cordis_try', () => {
+describe('cordis_mount', () => {
   it.each([
     [42, 'options must be an object'],
     [{ parameters: {} }, 'output must declare { schema, render, presentationMeta? }'],
@@ -47,9 +47,9 @@ describe('cordis_try', () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    const result = await call(ctx, 'cordis_try', { code: LISTENER_CODE })
+    const result = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('expected cordis_try success')
+    if (result.isError) throw new Error('expected cordis_mount success')
     expect(result.value).toEqual({
       id: 'dyn-1',
       pluginName: 'change-logger',
@@ -57,7 +57,7 @@ describe('cordis_try', () => {
       provides: [],
       waitingFor: [],
     })
-    expect(text(result)).toBe('Temporary Plugin dyn-1 is running (plugin "change-logger"; available until stopped or DSH restarts).')
+    expect(text(result)).toBe('Temporary Plugin dyn-1 is running (plugin "change-logger"; available until unmounted or DSH restarts).')
 
     // Fire a REAL tools/change by registering a tool; the mounted listener logs.
     ctx.tools.register(dummyTool('trigger_a'))
@@ -66,16 +66,16 @@ describe('cordis_try', () => {
 
   it('mounts a bare-function plugin as <anonymous>, and a named function under its name', async () => {
     const ctx = await setup()
-    const anonymous = await call(ctx, 'cordis_try', { code: 'return (ctx) => { ctx.on(\'tools/change\', () => {}) }' })
+    const anonymous = await call(ctx, 'cordis_mount', { code: 'return (ctx) => { ctx.on(\'tools/change\', () => {}) }' })
     expect(anonymous.isError).toBe(false)
     expect(text(anonymous)).toContain('plugin "<anonymous>"')
-    const named = await call(ctx, 'cordis_try', { code: 'return function watcher(ctx) {}' })
+    const named = await call(ctx, 'cordis_mount', { code: 'return function watcher(ctx) {}' })
     expect(text(named)).toContain('plugin "watcher"')
   })
 
   it('lets the agent give ITSELF a new tool, immediately callable through the registry', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: REVERSE_TOOL_CODE })
+    const result = await call(ctx, 'cordis_mount', { code: REVERSE_TOOL_CODE })
     expect(result.isError).toBe(false)
 
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('reverse_text')
@@ -89,14 +89,14 @@ describe('cordis_try', () => {
   it('normalizes a self-made tool\'s result into the host realm, so the session log accepts it', async () => {
     // VM-realm objects fail the session prototype-identity check; normalize them into host JSON.
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: REVERSE_TOOL_CODE })
+    await call(ctx, 'cordis_mount', { code: REVERSE_TOOL_CODE })
     const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
     expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
   })
 
   it('projects presentation metadata from a dynamic canonical value', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', {
+    await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'meta-return',
@@ -136,7 +136,7 @@ describe('cordis_try', () => {
     ['undefined — a forgotten return', 'return undefined', 'execute result must be lossless JSON data'],
   ])('rejects an execute return of %s against its declared output', async (_label, returnStatement, diagnostic) => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', {
+    await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'bad-return',
@@ -162,7 +162,7 @@ describe('cordis_try', () => {
 
   it('does not echo a huge schema-invalid canonical value in the diagnostic', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', {
+    await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'huge-return',
@@ -189,7 +189,7 @@ describe('cordis_try', () => {
     // These common JSON-Schema spellings each have one DSL meaning, so normalize rather than
     // consume another model turn with a rejection.
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'json-schema-tool',
@@ -245,7 +245,7 @@ describe('cordis_try', () => {
     // On an object PROPERTY, a JSON-Schema-style `required` array names the
     // required children — the nested unwrap converts it just like the top level.
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'nested-json-schema',
@@ -276,7 +276,7 @@ describe('cordis_try', () => {
 
   it('normalizes every unified DSL node and lossless annotation shape across the sandbox realm', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'unified-schema',
@@ -324,7 +324,7 @@ describe('cordis_try', () => {
   it('normalizes and snapshots deeply nested sandbox schemas and annotations stack-safely', async () => {
     const ctx = await setup()
     const depth = 5_000
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'deep-unified-schema',
@@ -377,7 +377,7 @@ describe('cordis_try', () => {
 
   it('normalizes unconstrained and closed nested nodes from a raw JSON Schema wrapper', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'raw-unified-schema',
@@ -467,7 +467,7 @@ describe('cordis_try', () => {
     ['parameters: Object.create(Object.create(null))', 'must be a ParameterSchemaSpec object'],
   ])('rejects a malformed ParameterSchemaSpec (%s) with a teaching error', async (parameters, message) => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'bad-schema',
@@ -508,7 +508,7 @@ describe('cordis_try', () => {
     ],
   ])('rejects circular sandbox schemas without exhausting the call stack', async (declaration, message) => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'circular-schema',
@@ -531,7 +531,7 @@ describe('cordis_try', () => {
 
   it('preserves literal __proto__ keys in sandbox schemas and annotations', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'proto-schema',
@@ -566,7 +566,7 @@ describe('cordis_try', () => {
 
   it('accepts a nested object/array ParameterSchemaSpec (the DSL recursion)', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'nested-schema',
@@ -593,7 +593,7 @@ describe('cordis_try', () => {
 
   it('rejects raw dynamic ctx.tools.register calls that bypass harness helpers', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'raw-register',
@@ -618,7 +618,7 @@ describe('cordis_try', () => {
 
   it('guards the registry reached through ctx.get(\'tools\') identically', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'raw-register-get',
@@ -636,13 +636,13 @@ describe('cordis_try', () => {
   it('passes non-register registry members through the guard with correct binding', async () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'schema-reader',
           inject: ['tools'],
           apply(ctx) {
-            console.log('sees', ctx.tools.schemas().length, 'tools; mount is', typeof ctx.tools.get('cordis_try'))
+            console.log('sees', ctx.tools.schemas().length, 'tools; mount is', typeof ctx.tools.get('cordis_mount'))
           },
         }
       `,
@@ -653,11 +653,11 @@ describe('cordis_try', () => {
 
   it('keeps a plugin with unsatisfied inject mounted as pending and names what it waits for', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: 'return { name: \'waiter\', inject: [\'no-such-service\'], apply(ctx) {} }',
     })
     expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('expected pending cordis_try success')
+    if (result.isError) throw new Error('expected pending cordis_mount success')
     expect(result.value).toEqual({
       id: 'dyn-1',
       pluginName: 'waiter',
@@ -665,15 +665,15 @@ describe('cordis_try', () => {
       provides: [],
       waitingFor: ['no-such-service'],
     })
-    expect(text(result)).toBe('Temporary Plugin dyn-1 is pending (plugin "waiter"; missing services: no-such-service; available until stopped or DSH restarts).')
+    expect(text(result)).toBe('Temporary Plugin dyn-1 is pending (plugin "waiter"; missing services: no-such-service; available until unmounted or DSH restarts).')
     // Unmounting a pending mount works like any other.
-    const unmounted = await call(ctx, 'cordis_stop', { id: 'dyn-1' })
+    const unmounted = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(unmounted.isError).toBe(false)
   })
 
   it('rejects code that throws, leaving nothing mounted', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: 'throw new Error(\'boom in sandbox\')' })
+    const result = await call(ctx, 'cordis_mount', { code: 'throw new Error(\'boom in sandbox\')' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('boom in sandbox')
     expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
@@ -681,30 +681,30 @@ describe('cordis_try', () => {
 
   it('passes non-Error and null throws through untouched (no SyntaxError misclassification)', async () => {
     const ctx = await setup()
-    const primitive = await call(ctx, 'cordis_try', { code: 'throw \'plain-string-throw\'' })
+    const primitive = await call(ctx, 'cordis_mount', { code: 'throw \'plain-string-throw\'' })
     expect(primitive.isError).toBe(true)
     expect(text(primitive)).toContain('plain-string-throw')
-    const nullish = await call(ctx, 'cordis_try', { code: 'throw null' })
+    const nullish = await call(ctx, 'cordis_mount', { code: 'throw null' })
     expect(nullish.isError).toBe(true)
   })
 
   it('rejects code that does not return a plugin', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: 'return 42' })
+    const result = await call(ctx, 'cordis_mount', { code: 'return 42' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('must `return` a Plugin')
   })
 
   it('answers a missing return with the two valid plugin forms', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: 'const plugin = (ctx) => {}' })
+    const result = await call(ctx, 'cordis_mount', { code: 'const plugin = (ctx) => {}' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('did you forget `return`?')
   })
 
   it('disposes a plugin whose apply throws, and reports the error', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: 'return { name: \'broken\', apply(ctx) { throw new Error(\'apply exploded\') } }',
     })
     expect(result.isError).toBe(true)
@@ -714,14 +714,14 @@ describe('cordis_try', () => {
 
   it('rolls back a plugin that collides with an existing tool name, keeping the original tool intact', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'usurper',
           inject: ['tools'],
           apply(ctx) {
             harness.registerTool(ctx, harness.defineTool({
-              name: 'cordis_try',
+              name: 'cordis_mount',
               description: 'dup',
               parameters: {},
               ${CONTENT_OUTPUT_CODE}
@@ -733,15 +733,15 @@ describe('cordis_try', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('already registered')
-    expect(text(result)).toContain('first cordis_stop')
-    // The original cordis_try still dispatches — the failed fiber is gone.
-    const retry = await call(ctx, 'cordis_try', { code: LISTENER_CODE })
+    expect(text(result)).toContain('first cordis_unmount')
+    // The original cordis_mount still dispatches — the failed fiber is gone.
+    const retry = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     expect(retry.isError).toBe(false)
   })
 
   it('isolates sandbox globals: no process/Buffer, and globalThis writes do not leak to the host', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         globalThis.__cordis_tool_leak = 'leaked'
         return { name: 'probe-' + typeof process + '-' + typeof Buffer, apply(ctx) {} }
@@ -758,7 +758,7 @@ describe('cordis_try', () => {
     ['fetch(\'https://example.com\')', 'fetch is not available in the temporary Plugin sandbox', 'ctx.web'],
   ])('traps the Node API call %s with a redirect to the cordis alternative', async (invocation, trapMessage, redirect) => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: `${invocation}\nreturn (ctx) => {}` })
+    const result = await call(ctx, 'cordis_mount', { code: `${invocation}\nreturn (ctx) => {}` })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(trapMessage)
     expect(text(result)).toContain(redirect)
@@ -768,7 +768,7 @@ describe('cordis_try', () => {
   it('lets a mounted plugin schedule through the cordis timer service (inject: [\'timer\'])', async () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'ticker',
@@ -789,7 +789,7 @@ describe('cordis_try', () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: `
         console.warn('warned')
         console.error('errored')
@@ -807,7 +807,7 @@ describe('cordis_try', () => {
 
   it('answers TypeScript syntax in the plain-JS sandbox with the fix', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: 'return { name: \'ts\' as const, apply(ctx) {} }',
     })
     expect(result.isError).toBe(true)
@@ -819,7 +819,7 @@ describe('cordis_try', () => {
     // The canonical model mistake: closing the returned object with `});` as
     // if it were a callback argument. The word "as" in a STRING elsewhere must
     // not trigger the TypeScript hint — the heuristic reads the failing line.
-    const result = await call(ctx, 'cordis_try', {
+    const result = await call(ctx, 'cordis_mount', {
       code: 'const note = \'treat pattern as regex\'\nreturn {\n  name: \'oops\',\n  apply(ctx) {}\n});',
     })
     expect(result.isError).toBe(true)
@@ -842,7 +842,7 @@ describe('cordis_try', () => {
 
   it('handles a runtime-thrown SyntaxError (no source-line prelude) with the generic hint', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_try', { code: 'throw new SyntaxError(\'user-crafted\')' })
+    const result = await call(ctx, 'cordis_mount', { code: 'throw new SyntaxError(\'user-crafted\')' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('failed to parse')
     expect(text(result)).toContain('user-crafted')
@@ -850,7 +850,7 @@ describe('cordis_try', () => {
 
   it('honors the configured vmTimeoutMs for the synchronous portion', async () => {
     const ctx = await setup({ vmTimeoutMs: 50 })
-    const result = await call(ctx, 'cordis_try', { code: 'while (true) {}' })
+    const result = await call(ctx, 'cordis_mount', { code: 'while (true) {}' })
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(/timed? ?out/i)
     expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
@@ -861,7 +861,7 @@ describe('cordis_try', () => {
     // Symbol.hasInstance prelude, `args.items instanceof Array` in sandbox code is silently
     // false.
     const ctx = await setup()
-    await call(ctx, 'cordis_try', {
+    await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'probe-instanceof',

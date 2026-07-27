@@ -100,13 +100,13 @@ export function describeTools(ctx: Context, scope?: ScopeKey): string[] {
  */
 export function describeDynamic(ctx: Context, mounts: ReadonlyMap<string, DynamicMount>): string[] {
   if (mounts.size === 0) {
-    return ['No temporary Plugins are running. Temporary Plugins created with cordis_try disappear when DSH restarts.']
+    return ['No temporary Plugins are running. Temporary Plugins created with cordis_mount disappear when DSH restarts.']
   }
   return [...mounts].map(([id, mount]) => {
     const provides = providedServices(ctx, mount.fiber)
     const waiting = missingServices(ctx, mount.fiber)
     const state = mount.fiber.state === FiberState.ACTIVE ? 'running' : STATE_LABELS[mount.fiber.state]
-    return `- Temporary Plugin ${id}: ${mount.pluginName} [${state}] — provides: ${provides.join(', ') || 'none'}; waiting for: ${waiting.join(', ') || 'none'}; lifetime: until stopped or DSH restarts`
+    return `- Temporary Plugin ${id}: ${mount.pluginName} [${state}] — provides: ${provides.join(', ') || 'none'}; waiting for: ${waiting.join(', ') || 'none'}; lifetime: until unmounted or DSH restarts`
   })
 }
 

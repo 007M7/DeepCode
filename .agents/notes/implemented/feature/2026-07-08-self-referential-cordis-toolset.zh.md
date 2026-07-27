@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) 发布，并由 [`examples/cordis-agent`](../../../../examples/cordis-agent/README.md) 演示。它为模型提供三个工具，操作当前 DSH 进程中的活跃 Cordis 运行时：审视它、尝试一个仅存于内存的临时 Plugin，再让该 Plugin 完全停稳。
+该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) 发布，并由 [`examples/cordis-agent`](../../../../examples/cordis-agent/README.md) 演示。它为模型提供三个工具，操作当前 DSH 进程中的活跃 Cordis 运行时：审视它、挂载一个仅存于内存的临时 Plugin，再将该 Plugin 卸载至完全停稳。
 
 vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节。但二者都不限制已暴露服务的权限：临时 Plugin 可以调用 `ctx.bash` 以宿主执行器的权限运行命令，也能访问真实的文件系统和网络服务。它运行在共享 DSH runtime 中，可能影响同一进程的其他 session。这是一个需要显式启用的开发工具，信任等级与 bash 相当，不是安全边界，也不是产品默认配置。
 
@@ -20,11 +20,11 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 | 工具 | 契约 |
 |---|---|
-| `cordis_inspect` | 当前进程活跃运行时的只读报告，每个 `what` 值对应一个 Markdown 段落（省略 `what` 则输出全部段落）。`plugins` 列出全部存活 fiber，`temporary` 只列 `cordis_try` 创建的临时 Plugin。精确 `name` 搭配 `what: "api"` 或 `what: "events"` 可收窄到一个带源码文档的目标。 |
-| `cordis_try` | 立即在 `node:vm` 沙箱中把 `code` 作为异步 JavaScript 函数体求值，且不保存到任何位置。返回的 Plugin 挂在内部 `cordis-dynamic` 分组下，并用新的进程内 id（`dyn-1`、`dyn-2`……）跟踪。 |
-| `cordis_stop` | 按 id 停止一个 `cordis_try` 临时 Plugin，并只在其自有工具、监听器、服务、定时器和其他 effect 完全停稳后返回。它不能删除 Loader、配置或已安装的 Plugin。 |
+| `cordis_inspect` | 当前进程活跃运行时的只读报告，每个 `what` 值对应一个 Markdown 段落（省略 `what` 则输出全部段落）。`plugins` 列出全部存活 fiber，`temporary` 只列 `cordis_mount` 创建的临时 Plugin。精确 `name` 搭配 `what: "api"` 或 `what: "events"` 可收窄到一个带源码文档的目标。 |
+| `cordis_mount` | 立即在 `node:vm` 沙箱中把 `code` 作为异步 JavaScript 函数体求值，且不保存到任何位置。返回的 Plugin 挂在内部 `cordis-dynamic` 分组下，并用新的进程内 id（`dyn-1`、`dyn-2`……）跟踪。 |
+| `cordis_unmount` | 按 id 卸载一个 `cordis_mount` 临时 Plugin，并只在其自有工具、监听器、服务、定时器和其他 effect 完全停稳后返回。它不能删除 Loader、配置或已安装的 Plugin。 |
 
-`cordis_inspect` 的段落是 `services`（每个已提供的 ctx 服务及所属 fiber）、`plugins`（全部存活 Plugin fiber）、`tools`（模型可调用的工具）、`temporary`（`cordis_try` 子集，包含 id、running／pending 状态、提供与等待的服务和生命周期）、`api`（活跃服务签名及其引用类型）和 `events`（harness 事件及分发模式和签名）。临时 Plugin 可跨后续 turn 保持活跃，并在 `cordis_stop`、工具集卸载或 DSH 重启后消失；系统绝不会自动恢复它们。宽泛的 `api` 和 `events` 报告省略完整 JSDoc；精确 `name` 返回一个服务或事件及其原始 JSDoc。其他段落不能搭配 name，未知目标会失败，而 API 目标必须处于活跃状态。[生成的工具目录](../../../../docs/tool-catalog.md)完整呈现面向模型的调用契约。
+`cordis_inspect` 的段落是 `services`（每个已提供的 ctx 服务及所属 fiber）、`plugins`（全部存活 Plugin fiber）、`tools`（模型可调用的工具）、`temporary`（`cordis_mount` 子集，包含 id、running／pending 状态、提供与等待的服务和生命周期）、`api`（活跃服务签名及其引用类型）和 `events`（harness 事件及分发模式和签名）。临时 Plugin 可跨后续 turn 保持活跃，并在 `cordis_unmount`、工具集卸载或 DSH 重启后消失；系统绝不会自动恢复它们。宽泛的 `api` 和 `events` 报告省略完整 JSDoc；精确 `name` 返回一个服务或事件及其原始 JSDoc。其他段落不能搭配 name，未知目标会失败，而 API 目标必须处于活跃状态。[生成的工具目录](../../../../docs/tool-catalog.md)完整呈现面向模型的调用契约。
 
 ### 沙箱语义
 
@@ -38,7 +38,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 ### 内部分组与临时 Plugin 生命周期
 
-每个临时 Plugin 都是工具插件下方内部 `cordis-dynamic` 分组的子节点，因此普通的 fiber 释放即可处理工具集重载和卸载。`cordis_try` 会等待 settlement；启动失败时在返回错误前释放 fiber。已 settle 但处于 pending 状态的 Plugin 仍然可见，并列出其缺失的注入。`cordis_stop` 等待 Plugin fiber 的释放完成。
+每个临时 Plugin 都是工具插件下方内部 `cordis-dynamic` 分组的子节点，因此普通的 fiber 释放即可处理工具集重载和卸载。`cordis_mount` 会等待 settlement；启动失败时在返回错误前释放 fiber。已 settle 但处于 pending 状态的 Plugin 仍然可见，并列出其缺失的注入。`cordis_unmount` 等待 Plugin fiber 的释放完成。
 
 临时 Plugin 只存在于进程内存中。它不会创建 Plugin 文件、安装 package、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不存在自动保存、转正式或安装路径。若要保留实验结果，应让 Agent 通过常规开发流程实现普通的本地、项目或仓库 Plugin。
 
@@ -54,15 +54,15 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 ### 配置、渲染与可观测性
 
-该插件暴露一个配置字段，由 schemastery 校验并记录在[配置目录](../../../../docs/config-catalog.md)中：`vmTimeoutMs`（默认 5000），代码同步求值部分的毫秒上限。当前面向模型的名称是 `cordis_inspect`、`cordis_try` 和 `cordis_stop`；内部 `cordis-dynamic` 分组名和 `dyn-` id 前缀仍是结构性词汇。三个工具均按[工具实操手册](../../../../docs/cookbook/adding-a-tool.md)渲染为 `generic` 卡片：inspect 为 `read`，try 为携带代码 `rawInput` 的 `execute`，stop 为 `delete`。Web 对话行保留这些通用机制，同时为各工具设置操作标题 `Inspect`、`Try temporary Plugin` 和 `Stop temporary Plugin` 以及统一的 Cordis 强调色；try 行仍使用共用的 JavaScript 展开视图和语法高亮。
+该插件暴露一个配置字段，由 schemastery 校验并记录在[配置目录](../../../../docs/config-catalog.md)中：`vmTimeoutMs`（默认 5000），代码同步求值部分的毫秒上限。当前面向模型的名称是 `cordis_inspect`、`cordis_mount` 和 `cordis_unmount`；内部 `cordis-dynamic` 分组名和 `dyn-` id 前缀仍是结构性词汇。三个工具均按[工具实操手册](../../../../docs/cookbook/adding-a-tool.md)渲染为 `generic` 卡片：inspect 为 `read`，mount 为携带代码 `rawInput` 的 `execute`，unmount 为 `delete`。Web 对话行保留这些通用机制，同时为各工具设置操作标题 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin` 以及统一的 Cordis 强调色；mount 行仍使用共用的 JavaScript 展开视图和语法高亮。
 
-「模型可见 ⟺ 已记录」成立，且无需新的会话事件类型：try 与 stop 通过已记录的 `tool/call` / `tool/result` 对可见，工具集变化由 schema 在 step 间变化时发出的完整 request header 记录。临时 Plugin 属于进程内存，而非 session 状态：恢复持久化 session 只会重建对话历史，绝不会重新创建它们。
+「模型可见 ⟺ 已记录」成立，且无需新的会话事件类型：mount 与 unmount 通过已记录的 `tool/call` / `tool/result` 对可见，工具集变化由 schema 在 step 间变化时发出的完整 request header 记录。临时 Plugin 属于进程内存，而非 session 状态：恢复持久化 session 只会重建对话历史，绝不会重新创建它们。
 
 ## 曾考虑的替代方案
 
-**用结构化的逐能力注册工具替代 `cordis_try`。** 最具吸引力的替代方案是一个带有显式 `name` / `description` / `parameters` / `code` 字段的 `cordis_register_tool`（以及兄弟工具 `cordis_register_listener`、`cordis_register_service`……），而非单一的「挂载一个插件」原语。否决原因：它唯一的真正优势——对最常见的单一场景免去插件样板代码——不足以抵偿其代价，而单一的 mount 原语能一次性覆盖所有能力。
+**用结构化的逐能力注册工具替代 `cordis_mount`。** 最具吸引力的替代方案是一个带有显式 `name` / `description` / `parameters` / `code` 字段的 `cordis_register_tool`（以及兄弟工具 `cordis_register_listener`、`cordis_register_service`……），而非单一的「挂载一个插件」原语。否决原因：它唯一的真正优势——对最常见的单一场景免去插件样板代码——不足以抵偿其代价，而单一的 mount 原语能一次性覆盖所有能力。
 
-| 维度 | 结构化逐能力工具 | 单一 `cordis_try` |
+| 维度 | 结构化逐能力工具 | 单一 `cordis_mount` |
 |---|---|---|
 | Schema 正确性 | `parameters` 仍然是模型编写的 JSON，需要统一 schema 校验，只是提前了一步 | 同样的校验在沙箱边界运行，同样的指导性错误信息 |
 | 代码字段 | `execute` 函数体仍然是 vm 中模型编写的 JS；realm 和服务调用的正确性问题不变 | 一个沙箱、一条规范化路径、一处受保护的注册 |

@@ -29,11 +29,11 @@ buffer
 11| <blank>
 12| "▌ "
   style 0-0 fg=green
-13| "▌ ✓ Try temporary Cordis Plugin                                                                     "
+13| "▌ ✓ Mount temporary Cordis Plugin                                                                   "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-30 bold
-14| "▌ Temporary Plugin dyn-1 is running (plugin \"snapshot-marker\"; available until stopped or DSH       "
+  style 3-32 bold
+14| "▌ Temporary Plugin dyn-1 is running (plugin \"snapshot-marker\"; available until unmounted or DSH     "
   style 0-0 fg=green
 15| "▌ restarts).                                                                                        "
   style 0-0 fg=green
@@ -50,7 +50,7 @@ buffer
   style 0-0 fg=green
 21| "▌ - Temporary Plugin dyn-1: snapshot-marker [running] — provides: none; waiting for: none; lifetime:"
   style 0-0 fg=green
-22| "▌ until stopped or DSH restarts                                                                     "
+22| "▌ until unmounted or DSH restarts                                                                   "
   style 0-0 fg=green
 23| "▌ "
   style 0-0 fg=green
@@ -87,11 +87,11 @@ buffer
 38| <blank>
 39| "▌ "
   style 0-0 fg=green
-40| "▌ ✓ Stop temporary Cordis Plugin dyn-1                                                              "
+40| "▌ ✓ Unmount temporary Cordis Plugin dyn-1                                                           "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-37 bold
-41| "▌ Temporary Plugin dyn-1 was stopped and removed.                                                   "
+  style 3-40 bold
+41| "▌ Temporary Plugin dyn-1 was unmounted and removed.                                                 "
   style 0-0 fg=green
 42| "▌ "
   style 0-0 fg=green

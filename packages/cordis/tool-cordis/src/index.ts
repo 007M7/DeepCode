@@ -1,6 +1,6 @@
 /**
- * Self-referential runtime tools: inspect live services/plugins/tools, try a returned temporary
- * plugin under an owned dynamic fiber, and stop it to quiescence. Registrations are fiber effects,
+ * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned temporary
+ * plugin under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
  * so plugin disposal removes the entire dynamic subtree. The VM and context façade prevent
  * accidental misuse, not hostile code: an allowed service such as `ctx.bash` reaches the real
  * runtime. Named exports preserve loader injection metadata.
@@ -15,7 +15,7 @@ import { isPlugin, pluginName } from './guard.ts'
 import { EVENT_API, INHERITED_CTX_API, SERVICE_API, TYPE_API } from './api-catalog.ts'
 import { describeApi, describeDynamic, describeEvents, describePlugins, describeServices, describeTools, providedServices } from './inspect.ts'
 import { missingServices, mountDynamic, type DynamicMount } from './mount.ts'
-import { presentInspectCall, presentStopCall, presentTryCall } from './present.ts'
+import { presentInspectCall, presentMountCall, presentUnmountCall } from './present.ts'
 import { createSandbox, evaluateMountCode } from './sandbox.ts'
 
 export const name = 'tool-cordis'
@@ -60,10 +60,10 @@ export function apply(ctx: Context, config: Config): void {
       + 'Sections: `services` (every provided ctx service and the plugin fiber that owns it), '
       + '`plugins` (all live plugin fibers with their lifecycle states), '
       + '`tools` (the model-facing tools currently registered, i.e. what you can call), '
-      + '`temporary` (only temporary Plugins created by cordis_try: id, name, state, provided services, awaited services, and lifetime), '
+      + '`temporary` (only temporary Plugins created by cordis_mount: id, name, state, provided services, awaited services, and lifetime), '
       + '`api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), '
       + '`events` (every harness event with its dispatch mode and exact signature — pick listener targets here). '
-      + 'Temporary Plugins exist only in memory, remain active across later turns, and disappear after cordis_stop, toolset unload, or DSH restart; they are not restored automatically. '
+      + 'Temporary Plugins exist only in memory, remain active across later turns, and disappear after cordis_unmount, toolset unload, or DSH restart; they are not restored automatically. '
       + 'The `temporary` section is a subset of `plugins`. Omit `what` to get all six sections. '
       + 'With `what:"api"` or `what:"events"`, pass an exact `name` '
       + 'to narrow to one service/event and include its original source JSDoc.',
@@ -106,11 +106,11 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   ctx.tools.register(defineTool({
-    name: 'cordis_try',
+    name: 'cordis_mount',
     description:
-      'Try a temporary Cordis Plugin in the current DSH process. '
+      'Mount a temporary Cordis Plugin in the current DSH process. '
       + 'This creates an in-memory runtime Plugin, not an installed or configured Plugin. '
-      + 'It remains active across later turns until cordis_stop, toolset unload, or DSH restart. '
+      + 'It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. '
       + 'It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. '
       + 'To keep it, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow. '
       + 'It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. '
@@ -123,7 +123,7 @@ export function apply(ctx: Context, config: Config): void {
       + '— declares dependencies, and cordis activates the plugin only after the '
       + 'services exist; PREFER this form. You may reach ONLY the services you list in '
       + 'inject: an undeclared service throws even if it exists, because an undeclared '
-      + 'dependency would not be cleaned up if its provider stops. '
+      + 'dependency would not be cleaned up if its provider is unmounted. '
       + 'BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists '
       + 'method signatures AND the type shapes of their arguments/returns (do not guess a '
       + 'field\'s type; e.g. a bash run\'s stdout is an object, not a string). '
@@ -140,8 +140,8 @@ export function apply(ctx: Context, config: Config): void {
       + '`output.render(args, value)` separately returns Native/model content blocks. '
       + 'Temporary Plugins can COMPOSE: one Plugin may `ctx.provide(\'name\', value)` a service and '
       + 'another may declare `inject: [\'name\']` to consume it — the consumer stays pending '
-      + 'until the provider exists and returns to pending when the provider stops. '
-      + 'Everything registered inside `apply` is cleaned up automatically by cordis_stop. '
+      + 'until the provider exists and returns to pending when the provider is unmounted. '
+      + 'Everything registered inside `apply` is cleaned up automatically by cordis_unmount. '
       + 'Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness '
       + 'terminal), `harness.defineTool`, `harness.registerTool`, '
       + '`btoa`, `atob`, `TextEncoder`, `TextDecoder`. '
@@ -150,7 +150,7 @@ export function apply(ctx: Context, config: Config): void {
       + 'errors; `process` and `Buffer` are undefined. Instead use inject: [\'fs\'] + ctx.fs for '
       + 'files, inject: [\'web\'] + ctx.web for HTTP, inject: [\'bash\'] + ctx.bash for processes, '
       + 'and inject: [\'timer\'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, '
-      + 'auto-cleaned when stopped) — cordis_inspect what:"api" shows what THIS runtime provides. '
+      + 'auto-cleaned when unmounted) — cordis_inspect what:"api" shows what THIS runtime provides. '
       + 'Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). '
       + 'Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a '
       + 'trailing `next` callback which MUST be called — returning without `next()` '
@@ -191,7 +191,7 @@ export function apply(ctx: Context, config: Config): void {
           : `is running (plugin "${value.pluginName}"`
         return [{
           type: 'text',
-          text: `Temporary Plugin ${value.id} ${status}; available until stopped or DSH restarts).`,
+          text: `Temporary Plugin ${value.id} ${status}; available until unmounted or DSH restarts).`,
         }]
       },
     },
@@ -226,19 +226,19 @@ export function apply(ctx: Context, config: Config): void {
         waitingFor: missing,
       }
     },
-    presentCall: presentTryCall,
+    presentCall: presentMountCall,
   }))
 
   ctx.tools.register(defineTool({
-    name: 'cordis_stop',
+    name: 'cordis_unmount',
     description:
-      'Stop a current-process temporary Plugin created by cordis_try. Waits for its tools, listeners, services, timers, and other owned effects to clean up completely. '
+      'Unmount a current-process temporary Plugin created by cordis_mount. Waits for its tools, listeners, services, timers, and other owned effects to clean up completely. '
       + 'Only dyn-N temporary ids are accepted; this cannot remove Loader, configured, or installed Plugins.',
     parameters: {
       id: {
         type: 'string',
         required: true,
-        description: 'The temporary Plugin id returned by cordis_try (for example "dyn-1"); valid only in this process and invalid after stop or restart.',
+        description: 'The temporary Plugin id returned by cordis_mount (for example "dyn-1"); valid only in this process and invalid after unmount or restart.',
       },
     },
     output: {
@@ -250,7 +250,7 @@ export function apply(ctx: Context, config: Config): void {
           pluginName: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Temporary Plugin ${value.id} was stopped and removed.` }],
+      render: (_args, value) => [{ type: 'text', text: `Temporary Plugin ${value.id} was unmounted and removed.` }],
     },
     async execute(args) {
       const mount = mounts.get(args.id)
@@ -261,6 +261,6 @@ export function apply(ctx: Context, config: Config): void {
       mounts.delete(args.id)
       return { id: args.id, pluginName: mount.pluginName }
     },
-    presentCall: presentStopCall,
+    presentCall: presentUnmountCall,
   }))
 }

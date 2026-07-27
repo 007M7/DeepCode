@@ -1,5 +1,5 @@
 // Web e2e scenario for the opt-in Cordis tools. Record mode drives a real
-// model through inspect, try, and stop; replay pins the same shipped Web
+// model through inspect, mount, and unmount; replay pins the same shipped Web
 // composition, durable calls, generic rows, highlighted Plugin source, and
 // conversation accessibility tree.
 import { readFile } from 'node:fs/promises'
@@ -17,11 +17,11 @@ import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 const FIXTURE = fileURLToPath(new URL('./snapshots/cordis-tool-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/cordis-tool-round/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
-const CORDIS_TOOLS = ['cordis_inspect', 'cordis_try', 'cordis_stop'] as const
-const TRY_CODE = 'return { name: "snapshot-noop", apply(ctx) {} }'
+const CORDIS_TOOLS = ['cordis_inspect', 'cordis_mount', 'cordis_unmount'] as const
+const MOUNT_CODE = 'return { name: "snapshot-noop", apply(ctx) {} }'
 const PROMPT = 'Use only Cordis tools. First call cordis_inspect with what "temporary". '
-  + `Then call cordis_try with this exact code: ${JSON.stringify(TRY_CODE)}. `
-  + 'Read its returned id and call cordis_stop with that exact id. '
+  + `Then call cordis_mount with this exact code: ${JSON.stringify(MOUNT_CODE)}. `
+  + 'Read its returned id and call cordis_unmount with that exact id. '
   + 'After all three calls succeed, reply exactly CORDIS_UI_DONE and stop.'
 
 function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
@@ -105,16 +105,16 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     const inspectRow = page.locator('[data-tool="cordis_inspect"]').filter({ hasText: 'Inspect' }).first()
     await inspectRow.waitFor({ timeout: 10_000 })
 
-    const tryRow = page.locator('[data-tool="cordis_try"]').filter({ hasText: 'Try temporary Plugin' }).first()
-    await tryRow.waitFor({ timeout: 10_000 })
-    await tryRow.locator('button[aria-expanded]').click()
-    await expect.poll(() => tryRow.locator('pre.shiki').textContent(), { timeout: 10_000 })
-      .toContain(TRY_CODE)
+    const mountRow = page.locator('[data-tool="cordis_mount"]').filter({ hasText: 'Mount temporary Plugin' }).first()
+    await mountRow.waitFor({ timeout: 10_000 })
+    await mountRow.locator('button[aria-expanded]').click()
+    await expect.poll(() => mountRow.locator('pre.shiki').textContent(), { timeout: 10_000 })
+      .toContain(MOUNT_CODE)
 
-    const stopRow = page.locator('[data-tool="cordis_stop"]').filter({ hasText: 'Stop temporary Plugin' }).first()
-    await stopRow.waitFor({ timeout: 10_000 })
-    await expect.poll(() => stopRow.textContent()).toContain('dyn-')
-    await expect(stopRow.getAttribute('data-state')).resolves.toBe('ok')
+    const unmountRow = page.locator('[data-tool="cordis_unmount"]').filter({ hasText: 'Unmount temporary Plugin' }).first()
+    await unmountRow.waitFor({ timeout: 10_000 })
+    await expect.poll(() => unmountRow.textContent()).toContain('dyn-')
+    await expect(unmountRow.getAttribute('data-state')).resolves.toBe('ok')
   })
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden', async () => {

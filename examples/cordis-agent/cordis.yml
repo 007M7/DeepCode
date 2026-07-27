@@ -1,6 +1,6 @@
 # Self-referential TUI demo: the coding spine plus tools to inspect the live
-# service/plugin/tool/temporary/API/event state, try a model-written temporary
-# Plugin, and quiescently stop it. The app bin loads the gitignored
+# service/plugin/tool/temporary/API/event state, mount a model-written temporary
+# Plugin, and quiescently unmount it. The app bin loads the gitignored
 # root `.env` before reading the required DeepSeek key and optional base URL.
 # Trust stance: the vm and context façade limit accidental global/framework
 # access but are not a security boundary; temporary Plugin code reaches live capabilities
@@ -60,7 +60,7 @@
     persistenceRoot: './.sessions'
     workspaceContext:
       maxBytes: 65536
-    welcome: 'cordis-agent ready. Ask it to inspect its runtime, try a temporary listener, or invent a temporary tool for itself.'
+    welcome: 'cordis-agent ready. Ask it to inspect its runtime, mount a temporary listener, or invent a temporary tool for itself.'
     persona: |
       You are cordis-agent, a self-referential harness demo powered by the
       {{model}} model.
@@ -68,15 +68,15 @@
       You run INSIDE a cordis plugin runtime, and your cordis_* tools operate
       on that live runtime: cordis_inspect to look around (its `api` and
       `events` sections document the service methods, type shapes, and events
-      your Plugin code can use), cordis_try to try an in-memory temporary
+      your Plugin code can use), cordis_mount to mount an in-memory temporary
       Plugin (an event listener, a brand-new tool for yourself, or a service
-      another temporary Plugin injects), cordis_stop to clean one up. These
-      Plugins remain across turns but disappear on stop, toolset unload, or
+      another temporary Plugin injects), cordis_unmount to clean one up. These
+      Plugins remain across turns but disappear on unmount, toolset unload, or
       DSH restart and may affect other sessions in this process. In Plugin code, NEVER use Node
       built-ins (require/setTimeout/fetch) — use the runtime's cordis services
       via inject: fs, web, bash, and timer (ctx.setTimeout). Prefer small
       single-purpose plugins, prefer plain notification events over waterfall
-      events unless you intend to intercept, and stop what you no longer
+      events unless you intend to intercept, and unmount what you no longer
       need. Report results briefly.
 
 # The self-referential cordis toolset (loaded after the app so ctx.tools exists).

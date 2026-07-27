@@ -166,19 +166,19 @@ describe('keyed toolview hole through the real machinery', () => {
     const code = 'return { name: "audit", apply(ctx) {} }'
     const b = await bench([
       toolResult(3, 'cordis-1', 'cordis_inspect', '{"what":"api","name":"tools"}'),
-      toolResult(4, 'cordis-2', 'cordis_try', JSON.stringify({ code })),
-      toolResult(5, 'cordis-3', 'cordis_stop', '{"id":"dyn-2"}'),
+      toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
+      toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
     ])
     const view = mountApp(b.slots)
 
     expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
-    const tried = view.container.querySelector('[data-variant="code"]')
-    expect(tried?.textContent).toContain(`Try temporary Plugin${code}`)
-    expect(view.container.querySelector('[data-tool="cordis_stop"]')?.textContent)
-      .toContain('Stop temporary Plugindyn-2')
+    const mounted = view.container.querySelector('[data-variant="code"]')
+    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
+    expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
+      .toContain('Unmount temporary Plugindyn-2')
 
-    fireEvent.click(tried!.querySelector('button[aria-expanded]')!)
-    expect(tried!.querySelector('pre.shiki')?.textContent).toBe(code)
+    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
   it('row clicks travel owner openDetails → chat inject → layout orchestration', async () => {

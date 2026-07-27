@@ -414,10 +414,10 @@ describe('TUI terminal-state snapshots', () => {
       { id: 'cordis-1', name: 'cordis_inspect', arguments: { what: 'tools' } },
       {
         id: 'cordis-2',
-        name: 'cordis_try',
+        name: 'cordis_mount',
         arguments: { code: "return { name: 'snapshot-marker', apply(ctx) { ctx.provide('snapshotMarker', { ready: true }) } }" },
       },
-      { id: 'cordis-3', name: 'cordis_stop', arguments: { id: 'dyn-1' } },
+      { id: 'cordis-3', name: 'cordis_unmount', arguments: { id: 'dyn-1' } },
     ]
     await renderAfter(harness, () => { appendToolCalls(harness.session, calls) })
     await checkpoint('cordis-tools-pending', harness.terminal, { includeScrollback: true })

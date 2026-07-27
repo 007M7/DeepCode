@@ -6,15 +6,15 @@ The self-referential Cordis toolset: three model-facing tools over the live runt
 
 ## What it does
 
-- `cordis_inspect` — read-only report over the current process: services, all live plugin fibers, registered tools, the `cordis_try` temporary-Plugin subset, and the catalog-backed `api` / `events` references. An exact `name` with `what: "api"` or `what: "events"` narrows the report and adds the original source JSDoc.
-- `cordis_try` — evaluates model-written JavaScript now and saves it nowhere; the code must return an in-memory temporary Plugin tracked as `dyn-<n>`.
-- `cordis_stop` — stops one `dyn-<n>` temporary Plugin and returns only after its owned effects reach quiescence. It cannot remove Loader, configured, or installed Plugins.
+- `cordis_inspect` — read-only report over the current process: services, all live plugin fibers, registered tools, the `cordis_mount` temporary-Plugin subset, and the catalog-backed `api` / `events` references. An exact `name` with `what: "api"` or `what: "events"` narrows the report and adds the original source JSDoc.
+- `cordis_mount` — evaluates model-written JavaScript now and saves it nowhere; the code must return an in-memory temporary Plugin tracked as `dyn-<n>`.
+- `cordis_unmount` — unmounts one `dyn-<n>` temporary Plugin and returns only after its owned effects reach quiescence. It cannot remove Loader, configured, or installed Plugins.
 
 Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-catalog.md).
 
-Canonical successes are the inspection string, try `{ id, pluginName, state, provides, waitingFor }`, and stop `{ id, pluginName }`. Native rendering says whether the temporary Plugin is running or pending and that it remains available until stopped or DSH restarts; stop confirms that it was stopped and removed.
+Canonical successes are the inspection string, mount `{ id, pluginName, state, provides, waitingFor }`, and unmount `{ id, pluginName }`. Native rendering says whether the temporary Plugin is running or pending and that it remains available until unmounted or DSH restarts; unmount confirms that it was removed.
 
-Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_stop`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
+Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
 
 ## Trust stance
 
@@ -32,7 +32,7 @@ The sandbox isolates globals but is not a security boundary. Node globals are ab
 
 ## Rendering
 
-All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_try` carries the temporary-Plugin code as `rawInput`. Presenters are pure functions of the args; results keep the default text rendering.
+All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_mount` carries the temporary-Plugin code as `rawInput`. Presenters are pure functions of the args; results keep the default text rendering.
 
 ## Export shape
 
@@ -44,7 +44,7 @@ Namespace plugin: named exports `name` / `inject` / `Config` / `apply`, no defau
 
 #### What the model sees
 
-The conversation model sees the generated [`cordis_inspect`, `cordis_try`, and `cordis_stop` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
+The conversation model sees the generated [`cordis_inspect`, `cordis_mount`, and `cordis_unmount` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-cordis) whenever this plugin is visible.
 
 #### Token effect
 
@@ -58,7 +58,7 @@ Prefix-stable while this tool view is unchanged. Scoping or plugin lifecycle cha
 
 #### What the model sees
 
-Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections; `what: "temporary"` uses the `## Temporary Plugins` heading. Each temporary-Plugin row reports running/pending state, provided and awaited services, and its lifetime until stopped or DSH restart. The empty state explains that `cordis_try` Plugins disappear on restart. Broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Try returns `Temporary Plugin <id> is running (...)` or `Temporary Plugin <id> is pending (...)`; stop returns `Temporary Plugin <id> was stopped and removed.` The submitted program remains in assistant tool-call history.
+Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections; `what: "temporary"` uses the `## Temporary Plugins` heading. Each temporary-Plugin row reports running/pending state, provided and awaited services, and its lifetime until unmounted or DSH restart. The empty state explains that `cordis_mount` Plugins disappear on restart. Broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Mount returns `Temporary Plugin <id> is running (...)` or `Temporary Plugin <id> is pending (...)`; unmount returns `Temporary Plugin <id> was unmounted and removed.` The submitted program remains in assistant tool-call history.
 
 #### Token effect
 
@@ -68,11 +68,11 @@ Inspect output and mount code are data-dependent and resent until compaction; li
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
-### Later requests after cordis_try
+### Later requests after cordis_mount
 
 #### What the model sees
 
-A temporary Plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; `cordis_stop` removes those contributions after quiescence.
+A temporary Plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; `cordis_unmount` removes those contributions after quiescence.
 
 #### Token effect
 
@@ -80,7 +80,7 @@ Indirect token impact equals the temporary Plugin's contributions and lasts only
 
 #### KV Cache effect
 
-Trying or stopping a prompt or tool contribution changes later request prefixes and may invalidate reuse from the first changed contribution; an unchanged temporary-Plugin set remains prefix-stable.
+Mounting or unmounting a prompt or tool contribution changes later request prefixes and may invalidate reuse from the first changed contribution; an unchanged temporary-Plugin set remains prefix-stable.
 
 ## Known Limitations and Deferred Work
 

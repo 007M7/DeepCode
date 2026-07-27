@@ -37,15 +37,15 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   edit: 'edit',
   run_code: 'code',
   cordis_inspect: 'read',
-  cordis_try: 'code',
-  cordis_stop: 'others',
+  cordis_mount: 'code',
+  cordis_unmount: 'others',
 }
 
 /** Tool-owned titles that refine a generic row variant without replacing it. */
 const TOOL_TITLES: Record<string, string> = {
   cordis_inspect: 'Inspect',
-  cordis_try: 'Try temporary Plugin',
-  cordis_stop: 'Stop temporary Plugin',
+  cordis_mount: 'Mount temporary Plugin',
+  cordis_unmount: 'Unmount temporary Plugin',
 }
 
 /**

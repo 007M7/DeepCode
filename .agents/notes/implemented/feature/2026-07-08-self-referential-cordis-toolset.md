@@ -12,7 +12,7 @@ First, model-written registration must be validated where it happens: a malforme
 
 ## Decision
 
-The toolset ships as [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) and is demoed by [`examples/cordis-agent`](../../../../examples/cordis-agent/README.md). It gives the model three tools over the live Cordis runtime in the current DSH process: inspect it, try an in-memory temporary Plugin, and stop that Plugin to quiescence.
+The toolset ships as [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) and is demoed by [`examples/cordis-agent`](../../../../examples/cordis-agent/README.md). It gives the model three tools over the live Cordis runtime in the current DSH process: inspect it, mount an in-memory temporary Plugin, and unmount that Plugin to quiescence.
 
 The vm isolates accidental global pollution, and the context façade hides framework internals. Neither restricts the authority of exposed services: a temporary Plugin can call `ctx.bash` with the host executor's privileges and reach the real filesystem and web services. It runs in the shared DSH runtime and may affect other sessions in that process. This is an opt-in development tool with bash-equivalent trust, not a security boundary or product default.
 
@@ -20,11 +20,11 @@ The vm isolates accidental global pollution, and the context façade hides frame
 
 | Tool | Contract |
 |---|---|
-| `cordis_inspect` | Read-only report over the live current-process runtime, one Markdown section per `what` value (omit `what` for all sections). `plugins` lists every live fiber; `temporary` lists only the temporary Plugins created by `cordis_try`. An exact `name` with `what: "api"` or `what: "events"` narrows to one source-documented target. |
-| `cordis_try` | Evaluates `code` now as an async JavaScript-function body in a `node:vm` sandbox and saves it nowhere. The returned Plugin is mounted under the internal `cordis-dynamic` group and tracked under a fresh process-local id (`dyn-1`, `dyn-2`, …). |
-| `cordis_stop` | Stops one `cordis_try` temporary Plugin by id and returns only after every owned tool, listener, service, timer, and effect reaches quiescence. It cannot remove Loader, configured, or installed Plugins. |
+| `cordis_inspect` | Read-only report over the live current-process runtime, one Markdown section per `what` value (omit `what` for all sections). `plugins` lists every live fiber; `temporary` lists only the temporary Plugins created by `cordis_mount`. An exact `name` with `what: "api"` or `what: "events"` narrows to one source-documented target. |
+| `cordis_mount` | Evaluates `code` now as an async JavaScript-function body in a `node:vm` sandbox and saves it nowhere. The returned Plugin is mounted under the internal `cordis-dynamic` group and tracked under a fresh process-local id (`dyn-1`, `dyn-2`, …). |
+| `cordis_unmount` | Unmounts one `cordis_mount` temporary Plugin by id and returns only after every owned tool, listener, service, timer, and effect reaches quiescence. It cannot remove Loader, configured, or installed Plugins. |
 
-`cordis_inspect` sections are `services` (every provided ctx service and owning fiber), `plugins` (every live plugin fiber), `tools` (what the model can call), `temporary` (the `cordis_try` subset with id, running/pending state, provided and awaited services, and lifetime), `api` (live service signatures and referenced types), and `events` (harness events with dispatch mode and signature). Temporary Plugins remain active across later turns and disappear after `cordis_stop`, toolset unload, or DSH restart; they are never restored automatically. Broad `api` and `events` reports omit full JSDoc to stay compact; an exact `name` returns one service or event with its original method/declaration JSDoc. A name is invalid with other sections, unknown targets fail, and an API target must be live. The model-facing tool descriptions carry the operational rules needed at call time; [the generated tool catalog](../../../../docs/tool-catalog.md) is their exhaustive rendering.
+`cordis_inspect` sections are `services` (every provided ctx service and owning fiber), `plugins` (every live plugin fiber), `tools` (what the model can call), `temporary` (the `cordis_mount` subset with id, running/pending state, provided and awaited services, and lifetime), `api` (live service signatures and referenced types), and `events` (harness events with dispatch mode and signature). Temporary Plugins remain active across later turns and disappear after `cordis_unmount`, toolset unload, or DSH restart; they are never restored automatically. Broad `api` and `events` reports omit full JSDoc to stay compact; an exact `name` returns one service or event with its original method/declaration JSDoc. A name is invalid with other sections, unknown targets fail, and an API target must be live. The model-facing tool descriptions carry the operational rules needed at call time; [the generated tool catalog](../../../../docs/tool-catalog.md) is their exhaustive rendering.
 
 ### Sandbox semantics
 
@@ -38,7 +38,7 @@ The boundary normalizes unambiguous JSON-Schema forms into `ParameterSchemaSpec`
 
 ### The internal group and temporary-Plugin lifecycle
 
-Every temporary Plugin is a child of one internal `cordis-dynamic` group beneath the tool plugin, so ordinary fiber disposal handles toolset reload and unload. `cordis_try` awaits settlement; startup failure disposes the fiber before returning an error. A settled pending Plugin remains visible with its missing injections. `cordis_stop` awaits the Plugin fiber's disposal.
+Every temporary Plugin is a child of one internal `cordis-dynamic` group beneath the tool plugin, so ordinary fiber disposal handles toolset reload and unload. `cordis_mount` awaits settlement; startup failure disposes the fiber before returning an error. A settled pending Plugin remains visible with its missing injections. `cordis_unmount` awaits the Plugin fiber's disposal.
 
 Temporary Plugins exist only in process memory. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and have no automatic save, promote, or install path. Keeping an experiment means asking the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
 
@@ -54,15 +54,15 @@ Freshness is gated like every generated artifact: `pnpm run verify-cordis-api` (
 
 ### Configuration, rendering, and observability
 
-The plugin exposes one config field, validated by schemastery and documented in [the config catalog](../../../../docs/config-catalog.md): `vmTimeoutMs` (default 5000), the millisecond bound on the synchronous portion of code evaluation. The current model-facing names are `cordis_inspect`, `cordis_try`, and `cordis_stop`; the internal `cordis-dynamic` group name and `dyn-` id prefix remain structural vocabulary. All three tools render as `generic` cards per [the tool cookbook](../../../../docs/cookbook/adding-a-tool.md): inspect is `read`, try is `execute` carrying code as `rawInput`, and stop is `delete`. Web conversation rows preserve those generic mechanics while giving the tools the action titles `Inspect`, `Try temporary Plugin`, and `Stop temporary Plugin` plus one shared Cordis accent; the try row retains the shared JavaScript expansion and syntax highlighting.
+The plugin exposes one config field, validated by schemastery and documented in [the config catalog](../../../../docs/config-catalog.md): `vmTimeoutMs` (default 5000), the millisecond bound on the synchronous portion of code evaluation. The current model-facing names are `cordis_inspect`, `cordis_mount`, and `cordis_unmount`; the internal `cordis-dynamic` group name and `dyn-` id prefix remain structural vocabulary. All three tools render as `generic` cards per [the tool cookbook](../../../../docs/cookbook/adding-a-tool.md): inspect is `read`, mount is `execute` carrying code as `rawInput`, and unmount is `delete`. Web conversation rows preserve those generic mechanics while giving the tools the action titles `Inspect`, `Mount temporary Plugin`, and `Unmount temporary Plugin` plus one shared Cordis accent; the mount row retains the shared JavaScript expansion and syntax highlighting.
 
-Model-visible ⟺ logged holds with no new session event type: try and stop are visible through their logged `tool/call` / `tool/result` pairs, and any changed tool set is logged by the full changed request header emitted when schemas change between steps. Temporary Plugins are process memory, not session state: session resume rehydrates conversation history but never recreates them.
+Model-visible ⟺ logged holds with no new session event type: mount and unmount are visible through their logged `tool/call` / `tool/result` pairs, and any changed tool set is logged by the full changed request header emitted when schemas change between steps. Temporary Plugins are process memory, not session state: session resume rehydrates conversation history but never recreates them.
 
 ## Alternatives considered
 
-**A structured per-capability registration tool instead of `cordis_try`.** The most tempting alternative is a `cordis_register_tool` with explicit `name` / `description` / `parameters` / `code` fields (and siblings `cordis_register_listener`, `cordis_register_service`, …) rather than a single "mount a plugin" primitive. It was rejected because its one real win — no plugin boilerplate for the single commonest case — does not pay for its costs, while a single mount primitive answers every capability at once.
+**A structured per-capability registration tool instead of `cordis_mount`.** The most tempting alternative is a `cordis_register_tool` with explicit `name` / `description` / `parameters` / `code` fields (and siblings `cordis_register_listener`, `cordis_register_service`, …) rather than a single "mount a plugin" primitive. It was rejected because its one real win — no plugin boilerplate for the single commonest case — does not pay for its costs, while a single mount primitive answers every capability at once.
 
-| Dimension | Structured per-capability tools | Single `cordis_try` |
+| Dimension | Structured per-capability tools | Single `cordis_mount` |
 |---|---|---|
 | Schema correctness | `parameters` is still model-written JSON needing unified-schema validation, merely one step earlier | The same validation runs at the sandbox boundary, with the same instructive errors |
 | The code field | An `execute` body is still model-written JS in a vm; the realm and service-call correctness problems are unchanged | One sandbox, one normalization path, one guarded registration |

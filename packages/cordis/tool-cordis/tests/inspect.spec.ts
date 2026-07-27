@@ -27,8 +27,8 @@ describe('cordis_inspect', () => {
     expect(report).toContain('- tools (provided by ToolRegistry)')
     expect(report).toContain('- tool-cordis [active]')
     expect(report).toContain('- cordis-dynamic [active]')
-    expect(report).toContain('- cordis_try')
-    expect(report).toContain('No temporary Plugins are running. Temporary Plugins created with cordis_try disappear when DSH restarts.')
+    expect(report).toContain('- cordis_mount')
+    expect(report).toContain('No temporary Plugins are running. Temporary Plugins created with cordis_mount disappear when DSH restarts.')
   })
 
   it('limits the report to one section via `what`', async () => {
@@ -42,10 +42,10 @@ describe('cordis_inspect', () => {
 
   it('shows a temporary Plugin in its exact section and in the flat plugins list', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: LISTENER_CODE })
+    await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     const report = text(await call(ctx, 'cordis_inspect', {}))
     expect(report).toContain('## Temporary Plugins')
-    expect(report).toContain('- Temporary Plugin dyn-1: change-logger [running] — provides: none; waiting for: none; lifetime: until stopped or DSH restarts')
+    expect(report).toContain('- Temporary Plugin dyn-1: change-logger [running] — provides: none; waiting for: none; lifetime: until unmounted or DSH restarts')
     expect(report).toContain('- change-logger [active]')
   })
 

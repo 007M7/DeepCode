@@ -72,8 +72,8 @@
           "tools": [
             "bash",
             "cordis_inspect",
-            "cordis_stop",
-            "cordis_try",
+            "cordis_mount",
+            "cordis_unmount",
             "run_code",
             "skill",
             "subagent",
@@ -114,7 +114,7 @@
           "type": "tool-call-delta",
           "index": 0,
           "id": "advanced-mount",
-          "name": "cordis_try",
+          "name": "cordis_mount",
           "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
         }
       }
@@ -132,7 +132,7 @@
           "block": {
             "type": "tool-call",
             "id": "advanced-mount",
-            "name": "cordis_try",
+            "name": "cordis_mount",
             "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         }
@@ -180,7 +180,7 @@
           {
             "type": "tool-call",
             "id": "advanced-mount",
-            "name": "cordis_try",
+            "name": "cordis_mount",
             "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         ],
@@ -210,7 +210,7 @@
         "turn": 1,
         "step": 1,
         "callId": "advanced-mount",
-        "name": "cordis_try",
+        "name": "cordis_mount",
         "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
       }
     },
@@ -225,7 +225,7 @@
         "content": [
           {
             "type": "text",
-            "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until stopped or DSH restarts)."
+            "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
           }
         ],
         "isError": false
@@ -268,8 +268,8 @@
           "tools": [
             "bash",
             "cordis_inspect",
-            "cordis_stop",
-            "cordis_try",
+            "cordis_mount",
+            "cordis_unmount",
             "run_code",
             "skill",
             "snapshot_double",
@@ -836,7 +836,7 @@
           "type": "tool-call-delta",
           "index": 0,
           "id": "advanced-unmount",
-          "name": "cordis_stop",
+          "name": "cordis_unmount",
           "argumentsDelta": "{\"id\": \"dyn-1\"}"
         }
       }
@@ -854,7 +854,7 @@
           "block": {
             "type": "tool-call",
             "id": "advanced-unmount",
-            "name": "cordis_stop",
+            "name": "cordis_unmount",
             "arguments": "{\"id\": \"dyn-1\"}"
           }
         }
@@ -902,7 +902,7 @@
           {
             "type": "tool-call",
             "id": "advanced-unmount",
-            "name": "cordis_stop",
+            "name": "cordis_unmount",
             "arguments": "{\"id\": \"dyn-1\"}"
           }
         ],
@@ -932,7 +932,7 @@
         "turn": 1,
         "step": 5,
         "callId": "advanced-unmount",
-        "name": "cordis_stop",
+        "name": "cordis_unmount",
         "arguments": "{\"id\": \"dyn-1\"}"
       }
     },
@@ -947,7 +947,7 @@
         "content": [
           {
             "type": "text",
-            "text": "Temporary Plugin dyn-1 was stopped and removed."
+            "text": "Temporary Plugin dyn-1 was unmounted and removed."
           }
         ],
         "isError": false
@@ -990,8 +990,8 @@
           "tools": [
             "bash",
             "cordis_inspect",
-            "cordis_stop",
-            "cordis_try",
+            "cordis_mount",
+            "cordis_unmount",
             "run_code",
             "skill",
             "subagent",
@@ -1233,8 +1233,8 @@
               "tools": [
                 "bash",
                 "cordis_inspect",
-                "cordis_stop",
-                "cordis_try",
+                "cordis_mount",
+                "cordis_unmount",
                 "run_code",
                 "skill",
                 "subagent",
@@ -1287,7 +1287,7 @@
               "type": "tool-call-delta",
               "index": 0,
               "id": "advanced-mount",
-              "name": "cordis_try",
+              "name": "cordis_mount",
               "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
             }
           }
@@ -1311,7 +1311,7 @@
               "block": {
                 "type": "tool-call",
                 "id": "advanced-mount",
-                "name": "cordis_try",
+                "name": "cordis_mount",
                 "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
               }
             }
@@ -1377,7 +1377,7 @@
               {
                 "type": "tool-call",
                 "id": "advanced-mount",
-                "name": "cordis_try",
+                "name": "cordis_mount",
                 "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
               }
             ],
@@ -1413,7 +1413,7 @@
             "turn": 1,
             "step": 1,
             "callId": "advanced-mount",
-            "name": "cordis_try",
+            "name": "cordis_mount",
             "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         }
@@ -1434,7 +1434,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until stopped or DSH restarts)."
+                "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
               }
             ],
             "isError": false
@@ -1495,8 +1495,8 @@
               "tools": [
                 "bash",
                 "cordis_inspect",
-                "cordis_stop",
-                "cordis_try",
+                "cordis_mount",
+                "cordis_unmount",
                 "run_code",
                 "skill",
                 "snapshot_double",
@@ -2055,8 +2055,8 @@
               "tools": [
                 "bash",
                 "cordis_inspect",
-                "cordis_stop",
-                "cordis_try",
+                "cordis_mount",
+                "cordis_unmount",
                 "run_code",
                 "skill",
                 "snapshot_double",
@@ -2595,8 +2595,8 @@
               "tools": [
                 "bash",
                 "cordis_inspect",
-                "cordis_stop",
-                "cordis_try",
+                "cordis_mount",
+                "cordis_unmount",
                 "run_code",
                 "skill",
                 "snapshot_double",
@@ -2899,7 +2899,7 @@
               "type": "tool-call-delta",
               "index": 0,
               "id": "advanced-unmount",
-              "name": "cordis_stop",
+              "name": "cordis_unmount",
               "argumentsDelta": "{\"id\": \"dyn-1\"}"
             }
           }
@@ -2923,7 +2923,7 @@
               "block": {
                 "type": "tool-call",
                 "id": "advanced-unmount",
-                "name": "cordis_stop",
+                "name": "cordis_unmount",
                 "arguments": "{\"id\": \"dyn-1\"}"
               }
             }
@@ -2989,7 +2989,7 @@
               {
                 "type": "tool-call",
                 "id": "advanced-unmount",
-                "name": "cordis_stop",
+                "name": "cordis_unmount",
                 "arguments": "{\"id\": \"dyn-1\"}"
               }
             ],
@@ -3025,7 +3025,7 @@
             "turn": 1,
             "step": 5,
             "callId": "advanced-unmount",
-            "name": "cordis_stop",
+            "name": "cordis_unmount",
             "arguments": "{\"id\": \"dyn-1\"}"
           }
         }
@@ -3046,7 +3046,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Temporary Plugin dyn-1 was stopped and removed."
+                "text": "Temporary Plugin dyn-1 was unmounted and removed."
               }
             ],
             "isError": false
@@ -3107,8 +3107,8 @@
               "tools": [
                 "bash",
                 "cordis_inspect",
-                "cordis_stop",
-                "cordis_try",
+                "cordis_mount",
+                "cordis_unmount",
                 "run_code",
                 "skill",
                 "subagent",

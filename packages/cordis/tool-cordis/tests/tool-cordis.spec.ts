@@ -30,8 +30,8 @@ describe('tool registration', () => {
   it('registers the three cordis tools with the documented schemas', async () => {
     const ctx = await setup()
     const names = ctx.tools.schemas().map(schema => schema.name)
-    expect(names).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_try', 'cordis_stop']))
-    expect(names).not.toEqual(expect.arrayContaining(['cordis_mount', 'cordis_unmount']))
+    expect(names).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
+    expect(names).not.toEqual(expect.arrayContaining(['cordis_try', 'cordis_stop']))
     const inspect = ctx.tools.schemas().find(schema => schema.name === 'cordis_inspect')!
     const props = (inspect.parameters as { properties: Record<string, { enum?: string[]; type?: string }> }).properties
     expect(props.what?.enum).toEqual(['services', 'plugins', 'tools', 'temporary', 'api', 'events'])

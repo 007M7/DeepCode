@@ -11,10 +11,10 @@ import { call, CONSUMER_CODE, CONTENT_OUTPUT_CODE, PROVIDER_CODE, setup, text } 
 describe('cross-mount provide/inject', () => {
   it('provider first: the consumer activates immediately and its tool reaches the provided service', async () => {
     const ctx = await setup()
-    const provider = await call(ctx, 'cordis_try', { code: PROVIDER_CODE })
+    const provider = await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })
     expect(text(provider)).toContain('is running')
 
-    const consumer = await call(ctx, 'cordis_try', { code: CONSUMER_CODE })
+    const consumer = await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })
     expect(consumer.isError).toBe(false)
     expect(text(consumer)).toContain('is running')
 
@@ -27,39 +27,39 @@ describe('cross-mount provide/inject', () => {
 
   it('consumer first: stays pending naming the missing service, then activates when the provider mounts', async () => {
     const ctx = await setup()
-    const consumer = await call(ctx, 'cordis_try', { code: CONSUMER_CODE })
+    const consumer = await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })
     expect(consumer.isError).toBe(false)
     expect(text(consumer)).toContain('is pending')
     expect(text(consumer)).toContain('missing services: greeter')
     expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('waiting for: greeter')
     expect(ctx.tools.get('greet')).toBeUndefined()
 
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })
     expect(ctx.tools.get('greet')).toBeDefined()
     expect(text(await call(ctx, 'greet', { name: 'late' }))).toBe('hi late')
   })
 
   it('unmounting the provider sends the consumer back to pending and unwinds its registrations', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })   // dyn-1
-    await call(ctx, 'cordis_try', { code: CONSUMER_CODE })   // dyn-2
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })   // dyn-1
+    await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })   // dyn-2
     expect(ctx.tools.get('greet')).toBeDefined()
 
-    const unmounted = await call(ctx, 'cordis_stop', { id: 'dyn-1' })
+    const unmounted = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(unmounted.isError).toBe(false)
     expect(ctx.tools.get('greet')).toBeUndefined()
     const report = text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))
-    expect(report).toContain('Temporary Plugin dyn-2: greeter-consumer [pending] — provides: none; waiting for: greeter; lifetime: until stopped or DSH restarts')
+    expect(report).toContain('Temporary Plugin dyn-2: greeter-consumer [pending] — provides: none; waiting for: greeter; lifetime: until unmounted or DSH restarts')
   })
 
   it('re-providing the service re-runs the consumer through the same guard (active again, tool back)', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })   // dyn-1
-    await call(ctx, 'cordis_try', { code: CONSUMER_CODE })   // dyn-2
-    await call(ctx, 'cordis_stop', { id: 'dyn-1' })
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })   // dyn-1
+    await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })   // dyn-2
+    await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(ctx.tools.get('greet')).toBeUndefined()
 
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })   // dyn-3
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })   // dyn-3
     expect(ctx.tools.get('greet')).toBeDefined()
     expect(text(await call(ctx, 'greet', { name: 'again' }))).toBe('hi again')
     expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('Temporary Plugin dyn-2: greeter-consumer [running]')
@@ -67,8 +67,8 @@ describe('cross-mount provide/inject', () => {
 
   it('a duplicate provide fails loud with the owning fiber named, and the failed mount is disposed', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })
-    const duplicate = await call(ctx, 'cordis_try', { code: PROVIDER_CODE })
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })
+    const duplicate = await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })
     expect(duplicate.isError).toBe(true)
     expect(text(duplicate)).toContain('has been registered')
     const report = text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))
@@ -78,11 +78,11 @@ describe('cross-mount provide/inject', () => {
 
   it('inspect surfaces the linkage: provides on the provider row, the service in services and api sections', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })
-    await call(ctx, 'cordis_try', { code: CONSUMER_CODE })
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })
+    await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })
 
     const dynamic = text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))
-    expect(dynamic).toContain('Temporary Plugin dyn-1: greeter-provider [running] — provides: greeter; waiting for: none; lifetime: until stopped or DSH restarts')
+    expect(dynamic).toContain('Temporary Plugin dyn-1: greeter-provider [running] — provides: greeter; waiting for: none; lifetime: until unmounted or DSH restarts')
 
     const services = text(await call(ctx, 'cordis_inspect', { what: 'services' }))
     expect(services).toContain('- greeter (provided by greeter-provider)')
@@ -93,7 +93,7 @@ describe('cross-mount provide/inject', () => {
 
   it('a primitive (or null) provided value passes through the façade unwrapped, on both read paths', async () => {
     const ctx = await setup()
-    const provider = await call(ctx, 'cordis_try', {
+    const provider = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'answer-provider',
@@ -106,7 +106,7 @@ describe('cross-mount provide/inject', () => {
     })
     expect(provider.isError).toBe(false)
 
-    const consumer = await call(ctx, 'cordis_try', {
+    const consumer = await call(ctx, 'cordis_mount', {
       code: `
         return {
           name: 'answer-consumer',
@@ -132,9 +132,9 @@ describe('cross-mount provide/inject', () => {
 
   it('unmounting the consumer leaves the provider and its service intact', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_try', { code: PROVIDER_CODE })   // dyn-1
-    await call(ctx, 'cordis_try', { code: CONSUMER_CODE })   // dyn-2
-    await call(ctx, 'cordis_stop', { id: 'dyn-2' })
+    await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })   // dyn-1
+    await call(ctx, 'cordis_mount', { code: CONSUMER_CODE })   // dyn-2
+    await call(ctx, 'cordis_unmount', { id: 'dyn-2' })
 
     expect(ctx.tools.get('greet')).toBeUndefined()
     const services = text(await call(ctx, 'cordis_inspect', { what: 'services' }))

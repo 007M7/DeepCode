@@ -22,7 +22,7 @@ An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foregr
 
 ## cordis-agent
 
-The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_try` / `cordis_stop`) let the agent inspect the current DSH process, try model-written temporary Plugins (an event listener, a brand-new tool, or a service another temporary Plugin injects), and stop them again. These Plugins exist only in memory and share one internal `cordis-dynamic` fiber subtree; `ctx.fs`/`ctx.web` ride along provider-only as capabilities they can use.
+The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the current DSH process, mount model-written temporary Plugins (an event listener, a brand-new tool, or a service another temporary Plugin injects), and unmount them again. These Plugins exist only in memory and share one internal `cordis-dynamic` fiber subtree; `ctx.fs`/`ctx.web` ride along provider-only as capabilities they can use.
 
 Run the TUI with `pnpm run demo:cordis`, the browser UI at `http://127.0.0.1:3081` with `pnpm run demo:cordis web`, or the ACP server with `pnpm run demo:cordis acp` (all need `DEEPSEEK_API_KEY`). See [cordis-agent/README.md](cordis-agent/README.md) for the staged demo script and [the toolset Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md) for the design and sandbox caveats.
 

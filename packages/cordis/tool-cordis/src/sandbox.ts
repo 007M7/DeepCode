@@ -1,5 +1,5 @@
 /**
- * The `node:vm` sandbox `cordis_try` code evaluates in: a fresh realm whose globals are a
+ * The `node:vm` sandbox `cordis_mount` code evaluates in: a fresh realm whose globals are a
  * tagged write-through console, the `harness` registration helpers, the encoding primitives a
  * bare vm context lacks, and callable traps over the Node APIs the sandbox deliberately
  * withholds. Traps steer filesystem, network, process, and timer work to `ctx.fs`, `ctx.web`,
@@ -52,7 +52,7 @@ function patchDualRealmInstanceof(sandbox: object): void {
 
 const TIMER_REDIRECT
   = 'Node timers are unavailable. Use the cordis timer service instead: declare inject: [\'timer\'] on your plugin '
-    + 'and call ctx.setTimeout / ctx.setInterval — those are fiber effects, cleaned up automatically when stopped.'
+    + 'and call ctx.setTimeout / ctx.setInterval — those are fiber effects, cleaned up automatically when unmounted.'
 
 /**
  * The callable Node APIs the sandbox deliberately disables, each mapped to the
@@ -87,7 +87,7 @@ function nodeApiTraps(): Record<string, () => never> {
 }
 
 /**
- * Build the vm context one `cordis_try` call evaluates in: the tagged
+ * Build the vm context one `cordis_mount` call evaluates in: the tagged
  * console, the `harness` registration helpers, the encoding primitives, the
  * Node-API traps, and the dual-realm `instanceof` patch, already
  * `createContext`-ed.

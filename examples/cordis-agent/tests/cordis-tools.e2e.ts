@@ -8,7 +8,7 @@ const testToolSignal = new AbortController().signal
 
 /**
  * With-key smoke for the self-referential cordis tools: a REAL model drives
- * cordis_try/cordis_stop against the live context the test observes.
+ * cordis_mount/cordis_unmount against the live context the test observes.
  * World-verified, not self-reported: the mounted listener must actually WRITE
  * its tagged console line, the self-made tool must actually EXIST in the
  * registry and appear as a real `tool/call`, the cross-mount service must
@@ -37,14 +37,14 @@ function resultText(result: { content: { type: string; text?: string }[] }): str
 }
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modifies its own runtime', () => {
-  it('tries a temporary status listener whose tagged output actually fires, then stops it', async () => {
+  it('mounts a temporary status listener whose tagged output actually fires, then unmounts it', async () => {
     ctx = await cordisHarness()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.followup([{
       type: 'text',
-      text: 'Use cordis_try to create a temporary Plugin that listens to the \'agent/status\' '
+      text: 'Use cordis_mount to create a temporary Plugin that listens to the \'agent/status\' '
         + 'Cordis event and logs every change with console.log. Reply "running" once done.',
     }])
     await waitForIdle(ctx, agent)
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     })
     expect(resultText(mid)).toContain('dyn-')
 
-    agent.followup([{ type: 'text', text: 'Now stop the temporary Plugin you just tried.' }])
+    agent.followup([{ type: 'text', text: 'Now unmount the temporary Plugin you just mounted.' }])
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
@@ -74,7 +74,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
     agent.followup([{
       type: 'text',
-      text: 'Give yourself a new tool: use cordis_try to create a temporary Plugin with '
+      text: 'Give yourself a new tool: use cordis_mount to create a temporary Plugin with '
         + 'inject ["tools"] that calls harness.registerTool(ctx, harness.defineTool({...})) '
         + 'to register a tool named reverse_text with one required string parameter '
         + '"text", returning the text reversed. Then CALL reverse_text with the '
@@ -88,7 +88,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(ctx.tools.get('reverse_text')).toBeDefined()
     const events = [...agent.session.events]
     const calls = events.filter(event => event.type === 'tool/call')
-    expect(calls.some(event => event.data.name === 'cordis_try')).toBe(true)
+    expect(calls.some(event => event.data.name === 'cordis_mount')).toBe(true)
     const reverseCalls = calls.filter(event => event.data.name === 'reverse_text')
     expect(reverseCalls.length).toBeGreaterThan(0)
     const reverseResults = events
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     // On failure, surface what the model actually mounted and what the tool
     // returned — an e2e failing at a distance is undebuggable without it.
     const mountCode = calls
-      .filter(event => event.data.name === 'cordis_try')
+      .filter(event => event.data.name === 'cordis_mount')
       .map(event => event.data.arguments)
       .join('\n---\n')
     const trace = events.map((event) => {
@@ -115,13 +115,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ).toBe(true)
   }, 120_000)
 
-  it('composes two temporary Plugins through provide/inject, and stopping the provider parks the consumer', async () => {
+  it('composes two temporary Plugins through provide/inject, and unmounting the provider parks the consumer', async () => {
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.followup([{
       type: 'text',
-      text: 'Try TWO separate temporary Plugins with cordis_try. First a provider: apply calls '
+      text: 'Mount TWO separate temporary Plugins with cordis_mount. First a provider: apply calls '
         + 'ctx.provide(\'shouter\', { shout: (s) => s.toUpperCase() }). Second a consumer with '
         + 'inject ["shouter", "tools"] that registers (via harness.registerTool + harness.defineTool) '
         + 'a tool named shout_text with one required string parameter "text" whose execute returns '
@@ -144,7 +144,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
       .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
     expect(shoutResults.some(text => text.includes('QUIET'))).toBe(true)
 
-    agent.followup([{ type: 'text', text: 'Now stop ONLY the provider temporary Plugin (the one that provided shouter).' }])
+    agent.followup([{ type: 'text', text: 'Now unmount ONLY the provider temporary Plugin (the one that provided shouter).' }])
     await waitForIdle(ctx, agent)
 
     // The consumer must have been parked by cordis itself: service gone,

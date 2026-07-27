@@ -149,10 +149,10 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
     if prompt == SNAPSHOT_WORKFLOW_CHILD_PROMPT:
         return text_chunks("WORKFLOW_CHILD_OK")
     if prompt == SNAPSHOT_PROMPT:
-        assert_advertised_tool(body, "cordis_try")
+        assert_advertised_tool(body, "cordis_mount")
         return tool_call_chunks(
             "advanced-mount",
-            "cordis_try",
+            "cordis_mount",
             {"code": SNAPSHOT_MOUNT_CODE},
         )
     if prompt == CODE_PROMPT:
@@ -187,9 +187,9 @@ def advanced_tool_followup(
     """Advance the executable snapshot's deterministic parent tool chain."""
     if not call_id.startswith("advanced-"):
         return None
-    if call_id == "advanced-mount" and tool_name == "cordis_try":
+    if call_id == "advanced-mount" and tool_name == "cordis_mount":
         if "Temporary Plugin dyn-1 is running" not in tool_text:
-            raise AssertionError(f"cordis_try returned no temporary Plugin id: {tool_text}")
+            raise AssertionError(f"cordis_mount returned no temporary Plugin id: {tool_text}")
         assert_advertised_tool(body, "run_code")
         assert_advertised_tool(body, "snapshot_double")
         return tool_call_chunks(
@@ -230,17 +230,17 @@ def advanced_tool_followup(
     if call_id == "advanced-workflow" and tool_name == "workflow":
         if "WORKFLOW_CHILD_OK" not in tool_text:
             raise AssertionError(f"workflow returned no expected child value: {tool_text}")
-        assert_advertised_tool(body, "cordis_stop")
+        assert_advertised_tool(body, "cordis_unmount")
         return tool_call_chunks(
             "advanced-unmount",
-            "cordis_stop",
+            "cordis_unmount",
             {"id": "dyn-1"},
         )
-    if call_id == "advanced-unmount" and tool_name == "cordis_stop":
-        if "Temporary Plugin dyn-1 was stopped and removed." not in tool_text:
-            raise AssertionError(f"cordis_stop returned no stop result: {tool_text}")
+    if call_id == "advanced-unmount" and tool_name == "cordis_unmount":
+        if "Temporary Plugin dyn-1 was unmounted and removed." not in tool_text:
+            raise AssertionError(f"cordis_unmount returned no unmount result: {tool_text}")
         if "snapshot_double" in advertised_tool_names(body):
-            raise AssertionError("snapshot_double remained advertised after cordis_stop")
+            raise AssertionError("snapshot_double remained advertised after cordis_unmount")
         return text_chunks(SNAPSHOT_FINAL_TEXT)
     raise AssertionError(f"unexpected advanced tool follow-up: {call_id} {tool_name}: {tool_text}")
 

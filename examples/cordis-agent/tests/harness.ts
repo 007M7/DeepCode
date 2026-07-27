@@ -15,8 +15,8 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 const PERSONA = 'You are cordis-agent, a self-referential harness demo. '
   + 'Your cordis_* tools operate on the live cordis runtime you run inside: '
-  + 'cordis_inspect to look around, cordis_try to try a temporary Plugin, cordis_stop '
-  + 'to stop one. Follow the tool descriptions exactly and report results briefly.'
+  + 'cordis_inspect to look around, cordis_mount to mount a temporary Plugin, cordis_unmount '
+  + 'to unmount one. Follow the tool descriptions exactly and report results briefly.'
 
 export async function cordisHarness(): Promise<Context> {
   const ctx = new Context()

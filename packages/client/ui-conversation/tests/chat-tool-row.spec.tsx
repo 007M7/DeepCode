@@ -32,8 +32,8 @@ describe('tool-call-model', () => {
     expect(classifyTool('write')).toBe('write')
     expect(classifyTool('edit')).toBe('edit')
     expect(classifyTool('cordis_inspect')).toBe('read')
-    expect(classifyTool('cordis_try')).toBe('code')
-    expect(classifyTool('cordis_stop')).toBe('others')
+    expect(classifyTool('cordis_mount')).toBe('code')
+    expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
   })
 
@@ -80,20 +80,20 @@ describe('tool-call-model', () => {
       title: 'Inspect',
       summary: 'api',
     })
-    expect(toolRowModel('cordis_try', running({
-      name: 'cordis_try',
+    expect(toolRowModel('cordis_mount', running({
+      name: 'cordis_mount',
       argsRaw: '{"code":"return { name: \\"audit\\", apply(ctx) {} }"}',
     }))).toMatchObject({
       variant: 'code',
-      title: 'Try temporary Plugin',
+      title: 'Mount temporary Plugin',
       summary: 'return { name: "audit", apply(ctx) {} }',
       body: 'return { name: "audit", apply(ctx) {} }',
     })
-    expect(toolRowModel('cordis_stop', result({
-      call: { name: 'cordis_stop', argsRaw: '{"id":"dyn-2"}' },
+    expect(toolRowModel('cordis_unmount', result({
+      call: { name: 'cordis_unmount', argsRaw: '{"id":"dyn-2"}' },
     }))).toMatchObject({
       variant: 'others',
-      title: 'Stop temporary Plugin',
+      title: 'Unmount temporary Plugin',
       summary: 'dyn-2',
     })
   })
