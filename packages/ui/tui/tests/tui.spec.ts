@@ -998,8 +998,9 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('Fallback target')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
+    })
     expect(result.terminal.output).toContain('dsh --resume fallback-session')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
@@ -1019,8 +1020,9 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('No fallback target')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
+    })
     await dispose(result)
   })
 

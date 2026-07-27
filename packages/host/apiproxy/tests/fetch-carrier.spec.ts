@@ -65,6 +65,30 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         }
       },
     },
+    commands: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } } }
+      },
+      async execute(request, signal) {
+        if (request.payload.line === '/hang') {
+          // Cooperative hang: settles only through the carrier signal (sticky
+          // abort checked first — listeners never fire retroactively).
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+          }
+          return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
+        }
+        if (request.payload.line.startsWith('/plan')) {
+          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, result: { kind: 'success' as const, text: 'plan set' } } } }
+        }
+        return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
+      },
+    },
+    skills: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
+      },
+    },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),
@@ -104,6 +128,32 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
+  })
+
+  it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
+    const c = client()
+    const list = await c.commands.list({ sessionId: 's' as never })
+    expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
+    const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
+    expect(hit.result).toEqual({ ok: true, value: { matched: true, result: { kind: 'success', text: 'plan set' } } })
+    const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
+    expect(miss.result).toEqual({ ok: true, value: { matched: false } })
+    const skills = await c.skills.list({ sessionId: 's' as never })
+    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
+  })
+
+  it('propagates the carrier Request signal into command.execute', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
+    // The fake's /hang settles only when the invoke-level signal aborts: a
+    // completed response with the cancelled error proves req.signal reached it.
+    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', body, signal: controller.signal }))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
+    expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
   })
 })
 

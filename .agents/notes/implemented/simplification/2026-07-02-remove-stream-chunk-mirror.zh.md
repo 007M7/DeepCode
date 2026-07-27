@@ -35,7 +35,7 @@ ctx.emit('agent/stream-chunk', agent, turn, step, chunk)   // ← the mirror
 
 未触及：
 - `assistant/chunk`（持久会话事件）——权威 token 流，原样保留。本 Agent Note 移除的是实时镜像，而非持久化（移除持久化的提案已单独遭到拒绝——见上文）。
-- `agent/steering`——本决策未触及（它是控制信号，不是 token 流）。其持久孪生事件是 `steering/message`，镜像发射由其自身的后续 Agent Note 移除：[移除 `agent/steering` 镜像发射](2026-07-04-remove-agent-steering-mirror.md)。
+- `agent/steering`——本决策未触及（它是控制信号，不是 token 流）。其持久孪生事件是 `steering/message`，镜像发射由其自身的后续 Agent Note 移除：[移除 `agent/steering` 镜像发射](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)。
 - `agent/status`、`agent/error`、`agent/created`/`agent/disposed`、`agent/queued`、`agent/session-start`——生命周期/控制事件，不是 transcript 数据，也没有持久副本。
 
 ## 曾考虑的替代方案

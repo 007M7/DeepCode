@@ -12,7 +12,9 @@ The layering/protocol decisions are recorded in the [GUI layering and RPC protoc
 
 The mux stream projects the latest log-backed title as a validated `session/title` control frame after each attached-session subscription baseline and immediately after the corresponding live raw title event. This projection does not add titles to `session.list`; cold sessions remain metadata-only there until opening or resuming attaches their logs.
 
-Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. Frontend Workspace and Session Intents are client-only and have no wire method.
+Workspace and Session lists are separate reconnect baselines. `workspace.create` creates a unique name or adopts an existing directory, `session.create` accepts an optional preallocated Session id, and `host/workspace-changed` plus `host/session-added` carry committed increments in either arrival order. `SessionSummary.blank` and the `host/session-added` frame carry the derived zero-events bit: clients hide blank sessions and reuse them per workspace, flip blank on the first `host/session-status(running:true)`, and treat `session.list` as the reconnect authority; cold summaries are never blank because lazy persistence keeps never-appended sessions out of `list()`.
+
+The `command.*` and `skill.*` domains expose the host command registry and skill catalog to clients. Every method addresses one session's agent by `sessionId` (a served session always has an Agent; `command.*` resumes cold sessions through the same path as `session.*`, while `skill.list` resolves the project root from the session header without touching the Agent registry). `command.execute` runs a slash-command line host-side and returns a detached result; the carrier's request signal cancels the running handler. `host/commands-changed` is the catalog invalidation frame: clients refetch `command.list` instead of diffing.
 
 ## Carrier layer (`/client` + root)
 

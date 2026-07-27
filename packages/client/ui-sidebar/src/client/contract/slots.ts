@@ -56,8 +56,12 @@ export interface SidebarSettingsOwnerProps {
  * the New Session button and toggling the column.
  */
 export type SidebarRootInjected = {
-  /** Start or replace the current frontend Session Intent. */
-  startSession: (workspaceId?: WorkspaceId, prompt?: string) => void
+  /**
+   * Start a New Session: with a workspace, reuse-or-create its blank session
+   * and open it; without one, clear the selection into the New Session pure
+   * view state (the conversation.empty seat).
+   */
+  startSession: (workspaceId?: WorkspaceId) => void
   /** Toggle the sidebar column through the layout service. */
   toggleSidebar: () => void
 }
