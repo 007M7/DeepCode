@@ -58,22 +58,30 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
       # Pull requests consume the default-branch cache but do not put cache
       # compression and upload on the paid latency-critical path. Skipped
       # under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
         if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
-          path: /home/runner/.local/share/pnpm/store/v11
+          path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -117,22 +125,30 @@ jobs:
         with:
           persist-credentials: false
 
-      # Skipped under failover: the self-hosted VM's persistent pnpm store
-      # serves warm installs directly, and this hosted-path restore would
-      # spend ~52 s pulling ~180 MB into a path pnpm never reads there.
-      - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
-        with:
-          path: /home/runner/.local/share/pnpm/store/v11
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
+      # Skipped under failover: the self-hosted VM's persistent pnpm store
+      # already serves warm installs, while restoring the hosted archive
+      # would spend ~52 s pulling ~180 MB into that populated store.
+      - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - name: Install dependencies and prepare bubblewrap
         run: |
@@ -180,15 +196,6 @@ jobs:
       - name: Restore built tree
         run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
 
-      # Skipped under failover — see the coverage lane's identical rationale.
-      - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
-        with:
-          path: /home/runner/.local/share/pnpm/store/v11
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
       - uses: actions/cache/restore@v4
         with:
           path: .cache/eslint
@@ -201,6 +208,23 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
+      # Skipped under failover — see the coverage lane's identical rationale.
+      - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - name: Install dependencies and prepare bubblewrap
         run: |
@@ -340,9 +364,17 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
       - uses: actions/cache/restore@v4
         with:
-          path: /home/runner/.local/share/pnpm/store/v11
+          path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
@@ -548,9 +580,13 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Resolve pnpm store path
+      - name: Configure pnpm store path
         id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
 
       # Master refreshes the caches that pull requests restore without saving.
       # The store cache stays a hand-rolled actions/cache step rather than
@@ -620,6 +656,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure persistent pnpm store
+        run: echo "PNPM_CONFIG_STORE_DIR=$HOME/.local/share/pnpm/store" >> "$GITHUB_ENV"
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
