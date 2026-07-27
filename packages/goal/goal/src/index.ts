@@ -9,8 +9,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue, Session } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import {
   applyGoalChange,
   applyGoalEvent,
@@ -346,7 +345,7 @@ export class GoalService extends Service {
 
   /** Enforce exact live-agent identity rather than trusting a matching id. */
   private assertLive(agent: Agent): void {
-    if (this.ctx.agents.get(agent.id) !== agent || agent.status === 'disposed') {
+    if (this.ctx.agents.get(agent.id) !== agent) {
       throw new GoalError(`agent "${agent.id}" is not live in this registry`, 'GOAL_AGENT_NOT_LIVE')
     }
   }
@@ -488,18 +487,12 @@ export class GoalService extends Service {
   /** Accept one mutation into the agent log/FIFO, cache, and live event stream. */
   private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
     const ref = goalChangeRef(change)
-    // snapshotJsonValue preserves its input type for callers that already have
-    // a JsonValue; this interface is structurally JSON but intentionally has no
-    // index signature, so narrow the validated output at this boundary.
-    const meta = snapshotJsonValue(change) as JsonValue | undefined
-    /* v8 ignore next -- validated goal changes contain only finite JSON primitives and records */
-    if (meta === undefined) throw new Error('goal change is not losslessly JSON-serializable')
     const pending: PendingGoalChange = { change, activation, applied: false }
     cache.pending.push(pending)
     try {
-      agent.inject(renderGoalChange(change), {
-        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0 },
-        meta,
+      agent.inject({
+        content: renderGoalChange(change),
+        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
       })
     } catch (error: unknown) {
       const index = cache.pending.indexOf(pending)

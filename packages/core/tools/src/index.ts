@@ -10,9 +10,9 @@ import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } fr
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue, UserMessageData } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -343,7 +343,16 @@ export interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: HookContext): void
+  deferContext(context: UserMessageData): void
+  /**
+   * Mark a successful final result as terminal for the current agent turn.
+   * The marker rides this execution's own result (`concludesTurn` exists only
+   * on {@link ToolExecutionSuccess}); a composite that dispatches nested
+   * calls forwards it from the nested result, exactly like
+   * `additionalContexts`, so only an authoritative nested success can
+   * conclude the enclosing run.
+   */
+  concludeTurn(): void
 }
 
 /** Registry-owned live execution object; public pipeline views stay readonly. */
@@ -475,7 +484,9 @@ export interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  /** The agent loop stops after committing this successful result batch. */
+  readonly concludesTurn?: true
 }
 
 /** Failed canonical tool execution; failures never carry a successful value. */
@@ -485,7 +496,8 @@ export interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  readonly concludesTurn?: never
 }
 
 /** The discriminated, execution-local outcome of one tool call. */
@@ -507,9 +519,9 @@ export type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -702,7 +714,9 @@ export class ToolRegistry extends Service {
   }
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
-  private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
+  private deferredContexts = new WeakMap<ToolRunContext, UserMessageData[]>()
+  /** Executions whose tool body declared the current turn complete. */
+  private concludingExecutions = new WeakSet<ToolExecution>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -1040,7 +1054,7 @@ export class ToolRegistry extends Service {
   }
 
   private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: MutableToolRunContext } {
-    const deferredContexts: HookContext[] = []
+    const deferredContexts: UserMessageData[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -1049,6 +1063,7 @@ export class ToolRegistry extends Service {
     const signal = exec.signal
     const definition = this.get(name, agent)
     const finalizeContent = definition?.finalizeContent?.bind(definition)
+    const concludingExecutions = this.concludingExecutions
     const base = {
       token,
       callId,
@@ -1056,8 +1071,11 @@ export class ToolRegistry extends Service {
       signal,
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
-      deferContext(context: HookContext): void {
+      deferContext(context: UserMessageData): void {
         deferredContexts.push(context)
+      },
+      concludeTurn(): void {
+        concludingExecutions.add(this as unknown as ToolExecution)
       },
     }
     try {
@@ -1442,11 +1460,13 @@ export class ToolRegistry extends Service {
       }
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
+    const concludesTurn = this.concludingExecutions.has(exec)
     return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,
       content,
       ...meta !== undefined ? { meta } : {},
+      ...concludesTurn ? { concludesTurn: true as const } : {},
     }) as ToolExecutionSuccess)
   }
 
@@ -1481,7 +1501,11 @@ export class ToolRegistry extends Service {
     if (result.isError) {
       return materializePresentation({ isError: true as const, error: result.error, ...presentation })
     }
-    const detached = materializePresentation({ isError: false as const, ...presentation })
+    const detached = materializePresentation({
+      isError: false as const,
+      ...presentation,
+      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+    })
     return deepFreeze({ ...detached, value: result.value })
   }
 }

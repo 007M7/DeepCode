@@ -15,9 +15,8 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
-export { agentInterruptReasonOf } from './cancellation.ts'
 export * from './llm-target.ts'
-export { agentEvents, assembleContextFor } from './dispatch.ts'
+export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
 declare module 'cordis' {
@@ -126,12 +125,8 @@ export interface ResumeAgentOptions {
  * only the holder can tear this agent down. The registered factory provider is
  * also a structural owner because the scoped agent depends on that provider's
  * service surface; provider unload stops and drains every live handle it made.
- * `dispose()` stops the loop, awaits its exit and every outstanding
- * idle-injection flush (quiescence — NOT just the `disposed`
- * status flip), unregisters the agent, removes its session from the store, and
- * finally unwinds its scoped world. This order captures every agent-started
- * `session/flush` before the session is detached and keeps scoped listeners
- * alive through those checkpoints.
+ * `dispose()` stops the loop, awaits its exit, unregisters the agent, removes
+ * its session from the store, and finally unwinds its scoped world.
  *
  * `ctx.agents.get(id)` still returns a bare {@link Agent} — the handle is
  * exposed only to the consumer owner that created it; the structural provider

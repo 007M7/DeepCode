@@ -11,6 +11,7 @@ const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
       'packages/hooks/*',
+      'packages/subprocess/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
       'packages/sdk/create-sdk',
@@ -40,7 +41,7 @@ const testIncludes = [
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
-  'packages/bash/bash-local/tests/run.spec.ts',
+  'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/ui/app-boot/tests/app-boot.spec.ts',

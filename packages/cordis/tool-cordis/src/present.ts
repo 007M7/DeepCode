@@ -25,7 +25,7 @@ export function presentInspectCall(args: { what?: string; name?: string }): Gene
 }
 
 /**
- * The `cordis_mount` call card: an execute carrying the mount code as raw input.
+ * The `cordis_mount` call card: an execute carrying the temporary-plugin code as raw input.
  * @param args - the validated call arguments.
  * @returns the generic call card.
  */
@@ -33,13 +33,13 @@ export function presentMountCall(args: { code: string }): GenericCallView {
   return {
     card: 'generic',
     kind: 'execute',
-    title: 'Mount plugin into live cordis runtime',
+    title: 'Mount temporary Cordis Plugin',
     rawInput: { code: args.code },
   }
 }
 
 /**
- * The `cordis_unmount` call card: a delete, titled with the mount id.
+ * The `cordis_unmount` call card: a delete, titled with the temporary-plugin id.
  * @param args - the validated call arguments.
  * @returns the generic call card.
  */
@@ -47,6 +47,6 @@ export function presentUnmountCall(args: { id: string }): GenericCallView {
   return {
     card: 'generic',
     kind: 'delete',
-    title: `Unmount ${args.id}`,
+    title: `Unmount temporary Cordis Plugin ${args.id}`,
   }
 }

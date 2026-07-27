@@ -7,7 +7,8 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type {} from '@deepseek-ai/dsh-llm'
+import { RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel } from './adapter.ts'
@@ -47,6 +48,8 @@ export interface Config {
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 const catalogModel: z<DeepSeekCatalogModel> = z.object({
@@ -64,6 +67,7 @@ export const Config: z<Config> = z.object({
   defaultContextWindow: z.number().step(1).min(1),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+  retryPolicy: RetryPolicySchema,
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
@@ -117,5 +121,6 @@ export function apply(ctx: Context, config: Config): void {
       : { defaultContextWindow: config.defaultContextWindow },
     models: resolveModels(config.models),
     streamIdleTimeoutMs: config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+    ...config.retryPolicy === undefined ? {} : { retryPolicy: config.retryPolicy },
   }))
 }

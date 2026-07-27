@@ -16,9 +16,9 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 **Agent 事件**（`dsh-agent`）：
 - `agent/session-start(agent, source)` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
-- `agent/prompt-submit(agent, content, source, signal, next) → PromptDecision` ——waterfall，在轮次唯一取得所有权的排队消息追加为 `user/message` 之前触发。显式轮次 signal 位于最后的 `next` 之前；`allow` 可以重写提示词 `content` 或附加来源各自独立的 `additionalContexts[]`，而 `block` 会追加一条持久的 `prompt/blocked`，并拒绝这个零步骤轮次。
+- `agent/prompt-submit(agent, content, source, signal, next) → PromptDecision` ——waterfall，针对一条取得所有权的排队消息触发，早于循环开启轮次或追加 `user/message`。显式准入 signal 位于最后的 `next` 之前；`allow` 可以重写提示词 `content` 或附加来源各自独立的 `additionalContexts[]`，而 `block` 会丢弃该候选消息，不产生会话历史。
 
-**`agent/turn-continuation`** 接收并返回一个 `ContinuationDecision`。`{action:'continue', reason?}` 可携带面向模型的内容和来源，记录为同一轮次内的下一步 steering（中途引导）——与 `/goal` step-end-steer 模式互为类型化孪生。它不是 `context/message`，因此其类型不提供持久上下文元数据。
+**`agent/turn-stopping`** 是自然停止边界上的一次 awaited 通知。需要再执行一步的监听器调用 `agent.steer()`，传入来源显式的面向模型的内容（steering，中途引导）；循环随后重新读取 outbox，继续执行或关闭轮次。
 
 ### 工具流水线为每个阶段赋予一种权限
 
@@ -33,15 +33,13 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具；由定义拥有的最终内容不变式也会覆盖外层流水线与候选结果实体化失败；最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
 
-**`TurnEndReason.rejected`**（`dsh-session`）：取得所有权的提示词被 `prompt-submit` 阻止的零步骤轮次。
-
 ### 三个承重的循环决策
 
-1. **在提示词策略之前开启轮次。** 被阻止的提示词成为零步骤的 `rejected` 轮次，保持封闭性并为 ACP（Agent Client Protocol）提供持久的终结事件。否决记录 `prompt/blocked`（含原始提示词和原因），而每个允许的 `additionalContexts` 条目都注入到已开启的轮次中。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个取得所有权的 ordinary-send 条目都是其轮次中的唯一消息；启动前丢弃不会创建轮次。
+1. **在开启轮次之前运行提示词策略。** 被阻止的提示词不会创建轮次，也不产生持久事件。允许时，循环先暂存重写后的提示词，再暂存每个返回的 `additionalContexts` 条目，然后开启轮次并在第一个步骤之前排空该 outbox。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个取得所有权的 ordinary-send 条目都是其轮次中唯一的直接提示词。
 
-2. **工具执行后的 `additionalContexts` 与异步注入进入活跃批次 FIFO，并在该批次结算时追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但每项上下文都是独立的 `context/message`，而单个步骤或组合工具可以产生许多上下文。立即追加上下文会产生 `result(c1) → context → result(c2)` 的交错，或把嵌套上下文放在外层结果之前，破坏工具调用/结果邻接性。因此 `ToolRunContext.deferContext()` 会在失败路径上也收集嵌套调度上下文，`execute()` 在 `ToolExecutionResult` 上暴露有序数组，循环再把它接纳到与执行期间 `agent.inject()` 调用相同的 FIFO 中。FIFO 在批次结算时，于每个已记录结果之后追加，其中也包括被中断轮次关闭之前。被接受的外层调用将 deferred contexts 保留在 decision contexts 之前；被外层阻止时则丢弃 deferred contexts，只暴露阻止 decision 显式提供的上下文。
+2. **工具执行后的 `additionalContexts` 与异步注入进入活跃批次 FIFO，并在该批次结算时追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但每项上下文都是一条独立的带来源 `user/message`，而单个步骤或组合工具可以产生许多上下文。立即追加上下文会产生 `result(c1) → context → result(c2)` 的交错，或把嵌套上下文放在外层结果之前，破坏工具调用/结果邻接性。因此 `ToolRunContext.deferContext()` 会在失败路径上也收集嵌套调度上下文，`execute()` 在 `ToolExecutionResult` 上暴露有序数组，循环再把它接纳到与执行期间 `agent.inject()` 调用相同的 FIFO 中。FIFO 在批次结算时，于每个已记录结果之后追加，其中也包括被中断轮次关闭之前。被接受的外层调用将 deferred contexts 保留在 decision contexts 之前；被外层阻止时则丢弃 deferred contexts，只暴露阻止 decision 显式提供的上下文。
 
-3. **强制 `continue` 的 `reason` 通过 steering 通道入队**，使得下一步骤在循环顶部排空时将其记录为当前轮次的 steering——同一轮次内的下一*步骤* steering，而非下一*轮次*的提示词（与现有的 `hasSteering` 强制继续覆盖一致）。
+3. **stopping 监听器通过 steering 通道请求继续执行**，使得下一步骤在循环顶部排空时将其记录为当前轮次的 steering——同一轮次内的下一*步骤* steering，而非下一*轮次*的提示词。
 
 ### 工具执行前输入重写是一个独立的一致性决策
 
@@ -49,7 +47,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 边界
 
-seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；那些属于 `dsh-hook-protocol`，因为原生插件使用类型化 decision 而无需外部钩子日志。原生插件集成测试（`packages/core/agent-loop/tests/interception.spec.ts`）通过真实循环组合这些 seam，不涉及 `hook/*` 协议。压缩（compaction）（`PreCompact`/`PostCompact`）、Notification 和 Codex `PermissionRequest` 不在本决策范围内。[审批 seam](2026-07-06-approval-seam.md) 通过 `ctx.approval` 解析 `ask` decision，而终结性的单调停止由 `agent/turn-stop` 独立负责。
+seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；那些属于 `dsh-hook-protocol`，因为原生插件使用类型化 decision 而无需外部钩子日志。原生插件集成测试（`packages/core/agent-loop/tests/interception.spec.ts`）通过真实循环组合这些 seam，不涉及 `hook/*` 协议。压缩（compaction）（`PreCompact`/`PostCompact`）、Notification 和 Codex `PermissionRequest` 不在本决策范围内。[审批 seam](2026-07-06-approval-seam.md) 通过 `ctx.approval` 解析 `ask` decision；终结性的单调停止由工具结果数据表达，而 `agent/turn-stopping` 是引导再执行一步的最后机会。
 
 ## 曾考虑的替代方案
 
@@ -58,4 +56,4 @@ seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；�
 
 ## 后果
 
-规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、prompt-submit、工具执行后上下文缓冲和 continuation；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接将 `rejected` 轮次映射为其 `cancelled` 编解码值，而钩子驱动的快照端到端验证可观测的桥接行为。
+规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、轮次前的提示词准入、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接在 agent 空闲且不再拥有轮次后，将准入拒绝结算为 `cancelled`，而钩子驱动的快照端到端验证可观测的桥接行为。

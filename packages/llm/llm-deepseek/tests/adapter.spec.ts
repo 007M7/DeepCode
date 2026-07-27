@@ -602,6 +602,26 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
+  it('registers retryPolicy from the provider config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      retryPolicy: {
+        mode: 'always',
+        backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
+      },
+    })
+
+    expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
+      mode: 'always',
+      initialDelayMs: 25,
+      maxDelayMs: 100,
+      jitterRatio: 0.2,
+    })
+  })
+
   it('owns the deepseek provider and advertises the default models', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -907,5 +927,17 @@ describe('plugin registration and config', () => {
       baseURL: 'http://127.0.0.1:1',
       streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
     })).rejects.toThrow(/streamIdleTimeoutMs/)
+  })
+
+  it('rejects invalid nested retryPolicy before registering the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      retryPolicy: { mode: 'normal', maxRetries: -1 },
+    })).rejects.toThrow(/retryPolicy/)
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 })

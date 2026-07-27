@@ -2,6 +2,8 @@
 
 Status: implemented
 
+The request-only prefix seam described below was later removed by the [unified sourced-message decision](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md). Current producers inject durable sourced `user/message` context at `agent/step`; this record preserves the earlier design and its trade-offs.
+
 English | [中文](2026-07-07-session-prefix.zh.md)
 
 ## Problem
@@ -12,7 +14,7 @@ The obvious third option — let a plugin edit the request's `messages` on the w
 
 ## Decision
 
-`agent/session-prefix` is a waterfall on the agent event map ([`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)): listeners receive a frozen empty seed and return an extension (the canonical contribution is a prepend, `[mine, ...await next()]`, which yields registration order on the wire). The loop ([`packages/core/agent-loop/src/loop.ts`](../../../../packages/core/agent-loop/src/loop.ts)) fires it once per loop instance, lazily before the instance's first `agent/pre-step`; the composed list is deep-cloned, deep-frozen, cached on the instance, and placed in front of the ENTIRE derived history — directly after the provider's system slot — on every request the instance sends ([wire order](../../../../docs/core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)).
+`agent/session-prefix` is a waterfall on the agent event map ([`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)): listeners receive a frozen empty seed and return an extension (the canonical contribution is a prepend, `[mine, ...await next()]`, which yields registration order on the wire). The loop ([agent-loop source](../../../../packages/core/agent-loop/src/)) fires it once per loop instance, lazily before the instance's first `agent/pre-step`; the composed list is deep-cloned, deep-frozen, cached on the instance, and placed in front of the ENTIRE derived history — directly after the provider's system slot — on every request the instance sends ([wire order](../../../../docs/core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)).
 
 Three properties carry the design:
 

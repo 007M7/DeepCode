@@ -6,8 +6,8 @@ The canonical three-package capability seam (see [capability seams](../../.agent
 
 | Package | Role | ctx key |
 |---|---|---|
-| `bash/` | Abstract bash executor seam (interface + vocabulary; sandbox result facts carry the [`sandbox/`](../sandbox/README.md) seam's mode/enforcement vocabulary) | `ctx.bash` |
-| `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
+| `bash/` | Abstract bash executor seam (interface + vocabulary; sandbox result facts carry the [`sandbox/`](../sandbox/README.md) seam's mode/enforcement vocabulary, and the managed-env/output vocabulary is re-exported from the [`subprocess/`](../subprocess/README.md) seam) | `ctx.bash` |
+| `bash-local/` | Local `BashExecutor` implementation over the [`subprocess/`](../subprocess/README.md) service (command defaulting, deadlines, terminal env, background-read merge) | (registers `ctx.bash`) |
 | `bash-sandbox/` | Sandbox-consuming `BashExecutor` (wraps every command argv via `ctx.sandbox`, stamps denial/enforcement facts; extends `bash-local`'s mechanics) | (registers `ctx.bash`) |
 | `tool-bash/` | Model-facing `bash` schema; background processes register with the generic [`tasks/`](../tasks/README.md) runtime | (registers on `ctx.tools`) |
 

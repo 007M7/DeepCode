@@ -3,7 +3,7 @@
 // hero (blank session) and active phases — same textarea DOM node, machine-
 // owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -55,7 +55,11 @@ function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): Co
   }
 }
 
-function mount(snapshot: ConversationSnapshot, workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }]) {
+function mount(
+  snapshot: ConversationSnapshot,
+  workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
+  retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
+) {
   const root = sid('root')
   const sessions = createSnapshotStore<SessionListState>({
     ids: [root, SID],
@@ -76,7 +80,6 @@ function mount(snapshot: ConversationSnapshot, workspaceRows: WorkspaceView[] = 
   const inputActions = wiring.actions
   const stop = vi.fn()
   const open = vi.fn()
-  const retargetWorkspace = vi.fn()
   const slotCalls: string[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
@@ -158,7 +161,13 @@ describe('ConversationRoot resident composer', () => {
   })
 
   it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {
-    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      [
+        { ...workspace('one'), sessionIds: [SID] },
+        { ...workspace('second'), title: 'Selected Folder' },
+      ],
+    )
     // Hero chrome present, view ring absent.
     expect(b.view.getByText("Let's start building")).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
@@ -173,8 +182,9 @@ describe('ConversationRoot resident composer', () => {
     fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
     const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
     expect(owner.open).toBe(true)
-    owner.onPick(wid('second'))
+    act(() => { owner.onPick(wid('second')) })
     expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
+    expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
   it('textarea DOM identity survives the hero → active flip', () => {
@@ -189,6 +199,24 @@ describe('ConversationRoot resident composer', () => {
     expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
     expect(b.view.queryByText("Let's start building")).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
+  })
+
+  it('rolls the pending workspace label back when switching fails', async () => {
+    const selectWorkspace = vi.fn(async () => { throw new Error('connect failed') })
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      [
+        { ...workspace('one'), sessionIds: [SID] },
+        { ...workspace('second'), title: 'Selected Folder' },
+      ],
+      selectWorkspace,
+    )
+    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
+    await act(async () => { owner.onPick(wid('second')); await Promise.resolve() })
+    expect(selectWorkspace).toHaveBeenCalledWith(wid('second'))
+    expect(b.view.queryByText('Selected Folder')).toBeNull()
+    expect(b.view.getByText('one')).toBeTruthy()
   })
 
   it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {

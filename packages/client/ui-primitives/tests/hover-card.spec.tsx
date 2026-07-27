@@ -13,7 +13,7 @@ function stubAnchorRect(anchor: HTMLElement, rect: { top: number; right: number 
   wrapper.getBoundingClientRect = () => ({
     top: rect.top, right: rect.right, left: rect.right - 100, bottom: rect.top + 34,
     width: 100, height: 34, x: rect.right - 100, y: rect.top, toJSON: () => ({}),
-  } as DOMRect)
+  })
 }
 
 function mount(props: { openDelayMs?: number; disabled?: boolean } = {}) {

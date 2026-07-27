@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -12,7 +12,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import CommandService from '@deepseek-ai/dsh-commands'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
-import { createTuiChat } from '../src/index.ts'
+import { createTuiChat, TuiPromptService } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
 import { TestSessionQueryService } from './session-query.ts'
 
@@ -24,10 +24,13 @@ class SnapshotAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    const prompt = options.messages.at(-1)
-    if (prompt?.role !== 'user' || prompt.content.length !== 3
-      || prompt.content[1]?.type !== 'text' || prompt.content[1].text !== '\n\n## My request:\n') {
-      throw new Error('session reference did not reach the model as one prefixed user message')
+    // The snapshot rides the prompt's admission: the loop appends the
+    // prompt first, then its additional contexts (the branch-wide ordering
+    // for plugin-sourced context).
+    const [prompt, context] = options.messages.slice(-2)
+    if (context?.role !== 'user' || prompt?.role !== 'user'
+      || prompt.content[0]?.type !== 'text' || prompt.content[0].text !== 'Use @Source session') {
+      throw new Error('session reference context did not follow the direct user message')
     }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: 'Combined reference request accepted.' }
@@ -48,6 +51,7 @@ function nextIdle(ctx: Context, agent: Agent): Promise<void> {
 
 describe('TUI session-reference snapshot', () => {
   it('snapshots compacted current-surface context on send and displays only its reference card', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 30, 0).getTime())
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -56,6 +60,7 @@ describe('TUI session-reference snapshot', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
+    await ctx.plugin(TuiPromptService)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(TestSessionQueryService)
     await ctx.plugin(SessionReferenceService)
@@ -94,7 +99,7 @@ describe('TUI session-reference snapshot', () => {
     const controller = createTuiChat(ctx, {
       sessionId: target.id,
       welcome: 'Session reference snapshot.',
-      color: true,
+      theme: { color: true },
       title: 'DSH session reference',
     }, { terminal, exit: () => {} })
     await terminal.waitForFrame(0)
@@ -113,22 +118,17 @@ describe('TUI session-reference snapshot', () => {
     expect(request).toContain('Recent retained question.')
     expect(request).not.toContain('SHADOWED OLD USER')
     expect(request).not.toContain('SHADOWED OLD ASSISTANT')
-    const user = target.session.events.find(event => event.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
-      displayContent: [{ type: 'text', text: 'Use @Source session' }],
-      prefixContexts: [{
-        source: { kind: 'plugin', plugin: 'session-reference' },
-        meta: {
-          kind: 'session-reference',
-          references: [{ sessionId: 'source-session', compacted: true }],
-        },
-      }],
+    const context = target.session.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'session-reference')
+    expect(context?.type === 'user/message' && context.data.source).toMatchObject({
+      kind: 'session-reference',
+      references: [{ sessionId: 'source-session', compacted: true }],
     })
-    expect(user?.type === 'user/message' && user.data.content[1]).toEqual({
-      type: 'text',
-      text: '\n\n## My request:\n',
-    })
-    expect(target.session.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
+    const user = target.session.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'user')
+    expect(user?.type === 'user/message' && user.data.content).toEqual([
+      { type: 'text', text: 'Use @Source session' },
+    ])
 
     const snapshot = await terminal.snapshot({ includeScrollback: true })
     if (REFRESHING) {
@@ -140,5 +140,6 @@ describe('TUI session-reference snapshot', () => {
     await controller.dispose()
     await ctx.fiber.dispose()
     await terminal.dispose()
+    clock.mockRestore()
   })
 })

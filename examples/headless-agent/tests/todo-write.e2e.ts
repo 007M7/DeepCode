@@ -28,10 +28,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
     ctx = await codingHarness(workdir, { persona: TODO_SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(SessionId('e2e-todo'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{ type: 'text', text:
+    agent.followup({ content: [{ type: 'text', text:
       'Use the todo_write tool to record a plan of exactly two steps: first '
       + '"inspect the failing test" (in_progress), then "apply the fix" (pending). '
-      + 'Send both in one todo_write call, then reply with the single word DONE.' }])
+      + 'Send both in one todo_write call, then reply with the single word DONE.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]

@@ -27,7 +27,7 @@ create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd
 
 /**
  * Create an owned agent on a caller-supplied session id.
- * @param ownerCtx - caller context that structurally owns the transaction.
+ * @param ownerCtx - caller context that structurally owns the lifecycle.
  * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
  * @returns the published handle.
  */
@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:188`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -257,7 +257,7 @@ Implementations must honor these semantics:
 - run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
 - start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
-- Disposal kills all running background processes and awaits their exit.
+- A still-running background process is stopped and awaited when its owning composition tears down. With the subprocess seam that boundary is `ctx.subprocess` disposal, so a background process survives an executor-only reload.
 
 ```ts cordis-catalog
 /**
@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -315,7 +315,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../core-data-structures/subprocess.md) · [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
@@ -656,7 +656,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -722,6 +722,13 @@ registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 listProviders(): LlmProviderInfo[]
 
 /**
+ * Resolve the retry policy captured when one provider route was registered.
+ * @param provider - registered provider route to inspect.
+ * @returns the provider-owned policy, with normal defaults already resolved.
+ */
+providerRetryPolicy(provider: string): ResolvedRetryPolicy
+
+/**
  * Discover models advertised by one registered provider. Catalog membership
  * is advisory and never changes routing or request validation.
  * @param provider - registered provider route to inspect.
@@ -778,9 +785,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:177`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -840,7 +847,7 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next turn boundary.
+ * Select whether plan mode should be active from the next request boundary.
  * Repeated selection of the current or already-pending state is a no-op.
  *
  * @param agent The agent to switch.
@@ -1210,7 +1217,7 @@ async listCandidates( agent: Agent, query = '', limit = this.config.candidateLim
  * @param content - already host-normalized readable message content.
  * @param references - structured source sessions in mention order.
  * @param signal - optional cancellation boundary for host request teardown.
- * @returns detached content and zero or one prepared contexts.
+ * @returns detached content and optional referenced-session context.
  */
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
@@ -1366,7 +1373,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:611`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1400,7 +1407,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:284`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1583,6 +1590,31 @@ Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](
 
 Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
 
+## `ctx.subprocess` — `SubprocessService` (abstract seam)
+
+Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
+- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- Disposal of the service terminates all still-running managed processes and awaits their exit.
+
+```ts cordis-catalog
+/**
+ * Start one managed child process from a fully-specified spec; this seam
+ * applies no defaults.
+ * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
+ * @returns the live process handle (streams/readers, signalling, outcome promise).
+ */
+abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+```
+
+Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
+
+Source: [`packages/subprocess/subprocess/src/index.ts:88`](../../packages/subprocess/subprocess/src/index.ts)
+
 ## `ctx.systemPrompt` — `SystemPrompt`
 
 Registry service for the prompt inputs assembled before each model step.
@@ -1725,6 +1757,29 @@ abstract attachSurface(name: string): () => void
 Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
 Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
+
+## `ctx.telemetry` — `Telemetry` (abstract seam)
+
+The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+
+```ts cordis-catalog
+/**
+ * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * @param record - the logical record to report; owned by the backend after the call.
+ */
+abstract emit(record: TelemetryRecord): void
+
+/** See {@link TelemetryBackend.flush}. */
+flush?(): void
+
+/**
+ * See {@link TelemetryBackend.shutdown}.
+ * @returns resolves when the backend's pipeline has quiesced.
+ */
+abstract shutdown(): Promise<void>
+```
+
+Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -1879,7 +1934,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:688`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 
@@ -1902,7 +1957,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:153`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:188`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

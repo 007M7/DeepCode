@@ -23,7 +23,7 @@ const decompress = promisify(zstdDecompress)
 const dshPackages = [
   'examples/agent-spine-demo', 'examples/cli-demo', 'core/agent', 'core/session',
   'core/system-prompt', 'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
+  'bash/bash-local', 'bash/tool-bash', 'subprocess/subprocess', 'subprocess/subprocess-local', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence', 'session-persistence/session-checkpoint-policy',
   'session-persistence/session-persistence-jsonl',
   'context/workspace-context',
@@ -80,6 +80,8 @@ async function makeConsumer(): Promise<string> {
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
     "  name: './mock-llm.ts'",
+    '- id: subprocess',
+    "  name: '@deepseek-ai/dsh-subprocess-local'",
     '- id: bash',
     "  name: '@deepseek-ai/dsh-bash-local'",
     '- id: cli-agent',

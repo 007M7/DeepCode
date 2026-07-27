@@ -33,7 +33,7 @@ const decompress = promisify(zstdDecompress)
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
+  'bash/bash-local', 'bash/tool-bash', 'subprocess/subprocess', 'subprocess/subprocess-local', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
   'acp/acp', 'examples/acp-demo', 'util/paths',
@@ -95,6 +95,8 @@ async function makeConsumer(): Promise<string> {
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
     '  name: \'./mock-llm.mjs\'',
+    '- id: subprocess',
+    '  name: \'@deepseek-ai/dsh-subprocess-local\'',
     '- id: bash',
     '  name: \'@deepseek-ai/dsh-bash-local\'',
     '- id: acp-agent',
@@ -208,6 +210,7 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     expect(code).not.toBe(0)
     expect(stderr).toContain('config file not found')
   }, 30_000)
+
 })
 
 /** Spawn the built acp bin against `configArg` (stdin closed at EOF) and resolve with its exit code + stderr. */
