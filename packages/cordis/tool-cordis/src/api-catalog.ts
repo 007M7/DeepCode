@@ -951,6 +951,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Synchronous workspace projection in durable registry order. Every\n * entity\'s `sessionIds` getter is already filtered by the startup/live\n * canonical-cwd header index; this method performs no persistence reads.\n * @returns a fresh ordered array of workspace entities.\n */',
       },
       {
+        signature: 'delete(id: WorkspaceId): Promise<boolean>',
+        jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
+      },
+      {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
         jsDoc: '/**\n * Resolve by canonical directory path without creating or mutating a\n * workspace. A missing path rejects during `realpath`; an existing unowned\n * directory returns `undefined`.\n * @param path - Existing directory path in any spelling.\n * @returns the workspace owning the canonical path, when one exists.\n */',
       },
