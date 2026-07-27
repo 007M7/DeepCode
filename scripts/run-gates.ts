@@ -749,7 +749,7 @@ function listedGate(gate: Gate): ListedGate {
 
 function listedEnvironment(
   environment: Readonly<Record<string, GateEnvironmentOverride>> | undefined,
-): Record<string, ListedEnvironmentOverride> {
+): Record<string, GateEnvironmentOverride> {
   if (environment === undefined) return {}
   return Object.fromEntries(Object.entries(environment).sort(([left], [right]) => left.localeCompare(right)).map(([name, override]) => {
     const value = sensitiveEnvironmentName(name) ? '<redacted>' : override.value
