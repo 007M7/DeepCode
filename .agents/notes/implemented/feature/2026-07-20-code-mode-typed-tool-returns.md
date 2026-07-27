@@ -69,7 +69,7 @@ Compute time, wall time, worker heap, cancellation, and fresh-worker isolation r
 
 Background producers return a typed canonical handle such as `{ kind: 'background', taskId }` while retaining their established Native sentence. A pre-aborted background call remains a failure because successful output promises an id and no task was created. After `ctx.tasks.start()` publishes the id, task-owned cancellation governs the work: settlement or later cancellation of the enclosing `run_code` call does not kill it. A later program can pass the returned id to `task_output`, and `task_kill`, owner disposal, or service teardown owns cancellation. Foreground execution remains coupled to the call signal. The task lifetime contract is owned by the [background task runtime note](../architecture/2026-06-20-generic-long-running-tool-runtime.md).
 
-Dynamic Cordis mounting follows the same rule: `cordis_mount` returns `{ id, pluginName, state, provides, waitingFor }`, so a program can read `mounted.id`, inspect active or pending state, and pass that id to `cordis_unmount` without parsing the stable Native sentence.
+Temporary Cordis Plugins follow the same rule: `cordis_mount` returns `{ id, pluginName, state, provides, waitingFor }`, so a program can read `mounted.id`, inspect active or pending state, and pass that id to `cordis_unmount` without parsing the stable Native sentence.
 
 ### Persistence, metadata, and spill
 

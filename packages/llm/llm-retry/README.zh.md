@@ -2,42 +2,52 @@
 
 [English](README.md) | 中文
 
-一个函数插件，通过 `agent/request-error` waterfall 重试特定的短暂模型请求失败。它不包装 `ctx.llm.stream()`：每次适配器调用仍是一次提供方尝试，每次重试都会开启新的编号轮次。
+一个函数插件，通过 agent loop（智能体循环）在已关闭步骤上触发的 `agent/request-error` waterfall（瀑布式事件）应用确切提供方重试策略。它不包装 `ctx.llm.stream()`：每次适配器调用仍是一次提供方尝试，每次重试都会开启新的编号轮次。
 
-默认策略允许为 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT` 和 `TRANSPORT` 重试两次，使用从 500 ms 到 10 秒的有界指数退避与 10% jitter。`EMPTY_RESPONSE` 是适配器对退化提供方完成的分类（携带零个内容块的终止 stop）；该尝试未产生持久内容，因此可安全重复。延迟边界必须适合 Node 支持的定时器范围。有效 `providerRetryAfterMs` 在已配置上限内时替换本地退避；超出上限的指令会委托给下一项恢复策略。
+每个提供方适配器都拥有可选的嵌套 `retryPolicy`；路由在 `ctx.llm` 上注册时会捕获该策略，任何到达该注册最终适配器边界的调用都会携带它。如果之后释放或替换路由，进行中的失败仍会保留为其提供服务的策略；在选中任何最终适配器前发生的失败没有提供方策略，会继续委托。省略策略时使用 normal mode：为 `EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT` 和 `TRANSPORT` 重试两次，并采用从 500 ms 到 10 秒的有界指数退避与 10% jitter。`EMPTY_RESPONSE` 是适配器对未产生任何持久内容的退化提供方完成所作的分类，因此可安全重复。normal 策略可以更改其有限预算、合格 code 和退避配置。always mode 会先请求下游恢复，再无次数上限地重试每个模型请求失败；成功、取消或插件 dispose（资源释放）会在活跃的委托恢复完全停稳后终止它。
 
-恢复 listener 会在失败步骤之后追加一个非表层 `llm/retry` 事件，在失败轮次的信号仍存活期间等待退避，然后返回 `{ kind: 'retry' }`。循环会关闭该失败轮次，并在同一持久历史上开启重试轮次。策略在这条不间断的恢复链中维护自己的重试计数，并在终态 `agent/settled` 时清零。轮次取消与插件 dispose 会中止等待。
+两种 mode 都使用带对称 jitter 的有界指数退避。有效 `providerRetryAfterMs` 不超过 `maxDelayMs` 时会替换本地退避，并且不加 jitter。超出上限的提供方延迟会使 normal mode 继续委托；always mode 则改用已配置的本地退避，避免该指令终止重试。
 
-单独发布的 `./invariant` 配套模块会检查每个重试记录是否出现在开启轮次内的失败步骤之后，是否与其在当前重试链中的位置匹配，以及是否携带正数有界重试预算和非负有界定时器延迟。完整 jitter 可以在下界调度为零毫秒。
+等待前，插件会追加一条不进入表层的 `llm/retry` 事件，其中包含提供方、mode、规范的解析策略 key、失败和计划延迟。该 key 包含所有影响行为的字段，并对 normal mode 的 code 排序，因为合格性采用集合成员关系判断。只有提供方与完整策略 key 都相同的事件才会延续重试编号；因此，用限制、code 成员关系或退避不同的路由替换后，会开始自己的历史。normal 事件包含有限上限；always 事件省略该上限，UI 会渲染 `∞`。等待结束后，监听器返回 `{ kind: 'retry' }`，循环关闭失败轮次，并在同一持久历史上开启重试轮次。取消与插件 dispose 会中止活跃退避，在应用中止前排空活跃的委托恢复，并使 dispose 前捕获的 callback 只能以失败结束。
+
+单独发布的 `./invariant` 配套模块会检查每个重试记录是否指向当前开启轮次及其最新已关闭步骤，是否与失败请求的持久提供方匹配，是否携带非空的提供方与策略身份，是否满足 mode 特定边界，是否拥有唯一步骤记录和正确的提供方策略重试编号，以及是否携带有界定时器延迟。完整 jitter 可以在下界调度为零毫秒。
 
 ```yaml
-- name: '@deepseek-ai/dsh-llm-retry'
+- name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    maxTransientRetries: 2
-    initialDelayMs: 500
-    maxDelayMs: 10000
-    jitterRatio: 0.1
-    retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    retryPolicy:
+      mode: always
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+        jitterRatio: 0.2
+
+- name: '@deepseek-ai/dsh-llm-retry'
 ```
+
+执行器没有策略配置。`dsh-llm-pi-ai` 等多提供方适配器会把 `retryPolicy` 放在每个提供方 profile 内，避免维护第二份提供方名称列表。
 
 ## 模型体验
 
-### 短暂请求恢复
+### 模型请求恢复
 
 #### 模型看到的内容
 
-模型不会看到重试事件、延迟或失败文本。重试轮次会从持久会话历史中重建相同的显式提供方／模型请求；失败 chunk 绝不会进入派生消息。
+模型不会看到重试事件、延迟、提供方错误或失败的部分输出。重试轮次会从持久表层历史中重建相同的显式提供方／模型请求，除非下游恢复策略有意更改该表层；失败分片绝不会进入派生消息。
 
 #### Token 影响
 
-每次重试都是新的提供方请求，可能重复计费输入 token。有限预算会限制尝试次数；`llm/retry` 自身不产生 token。
+每次重试都是新的提供方请求，可能重复计费输入 token。normal mode 具有有限预算；always mode 可以在成功或取消前消耗无界数量的请求。`llm/retry` 自身不产生 token。
 
 #### KV Cache 影响
 
-重建请求保留之前的前缀，并可根据该提供方的规则复用 cache。非表层状态事件不会改变 cache 身份。
+重建请求保留之前的前缀，并可根据该提供方的规则复用 cache。非表层重试事件不会改变 cache 身份。
 
 ## 已知限制与暂缓事项
 
 - **Agent 轮次是唯一重试边界**：直接 `ctx.llm.stream()` 消费方仍只尝试一次，因为原始流无法将已发出 chunk 持久分隔为不同尝试。
-- **有限插件预算可叠加**：该策略只统计已配置短暂 code；上下文溢出压缩只统计自身 code。未来如有 code 重叠的策略，必须记录并测试注册顺序行为。
-- **`llm/retry` 记录已完成的退避，不是请求完成**：后续步骤与轮次事件用于确立成功、耗尽或取消。
+- **always mode 会重试永久性失败**：身份验证、配额、无效请求、协议和无法恢复的上下文错误都会继续重试，直至成功、取消或 dispose；部署负责提供方特定的成本与延迟控制。
+- **有限插件预算可叠加**：normal mode 只统计已配置 code 和确切提供方策略，上下文溢出压缩则拥有独立预算。未来如有重叠策略，必须记录并测试注册顺序行为。
+- **恢复策略按 waterfall 顺序组合**：always mode 会先接受下游重试，再应用自己的回退。后续策略如果忽略取消且永不结算，也会阻止回退、轮次完全停稳和插件 dispose 完成。
+- **`llm/retry` 记录调度，不是完成**：后续步骤与轮次事件用于确立成功、耗尽或取消。

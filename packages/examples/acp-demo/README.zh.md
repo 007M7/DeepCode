@@ -36,7 +36,6 @@ ACP 自动化服务器应用：默认 agent 主干、客户端通过 [`@deepseek
 | `toolBash` | 拥有者默认值 | 面向模型的 bash 工具配置。 |
 | `toolTasks` | 拥有者默认值 | 通用后台任务控制配置，或 `false`。 |
 | `goals` | 拥有者默认值 | 持久的同会话目标领域与模型工具，或 `false`。 |
-| `llmRetry` | 拥有者默认值 | 有界的瞬时模型请求重试策略。 |
 
 已交付的 [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) 添加 DeepSeek 适配器、沙箱化 bash 与文件系统提供方、一次性批准策略、压缩、subagent、工作流、钩子，以及面向模型的工具。应用提供派生会话查询索引，而面向模型的查询消费方仍由叶节点显式选用。快照 overlay 只替换非确定性提供方或策略值。
 
