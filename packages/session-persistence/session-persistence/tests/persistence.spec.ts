@@ -99,6 +99,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.inspect(id, signal)
   }
 
+  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
   // A Map-backed store has no torn tails, so `tornMarker` is never set.
