@@ -14,7 +14,7 @@ The default branch carries [`.github/dependabot.yml`](../../../../.github/depend
 
 The root pnpm version-update scan excludes `vendor/**`, whose source and manifests move only through the [vendoring procedure](../../../../vendor/README.md), and `native/landlock-run/**`, which its dedicated entry owns. GitHub applies `exclude-paths` only to version updates; a security pull request that touches a vendored manifest is replaced through the vendoring procedure instead of being merged as generated. Dependabot pull requests receive the repository's `cleanup` kind and `area/infra` area labels, run the normal pull-request checks, and remain subject to maintainer review; this automation does not merge them.
 
-Repository settings enable dependency vulnerability alerts and Dependabot security updates. GitHub does not apply version-update cooldowns to those security updates, so security fixes remain eligible immediately. The repository's coordinated fresh-release exceptions are not copied into Dependabot's cooldown exclusions: automated version updates use the uniform 30-day wait, while an explicitly reviewed manual update can still follow its owning release procedure.
+Repository settings enable dependency vulnerability alerts and Dependabot security updates. GitHub does not apply version-update cooldowns to those security updates, so security fixes remain eligible immediately. A generated pnpm security pull request can still fail the repository's lockfile release-age verification when dependency resolution selects unrelated fresh transitive versions; that pull request waits or is narrowed instead of weakening the policy. The repository's coordinated fresh-release exceptions are not copied into Dependabot's cooldown exclusions: automated version updates use the uniform 30-day wait, while an explicitly reviewed manual update can still follow its owning release procedure.
 
 The pnpm entries keep both workspaces on their pinned pnpm 11 instead of introducing an automation-only downgrade. The current Dependabot updater installs the version requested by `packageManager` and reads both workspaces' lockfile format `9.0`; the provider-run update job remains the integration check.
 
@@ -30,5 +30,5 @@ The pnpm entries keep both workspaces on their pinned pnpm 11 instead of introdu
 
 - Routine dependency updates arrive in small reviewable pull requests after the quarantine instead of requiring periodic manual discovery.
 - A release normally appears between 30 and 36 days after publication because eligibility is evaluated weekly.
-- Security updates are not delayed; review preserves the vendoring boundary when an update reaches a vendored manifest.
+- Dependabot does not delay security proposals; repository checks can still block unrelated fresh transitives, and review preserves the vendoring boundary.
 - Maintainers still decide whether to merge each update and diagnose any provider limitation reported by the pnpm 11 update job.
