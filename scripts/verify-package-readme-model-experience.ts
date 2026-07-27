@@ -85,6 +85,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/sdk/helper': { kind: 'none', reason: 'The project domain edits files and registers no live agent or model surface.' },
   'packages/sdk/scripts': { kind: 'indirect', reason: 'The launcher delegates model context to the loaded project plugin tree.' },
   'packages/sdk/telemetry': { kind: 'none', reason: 'The launcher-side reporter sends developer-cycle telemetry and registers no live agent or model surface.' },
+  'packages/session-projection/session-projection': { kind: 'none', reason: 'The projection registry serves client-facing read models of already-logged session state and registers no model surface.' },
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/session-query/session-query-sqlite': { kind: 'none', reason: 'The search backend returns hits only to callers and registers no model surface.' },
   'packages/telemetry/session-telemetry': { kind: 'none', reason: 'The seam observes the session stream and hands redacted copies outward; it registers no model surface.' },

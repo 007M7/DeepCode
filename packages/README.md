@@ -35,6 +35,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
+| [`session-projection/`](session-projection/README.md) | Session-projection seam: domain host plugins serve whole current values of log-derived per-session state to client carriers | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
 | [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |

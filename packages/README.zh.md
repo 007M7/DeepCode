@@ -35,6 +35,7 @@
 | [`cordis/`](cordis/README.md) | 自指运行时工具集：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session-persistence/`](session-persistence/README.md) | 持久化能力系列：seam + JSONL/SQLite 后端 | 产品：稳定表面 |
+| [`session-projection/`](session-projection/README.md) | 会话投影缝：域 host 插件向客户端载体供给日志衍生的每会话状态完整当前值 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务、共享 LLM 策略和选用提供方 | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
