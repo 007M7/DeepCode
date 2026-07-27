@@ -19,9 +19,9 @@
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     },
-    "./client/types": {
-      "types": "./lib/types/client/types.d.ts",
-      "default": "./lib/types/client/types.js"
+    "./client": {
+      "types": "./lib/types/client.d.ts",
+      "default": "./lib/types/client.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
