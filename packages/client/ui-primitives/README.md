@@ -6,7 +6,7 @@ Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/
 
 ## Markdown rendering
 
-`MarkdownText` renders GFM from untrusted assistant output through React elements. It omits raw HTML, neutralizes relative and non-HTTP(S)/mailto links, opens HTTP(S) links with safe external-link attributes, and renders image alt text without loading remote resources; `MessageText` remains the literal-text primitive for user-authored content.
+`MarkdownText` renders GFM from untrusted assistant output through React elements. It omits raw HTML, neutralizes relative and non-HTTP(S)/mailto links, opens HTTP(S) links with safe external-link attributes, and renders image alt text without loading remote resources; `MessageText` remains the literal-text primitive for user-authored content. Element spacing, tables, links, and inline code use the same `--dsw-alias-markdown-*` / `--dsw-font-markdown-*` tokens as deepsuite `@deepseek/md`. Fenced blocks render through `CodeBlock` (language banner, copy control, shiki for the registered grammars).
 
 ## Model Experience
 

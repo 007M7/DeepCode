@@ -38,3 +38,15 @@ export type ProviderRequestId = Branded<'ProviderRequestId'>
 export function ProviderRequestId(id: string): ProviderRequestId {
   return id as ProviderRequestId
 }
+
+/** Adapter-owned identifier for one model's selectable reasoning effort. */
+export type ReasoningEffortId = Branded<'ReasoningEffortId'>
+
+/**
+ * Brand an adapter-owned reasoning-effort identifier.
+ * @param id - the opaque identifier exposed by one model capability.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function ReasoningEffortId(id: string): ReasoningEffortId {
+  return id as ReasoningEffortId
+}

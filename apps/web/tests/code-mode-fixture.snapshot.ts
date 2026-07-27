@@ -144,7 +144,7 @@ it('renders the fixture run_code turn: code parent row, nested sub-rows, error s
       "errorSubRow": true,
       "parentRow": "CodeRead the notes files and summarize",
       "subRows": [
-        "$List notes",
+        "BashList notes",
         "Readnotes/demo.txt",
         "Readnotes/missing.txt",
       ],
@@ -213,9 +213,9 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
   }).toMatchInlineSnapshot(`
     {
       "subCells": [
-        "#53Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
-        "#54Subread · {"path":"notes/demo.txt"}+0.8s",
-        "#55Subread · {"path":"notes/missing.txt"}+0.8s",
+        "#51Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
+        "#52Subread · {"path":"notes/demo.txt"}+0.8s",
+        "#53Subread · {"path":"notes/missing.txt"}+0.8s",
       ],
     }
   `)

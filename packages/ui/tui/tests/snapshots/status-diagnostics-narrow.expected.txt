@@ -41,13 +41,13 @@ buffer
   style 0-0 dim
   style 3-12 fg=bright-black
   style 55-55 dim
-16| "│  Model:      deepseek/deepseek-v4-pro (reasoning     │"
+16| "│  Model:      deepseek/deepseek-v4-pro (effort        │"
   style 0-0 dim
   style 3-12 fg=bright-black
   style 40-55 dim
-17| "│              shown)                                  │"
+17| "│              default; reasoning blocks shown)        │"
   style 0-0 dim
-  style 15-20 dim
+  style 15-46 dim
   style 55-55 dim
 18| "│                                                      │"
   style 0-0 dim

@@ -323,7 +323,7 @@
 .stopping,
 .stopping:hover {
   background: var(--dsw-alias-button-primary-dimmed);
-  color: var(--dsw-alias-brand-text);
+  color: var(--dsw-alias-label-primary);
 }
 
 .retry {

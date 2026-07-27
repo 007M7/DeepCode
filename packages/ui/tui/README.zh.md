@@ -12,7 +12,7 @@ DeepSeek Harness agent（智能体）的交互式终端入口，基于 [`@earend
 
 终端成功启动后，本包会提供终端本地的 `ctx.tui` 扩展服务。注入该服务的插件可以使用组件工厂和受限布局选项调用 `openOverlay()`；宿主会公开 viewport、语义化主题、显示文本转义、重绘、关闭和生命周期信号，但不公开 pi-tui 树、终端、焦点控制器或 overlay 句柄。插件 overlay、模型选择器和用户问题共用一个 FIFO 模态队列。每个请求都是调用方插件 fiber 的 effect，因此卸载会移除排队工作，或在清理结算前关闭可见工作；终端关闭会先卸载依赖项，再停止 pi-tui。Overlay 状态不会记录或回放。组件代码受信任，可以渲染 ANSI 样式，但必须通过 `host.display()` 处理不受信任文本。[交互式扩展 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-22-tui-interactive-extension-service.md)持有该边界和未采用的替代方案。
 
-TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reasoning，将每个工具的 `presentCall` / `presentResult` 意图应用到终端、diff 或通用卡片，把最新的 `todo/write` 计划保留在编辑器上方，并在左下方宽键盘面板中展示 `ctx.userInteraction` 问题，包含进度、编号选项和对齐说明。最新记录的会话标题成为 header 副标题；标题不存在时使用 `welcome`，终端窗口标题则变为 `<session title> — <configured title>`。持久 `llm/retry` 事件会撤回失败步骤的实时 chunk，并在 transcript（文本记录）中渲染计划重试次数、延迟和失败；成功、耗尽与取消随后通过普通会话事件结算。Footer 会对每个已记录模型步骤的用量只计一次，包括失败尝试；对于没有用量 chunk 的日志，以已提交消息的用量回退。其空闲视图会比较 token-meter 压力与当前路由的 `ctx.llm.resolveModelContext()`；适配器没有容量元数据时显示 `context unknown`，并显示工具卡片模式、当前模型和 reasoning 状态。Agent 运行时，这些摘要会替换为已经过工作时间指示器和 `esc interrupt`。表层替换事件会重建 transcript，使经过压缩（compaction）的历史不会再次出现。
+TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reasoning，将每个工具的 `presentCall` / `presentResult` 意图应用到终端、diff 或通用卡片，把最新的 `todo/write` 计划保留在编辑器上方，并在左下方宽键盘面板中展示 `ctx.userInteraction` 问题，包含进度、编号选项和对齐说明。最新记录的会话标题成为 header 副标题；标题不存在时使用 `welcome`，终端窗口标题则变为 `<session title> — <configured title>`。持久 `llm/retry` 事件会撤回失败步骤的实时 chunk，并在 transcript（文本记录）中渲染计划重试次数、延迟和失败；成功、耗尽与取消随后通过普通会话事件结算。Footer 会对每个已记录模型步骤的用量只计一次，包括失败尝试；对于没有用量 chunk 的日志，以已提交消息的用量回退。其空闲视图会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较；适配器没有容量元数据时显示 `context unknown`，并显示工具卡片模式、当前模型，以及任何显式选择的推理强度。Agent 运行时，这些摘要会替换为已经过工作时间指示器和 `esc interrupt`。表层替换事件会重建 transcript，使经过压缩（compaction）的历史不会再次出现。
 
 如果逻辑工作区标签与会话宿主目录不同，嵌入方可以提供 `TuiRuntime.formatCwd`。该覆盖只改变 footer 标签；工具仍使用会话 `cwd`。
 
@@ -24,13 +24,13 @@ TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reaso
 
 Agent 运行时，普通编辑器提交会调用 `agent.steer()`；其他时候调用 `agent.followup()`。提交行以斜杠开头时会改为进入 `ctx.commands`：已知命令直接执行，未知命令产生警告，两条路径都不会自动到达模型。命令生产方可以显式调度 agent 工作；[`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) 使用该契约实现 `/plan [message]`。TUI 将 `/help`、`/model`、`/clear`、`/reasoning`、`/tools`、`/redraw`、`/reload`、`/resume`、`/status` 和 `/exit` 注册为 agent 作用域定义；其他所有有效命令都会动态加入自动补全与 `/help`，`/skill:` 补全也相同。编辑器上方的状态行会报告 TUI 从会话事件派生的轮次阶段，包括等待首个 token、思考、响应或执行工具；它显示该阶段已经过时间和运行中的步骤总数，每秒刷新，并以 `Enter sends steering, Esc cancels` 提示结尾。Steering 消息等待到达模型期间，会在提示前插入 `N queued ·` 徽标，每条消息排空后随即清除。Ctrl+C 或 Escape 会取消运行中的轮次。工具卡片把长主体折叠为可配置的头尾预览；Ctrl+O 在预览与完整输出之间切换所有卡片。Ctrl+R 切换 reasoning，Ctrl+L 重绘，Ctrl+D 在空闲时退出。
 
-`/model` 将建议性的 `ctx.llm` catalog 打开为键盘选择器：Up/Down 移动，Enter 选择，Escape 关闭。`/model <model>` 仍可直接选择无歧义的模型 id，`/model <provider>/<model>` 则选择精确目标。已配置目标或最新记录的请求 header 会初始化选择器；由于 catalog 仅提供建议，未列出的当前模型仍会显示。选择仅对本 TUI 会话有效。提示词组装会为一个步骤建立目标快照，替换 `{{provider}}` 和 `{{model}}`，并通过 `agent/request` 应用同一组值；因此组装期间的切换会从后续步骤开始生效。请求 header 会持久记录真正到达模型的目标，未使用的选择则只存在于进程本地。
+`/model` 将建议性的 `ctx.llm` catalog 打开为键盘选择器：Up/Down 移动，Shift+Tab 按显示顺序循环切换适配器为焦点模型公布的推理强度，Enter 选择模型和推理强度，Escape 关闭。适配器未公布默认推理强度时，循环还会包含 `provider default`，该项会清除显式选择；没有可选推理强度元数据的模型会忽略 Shift+Tab。选择器会原样呈现公布的推理强度列表（包括存在时的 `off`），不会合成、自动调整或在模型之间转移推理强度。`/model <model>` 仍可直接选择无歧义的模型 id，`/model <provider>/<model>` 则选择精确目标，并在存在时使用其适配器默认值。已配置目标或最新记录的请求 header 会初始化选择器；由于 catalog 仅提供建议，未列出的当前模型仍会显示。选择仅对本 TUI 会话有效。提示词组装会为一个步骤建立目标快照，替换 `{{provider}}` 和 `{{model}}`，并通过 `agent/request` 应用同一个提供方／模型／推理强度目标；因此组装期间的切换会从后续步骤开始生效。请求 header 会持久记录真正到达模型的目标，未使用的选择则只存在于进程本地。
 
 `/reload`（实验性，仅开发环境）会重新读取所有基于文件的 loader 配置树，并把 diff 应用到运行中 app：它手动调用 HMR（热模块替换）watcher 的配置路径；上下文中必须有 cordis Loader，否则退化为警告。它只在 agent 空闲时运行，并拒绝 reload 进行期间的再次进入。模块源代码热重载仍由 watcher 持有。挂载 `skills` 服务后，`/skill:<name> [instructions]` 会把该 skill 的指令作为一个 user 轮次加载到会话中；自动补全列出模型可调用的 skill，任何 skill（包括模型禁用的 skill）都可通过精确名称加载。
 
-Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任何输入计费后，后面会显示 `cache <rate>%`，表示提供方缓存服务的已计费提示词 token 占比（未缓存输入加缓存读写），并四舍五入为百分比。它还会比较 token-meter 压力与当前路由的 `ctx.llm.resolveModelContext()`（适配器没有容量元数据时省略上下文占比），并显示当前模型和工具卡片模式；footer 过窄时，右侧会优先裁剪。
+Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任何输入计费后，后面会显示 `cache <rate>%`，表示提供方缓存服务的已计费提示词 token 占比（未缓存输入加缓存读写），并四舍五入为百分比。它还会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较（适配器没有容量元数据时省略上下文占比），并显示当前模型和工具卡片模式；footer 过窄时，右侧会优先裁剪。
 
-`/status` 会向 transcript 添加一张时间点诊断卡片，并在 agent 运行时保持可用。它报告会话 id、标题、工作目录、所选提供方／模型、reasoning 块可见性、agent 状态、事件／轮次／步骤／工具调用计数、精确输入／输出／缓存 token bucket、KV-cache 命中率、token-meter 上下文用量与容量、创建时间和最新事件时间。缺失标题、模型、缓存输入或上下文容量时会明确标记，而非推断。该卡片只存在于终端，不会重复紧凑 footer。
+`/status` 会向 transcript 添加一张时间点诊断卡片，并在 agent 运行时保持可用。它报告会话 id、标题、工作目录、所选提供方／模型、所选推理强度或默认行为、reasoning 块可见性、agent 状态、事件／轮次／步骤／工具调用计数、精确输入／输出／缓存 token bucket、KV-cache 命中率、token-meter 上下文用量与容量、创建时间和最新事件时间。缺失标题、模型、缓存输入或上下文容量时会明确标记，而非推断。该卡片只存在于终端，不会重复紧凑 footer。
 
 `/resume` 会针对当前工作区打开全 viewport 键盘选择器，而非居中对话框。获得焦点的搜索字段紧跟搜索 glyph 开始，并发出 pi-tui 的 cursor marker，使终端 IME 组合保持锚定在字段内。候选项按最近记录的活动排序，可按日志支持的标题或会话 id 搜索；每行报告 current/live/persisted 状态、上一轮次结果、近期提供方／模型，以及存在时的持久目标阶段。Up/Down 与 Page Up/Page Down 导航，Enter 恢复，Escape 会先清除非空搜索，再次按下才取消，Ctrl+C 则直接取消。当前会话、已在本运行时中活跃的会话、不可读日志、cwd 不匹配或日志所记提供方没有当前适配器的会话仍会显示，但不可选择。选择时会重复这些检查，并要求当前 agent 空闲，随后 flush 当前会话。TUI 接着停止终端 UI，并调用由宿主持有的可选 `TuiRuntime.handoffResume`；存在 `process.execve` 时，发布的 `dsh` 宿主会对 app 执行 dispose（资源释放）并替换自身进程。恢复操作保留相同的 `SessionId`、transcript、标题、todo 和持久目标；目标激活仍保持解除，TUI 会要求用户确认或执行 `/goal resume`。
 
@@ -49,7 +49,7 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
 | `maxResumeOptions` | `8` | 恢复选择器中可见的会话数 |
 | `questionDialogWidth` | `200` | 问题面板宽度（列数），以终端宽度为上限 |
 | `questionDialogMaxHeight` | `20` | 问题面板最大行数 |
-| `modelDialogWidth` | `72` | 模型选择器宽度（列数） |
+| `modelDialogWidth` | `76` | 模型选择器宽度（列数） |
 | `modelDialogMaxHeight` | `20` | 模型选择器最大行数 |
 | `fileSearchMaxResults` | `20` | 一次 `@` 查询显示的最大文件和目录候选数 |
 | `fileSearchMaxEntries` | `10000` | 无路径模糊查询使用的有界工作区索引最多保留的路径数 |
@@ -116,7 +116,7 @@ Paths prefixed with @ are files explicitly referenced by the user. Use the read 
 
 #### 模型看到的内容
 
-`/model` 命令文本和键盘选择器输入均不会记录或发送。新步骤会在提示词变量和请求路由中同时收到所选提供方／模型对。
+`/model` 命令文本和键盘选择器输入均不会记录或发送。新步骤会在提示词变量中收到所选提供方／模型路由，并在请求路由中收到所选提供方／模型／推理强度目标。
 
 #### Token 影响
 

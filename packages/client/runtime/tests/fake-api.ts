@@ -62,7 +62,7 @@ export class FakeApiClient implements IApiClient {
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
+  => Promise<RpcResponse<{ events: never[]; hasMore: boolean; todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[] }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
