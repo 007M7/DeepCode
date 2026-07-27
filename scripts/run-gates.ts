@@ -32,7 +32,8 @@ export type Mode = keyof typeof MODE_SCRIPTS
 
 const MODES = Object.keys(MODE_SCRIPTS) as Mode[]
 
-type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
+type GateResultStatus = 'passed' | 'failed' | 'skipped'
+type GateState = 'pending' | 'running' | GateResultStatus
 
 /** One scheduler-owned environment operation, resolved against inherited values only at spawn time. */
 export type GateEnvironmentOverride =
@@ -64,7 +65,7 @@ export interface GatePlan {
 /** The observed outcome of one gate process. */
 export interface GateResult {
   gate: Gate
-  status: GateStatus
+  status: GateResultStatus
   durationMs: number
   stdout: string
   stderr: string
@@ -874,7 +875,7 @@ async function runGates(
   execute: GateExecutor,
   observe: ResultObserver,
 ): Promise<GateResult[]> {
-  const states = new Map<string, GateStatus>(allGates.map(gate => [gate.id, 'pending']))
+  const states = new Map<string, GateState>(allGates.map(gate => [gate.id, 'pending']))
   const results = new Map<string, GateResult>()
   const running: RunningGate[] = []
 
@@ -936,7 +937,7 @@ async function runGates(
   })
 }
 
-function dependenciesPassed(gate: Gate, states: Map<string, GateStatus>): boolean {
+function dependenciesPassed(gate: Gate, states: Map<string, GateState>): boolean {
   return (gate.needs ?? []).every(id => states.get(id) === 'passed')
 }
 
@@ -983,7 +984,7 @@ export async function runGate(gate: Gate): Promise<GateResult> {
   })
   const { exitCode, signalCode } = outcome
 
-  let status: GateStatus = exitCode === 0 && signalCode === null && spawnError === undefined ? 'passed' : 'failed'
+  let status: GateResultStatus = exitCode === 0 && signalCode === null && spawnError === undefined ? 'passed' : 'failed'
   let error = spawnError
   if (status === 'passed' && gate.verify !== undefined) {
     try {
