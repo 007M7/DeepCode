@@ -75,6 +75,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
             items={WORKSPACE_MENU_ITEMS}
             onSelect={(id) => {
               setMenuOpen(false)
+              // Unknown ids leave before the dispatch: a future menu row must
+              // not inherit the destructive branch as an else fallback.
+              /* v8 ignore next -- WORKSPACE_MENU_ITEMS carries exactly these two rows today. */
+              if (id !== 'rename' && id !== 'delete') return
               if (id === 'rename') actions.rename()
               else actions.delete()
             }}

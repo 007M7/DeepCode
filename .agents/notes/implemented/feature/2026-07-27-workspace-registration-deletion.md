@@ -22,6 +22,8 @@ Registry operations serialize create and delete. Deletion first writes the Works
 
 The Host stream keeps its committed-id set through the preceding global-order write and removes the id only on the table deletion. Create rollback therefore emits no false removal, while every connected tab receives exactly the id needed to delete its projection.
 
+Create and delete write a durable `pendingMutation` before their record/order pair can diverge. Startup completes only the named create or delete and clears the marker; it never infers crash provenance from an orphan row alone. Unmarked order/table divergence therefore retains the registry's fail-loud corruption behavior. A deletion whose table write committed but marker cleanup failed still reports success—the requested state and removal frame are already committed—and the next startup clears that marker idempotently.
+
 ## Client convergence
 
 `WorkspaceManager` treats both `host/workspace-changed` and `host/workspace-removed` as ordered deltas replayed over an in-flight `workspace.list` response. A successful unary delete removes the row immediately instead of waiting for its own stream echo. Removal is idempotent, and a process-local tombstone rejects late changed frames or stale baseline rows for the never-reused Workspace id. A reconnect still refreshes from `workspace.list`; Session state is never pruned by a Workspace delta.
@@ -40,14 +42,16 @@ The menu, Modal, and buttons retain their existing structure and design tokens. 
 
 **Delete the table row and repair order later.** Rejected because a crash or write failure would leave an initialized registry whose order and table disagree. The registry updates both under one serialized operation and restores the prior order on table failure.
 
+**Delete every unreferenced row at startup.** Rejected because the same shape can come from unexplained order corruption; silently discarding it could lose Workspace metadata and Session accounting. Recovery requires the explicit pending marker written by the owning mutation.
+
 **Refetch both lists after success.** Rejected because the committed removal frame plus immediate unary echo is sufficient, preserves the current Session object, and avoids turning a local mutation into two list requests. Reconnect baselines remain the repair path.
 
 ## Verification
 
-Workspace package tests pin successful metadata-only deletion, unknown-id idempotence, table-failure rollback, and cache/table invariant behavior. Apiproxy and carrier tests pin the schema, handler, `workspace-not-found`, retained Session/folder, and committed `host/workspace-removed` frame. Client tests pin unary direct echo, duplicate removal, late changed frames, and deletion racing an in-flight baseline. Component tests pin confirmation, pending-state duplicate suppression, success, failure, Cancel, Escape, and Close.
+Workspace package tests pin successful metadata-only deletion, same-path re-registration, unknown-id idempotence, table-failure rollback, explicit-marker restart recovery, unexplained-corruption rejection, and cache/table invariant behavior. Apiproxy and carrier tests pin the schema, handler, `workspace-not-found`, retained Session/folder, fresh-id re-registration, and committed `host/workspace-removed` frame. Client tests pin unary direct echo, duplicate removal, late changed frames, and deletion racing an in-flight baseline. Component tests pin confirmation, pending-state duplicate suppression, success, failure, Cancel, Escape, and Close.
 
 The assembled keyless Web scenario registers an existing temporary project directory, accounts a persisted Session, makes that Session current, confirms deletion in Chromium, and verifies the Workspace group disappears while Ungrouped retains the current Session. It checks the user file and JSONL log before and after deletion and repeats the UI, directory, and log assertions after reload.
 
 ## Consequences
 
-Deleting a Workspace is intentionally reversible by registering the same directory again, although its prior manual Session order is gone; re-registration does not automatically re-adopt existing Sessions after bootstrap. The operation gives up a one-click cleanup of Session histories or source directories in exchange for a deletion boundary that matches what the record actually owns.
+Deleting a Workspace is intentionally reversible by registering the same directory again with a fresh id, although its prior manual Session order is gone; re-registration does not automatically re-adopt existing Sessions after bootstrap. The operation gives up a one-click cleanup of Session histories or source directories in exchange for a deletion boundary that matches what the record actually owns.

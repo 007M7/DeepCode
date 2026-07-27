@@ -18,6 +18,8 @@ The entity/storage rationale lives in the [domain Agent Note](../../../.agents/n
 
 `storageDomain` and `sessionPersistence` are required startup dependencies. An unavailable peer leaves the plugin pending and cannot commit an empty initialized marker. On the first successful start, the registry calls `SessionPersistence.list()` and uses only header `id`, `cwd`, and `createdAt` to group valid historical directories and persist initial order; it never reads event bodies. The initialized marker is written last, so partial bootstrap writes are reused safely after restart. Later cwd-only sessions remain Ungrouped.
 
+Create and delete persist an explicit pending-mutation marker before their record and order can diverge. Startup completes only the marked mutation, then clears the marker; an unmarked order/table mismatch remains unexplained corruption and fails loud. Deleting and re-registering the same path creates a fresh Workspace id and does not automatically re-adopt the retained Sessions.
+
 ## Model Experience
 
 ### Workspace records and session accounts

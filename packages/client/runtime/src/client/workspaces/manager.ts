@@ -33,6 +33,14 @@ export class WorkspaceManager {
   private error: RpcError | null = null
   private inflight: Promise<void> | null = null
   private refreshFrames: WorkspaceDelta[] | null = null
+  /**
+   * Ids this process has seen removed, kept for the connection's lifetime so
+   * a late changed frame or a stale baseline row cannot resurrect a deleted
+   * row. Correctness rests on Host ids never being reused (the registry mints
+   * a fresh `randomUUID` per record, including when the same directory is
+   * registered again) — a path-derived id scheme would turn these entries
+   * into permanent blindfolds and must clear them instead.
+   */
   private readonly removedIds = new Set<WorkspaceId>()
   private snapshotCache: WorkspaceListSnapshot
   private readonly notifier = new Notifier(() => {
@@ -266,7 +274,7 @@ function upsertWorkspace(items: readonly WorkspaceView[], workspace: WorkspaceVi
     : items.map((item, position) => position === index ? workspace : item)
 }
 
-
+/** Replay one ordered delta over a baseline: upsert in place, or drop the removed id. */
 function applyWorkspaceDelta(items: readonly WorkspaceView[], delta: WorkspaceDelta): WorkspaceView[] {
   return delta.type === 'upsert'
     ? upsertWorkspace(items, delta.workspace)

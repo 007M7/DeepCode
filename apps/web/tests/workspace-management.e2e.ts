@@ -169,6 +169,34 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await stat(logLocation.path)
     expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
 
+    // Re-registering the exact deleted path immediately, without a reload, is
+    // a supported reversible flow. It creates a fresh Workspace id without
+    // re-adopting the retained Session.
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
+    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
+    const reuseFolder = page.getByRole('dialog', { name: 'Use an existing folder' })
+    await reuseFolder.getByLabel('Existing folder path').fill(scaffold.workspaceCwd)
+    await reuseFolder.getByRole('button', { name: 'Use folder' }).click()
+    await expect.poll(() => reuseFolder.count(), { timeout: 10_000 }).toBe(0)
+    const reregistered = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
+    expect(reregistered?.id).toBeDefined()
+    expect(reregistered?.id).not.toBe(workspace.id)
+    expect(reregistered?.sessionIds).toEqual([])
+    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(1)
+    expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')
+    await stat(logLocation.path)
+
+    // Restore the deleted-registry state so reload still verifies deletion
+    // persistence independently of the successful re-registration above.
+    if (reregistered === undefined) throw new Error('same-path re-registration did not materialize')
+    await scaffold.ctx.workspace.delete(reregistered.id)
+    await expect.poll(
+      () => page.getByRole('button', { name: `Workspace actions for ${reregistered.title}` }).count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -183,6 +211,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')
     await stat(logLocation.path)
     expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
+
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 

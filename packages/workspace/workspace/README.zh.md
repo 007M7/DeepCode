@@ -18,6 +18,8 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspace`）：通过领�
 
 `storageDomain` 和 `sessionPersistence` 是启动必需依赖。对等服务不可用时，插件保持待处理，且不能提交空的已初始化标记。首次成功启动时，注册表调用 `SessionPersistence.list()`，仅使用头部 `id`、`cwd` 和 `createdAt` 对有效历史目录分组并持久化初始顺序；它绝不读取事件正文。已初始化标记最后写入，因此重启后可安全复用部分启动写入。后续仅有 cwd 的会话仍属于 Ungrouped。
 
+Create 与 delete 会在记录和顺序可能分叉之前，先持久化明确的待处理变更标记。启动时只补全被该标记证明的变更，随后清除标记；没有标记的顺序／表不一致仍属于来源不明的损坏，并会直接失败。删除后重新注册同一路径会生成新的 Workspace id，且不会自动重新接纳保留下来的 Session。
+
 ## 模型体验
 
 ### Workspace 记录与会话记账

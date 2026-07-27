@@ -269,6 +269,12 @@ describe('Host Workspace increments', () => {
       ok: false,
       error: { code: 'workspace-not-found', details: { workspaceId: workspace.workspaceId } },
     })
+
+    const reregistered = expectOk(await api.workspace.create(request({ path: workspace.path }))).workspace
+    expect(reregistered.workspaceId).not.toBe(workspace.workspaceId)
+    expect(reregistered.path).toBe(workspace.path)
+    expect(reregistered.sessionIds).toEqual([])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
     abort.abort()
   })
 })
