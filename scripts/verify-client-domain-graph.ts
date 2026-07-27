@@ -14,8 +14,8 @@
  *   pnpm exec tsx scripts/verify-client-domain-graph.ts
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { globSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, resolve, sep } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const CLIENT_DIR = join(root, 'packages/client')
@@ -28,15 +28,11 @@ const ASSEMBLY_FILES = new Set(['apply.ts', 'index.ts', 'index.tsx'])
 interface Violation { file: string; imported: string; reason: string }
 
 /** Recursively list .ts/.tsx files under dir (relative paths). */
-function listSources(dir: string, prefix = ''): string[] {
-  const out: string[] = []
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name)
-    const rel = prefix ? `${prefix}/${name}` : name
-    if (statSync(full).isDirectory()) out.push(...listSources(full, rel))
-    else if (/\.tsx?$/.test(name) && !/\.legacy\./.test(name)) out.push(rel)
-  }
-  return out
+function listSources(dir: string): string[] {
+  return globSync('**/*.{ts,tsx}', { cwd: dir })
+    .map(rel => rel.split(sep).join('/'))
+    .filter(rel => !/\.legacy\./.test(rel.slice(rel.lastIndexOf('/') + 1)))
+    .sort()
 }
 
 /** First path segment of a client-relative file, or '' for top-level files. */
