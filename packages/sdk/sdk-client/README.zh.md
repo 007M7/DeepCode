@@ -20,7 +20,7 @@ const result = await harness.run('say hi')
 console.log(result.status, result.finalResponse)
 ```
 
-子进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须 `close()`（或 `await using`），子进程才总能被收割。`start()` 记忆化 `initialize` 握手（cwd + provider/model 路由）；握手失败会关闭运行时并复位，后续调用可以重试。`session(id?)` 打开具名或全新的会话句柄；`run(input, { sessionId?, onNotification? })` 发送一个 prompt 回合，在配对的 `session.finished` 到达时尘埃落定，返回 `TurnResult`：`status`（按部署映射的 `ok`/`error`）、结构化 `reason`（`TurnEndReason`）、`finalResponse`（最后一条助手消息文本），以及该会话树内按线序观察到的全部 `session.event` 封套与原始通知。模型层失败是 `status: 'error'` 的结果，绝不是拒绝；拒绝意味着传输丢失、超时或协议违例。
+子进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须 `close()`（或 `await using`），子进程才总能被收割。`start()` 记忆化 `initialize` 握手（工作区 cwd——在跨越线之前解析为绝对路径——加 provider/model 路由）；握手失败会收割运行时并换入全新客户端，后续调用用新子进程重试（直到终结性的 `close()`）。`session(id?)` 打开具名或全新的会话句柄；`run(input, { sessionId?, onNotification? })` 发送一个 prompt 回合，在配对的 `session.finished` 到达时尘埃落定，返回 `TurnResult`：`status`（按部署映射的 `ok`/`error`）、结构化 `reason`（`TurnEndReason`）、`finalResponse`（最后一条助手消息文本），以及该会话树内按线序观察到的全部 `session.event` 封套与原始通知。模型层失败是 `status: 'error'` 的结果，绝不是拒绝；拒绝意味着传输丢失、超时或协议违例。
 
 ## HarnessClient
 

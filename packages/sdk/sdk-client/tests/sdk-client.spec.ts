@@ -5,9 +5,9 @@
  * and session-tree scoping, error surfaces, timeouts, and the dispose ladder.
  */
 
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -122,6 +122,31 @@ describe('DeepSeekHarness', () => {
     expect(records).toEqual([{ cwd: dir, provider: 'custom-provider', model: 'custom-model' }])
   })
 
+  it('resolves a relative launch cwd to an absolute workspace before the handshake', async () => {
+    // vitest workers forbid chdir, so derive a RELATIVE path from the real
+    // process cwd to a temp worker dir; resolution is lexical either way.
+    const dir = await tempDir('sdk-client-relcwd-')
+    const recordFile = join(dir, 'init.jsonl')
+    const inner = join(dir, 'worker')
+    await mkdir(inner)
+    const relativeCwd = relative(process.cwd(), inner)
+    expect(isAbsolute(relativeCwd)).toBe(false)
+    const harness = new DeepSeekHarness({
+      launch: fakeLaunch({ FAKE_RECORD_INIT: recordFile, FAKE_ECHO_CWD_IN_INIT: '1' }, { cwd: relativeCwd }),
+    })
+    cleanups.push(() => harness.close())
+    await harness.start()
+    const identity = await harness.client.initialize({ cwd: inner, provider: 'p', model: 'm' })
+    await harness.close()
+    // The child spawned under the temp worker dir (its physical cwd)...
+    expect(identity.serverInfo.version).toBe(await realpath(inner))
+    // ...and the handshake wire cwd went out ABSOLUTE, so the child cannot
+    // re-resolve a relative string into dir/worker/worker.
+    const records = (await readFile(recordFile, 'utf8')).trim().split('\n')
+      .map(line => (JSON.parse(line) as { cwd: string }).cwd)
+    expect(records).toEqual([resolvePath(relativeCwd), inner])
+  })
+
   it('propagates a JSON-RPC error response from initialize and closes the runtime', async () => {
     const harness = harnessWith({ FAKE_INIT_ERROR: '1' })
     const failure = await harness.run('boom').then(
@@ -132,6 +157,23 @@ describe('DeepSeekHarness', () => {
     expect(failure).toMatchObject({ code: 7, message: 'scripted init failure', data: { hint: 'fake' } })
     // The failed handshake reset lets a later start retry instead of wedging.
     await expect(harness.run('later')).rejects.toThrow()
+  })
+
+  it('retries a failed handshake with a fresh runtime process', async () => {
+    const dir = await tempDir('sdk-client-retry-')
+    const marker = join(dir, 'first-boot-failed')
+    const harness = harnessWith({ FAKE_INIT_ERROR_ONCE_FILE: marker, FAKE_TEXT: 'second boot answer' })
+    const firstClient = harness.client
+    // First start: the scripted runtime fails the handshake and is reaped.
+    await expect(harness.start()).rejects.toThrow('scripted first-boot failure')
+    // Retry spawns a NEW subprocess through a fresh client (close is permanent).
+    const result = await harness.run('again')
+    expect(harness.client).not.toBe(firstClient)
+    expect(result.status).toBe('ok')
+    expect(result.finalResponse).toBe('second boot answer')
+    await harness.close()
+    // close() is terminal: a handshake failure after it must not respawn.
+    await expect(harness.run('after-close')).rejects.toThrow(TransportClosedError)
   })
 
   it('rejects a malformed initialize result as a protocol error', async () => {
@@ -159,6 +201,22 @@ describe('HarnessClient', () => {
     await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
     await expect(client.request('session/prompt', { sessionId: 's', contentBlocks: normalizeInput('hi') }, 200))
       .rejects.toThrow(RequestTimeoutError)
+    await client.close()
+  })
+
+  it('a timed-out request leaves no pending transport state', async () => {
+    const client = new HarnessClient(fakeLaunch({ FAKE_HANG_PROMPT: '1' }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    for (let round = 0; round < 3; round++) {
+      await expect(client.request('session/prompt', { sessionId: 's', contentBlocks: normalizeInput('x') }, 50))
+        .rejects.toThrow(RequestTimeoutError)
+    }
+    // Abandonment removed each pending entry at its timeout; a hung method
+    // retains nothing per call. (Private map read is the observable here —
+    // no wire surface reports transport bookkeeping.)
+    const transport = (client as unknown as { transport: { pending: Map<string, unknown> } }).transport
+    expect(transport.pending.size).toBe(0)
     await client.close()
   })
 
@@ -255,6 +313,10 @@ describe('HarnessClient', () => {
     expect(finished.method).toBe('session.finished')
     expect(finishedOnly.tryNext()).toBeUndefined()
 
+    // A bare unbounded request with omitted params sends `{}` on the wire.
+    const identity = await client.request('initialize') as { serverInfo: { name: string } }
+    expect(identity.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
+
     // Async iteration consumes queued items and then parks.
     const collected: string[] = []
     for await (const notification of all) {
@@ -267,6 +329,56 @@ describe('HarnessClient', () => {
     finishedOnly.close()
     await expect(all.next()).rejects.toThrow('notification subscription closed')
     await client.close()
+  })
+
+  it('contains a throwing filter to its own subscription', async () => {
+    const client = new HarnessClient(fakeLaunch())
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+
+    const broken = client.subscribe(() => { throw new Error('filter exploded') })
+    // A non-Error throw is normalized rather than crashing dispatch.
+    const brokenNonError = client.subscribe(() => { throw 'string boom' })
+    const healthy = client.subscribe(n => n.method === 'session.finished')
+    await client.prompt('filter-contain', normalizeInput('go'))
+
+    // The sibling subscription and the read loop are undisturbed.
+    expect((await healthy.next()).method).toBe('session.finished')
+    // Each broken subscription failed with ITS OWN error and detached.
+    await expect(broken.next()).rejects.toThrow('filter exploded')
+    await expect(brokenNonError.next()).rejects.toThrow('string boom')
+    healthy.close()
+    await client.close()
+  })
+
+  it('close() drops queued notifications; runtime death keeps them drainable', async () => {
+    const client = new HarnessClient(fakeLaunch())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    const closed = client.subscribe()
+    const drainable = client.subscribe()
+    await client.prompt('queue-drop', normalizeInput('go'))
+    expect(closed.tryNext()).toBeDefined()
+    closed.close()
+    // Manual close drops the rest of the queue outright.
+    expect(closed.tryNext()).toBeUndefined()
+    await expect(closed.next()).rejects.toThrow('notification subscription closed')
+    // Runtime teardown, by contrast, only stops FUTURE delivery: what was
+    // already delivered before close() stays drainable.
+    await client.close()
+    expect(drainable.tryNext()).toBeDefined()
+  })
+
+  it('subscriptions created after termination are born failed', async () => {
+    const client = new HarnessClient(fakeLaunch())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.close()
+    // No producer can ever feed this subscription; next() must not park forever.
+    await expect(client.subscribe().next()).rejects.toThrow(TransportClosedError)
+
+    const dead = new HarnessClient(fakeLaunch({ FAKE_EXIT_BEFORE_INIT: '1' }))
+    cleanups.push(() => dead.close())
+    await dead.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' }).catch(() => {})
+    await expect(dead.subscribe().next()).rejects.toThrow(TransportClosedError)
   })
 
   it('closes subscriptions with the runtime and rejects parked waiters', async () => {
@@ -307,6 +419,28 @@ describe('HarnessClient', () => {
     expect((await tree.next()).params.childSessionId).toBe('root')
     tree.close()
     await client.close()
+  })
+})
+
+describe('wire payload validation', () => {
+  it('rejects a non-object session.event envelope as a protocol error', async () => {
+    const harness = harnessWith({ FAKE_MALFORMED_EVENT: '1' })
+    await expect(harness.run('bad-event')).rejects.toThrow(SdkProtocolError)
+  })
+
+  it('rejects an assistant/message without a content array as a protocol error', async () => {
+    const harness = harnessWith({ FAKE_MALFORMED_MESSAGE: '1' })
+    await expect(harness.run('bad-message')).rejects.toThrow(SdkProtocolError)
+  })
+
+  it('rejects an assistant/message without a data member as a protocol error', async () => {
+    const harness = harnessWith({ FAKE_MESSAGE_WITHOUT_DATA: '1' })
+    await expect(harness.run('no-data')).rejects.toThrow(SdkProtocolError)
+  })
+
+  it('rejects a malformed session.finished reason as a protocol error', async () => {
+    const harness = harnessWith({ FAKE_MALFORMED_REASON: '1' })
+    await expect(harness.run('bad-reason')).rejects.toThrow(SdkProtocolError)
   })
 })
 

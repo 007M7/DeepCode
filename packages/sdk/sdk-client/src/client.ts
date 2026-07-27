@@ -81,8 +81,9 @@ export class NotificationSubscription implements AsyncIterable<HarnessNotificati
 
   /**
    * Await the next matching notification.
-   * @returns the notification; rejects once the runtime is closed or the
-   * subscription itself is closed.
+   * @returns the notification; after the runtime died, drains what was
+   * already delivered and then rejects; after {@link close}, rejects
+   * immediately (the queue is dropped).
    */
   next(): Promise<HarnessNotification> {
     const queued = this.state.queue.shift()
@@ -104,11 +105,15 @@ export class NotificationSubscription implements AsyncIterable<HarnessNotificati
   /** Detach from the client; queued items drop and pending waiters reject. */
   close(): void {
     this.unsubscribe()
+    // The drop is part of this method's contract; a runtime-death fail() keeps
+    // the queue so already-delivered notifications remain drainable.
+    this.state.queue.length = 0
     this.fail(new TransportClosedError('notification subscription closed'))
   }
 
   /**
    * Reject pending and future waits (delivery stops; the first failure wins).
+   * Already-queued notifications remain drainable via {@link next}/{@link tryNext}.
    * @param error - the terminal failure delivered to waiters.
    */
   fail(error: Error): void {
@@ -117,11 +122,22 @@ export class NotificationSubscription implements AsyncIterable<HarnessNotificati
   }
 
   /**
-   * Deliver one notification to a waiter or the queue when the filter matches.
+   * Deliver one notification to a waiter or the queue when the filter
+   * matches. A throwing filter fails only THIS subscription (detached, the
+   * throw becomes its terminal error) — it never disturbs sibling
+   * subscriptions or the transport's read loop, mirroring the Python client.
    * @param notification - the wire notification to deliver.
    */
   push(notification: HarnessNotification): void {
-    if (this.state.filter !== undefined && !this.state.filter(notification)) return
+    let matches: boolean
+    try {
+      matches = this.state.filter === undefined || this.state.filter(notification)
+    } catch (error) {
+      this.unsubscribe()
+      this.fail(error instanceof Error ? error : new Error(String(error)))
+      return
+    }
+    if (!matches) return
     const waiter = this.state.waiters.shift()
     if (waiter !== undefined) waiter.resolve(notification)
     else this.state.queue.push(notification)
@@ -273,22 +289,18 @@ export class HarnessClient {
     const transport = this.transport
     /* v8 ignore next -- start() either sets the transport or throws */
     if (transport === undefined) throw new TransportClosedError('DeepSeek Harness runtime is not running')
-    const pending = transport.request(method, params ?? {})
     const timeout = timeoutMs ?? this.options.requestTimeoutMs
     try {
-      if (timeout === undefined) return await pending
-      let timer: NodeJS.Timeout | undefined
+      if (timeout === undefined) return await transport.request(method, params ?? {})
+      // The abort signal makes the timeout an abandonment: the transport drops
+      // its pending entry, so repeated bounded requests against a hung method
+      // retain no per-call state (the server-side work still runs to close).
+      const abandon = new AbortController()
+      const timer = setTimeout(() => {
+        abandon.abort(new RequestTimeoutError(`${method} timed out after ${timeout}ms waiting for the DeepSeek Harness runtime`))
+      }, timeout)
       try {
-        return await Promise.race([
-          pending,
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              // The abandoned wire promise settles on close; keep it handled.
-              pending.catch(() => {})
-              reject(new RequestTimeoutError(`${method} timed out after ${timeout}ms waiting for the DeepSeek Harness runtime`))
-            }, timeout)
-          }),
-        ])
+        return await transport.request(method, params ?? {}, abandon.signal)
       } finally {
         clearTimeout(timer)
       }
@@ -303,12 +315,18 @@ export class HarnessClient {
   /**
    * Subscribe to server notifications.
    * @param filter - optional predicate; omitted means every notification.
-   * @returns the subscription handle; close it to stop delivery.
+   * @returns the subscription handle; close it to stop delivery. After
+   * {@link close} or runtime death the handle is born failed — there is no
+   * producer left, so `next()` rejects instead of waiting forever.
    */
   subscribe(filter?: NotificationFilter): NotificationSubscription {
     const id = String(this.subscriptionSerial++)
     const state: SubscriptionState = { queue: [], waiters: [], filter, failure: undefined }
     const subscription = new NotificationSubscription(state, () => { this.subscriptions.delete(id) })
+    if (this.closeTask !== undefined || this.exitCode !== undefined || this.spawnError !== undefined) {
+      subscription.fail(this.closedError('DeepSeek Harness runtime closed'))
+      return subscription
+    }
     this.subscriptions.set(id, subscription)
     return subscription
   }

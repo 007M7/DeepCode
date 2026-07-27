@@ -8,9 +8,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
-import { HarnessClient } from './client.ts'
-import type { ContentBlock, DeepSeekHarnessOptions, HarnessNotification, TurnResult } from './types.ts'
+import { HarnessClient, isRecord, SdkProtocolError } from './client.ts'
+import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, HarnessNotification, TurnResult } from './types.ts'
 
 /**
  * Reusable SDK for running DeepSeek Harness agent turns in a runtime
@@ -19,33 +20,52 @@ import type { ContentBlock, DeepSeekHarnessOptions, HarnessNotification, TurnRes
  * child is reaped.
  */
 export class DeepSeekHarness implements AsyncDisposable {
-  /** The underlying JSON-RPC client (exposed for low-level access). */
-  readonly client: HarnessClient
+  private clientInstance: HarnessClient
+  private readonly launch: HarnessClientOptions
   private readonly cwd: string
   private readonly provider: string
   private readonly model: string
   private initialized: Promise<void> | undefined
+  private closed = false
 
   /** @param options - runtime launch spec plus the session route (cwd/provider/model). */
   constructor(options: DeepSeekHarnessOptions) {
-    this.client = new HarnessClient(options.launch)
-    this.cwd = options.cwd ?? options.launch.cwd ?? process.cwd()
+    this.launch = options.launch
+    this.clientInstance = new HarnessClient(options.launch)
+    // Absolute before the handshake: the child spawns relative to THIS
+    // process's cwd, but the wire cwd is resolved again inside the child — a
+    // relative value would double-resolve (e.g. `worker` → `worker/worker`).
+    this.cwd = resolve(options.cwd ?? options.launch.cwd ?? process.cwd())
     this.provider = options.provider ?? 'deepseek'
     this.model = options.model ?? 'deepseek-v4-flash'
   }
 
   /**
-   * Start the subprocess and perform the `initialize` handshake once.
+   * The underlying JSON-RPC client (exposed for low-level access). A failed
+   * handshake reaps its runtime and swaps in a fresh instance, so do not
+   * cache this across a failed {@link start}.
+   * @returns the client currently owning the runtime subprocess.
+   */
+  get client(): HarnessClient {
+    return this.clientInstance
+  }
+
+  /**
+   * Start the subprocess and perform the `initialize` handshake once. On
+   * failure the runtime is reaped and a fresh client replaces it
+   * (`HarnessClient.close` is permanent), so a later call retries with a new
+   * subprocess — unless {@link close} already ended this harness.
    * @returns settlement of the (memoized) handshake.
    */
   start(): Promise<void> {
     this.initialized ??= (async () => {
       try {
-        this.client.start()
-        await this.client.initialize({ cwd: this.cwd, provider: this.provider, model: this.model })
+        this.clientInstance.start()
+        await this.clientInstance.initialize({ cwd: this.cwd, provider: this.provider, model: this.model })
       } catch (error) {
         this.initialized = undefined
-        await this.client.close()
+        await this.clientInstance.close()
+        if (!this.closed) this.clientInstance = new HarnessClient(this.launch)
         throw error
       }
     })()
@@ -73,11 +93,13 @@ export class DeepSeekHarness implements AsyncDisposable {
   }
 
   /**
-   * Shut down and reap the runtime subprocess. Idempotent.
+   * Shut down and reap the runtime subprocess. Idempotent and terminal —
+   * a closed harness no longer retries a failed handshake.
    * @returns settlement of the complete teardown.
    */
   close(): Promise<void> {
-    return this.client.close()
+    this.closed = true
+    return this.clientInstance.close()
   }
 
   /**
@@ -128,16 +150,26 @@ export class HarnessSession {
 
     const subscription = client.subscribeSessionTree(this.id)
     const collect = (notification: HarnessNotification): void => {
-      notifications.push(notification)
-      options?.onNotification?.(notification)
       if (notification.method === 'session.event' && notification.params.sessionId === this.id) {
-        events.push(notification.params.event as SessionEvent)
+        // Wire boundary: the envelope feeds the typed TurnResult, so a
+        // malformed runtime surfaces as a protocol error, not as type-invalid
+        // data (or a TypeError out of finalResponse).
+        const event = validatedSessionEvent(notification.params.event)
+        notifications.push(notification)
+        options?.onNotification?.(notification)
+        events.push(event)
+        return
       }
       if (notification.method === 'session.finished' && notification.params.sessionId === this.id) {
+        reason = validatedTurnEndReason(notification.params.reason)
+        notifications.push(notification)
+        options?.onNotification?.(notification)
         status = notification.params.status === 'ok' ? 'ok' : 'error'
-        reason = notification.params.reason as TurnEndReason | undefined
         finished = true
+        return
       }
+      notifications.push(notification)
+      options?.onNotification?.(notification)
     }
     const accepted = client.prompt(this.id, contentBlocks)
     // Drain concurrently so observers see progress while the prompt request
@@ -173,6 +205,32 @@ export class HarnessSession {
  */
 export function normalizeInput(input: string | ContentBlock[]): ContentBlock[] {
   return typeof input === 'string' ? [{ type: 'text', text: input }] : input
+}
+
+/** Validate a wire `session.event` envelope to the shape the typed result exposes. */
+function validatedSessionEvent(value: unknown): SessionEvent {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    throw new SdkProtocolError(`session.event carried no event envelope: ${JSON.stringify(value)}`)
+  }
+  // The one variant this module reads into (finalResponse) must carry
+  // kind-tagged content blocks; other variants pass through under their
+  // envelope shape.
+  if (value.type === 'assistant/message') {
+    const content = isRecord(value.data) ? value.data.content : undefined
+    if (!Array.isArray(content) || !content.every(block => isRecord(block) && typeof block.type === 'string')) {
+      throw new SdkProtocolError(`assistant/message event carried malformed content: ${JSON.stringify(value)}`)
+    }
+  }
+  return value as unknown as SessionEvent
+}
+
+/** Validate a wire `session.finished` reason (absent, or a kind-tagged record). */
+function validatedTurnEndReason(value: unknown): TurnEndReason | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value) || typeof value.kind !== 'string') {
+    throw new SdkProtocolError(`session.finished carried a malformed reason: ${JSON.stringify(value)}`)
+  }
+  return value as unknown as TurnEndReason
 }
 
 /**

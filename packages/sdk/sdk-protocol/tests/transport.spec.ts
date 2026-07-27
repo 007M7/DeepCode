@@ -60,6 +60,29 @@ describe('JsonRpcLineTransport', () => {
     b.close()
   })
 
+  it('rejects immediately on a pre-aborted signal without registering pending state', async () => {
+    const { b } = transportPair()
+    b.start()
+    const controller = new AbortController()
+    controller.abort(new Error('already gone'))
+    await expect(b.request('never-sent', {}, controller.signal)).rejects.toThrow('already gone')
+    expect((b as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0)
+    b.close()
+  })
+
+  it('abandons a pending request on abort, stringifying a non-Error reason', async () => {
+    const { b } = transportPair()
+    b.start()
+    const controller = new AbortController()
+    const pending = b.request('never-answered', {}, controller.signal)
+    controller.abort('plain-string-reason')
+    await expect(pending).rejects.toThrow('JSON-RPC request aborted: plain-string-reason')
+    // The abandonment removed the pending entry — nothing is retained for a
+    // response that may never come.
+    expect((b as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0)
+    b.close()
+  })
+
   it('preserves structured error data from an error response frame', async () => {
     const { aToB, bToA, b } = transportPair()
     b.start()

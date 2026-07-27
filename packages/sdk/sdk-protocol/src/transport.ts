@@ -109,15 +109,47 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.notificationHandler = handler
   }
 
-  request(method: string, params: object): Promise<unknown> {
+  /**
+   * Send a request and await its response.
+   * @param method - the JSON-RPC method name.
+   * @param params - the request parameters object.
+   * @param signal - optional abandonment signal: aborting removes the pending
+   * entry (no state is retained for a response that may never come) and
+   * rejects with the signal's reason.
+   * @returns the result; rejects per {@link JsonRpcTransportPeer.request}.
+   */
+  request(method: string, params: object, signal?: AbortSignal): Promise<unknown> {
     const id = `req_${randomUUID().replaceAll('-', '')}`
     const message = { jsonrpc: '2.0', id, method, params }
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      let detach = (): void => {}
+      if (signal !== undefined) {
+        if (signal.aborted) {
+          reject(abortError(signal.reason))
+          return
+        }
+        const onAbort = (): void => {
+          this.pending.delete(id)
+          reject(abortError(signal.reason))
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        detach = () => { signal.removeEventListener('abort', onAbort) }
+      }
+      this.pending.set(id, {
+        resolve: (value) => {
+          detach()
+          resolve(value)
+        },
+        reject: (error) => {
+          detach()
+          reject(error)
+        },
+      })
       try {
         this.write(message)
       } catch (error) {
         this.pending.delete(id)
+        detach()
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
@@ -239,4 +271,9 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
 /** Normalize JSON-RPC `params` to a plain object (arrays and scalars collapse to `{}`). */
 function objectParams(params: unknown): Record<string, unknown> {
   return params && typeof params === 'object' && !Array.isArray(params) ? params as Record<string, unknown> : {}
+}
+
+/** Normalize an abort reason into the rejection Error (a non-Error reason is stringified). */
+function abortError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(`JSON-RPC request aborted: ${String(reason)}`)
 }

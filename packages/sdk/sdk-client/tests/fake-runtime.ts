@@ -16,6 +16,16 @@
  * - `FAKE_MALFORMED`: `initialize` returns `{}` (no serverInfo); `prompt` returns `{}` (no accepted).
  * - `FAKE_MALFORMED_PROMPT`: `initialize` is normal; only `prompt` returns `{}` (no accepted).
  * - `FAKE_INIT_ERROR`: `initialize` answers a JSON-RPC error response with code 7.
+ * - `FAKE_INIT_ERROR_ONCE_FILE`: fail `initialize` (code 7) only when this
+ *   marker file does NOT exist yet, creating it — so the first runtime
+ *   process fails the handshake and a respawned one succeeds (retry probe).
+ * - `FAKE_ECHO_CWD_IN_INIT`: reply `serverInfo.version` = this process's cwd
+ *   (wire-visible spawn-cwd probe).
+ * - `FAKE_MALFORMED_EVENT`: the turn's `session.event` carries a number as
+ *   the event; `FAKE_MALFORMED_MESSAGE`: assistant/message content is not an
+ *   array; `FAKE_MESSAGE_WITHOUT_DATA`: assistant/message with no data
+ *   member; `FAKE_MALFORMED_REASON`: `session.finished` reason is a bare
+ *   string (wire-validation probes).
  * - `FAKE_HANG_INIT`: never answer `initialize` (mid-handshake cancel probe).
  * - `FAKE_INIT_READY` + `FAKE_INIT_GO`: touch the READY file when `initialize`
  *   arrives, then poll for the GO file before answering (deterministic
@@ -78,8 +88,20 @@ function assistantText(): string {
 
 function runTurn(sessionId: string): void {
   const text = assistantText()
+  if (env.FAKE_MALFORMED_EVENT !== undefined) {
+    notify('session.event', { sessionId, event: 42 })
+    return
+  }
   event(sessionId, 'turn/start', { turn: 0 })
   event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text } })
+  if (env.FAKE_MALFORMED_MESSAGE !== undefined) {
+    event(sessionId, 'assistant/message', { turn: 0, step: 0, content: 'not-an-array' })
+    return
+  }
+  if (env.FAKE_MESSAGE_WITHOUT_DATA !== undefined) {
+    notify('session.event', { sessionId, event: { type: 'assistant/message', seq: seq++, time: 0 } })
+    return
+  }
   event(sessionId, 'assistant/message', {
     turn: 0,
     step: 0,
@@ -110,7 +132,9 @@ function runTurn(sessionId: string): void {
   notify('session.finished', {
     sessionId,
     status: env.FAKE_STATUS ?? 'ok',
-    ...(reasonKind === 'none' ? {} : { reason: { kind: reasonKind } }),
+    ...(env.FAKE_MALFORMED_REASON !== undefined
+      ? { reason: 'not-a-record' }
+      : reasonKind === 'none' ? {} : { reason: { kind: reasonKind } }),
   })
 }
 
@@ -144,8 +168,17 @@ reader.on('line', (line) => {
         write({ jsonrpc: '2.0', id: frame.id, error: { code: 7, message: 'scripted init failure', data: { hint: 'fake' } } })
         return
       }
+      if (env.FAKE_INIT_ERROR_ONCE_FILE !== undefined && !existsSync(env.FAKE_INIT_ERROR_ONCE_FILE)) {
+        writeFileSync(env.FAKE_INIT_ERROR_ONCE_FILE, 'failed-once\n')
+        write({ jsonrpc: '2.0', id: frame.id, error: { code: 7, message: 'scripted first-boot failure' } })
+        return
+      }
       if (env.FAKE_MALFORMED !== undefined) {
         respond({})
+        return
+      }
+      if (env.FAKE_ECHO_CWD_IN_INIT !== undefined) {
+        respond({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: process.cwd() } })
         return
       }
       respond({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
