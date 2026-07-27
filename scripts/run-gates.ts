@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { parseArgs } from 'node:util'
 
 const MODE_SCRIPTS = {
   'ci-primary': 'check:ci',
@@ -96,14 +97,12 @@ interface RunRequest {
   only?: string
 }
 
-type ListedEnvironmentOverride = GateEnvironmentOverride
-
 interface ListedGate {
   id: string
   label: string
   command: string
   needs: string[]
-  env: Record<string, ListedEnvironmentOverride>
+  env: Record<string, GateEnvironmentOverride>
   blocking: boolean
 }
 
@@ -161,28 +160,17 @@ async function main(args: string[]): Promise<number> {
  */
 export function parseCliRequest(args: readonly string[]): RunRequest {
   const mode = parseMode(args[0])
-  let list = false
-  let json = false
-  let only: string | undefined
-  const firstOption = args[1] === '--' ? 2 : 1
-  for (let index = firstOption; index < args.length; index += 1) {
-    const arg = args[index]
-    if (arg === '--list') {
-      if (list) throw new Error('run-gates: --list may be specified only once.')
-      list = true
-    } else if (arg === '--json') {
-      if (json) throw new Error('run-gates: --json may be specified only once.')
-      json = true
-    } else if (arg === '--only') {
-      if (only !== undefined) throw new Error('run-gates: --only may be specified only once.')
-      const id = args[index + 1]
-      if (id === undefined || id.startsWith('--')) throw new Error('run-gates: --only requires a gate id.')
-      only = id
-      index += 1
-    } else {
-      throw new Error(`run-gates: unsupported argument ${JSON.stringify(arg)}.`)
-    }
-  }
+  const optionArgs = args[1] === '--' ? args.slice(2) : args.slice(1)
+  const { values: { list, json, only } } = parseArgs({
+    args: optionArgs,
+    options: {
+      list: { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
+      only: { type: 'string' },
+    },
+    strict: true,
+    allowPositionals: false,
+  })
   if (json && !list) throw new Error('run-gates: --json requires --list.')
   if (list && only !== undefined) throw new Error('run-gates: --list and --only are mutually exclusive.')
   return { mode, list, json, ...only === undefined ? {} : { only } }
