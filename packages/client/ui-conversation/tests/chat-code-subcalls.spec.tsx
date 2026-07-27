@@ -56,16 +56,16 @@ function snapshotWith(
 ): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls, codeDispatches,
-    pending: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   } as ConversationSnapshot
 }
 
-/** Test-owned AppFrame role: declares the layout-owned children and renders the conversation area under the framework session provider. */
-type AppRootProps = PropsRenderSlots<'conversation' | 'details' | 'conversation.empty'>
-function AppRoot({ renderSlot, SessionProvider }: AppRootProps) {
-  return <SessionProvider>{() => renderSlot('conversation', {})}</SessionProvider>
+/** Test-owned AppFrame role: declares and renders the resident conversation area. */
+type AppRootProps = PropsRenderSlots<'conversation' | 'details'>
+function AppRoot({ renderSlot }: AppRootProps) {
+  return <>{renderSlot('conversation', {})}</>
 }
 
 /** Same real-stack bench as the toolview-slot spec: SlotsService + renderer + this package's apply; fakes only at service seams. */
@@ -78,26 +78,41 @@ async function bench(snapshot: ConversationSnapshot) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    intent: undefined,
     phase: 'ready',
   })
-  const cell = { sessionId: SID, session }
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
-  ctx.provide('sessions', {
+  // Provide-channel contributions land in this bundle the way the runtime
+  // materializes them; the renderer host serves it through provideInfo.
+  const provided: { hooks: Record<string, unknown>; props: Record<string, unknown> } = { hooks: {}, props: {} }
+  const sessionsFake = {
     list,
-    binding: (id: SessionId) => ({ sessionId: id, session: { loadOlder: vi.fn() } }),
+    binding: (id: SessionId) => (id === SID
+      ? { sessionId: SID, session, ctx: { effect: () => {}, on: () => () => {} } }
+      : undefined),
     scope: () => ({ get: () => scoped }),
-    cell: (id: string) => (id === SID ? cell : undefined),
+    scopeOf: () => SID,
+    provide: (descriptor: { resolve: (binding: unknown) => { hooks?: Record<string, unknown>; props?: Record<string, unknown> } }) => {
+      const contribution = descriptor.resolve(sessionsFake.binding(SID))
+      Object.assign(provided.hooks, contribution.hooks ?? {})
+      Object.assign(provided.props, contribution.props ?? {})
+      return () => {}
+    },
+    provideInfo: (id: string) => (id === SID
+      ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
+      : undefined),
+    maybeProvideInfo: (id: string | undefined) => (id === SID
+      ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
+      : { hooks: provided.hooks, props: provided.props }),
     create: vi.fn(),
     open: vi.fn(),
-    updateIntent: vi.fn(),
-  })
+  }
+  ctx.provide('sessions', sessionsFake)
   ctx.provide('workspaces', {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
     startSession: vi.fn(),
@@ -110,9 +125,8 @@ async function bench(snapshot: ConversationSnapshot) {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
-      'conversation.empty': { kind: 'single', scope: 'root' },
     },
   }, AppRoot)
 

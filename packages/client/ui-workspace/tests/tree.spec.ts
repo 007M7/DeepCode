@@ -8,14 +8,13 @@ import { createWorkspaceViewStore } from '../src/client/stores.ts'
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
 })
 const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
   phase: 'ready',
-  intent: undefined,
 })
 const workspace = (id: string, sessionIds: string[]): WorkspaceView => ({
   workspaceId: wid(id), path: `/projects/${id}`, title: id,
@@ -41,30 +40,38 @@ describe('deriveGroups', () => {
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
   })
 
-  it('shows one frontend Session row only under a real target Workspace', () => {
-    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'connecting' as const }
-    const target = workspace('first', [])
-    expect(deriveGroups({ ...list(), current: intent.sessionId, intent }, [target], view())[0]).toEqual(expect.objectContaining({
-      intentHere: true,
-      sessionCount: 1,
-      containsCurrent: true,
-    }))
-    const hiddenIntent = { sessionId: sid('zero'), target: { kind: 'workspace-intent' as const }, prompt: '', phase: 'ready' as const }
-    expect(deriveGroups({ ...list(), intent: hiddenIntent }, [target], view())[0]!.intentHere).toBe(false)
-  })
-
-  it('an Intent no longer forces its target group expanded (viewer owns expansion)', () => {
-    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'connecting' as const }
-    const groups = deriveGroups({ ...list(), intent }, [workspace('first', [])], view())
-    expect(groups[0]).toEqual(expect.objectContaining({ intentHere: true, expanded: false }))
-  })
-
-  it('search filters real Sessions and omits the Intent placeholder', () => {
-    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('first') }, prompt: '', phase: 'ready' as const }
-    const groups = deriveGroups({ ...list(summary('match', 1)), intent }, [workspace('first', ['match'])], view([], 'match'))
-    expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('match')])
-    expect(groups[0]!.intentHere).toBe(false)
+  it('shows only the current blank session in its Workspace count and tree', () => {
+    const currentBlank = { ...summary('current-blank', 5), blank: true }
+    const staleBlank = { ...summary('stale-blank', 4), blank: true }
+    const real = summary('shown', 3)
+    const sessions = {
+      ...list(real, currentBlank, staleBlank),
+      current: currentBlank.id,
+    }
+    const groups = deriveGroups(
+      sessions, [workspace('first', ['shown', 'current-blank', 'stale-blank'])], view(['first']),
+    )
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([real.id, currentBlank.id])
+    expect(groups[0]!.sessions.find(session => session.id === currentBlank.id)!.title).toBe('New Session')
     expect(groups[0]!.sessionCount).toBe(2)
+    // A non-current blank stray never surfaces an Ungrouped bucket either.
+    const strayGroups = deriveGroups(list({ ...summary('stray', 2), blank: true }), [workspace('first', [])], view())
+    expect(strayGroups.map(group => group.key)).toEqual(['first'])
+  })
+
+  it('searches the current blank session by its New Session title', () => {
+    const currentBlank = { ...summary('opaque-current', 5), blank: true }
+    const staleBlank = { ...summary('new session stale', 4), blank: true }
+    const sessions = {
+      ...list(currentBlank, staleBlank),
+      current: currentBlank.id,
+    }
+    const groups = deriveGroups(
+      sessions, [workspace('first', ['opaque-current', 'new session stale'])], view([], 'new session'),
+    )
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([currentBlank.id])
+    expect(groups[0]!.sessions[0]!.title).toBe('New Session')
+    expect(groups[0]!.sessionCount).toBe(1)
   })
 
   it('builds, sorts, expands, and cycle-guards an ungrouped session tree', () => {
@@ -163,6 +170,20 @@ describe('deriveFlat', () => {
   it('tolerates ids whose summary has not landed yet', () => {
     const partial: SessionListState = { ...list(summary('present', 1)), ids: [sid('ghost'), sid('present')] }
     expect(deriveFlat(partial, { query: '' }).map(row => row.id)).toEqual([sid('present')])
+  })
+
+  it('shows only the current blank session with its New Session title', () => {
+    const currentBlank = { ...summary('current-blank', 9), blank: true }
+    const staleBlank = { ...summary('stale-blank', 8), blank: true }
+    const sessions = {
+      ...list(summary('real', 1), currentBlank, staleBlank),
+      current: currentBlank.id,
+    }
+    const rows = deriveFlat(sessions, { query: '' })
+    expect(rows.map(row => row.id)).toEqual([currentBlank.id, sid('real')])
+    expect(rows.map(row => row.title)).toEqual(['New Session', 'real'])
+    expect(deriveFlat(sessions, { query: 'new session' }).map(row => row.id)).toEqual([currentBlank.id])
+    expect(deriveFlat(sessions, { query: 'stale-blank' })).toEqual([])
   })
 })
 
