@@ -75,16 +75,16 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
   const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
     ? []
     : [
-        ...reasoning.defaultEffort === undefined
-          ? [{ key: 'provider-default', effort: undefined, label: 'Provider default' }]
-          : [],
-        ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
-          key: `effort:${effort.id}`,
-          effort: effort.id,
-          label: effort.name,
-          ...effort.description === undefined ? {} : { description: effort.description },
-        })),
-      ], [reasoning])
+      ...reasoning.defaultEffort === undefined
+        ? [{ key: 'provider-default', effort: undefined, label: 'Provider default' }]
+        : [],
+      ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
+        key: `effort:${effort.id}`,
+        effort: effort.id,
+        label: effort.name,
+        ...effort.description === undefined ? {} : { description: effort.description },
+      })),
+    ], [reasoning])
   const busy = state.status === 'selecting'
 
   // Mount-time load resolves the trigger label; every open refreshes.
@@ -186,7 +186,13 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
         aria-controls={open ? `${id}-menu` : undefined}
         title={triggerLabel}
         disabled={locked}
-        onClick={() => { open ? close() : show() }}
+        onClick={() => {
+          if (open) {
+            close()
+          } else {
+            show()
+          }
+        }}
       >
         <span className={css.triggerLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
@@ -203,13 +209,13 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
         >
           {pane === 'root' && (
             <>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => setPane('model')}>
+              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
                 <span className={css.cellLabel}>Model</span>
                 <span className={css.cellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.cellChevron} />
               </button>
               {reasoning !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => setPane('effort')}>
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('effort') }}>
                   <span className={css.cellLabel}>Effort</span>
                   <span className={css.cellValue}>{effortLabel}</span>
                   <IconChevronRightOutline14 className={css.cellChevron} />
@@ -291,27 +297,27 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
               {effortChoices.length === 0
                 ? <div className={css.empty}>当前模型未提供推理等级。</div>
                 : effortChoices.map(level => (
-                    <button
-                      ref={itemRef()}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={effectiveEffort === level.effort}
-                      className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
-                      key={level.key}
-                      disabled={busy}
-                      onClick={() => { chooseEffort(level.effort) }}
-                    >
-                      <span className={css.optionCopy}>
-                        <span className={css.modelName}>{level.label}</span>
-                        {level.description !== undefined && (
-                          <span className={css.description}>{level.description}</span>
-                        )}
-                      </span>
-                      <span className={css.check}>
-                        {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
-                      </span>
-                    </button>
-                  ))}
+                  <button
+                    ref={itemRef()}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={effectiveEffort === level.effort}
+                    className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
+                    key={level.key}
+                    disabled={busy}
+                    onClick={() => { chooseEffort(level.effort) }}
+                  >
+                    <span className={css.optionCopy}>
+                      <span className={css.modelName}>{level.label}</span>
+                      {level.description !== undefined && (
+                        <span className={css.description}>{level.description}</span>
+                      )}
+                    </span>
+                    <span className={css.check}>
+                      {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
+                    </span>
+                  </button>
+                ))}
             </>
           )}
         </div>

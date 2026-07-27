@@ -13,11 +13,11 @@ export interface ModelSelectInjected {
   /** The session's shared directory store (same instance the /model popup reads). */
   directory: SnapshotStore<ModelDirectoryState>
   /** Refresh the advisory directory (fire-and-forget; errors land on the store). */
-  load(): void
+  load: () => void
   /**
    * Select a complete provider/model/reasoning target through the shared route.
    * @param target - model target and optional adapter-owned effort.
    * @returns whether the host accepted the selection.
    */
-  select(target: ModelTarget): Promise<boolean>
+  select: (target: ModelTarget) => Promise<boolean>
 }
