@@ -19,7 +19,7 @@ import type {
   AgentInterruptReason,
   AgentOptions,
   AgentStatus,
-  IdleReason,
+  SettleReason,
   PromptDecision,
   RequestError,
   SendOptions,
@@ -288,7 +288,7 @@ export class ReactLoopAgent implements Agent {
     let step = 0
     let opened = false
     let reason: TurnEndReason = { kind: 'completed' }
-    let idle: IdleReason = { kind: 'completed' }
+    let settleReason: SettleReason = { kind: 'completed' }
     let retry = false
     const cancelRetry = (): void => { retry = false }
     signal.addEventListener('abort', cancelRetry, { once: true })
@@ -316,7 +316,7 @@ export class ReactLoopAgent implements Agent {
             if (outcome.maxTokens) reason = { kind: 'max-tokens' }
             // A concluding tool result is terminal: steering already in the
             // log waits for the next turn's request instead of reopening this
-            // one, and the agent/stopping drain below is skipped for the same
+            // one, and the agent/turn-stopping drain below is skipped for the same
             // reason.
             if (outcome.concluded) break steps
             if (outcome.continueTurn || this.outbox.some(item => 'id' in item)) continue
@@ -354,14 +354,14 @@ export class ReactLoopAgent implements Agent {
             }
             const settlement = this.settle(turn, step, outcome.error, signal, outcome.failure)
             reason = settlement.reason
-            idle = settlement.idle
+            settleReason = settlement.settleReason
             break steps
           }
           /* v8 ignore next 2 -- closed-union exhaustiveness guard */
           default:
             assertNever(outcome)
         }
-        await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, turn, signal)
+        await this.loopCtx.serial(agentCarrier(this), 'agent/turn-stopping', this, turn, signal)
         signal.throwIfAborted()
         if (!this.drainOutbox(turn)) break
       }
@@ -379,7 +379,7 @@ export class ReactLoopAgent implements Agent {
         this.loopCtx.logger.warn(`agent "${this.id}": closing step ${turn}/${step} failed: ${errorChain(closeError)}`)
         emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, closeError)
       }
-      ({ reason, idle } = this.settle(turn, step, caught, signal))
+      ({ reason, settleReason } = this.settle(turn, step, caught, signal))
     } finally {
       // Every step-close happens before this point on both success and
       // failure paths (step(), the request-failed branch, the catch), so the
@@ -406,10 +406,10 @@ export class ReactLoopAgent implements Agent {
     if (retry) {
       await this.run({ kind: 'retry' })
     } else {
-      // agent/idle names only committed turns: a run aborted or rejected
+      // agent/settled names only committed turns: a run aborted or rejected
       // before turn/start has no durable turn/end for consumers to settle
       // against, so it exits without the notification.
-      if (opened) emitAgentEvent(this.loopCtx, this, 'agent/idle', turn, idle)
+      if (opened) emitAgentEvent(this.loopCtx, this, 'agent/settled', turn, settleReason)
       this.continueOrIdle()
     }
   }
@@ -615,7 +615,7 @@ export class ReactLoopAgent implements Agent {
 
   /**
    * The single settlement funnel: classify one turn failure (interruption
-   * beats error) into the durable turn/end reason and the live idle report.
+   * beats error) into the durable turn/end reason and live settlement report.
    */
   private settle(
     turn: number,
@@ -623,13 +623,16 @@ export class ReactLoopAgent implements Agent {
     error: unknown,
     signal: AbortSignal,
     failure?: LlmFailure,
-  ): { reason: TurnEndReason; idle: IdleReason } {
+  ): { reason: TurnEndReason; settleReason: SettleReason } {
     if (signal.aborted) {
       // Slot invariant, stated rather than re-validated: the turn controller
       // is machine-private and cancel() is its only aborter, always with one
       // frozen canonical cause as the reason.
       const interrupt = signal.reason as AgentInterruptReason
-      return { reason: { kind: interrupt.kind === 'disposed' ? 'disposed' : 'aborted' }, idle: { kind: 'aborted' } }
+      return {
+        reason: { kind: interrupt.kind === 'disposed' ? 'disposed' : 'aborted' },
+        settleReason: { kind: 'aborted' },
+      }
     }
     if (failure !== undefined) {
       emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
@@ -639,13 +642,13 @@ export class ReactLoopAgent implements Agent {
       const rendered = errorChain(error)
       return {
         reason: { kind: 'error', step, failure: { ...failure, ...rendered === '<unrenderable value>' ? {} : { message: rendered } } },
-        idle: { kind: 'error', error, failure },
+        settleReason: { kind: 'error', error, failure },
       }
     }
     emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
     return {
       reason: { kind: 'error', step, message: errorChain(error), ...isHarnessError(error) ? { code: error.code } : {} },
-      idle: { kind: 'error', error },
+      settleReason: { kind: 'error', error },
     }
   }
 

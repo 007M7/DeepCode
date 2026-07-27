@@ -463,7 +463,7 @@ describe('agent loop', () => {
     expect(agent.session.events.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
   })
 
-  it('agent/stopping can steer another step (/loop pattern)', async () => {
+  it('agent/turn-stopping can steer another step (/loop pattern)', async () => {
     const adapter = new MockAdapter([
       textResponse('step 1'),
       textResponse('step 2'),
@@ -474,7 +474,7 @@ describe('agent loop', () => {
 
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
-    ctx.on('agent/stopping', (subject) => {
+    ctx.on('agent/turn-stopping', (subject) => {
       if (steps < 3) {
         subject.steer({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'plugin', plugin: 'loop-test' } })
       }
@@ -722,7 +722,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
-    ctx.on('agent/stopping', (subject) => {
+    ctx.on('agent/turn-stopping', (subject) => {
       if (steps < 2) {
         subject.steer({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-tokens-test' } })
       }

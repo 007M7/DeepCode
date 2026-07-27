@@ -98,31 +98,6 @@ Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structu
 
 Source: [`packages/core/agent/src/types.ts:405`](../../packages/core/agent/src/types.ts)
 
-### `agent/idle` — emit
-
-One drain chain reached its terminal turn: that turn's `turn/end` is already committed. Automatically recovered failed turns do not emit this notification, and neither does a run that aborts or fails before its `turn/start` commits — there is no durable turn to settle against. `reason` says why; model-request recovery is exhausted when an error reaches it.
-
-```ts cordis-catalog
-/**
- * One drain chain reached its terminal turn: that turn's `turn/end` is
- * already committed. Automatically recovered failed turns do not emit this
- * notification, and neither does a run that aborts or fails before its
- * `turn/start` commits — there is no durable turn to settle against.
- * `reason` says why; model-request recovery is exhausted when an error
- * reaches it.
- * @param agent - the agent whose turn closed.
- * @param turn - the terminal turn number.
- * @param reason - why the terminal turn ended, with live error facts when it failed.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode emit
- */
-'agent/idle'(this: Scoped<Agent>, agent: Agent, turn: number, reason: IdleReason): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [IdleReason](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
-
-Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
-
 ### `agent/inbox/dequeue` — emit
 
 The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps. Fires after the item leaves its FIFO and before it becomes a durable message.
@@ -282,6 +257,31 @@ Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structu
 
 Source: [`packages/core/agent/src/types.ts:307`](../../packages/core/agent/src/types.ts)
 
+### `agent/settled` — emit
+
+One drain chain reached its terminal turn: that turn's `turn/end` is already committed. Automatically recovered failed turns do not emit this notification, and neither does a run that aborts or fails before its `turn/start` commits — there is no durable turn to settle against. `reason` says why; model-request recovery is exhausted when an error reaches it.
+
+```ts cordis-catalog
+/**
+ * One drain chain reached its terminal turn: that turn's `turn/end` is
+ * already committed. Automatically recovered failed turns do not emit this
+ * notification, and neither does a run that aborts or fails before its
+ * `turn/start` commits — there is no durable turn to settle against.
+ * `reason` says why; model-request recovery is exhausted when an error
+ * reaches it.
+ * @param agent - the agent whose turn closed.
+ * @param turn - the terminal turn number.
+ * @param reason - why the terminal turn ended, with live error facts when it failed.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/settled'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
+
 ### `agent/status` — emit
 
 Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` synchronously; drive lifecycle from this event.
@@ -326,7 +326,7 @@ Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structu
 
 Source: [`packages/core/agent/src/types.ts:335`](../../packages/core/agent/src/types.ts)
 
-### `agent/stopping` — serial
+### `agent/turn-stopping` — serial
 
 The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step.
 
@@ -345,7 +345,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode serial
  */
-'agent/stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
+'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)

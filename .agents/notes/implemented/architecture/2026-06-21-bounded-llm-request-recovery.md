@@ -50,7 +50,7 @@ The shared transient-code set is intentionally small: adapter mappings for `RATE
 
 `@deepseek-ai/dsh-llm-retry` is a function plugin that listens to `agent/request-error`. It introduces no service or new loop branch; the agent-loop package changes only the data carried through its existing failed-step recovery control flow.
 
-The `agent/request-error` seam carries only the current `LlmFailure`; the loop owns no retry policy or attempt history. Each recovery plugin keeps a private per-agent counter for its own handled failures and clears it at terminal `agent/idle`. Alternating transient and context-overflow failures therefore consume the `dsh-llm-retry` and compact-basic budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
+The `agent/request-error` seam carries only the current `LlmFailure`; the loop owns no retry policy or attempt history. Each recovery plugin keeps a private per-agent counter for its own handled failures and clears it at terminal `agent/settled`. Alternating transient and context-overflow failures therefore consume the `dsh-llm-retry` and compact-basic budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
 
 The plugin resolves and validates this deployment configuration at load:
 

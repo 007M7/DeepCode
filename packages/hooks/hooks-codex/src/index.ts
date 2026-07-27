@@ -252,7 +252,7 @@ export function apply(ctx: Context, config: Config): void {
   // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
   // avoid continuing the same turn indefinitely. It is always false here, so an
   // unconditionally blocking hook force-continues every step until it self-limits.
-  ctx.on('agent/stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
     const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') {

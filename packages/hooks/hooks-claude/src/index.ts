@@ -262,7 +262,7 @@ export function apply(ctx: Context, config: Config): void {
   // A blocking Stop hook steers at the stopping boundary, which makes the
   // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.

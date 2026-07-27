@@ -270,7 +270,7 @@ describe('abort during tool execution ends the turn', () => {
 })
 
 describe('steering from late extension points is never stranded', () => {
-  it('steer() from an agent/stopping listener continues the same turn', async () => {
+  it('steer() from an agent/turn-stopping listener continues the same turn', async () => {
     const adapter = new MockAdapter([
       textResponse('no tools, would stop here'),
       textResponse('continued because of steering'),
@@ -279,7 +279,7 @@ describe('steering from late extension points is never stranded', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steeredOnce = false
-    ctx.on('agent/stopping', () => {
+    ctx.on('agent/turn-stopping', () => {
       if (!steeredOnce) {
         steeredOnce = true
         agent.steer({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } })
@@ -355,13 +355,13 @@ describe('steering from late extension points is never stranded', () => {
 })
 
 describe('plugin exceptions are contained', () => {
-  it('a throwing agent/stopping listener ends the turn with an error, loop survives', async () => {
+  it('a throwing agent/turn-stopping listener ends the turn with an error, loop survives', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/stopping', async () => {
+    ctx.on('agent/turn-stopping', async () => {
       if (!threwOnce) {
         threwOnce = true
         throw new Error('broken continuation plugin')

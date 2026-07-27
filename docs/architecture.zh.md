@@ -99,8 +99,8 @@ forever:
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
-      otherwise agent/stopping -> drain -> continue only for steering
-    'turn/end' -> agent/idle
+      otherwise agent/turn-stopping -> drain -> continue only for steering
+    'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
@@ -176,7 +176,7 @@ idle inject:
 | 添加后台工作 | 在 `ctx.tasks` 上注册；通用 `task_*` 工具负责收集或停止 |
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成前包装 argv |
-| 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/stopping` 是停止边界 |
+| 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
 | 添加模型可见上下文 | 调用 `agent.inject()`，追加带来源的 `user/message`，但不创建轮次 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents`，从 `session/event` 渲染；仅终端浮层使用 `ctx.tui` |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |

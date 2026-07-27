@@ -51,7 +51,7 @@ sequenceDiagram
   end
   Driver->>Session: post-tool context and steering (no prompt-submit)
   Driver->>Session: <code>step/end</code>
-  Driver->>Hooks: <code>agent/stopping</code> serial terminal checkpoint
+  Driver->>Hooks: <code>agent/turn-stopping</code> serial terminal checkpoint
   end
   Driver->>Session: <code>turn/end</code>
   Driver-->>SDK: <code>agent/status</code> idle

@@ -482,7 +482,7 @@ describe('Agent.cancel()', () => {
     })
 
     let cancelled = false
-    ctx.on('agent/stopping', (subject) => {
+    ctx.on('agent/turn-stopping', (subject) => {
       if (subject === agent && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
@@ -719,7 +719,7 @@ describe('Agent.cancel()', () => {
         })
         break
       case 'stopping':
-        ctx.on('agent/stopping', async (subject, _turn, signal) => {
+        ctx.on('agent/turn-stopping', async (subject, _turn, signal) => {
           if (subject === agent) await blockUntilAbort(signal)
         })
         break

@@ -57,12 +57,12 @@ describe('agent/request-error', () => {
     const agent = ctx.agentLoop.create(SessionId('request-error-retry'), { provider: 'mock', model: 'mock' })
     const seen: { turn: number; step: number; failure: LlmFailure }[] = []
     const statuses: string[] = []
-    const idleTurns: number[] = []
+    const settledTurns: number[] = []
     ctx.on('agent/status', (subject, status) => {
       if (subject === agent) statuses.push(status)
     })
-    ctx.on('agent/idle', (subject, turn) => {
-      if (subject === agent) idleTurns.push(turn)
+    ctx.on('agent/settled', (subject, turn) => {
+      if (subject === agent) settledTurns.push(turn)
     })
     ctx.on('agent/request-error', async (subject, turn, step, _error, failure) => {
       expect(subject).toBe(agent)
@@ -101,7 +101,7 @@ describe('agent/request-error', () => {
         { kind: 'retry' },
       ])
     expect(statuses).toEqual(['running', 'idle'])
-    expect(idleTurns).toEqual([3])
+    expect(settledTurns).toEqual([3])
   })
 
   it('lets cancellation win over a retry request', async () => {

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 的扩展面是其类型化的拦截 seam（见[拦截 seam Agent Note](2026-06-30-interception-seams.md)）：所谓「原生钩子」不过是一个普通的 Cordis 插件，订阅 `agent/session-start`、`agent/prompt-submit`、`tools/pre-execute`、`tools/post-execute`、`agent/stopping`、`subagent/start` 或 `subagent/end`。但用户带着**既有的** Claude Code（CC）和 Codex 钩子配置到来，一个 `hooks.json`（或 settings 文件中的 `hooks` 键）里满是 shell 命令钩子，并希望它们原样运行。本 Agent Note 引入两个**桥接插件**，将外部 shell 钩子协议翻译到类型化 seam 上，构建于共享的协议格式（wire format）库之上（见 [hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)）。
+harness 的扩展面是其类型化的拦截 seam（见[拦截 seam Agent Note](2026-06-30-interception-seams.md)）：所谓「原生钩子」不过是一个普通的 Cordis 插件，订阅 `agent/session-start`、`agent/prompt-submit`、`tools/pre-execute`、`tools/post-execute`、`agent/turn-stopping`、`subagent/start` 或 `subagent/end`。但用户带着**既有的** Claude Code（CC）和 Codex 钩子配置到来，一个 `hooks.json`（或 settings 文件中的 `hooks` 键）里满是 shell 命令钩子，并希望它们原样运行。本 Agent Note 引入两个**桥接插件**，将外部 shell 钩子协议翻译到类型化 seam 上，构建于共享的协议格式（wire format）库之上（见 [hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)）。
 
 贯穿整个设计的定位：**桥接是兼容性适配器，不是高级工具。** 桥接能做的事（阻止工具、注入上下文、强制继续、观察 subagent），原生 Cordis 插件都能做得更强——类型化返回值、完整 `ctx`、无序列化边界。桥接存在的理由是运行外部 CC/Codex 命令钩子中被明确支持的子集。这使每个桥接保持精简：解析配置、选择匹配模式、构建每事件的 payload、调用共享库的 `runHook` + `mergeHookOutputs`，再将中性结果映射为 seam Decision。各包的 README 维护着当前不支持的事件和部分字段的完整清单，以官方协议为参照。
 
@@ -27,7 +27,7 @@ harness 的扩展面是其类型化的拦截 seam（见[拦截 seam Agent Note](
 | `agent/prompt-submit` | `deny`→`block`；仅上下文→delegate+fold | `block`→`block`；仅上下文→delegate+fold |
 | `tools/pre-execute` | `deny`→`deny`；`ask`→`ask` | `block`→`deny`（无 allow/ask） |
 | `tools/post-execute` | `deny`→`block`+feedback；仅上下文→delegate+fold | 同上 |
-| `agent/stopping` | 阻塞的 Stop → 下一步 steering（中途引导） | 同上 |
+| `agent/turn-stopping` | 阻塞的 Stop → 下一步 steering（中途引导） | 同上 |
 | `subagent/start`（emit） | additionalContext → 注入到存活的进程内 subagent；远程 subagent 无本地注入目标 | 本桥接不支持 |
 | `subagent/end`（emit） | 仅观察 | 本桥接不支持 |
 

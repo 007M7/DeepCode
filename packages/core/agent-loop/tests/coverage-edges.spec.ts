@@ -348,17 +348,18 @@ describe('stream failure edges', () => {
 })
 
 describe('post-turn continuation edges', () => {
-  it('an agent/idle listener that enqueues a waking prompt preempts continueOrIdle', async () => {
+  it('an agent/settled listener that enqueues a waking prompt preempts continueOrIdle', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('idle-preempt'), { provider: 'mock', model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('settled-preempt'), { provider: 'mock', model: 'mock' })
     let injected = false
-    ctx.on('agent/idle', (subject) => {
+    ctx.on('agent/settled', (subject) => {
       if (subject !== agent || injected) return
+      expect(subject.status).toBe('running')
       injected = true
       // kick() installs the next admission synchronously, so the following
       // continueOrIdle() sees an abort owner and yields to it.
-      send(agent, 'follow-up from idle listener')
+      send(agent, 'follow-up from settled listener')
     })
 
     send(agent, 'go')
@@ -531,8 +532,8 @@ describe('driver bookkeeping edges', () => {
     // (the run's containment covers only session appends); the waiter's
     // catch arm must treat that rejection as quiescence instead of
     // propagating it.
-    ctx.on('agent/idle', (subject) => {
-      if (subject === agent) throw new Error('idle listener exploded')
+    ctx.on('agent/settled', (subject) => {
+      if (subject === agent) throw new Error('settled listener exploded')
     })
 
     send(agent, 'one')

@@ -128,7 +128,7 @@ describe('plan mode through the agent loop', () => {
     expect(second.data.header.system).toContain('plan mode')
   })
 
-  it('a mode flip at error idle shapes the retry before its assembly', async () => {
+  it('a mode flip at error settlement shapes the retry before its assembly', async () => {
     const failedRequest = [{
       type: 'finish',
       reason: { kind: 'error', failure: { message: 'temporarily unavailable', code: 'SERVER', status: 503 } },
@@ -136,7 +136,7 @@ describe('plan mode through the agent loop', () => {
     const adapter = new MockAdapter([failedRequest, textResponse('Recovered in plan mode.')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/idle', (subject, _turn, reason) => {
+    ctx.on('agent/settled', (subject, _turn, reason) => {
       if (subject !== agent || reason.kind !== 'error') return
       ctx.planMode.set(agent, true)
       agent.retry()

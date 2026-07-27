@@ -113,11 +113,11 @@ export type PromptDecision =
 export type RequestError = Error & { code?: string }
 
 /**
- * Why a turn ended, reported live on `agent/idle` right after the turn's
+ * Why a turn ended, reported live on `agent/settled` right after the turn's
  * durable `turn/end`. `error` carries the thrown value verbatim for observers;
  * model-request recovery runs earlier through `agent/request-error`.
  */
-export type IdleReason =
+export type SettleReason =
   | { kind: 'completed' }
   | { kind: 'aborted' }
   | { kind: 'error'; error: unknown; failure?: LlmFailure }
@@ -375,7 +375,7 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode serial
      */
-    'agent/stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
+    'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
     /**
      * One drain chain reached its terminal turn: that turn's `turn/end` is
      * already committed. Automatically recovered failed turns do not emit this
@@ -389,7 +389,7 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/idle'(this: Scoped<Agent>, agent: Agent, turn: number, reason: IdleReason): void
+    'agent/settled'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void
 
     // ---- error notifications (emit) ----
     /**

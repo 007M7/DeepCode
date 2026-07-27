@@ -6,7 +6,7 @@ English | [中文](2026-06-30-hook-bridges.zh.md)
 
 ## Problem
 
-The harness's extension surface is its typed interception seams ([the interception-seams Agent Note](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/prompt-submit`, `tools/pre-execute`, `tools/post-execute`, `agent/stopping`, `subagent/start`, or `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This Agent Note introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)).
+The harness's extension surface is its typed interception seams ([the interception-seams Agent Note](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/prompt-submit`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-stopping`, `subagent/start`, or `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This Agent Note introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)).
 
 The framing that shapes the whole design: **a bridge is a compatibility adapter, not a power tool.** Anything a bridge does (block a tool, inject context, force continuation, observe a subagent) a native cordis plugin does more powerfully — typed returns, full `ctx`, no serialization boundary. The bridge's reason to exist is to run the explicitly supported subset of external CC/Codex command hooks. That keeps each bridge thin: parse the config, pick a matcher mode, build the per-event payload, call `runHook` + `mergeHookOutputs` from the shared lib, and map the neutral outcome onto a seam Decision. The package READMEs own the exact current unsupported-event and partial-field inventory against the official protocols.
 
@@ -27,7 +27,7 @@ Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the se
 | `agent/prompt-submit` | `deny`→`block`; context-only→delegate+fold | `block`→`block`; context-only→delegate+fold |
 | `tools/pre-execute` | `deny`→`deny`; `ask`→`ask` | `block`→`deny` (no allow/ask) |
 | `tools/post-execute` | `deny`→`block`+feedback; context-only→delegate+fold | same |
-| `agent/stopping` | blocking Stop → next-step steering | same |
+| `agent/turn-stopping` | blocking Stop → next-step steering | same |
 | `subagent/start` (emit) | additionalContext → inject into a live in-process child; a remote child has no local injection target | unsupported by this bridge |
 | `subagent/end` (emit) | observe-only | unsupported by this bridge |
 

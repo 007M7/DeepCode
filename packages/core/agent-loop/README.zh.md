@@ -128,4 +128,4 @@ interface Config {
 - **分类是一元的**：安全性取决于比较同级调用或资源的调用必须保持独占（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)）。
 - **配置 label 默认每次新建**：省略 `sessionId` 会在每次启动时创建全新的 `${id}-session-<uuid>`；确切的恢复或创建行为要求显式提供稳定的 `sessionId`，而 `resumeSessionId` 要求已有持久化历史。
 - **配置 agent 没有逐 agent persona 字段或 setup 钩子**：它们使用部署 persona；只有编程式 `ctx.agents.create()` / `resume()` 工厂选项支持带作用域的 persona／工具组合。
-- **没有内置轮次预算**：工具调用或 steering 会让当前轮次继续；限制失控轮次的策略必须从既有生命周期 seam（如 `agent/stopping`）执行取消。
+- **没有内置轮次预算**：工具调用或 steering 会让当前轮次继续；限制失控轮次的策略必须从既有生命周期 seam（如 `agent/turn-stopping`）执行取消。

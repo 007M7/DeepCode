@@ -18,7 +18,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 - `agent/session-start(agent, source)` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
 - `agent/prompt-submit(agent, content, source, signal, next) → PromptDecision` ——waterfall，针对一条取得所有权的排队消息触发，早于循环开启轮次或追加 `user/message`。显式准入 signal 位于最后的 `next` 之前；`allow` 可以重写提示词 `content` 或附加来源各自独立的 `additionalContexts[]`，而 `block` 会丢弃该候选消息，不产生会话历史。
 
-**`agent/stopping`** 是自然停止边界上的一次 awaited 通知。需要再执行一步的监听器调用 `agent.steer()`，传入来源显式的面向模型的内容（steering，中途引导）；循环随后重新读取 outbox，继续执行或关闭轮次。
+**`agent/turn-stopping`** 是自然停止边界上的一次 awaited 通知。需要再执行一步的监听器调用 `agent.steer()`，传入来源显式的面向模型的内容（steering，中途引导）；循环随后重新读取 outbox，继续执行或关闭轮次。
 
 ### 工具流水线为每个阶段赋予一种权限
 
@@ -47,7 +47,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 边界
 
-seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；那些属于 `dsh-hook-protocol`，因为原生插件使用类型化 decision 而无需外部钩子日志。原生插件集成测试（`packages/core/agent-loop/tests/interception.spec.ts`）通过真实循环组合这些 seam，不涉及 `hook/*` 协议。压缩（compaction）（`PreCompact`/`PostCompact`）、Notification 和 Codex `PermissionRequest` 不在本决策范围内。[审批 seam](2026-07-06-approval-seam.md) 通过 `ctx.approval` 解析 `ask` decision；终结性的单调停止由工具结果数据表达，而 `agent/stopping` 是引导再执行一步的最后机会。
+seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；那些属于 `dsh-hook-protocol`，因为原生插件使用类型化 decision 而无需外部钩子日志。原生插件集成测试（`packages/core/agent-loop/tests/interception.spec.ts`）通过真实循环组合这些 seam，不涉及 `hook/*` 协议。压缩（compaction）（`PreCompact`/`PostCompact`）、Notification 和 Codex `PermissionRequest` 不在本决策范围内。[审批 seam](2026-07-06-approval-seam.md) 通过 `ctx.approval` 解析 `ask` decision；终结性的单调停止由工具结果数据表达，而 `agent/turn-stopping` 是引导再执行一步的最后机会。
 
 ## 曾考虑的替代方案
 

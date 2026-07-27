@@ -99,8 +99,8 @@ forever:
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
-      otherwise agent/stopping -> drain -> continue only for steering
-    'turn/end' -> agent/idle
+      otherwise agent/turn-stopping -> drain -> continue only for steering
+    'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
@@ -176,7 +176,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen to `fs/*` policy events |
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
-| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/stopping` is the stop boundary |
+| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the stop boundary |
 | Add model-facing context | call `agent.inject()` to append a sourced `user/message` without a turn |
 | Add UI or editor integration | drive `ctx.agents`, render from `session/event`; terminal-only overlays use `ctx.tui` |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |

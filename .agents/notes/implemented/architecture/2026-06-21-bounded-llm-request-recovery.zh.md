@@ -50,7 +50,7 @@ agent loop（智能体循环）会保留 `RequestError` 作为该精确的错误
 
 `@deepseek-ai/dsh-llm-retry` 是监听 `agent/request-error` 的函数插件。它不引入服务或新的循环分支；agent-loop 包仅会更改通过现有失败步骤恢复控制流携带的数据。
 
-`agent/request-error` seam 只携带当前 `LlmFailure`；循环不拥有重试策略或尝试历史。每个恢复插件为自身处理的失败维护一个逐 agent 的私有计数器，并在终态 `agent/idle` 时清零。因此，暂时性失败与上下文溢出交替出现时，`dsh-llm-retry` 与 compact-basic 的预算独立消耗；最大请求数等于 1 加上已加载恢复策略的有限预算总和。
+`agent/request-error` seam 只携带当前 `LlmFailure`；循环不拥有重试策略或尝试历史。每个恢复插件为自身处理的失败维护一个逐 agent 的私有计数器，并在终态 `agent/settled` 时清零。因此，暂时性失败与上下文溢出交替出现时，`dsh-llm-retry` 与 compact-basic 的预算独立消耗；最大请求数等于 1 加上已加载恢复策略的有限预算总和。
 
 该插件在加载时解析并验证以下部署配置：
 

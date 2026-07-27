@@ -172,7 +172,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     agent.retry()
   }
 
-  ctx.on('agent/idle', (agent) => {
+  ctx.on('agent/settled', (agent) => {
     retries.delete(agent)
   })
 

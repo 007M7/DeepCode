@@ -58,8 +58,8 @@ describe('scoped-dispatch invariants', () => {
         signal,
         () => Promise.resolve(),
       ],
-      'agent/stopping': [agent, 1, signal],
-      'agent/idle': [agent, 1, { kind: 'completed' }],
+      'agent/turn-stopping': [agent, 1, signal],
+      'agent/settled': [agent, 1, { kind: 'completed' }],
       'agent/error': [agent, 1, 0, new Error('x')],
     } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [

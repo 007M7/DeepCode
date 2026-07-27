@@ -623,7 +623,7 @@ type PromptDecision =
 type RequestError = Error & { code?: string }
 ```
 
-`agent/step` 是请求推导前唯一的串行边界。`agent/stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
+`agent/step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 

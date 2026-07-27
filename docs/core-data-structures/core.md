@@ -615,7 +615,7 @@ type PromptDecision =
 type RequestError = Error & { code?: string }
 ```
 
-`agent/step` is the single serial boundary before request derivation. `agent/stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
+`agent/step` is the single serial boundary before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
 

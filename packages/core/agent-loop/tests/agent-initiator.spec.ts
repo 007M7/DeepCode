@@ -178,7 +178,7 @@ describe('AgentLoop initiator scope', () => {
       if (subject === agent) capture(signal)
       return next()
     })
-    ctx.on('agent/stopping', (subject, _turn, signal) => {
+    ctx.on('agent/turn-stopping', (subject, _turn, signal) => {
       if (subject === agent) capture(signal)
     })
     ctx.tools.register(defineContentToolFixture({

@@ -22,7 +22,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **`send` 返回一个 id。** `send`（以及其别名）为被接受的消息返回一个不透明的 branded `AgentMessageId`；`send` 此前的返回值是 `void`。
 
-**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都将各自的 `AgentMessage` 载荷类型限定为仅包含被接受消息所返回的 `id`、内容和来源；调用方因此可以把一个排队项与其生命周期关联起来，而无需依赖驱动器的路由状态。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括 `agent/stopping` 监听器提交的 steering，因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
+**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都将各自的 `AgentMessage` 载荷类型限定为仅包含被接受消息所返回的 `id`、内容和来源；调用方因此可以把一个排队项与其生命周期关联起来，而无需依赖驱动器的路由状态。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括 `agent/turn-stopping` 监听器提交的 steering，因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
 
 **一条已接受消息只保留一种表示。** 持久的用户角色输入和附加的模型可见上下文都直接使用 `UserMessageData { content, source }`；公开的 `AgentMessage` 在此基础上增加用于关联的 `id`，循环私有的 `PendingMessage` 再增加 `wakeup`。一条成为 steering 的排队消息会以同一个 `PendingMessage` 对象进入 outbox，而注入和工具产生的上下文则以普通 `UserMessageData` 进入。因此，outbox 直接存储这两种类型的联合，而不再把 steering 与一份重复的内容和来源副本包装在一起。提供方原生的助手消息仍是适配器拥有的输出类型，不参与这套输入层级。
 

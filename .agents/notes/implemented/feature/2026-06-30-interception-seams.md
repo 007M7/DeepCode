@@ -18,7 +18,7 @@ The canonical surface separates transformable policy, around-dispatch control, a
 - `agent/session-start(agent, source)` — emit, once before turn 1, carrying a `SessionStartSource` (`startup` for a fresh/forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it CANNOT block startup (a deliberate gap: a bridge logs/injects, it does not gate startup). A listener seeds context via `agent.inject()`.
 - `agent/prompt-submit(agent, content, source, signal, next) → PromptDecision` — waterfall, fired for one claimed queued message before the loop opens a turn or appends `user/message`. The explicit admission signal is placed before the final `next`; `allow` optionally rewrites the prompt `content` or attaches separately sourced `additionalContexts[]`, while `block` discards the candidate without creating session history.
 
-**`agent/stopping`** is an awaited notification at the natural stop boundary. A listener that needs another step calls `agent.steer()` with explicitly sourced model-facing content; the loop then re-reads the outbox and either continues or closes the turn.
+**`agent/turn-stopping`** is an awaited notification at the natural stop boundary. A listener that needs another step calls `agent.steer()` with explicitly sourced model-facing content; the loop then re-reads the outbox and either continues or closes the turn.
 
 ### The tool pipeline gives each phase one kind of authority
 
@@ -47,7 +47,7 @@ Core dispatch and the tool body sit inside normalization boundaries, so tool, li
 
 ### Boundaries
 
-The seam package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the seams through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, and Codex `PermissionRequest` remain outside this decision. The [approval seam](2026-07-06-approval-seam.md) resolves `ask` decisions through `ctx.approval`; terminal monotonic stopping is expressed by tool-result data, while `agent/stopping` is the last chance to steer another step.
+The seam package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the seams through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, and Codex `PermissionRequest` remain outside this decision. The [approval seam](2026-07-06-approval-seam.md) resolves `ask` decisions through `ctx.approval`; terminal monotonic stopping is expressed by tool-result data, while `agent/turn-stopping` is the last chance to steer another step.
 
 ## Alternatives considered
 

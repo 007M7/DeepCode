@@ -155,7 +155,7 @@ export class BasicCompactService extends CompactService {
       }
     })
 
-    ctx.on('agent/idle', (agent) => {
+    ctx.on('agent/settled', (agent) => {
       this.overflowRetries.delete(agent)
     })
 

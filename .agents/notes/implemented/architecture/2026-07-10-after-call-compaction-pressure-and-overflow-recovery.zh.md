@@ -24,7 +24,7 @@ Status: implemented
 
 `RequestError` 与 `agent/request-error` waterfall 表示最终适配器已经选定之后的失败。每个返回的流句柄都绑定一个私有失败集合；该集合在分发、异步迭代器构造与迭代过程中保留原始抛出错误的身份，同时防止把嵌套调用的错误来源误归到外层调用。终止性的带内 `error` 或 `aborted` finish 进入同一路径。提示词装配、请求中间件、请求日志、结果处理、工具、step 监听器与清理仍属于普通失败。
 
-恢复运行前，失败 step 已经关闭。负责处理的监听器修复持久状态、调用 `agent.retry()`，并停止 waterfall 委托。循环随后关闭失败 turn，并从持久日志开启一个重试 turn，中间不发布空闲通知。重试策略与尝试计数由插件自己拥有；compact-basic 在链路到达终态 `agent/idle` 时清除对应 agent 的溢出计数。两个 DeepSeek 适配器都把识别出的提供方上下文限制错误规范化为 `CONTEXT_WINDOW_EXCEEDED`。
+恢复运行前，失败 step 已经关闭。负责处理的监听器修复持久状态、调用 `agent.retry()`，并停止 waterfall 委托。循环随后关闭失败 turn，并从持久日志开启一个重试 turn，中间不发布空闲通知。重试策略与尝试计数由插件自己拥有；compact-basic 在链路到达终态 `agent/settled` 时清除对应 agent 的溢出计数。两个 DeepSeek 适配器都把识别出的提供方上下文限制错误规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 
 如果取消发生在 assistant 工具调用已经持久化之后、所有调用完成分发之前，循环会为每个尚未分发的调用记录一对合成的 `tool/call` 与 aborted `tool/result`，随后进入正常中止路径。因此，表层不会仅因取消赢得竞态而留下孤立的持久工具调用。
 

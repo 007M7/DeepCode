@@ -1000,13 +1000,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
-    name: 'agent/idle',
-    mode: 'emit',
-    signature: '\'agent/idle\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: IdleReason): void',
-    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification, and neither does a run that aborts or fails before its\n * `turn/start` commits — there is no durable turn to settle against.\n * `reason` says why; model-request recovery is exhausted when an error\n * reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
-  },
-  {
     name: 'agent/inbox/dequeue',
     mode: 'emit',
     signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
@@ -1056,6 +1049,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'The session lifecycle began, once before the first turn.',
   },
   {
+    name: 'agent/settled',
+    mode: 'emit',
+    signature: '\'agent/settled\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void',
+    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification, and neither does a run that aborts or fails before its\n * `turn/start` commits — there is no durable turn to settle against.\n * `reason` says why; model-request recovery is exhausted when an error\n * reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
+  },
+  {
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
@@ -1070,9 +1070,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation).',
   },
   {
-    name: 'agent/stopping',
+    name: 'agent/turn-stopping',
     mode: 'serial',
-    signature: '\'agent/stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
+    signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
     jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'The turn is about to close: the model owes no response (no live tool calls, no fresh steering).',
   },

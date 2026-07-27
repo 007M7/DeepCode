@@ -11,7 +11,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /**
  * The interception seams introduced by the hooks taxonomy: `agent/prompt-submit`,
- * `agent/session-start`, `agent/stopping`, and the
+ * `agent/session-start`, `agent/turn-stopping`, and the
  * `tools/pre-execute` / `tools/post-execute`
  * split with `additionalContexts` buffering. These verify the canonical event
  * surface a hook bridge (or a native plugin) programs against, WITHOUT any

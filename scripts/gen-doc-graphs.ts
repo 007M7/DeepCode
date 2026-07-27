@@ -1025,7 +1025,7 @@ function renderLifecycle(): string {
     '  end',
     '  Driver->>Session: post-tool context and steering (no prompt-submit)',
     `  Driver->>Session: ${mermaidCode('step/end')}`,
-    `  Driver->>Hooks: ${mermaidCode('agent/stopping')} serial terminal checkpoint`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stopping')} serial terminal checkpoint`,
     '  end',
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
