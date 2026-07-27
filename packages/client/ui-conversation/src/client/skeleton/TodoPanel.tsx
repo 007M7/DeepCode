@@ -8,18 +8,11 @@
 import { useId, useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
-
-// Client-side view of the todos projection key. The authoritative merge lives
-// with the domain host unit (tool-todo), whose program never overlaps the
-// client's, so this consumer restates the identical member through the same
-// pure-type outlet (any program holding both merges rejects drift).
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionMap {
-    /** The agent's current whole todo list (latest `todo/write` snapshot), or `null` before the first write. */
-    todos: TodoItem[] | null
-  }
-}
+// The domain's client-namespace pure-type outlet: one import edge delivers
+// the `todos` projection-key merge (single source, no consumer-side restated
+// declare) and the payload type. Type-only by construction — the outlet is
+// free of host value imports, so no host Context merge enters this program.
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TodoPanel.module.css'
 

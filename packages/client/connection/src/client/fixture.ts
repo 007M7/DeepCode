@@ -652,9 +652,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
         // Tail page carries the projections block (host parallel: one consistent
-        // cut over the registered units, asOfSeq = window tail seq); an empty
-        // log has no cut to stamp, so the block stays absent.
-        const projections = request.payload.beforeSeq === undefined && log.length > 0
+        // cut over the registered units; asOfSeq = window tail seq, -1 on an
+        // empty log — the host's session.seq-1 convention).
+        const projections = request.payload.beforeSeq === undefined
           ? { asOfSeq: log.length - 1, values: projectionValuesOf(log) }
           : undefined
         const doomed = failNextHistory

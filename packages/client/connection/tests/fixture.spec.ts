@@ -65,10 +65,11 @@ describe('createFixtureApi', () => {
     const clamped = await api.sessions.history(req({ sessionId: sid('fx-alpha'), beforeSeq: -5, maxMessages: 10 }))
     if (!clamped.result.ok) throw new Error('clamped failed')
     expect(clamped.result.value.events).toEqual([])
-    // Unknown session: empty page, not an error (history of a bare id).
+    // Unknown session: empty page, not an error (history of a bare id). The
+    // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false })
+    expect(empty.result.value).toEqual({ events: [], hasMore: false, projections: { asOfSeq: -1, values: {} } })
   })
 
   it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {

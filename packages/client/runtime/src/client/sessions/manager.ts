@@ -9,6 +9,10 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
+// Type-only merge edge: the title domain's client-namespace outlet declares
+// the 'title' projection key this manager projects into list rows (and any
+// useProjection('title') consumer reads). Zero value imports by construction.
+import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
