@@ -25,10 +25,10 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
-        if (request.payload.sessionId === ('with-todos' as never)) {
+        if (request.payload.sessionId === ('with-projections' as never)) {
           return {
             rpcId: request.rpcId,
-            result: { ok: true, value: { events: [], hasMore: false, todos: [{ content: 'current', status: 'in_progress' as const }] } },
+            result: { ok: true, value: { events: [], hasMore: false, projections: { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' as const }] } } } },
           }
         }
         return {
@@ -128,10 +128,14 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
   })
 
-  it('carries the tail-page todos projection through the wire schema (Zod must not strip it)', async () => {
-    const response = await client().sessions.history({ sessionId: 'with-todos' as never })
+  it('carries the tail-page projections block through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-projections' as never })
     expect(response.result.ok).toBe(true)
-    if (response.result.ok) expect(response.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
+    if (response.result.ok) {
+      expect(response.result.value.projections).toEqual(
+        { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' }] } },
+      )
+    }
   })
 
   it('carries a business error as 200 + error result', async () => {

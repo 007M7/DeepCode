@@ -5,7 +5,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
@@ -97,11 +97,6 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
-   * The tail page (beforeSeq absent) also carries `todos` — the session's current todo
-   * projection (latest `todo/write` over the FULL log, independent of the page window) —
-   * so a paged client restores the plan without walking history; absent when the session
-   * never wrote one. Older pages omit it (the projection is session-level, not per-page).
-   * TODO(gui): the todos rider retires onto the generic projections block below.
    * The tail page — and only the tail page — additionally carries `projections`
    * when the deployment mounts the session-projection registry: every moment
    * the client needs a fresh baseline already pulls the tail page, and
@@ -109,7 +104,7 @@ export interface SessionsApi {
    * A deployment without the registry serves histories without the block.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[]; projections?: SessionProjectionsBlock }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
   /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):

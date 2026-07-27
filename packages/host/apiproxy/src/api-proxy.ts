@@ -10,9 +10,8 @@ import type { Context } from 'cordis'
 import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -126,26 +125,9 @@ function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
 }
 
-type SessionTitleFrame = Extract<MuxFrame, { type: 'session/title' }>
-
-/** Project the latest durable title without exposing title-generation policy. */
-function titleFrame(session: Session): SessionTitleFrame | undefined {
-  const title = foldSessionTitle(session.events)
-  if (title === undefined) return undefined
-  return {
-    type: 'session/title',
-    sessionId: session.id,
-    title: title.title,
-    eventSeq: title.eventSeq,
-    updatedAt: title.updatedAt,
-  }
-}
-
-/** Queue the subscription baseline followed by its optional title snapshot. */
+/** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
-  const title = titleFrame(session)
-  if (title !== undefined) queue.push(frame(title))
 }
 
 /** SessionSummary projection for attached (in-memory) sessions. */
@@ -285,15 +267,6 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
       // Unparseable stored arguments: same soft-fall as a live parse failure.
       return undefined
     }
-  }
-  return undefined
-}
-
-/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
-function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
   }
   return undefined
 }
@@ -694,18 +667,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
           return { event, ...view === undefined ? {} : { view } }
         })
-        // Tail page carries the session-level todo projection over the FULL
-        // log (the page window may not contain the last todo/write; a paged
-        // client cannot reconstruct session-level state from it).
-        // TODO(gui): retire this rider onto the generic projections block.
-        const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
         // Baseline rider: tail page only — loadOlder (beforeSeq present) is
         // the one path that never needs a fresh projection baseline.
         const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
         return ok(request, {
           events: entries,
           hasMore: page.hasMore,
-          ...todos === undefined ? {} : { todos },
           ...projections === undefined ? {} : { projections },
         })
       },
@@ -1033,10 +1000,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const view = viewFor(ctx, event, callId =>
               openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
-            if (event.type === 'session/title') {
-              // The accepted raw event is already in session.events, so the fold must find it.
-              queue.push(frame(titleFrame(session) as SessionTitleFrame))
-            }
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
