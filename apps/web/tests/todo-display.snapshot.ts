@@ -104,10 +104,13 @@ function visibleText(element: Element): string {
 /** Open the fixture history session (the alpha log carrying the todo_write turn) and wait for its tail. */
 async function openFixtureSession(): Promise<void> {
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
-  // Anchor on the Workspace title, not the session-count meta: the count
-  // shifts when a blank session joins the group.
-  const group = (await within(tree).findByText('fixture')).closest<HTMLElement>('[role="treeitem"]')
-  if (group === null) throw new Error('fixture Workspace group missing')
+  // Anchor on the expandable Workspace group row: the title and the blank
+  // session row can both read "fixture", and the session-count meta shifts
+  // when a blank session joins the group.
+  const group = (await within(tree).findAllByText('fixture'))
+    .map(el => el.closest<HTMLElement>('[role="treeitem"]'))
+    .find(el => el?.getAttribute('aria-expanded') !== null)
+  if (group === null || group === undefined) throw new Error('fixture Workspace group missing')
   if (group.getAttribute('aria-expanded') === 'false') {
     fireEvent.click(within(group).getByText('fixture'))
     await waitFor(() => {
