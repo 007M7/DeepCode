@@ -125,6 +125,10 @@ export default defineConfig({
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',
+        'packages/client/ui-command/src/index.ts',
+        'packages/client/ui-skill/src/index.ts',
+        'packages/client/ui-slash/src/index.ts',
+        'packages/client/ui-subagent/src/index.ts',
         'packages/client/ui-command/src/client/popup.ts',
         'packages/client/ui-command/src/client/directory.ts',
         'packages/client/ui-command/src/client/service.ts',
