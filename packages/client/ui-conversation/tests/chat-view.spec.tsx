@@ -29,7 +29,7 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
