@@ -2,8 +2,9 @@
 // chain stay mounted across no-session/session transitions. Only the inert
 // input body swaps for the strict session InputBar.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
+import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
 import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import { DisabledInputBar } from './DisabledInputBar.tsx'
@@ -25,7 +26,22 @@ export function ConversationRoot({
   const workspaces = useWorkspaces(s => s)
 
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
   const pickerAnchor = useRef<HTMLButtonElement>(null)
+
+  const sessionWorkspace = sessionId === undefined
+    ? undefined
+    : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
+  const pendingWorkspace = workspaces.items.find(
+    workspace => workspace.workspaceId === pendingWorkspaceId,
+  )
+
+  useEffect(() => {
+    if (pendingWorkspaceId !== undefined
+      && sessionWorkspace?.workspaceId === pendingWorkspaceId) {
+      setPendingWorkspaceId(undefined)
+    }
+  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId])
 
   const hero = sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))
   const zone: InputZone | undefined =
@@ -36,9 +52,10 @@ export function ConversationRoot({
       <WorkspaceChip
         buttonRef={pickerAnchor}
         label={
-          sessionId === undefined
+          pendingWorkspace?.title
+          ?? (sessionId === undefined
             ? workspaceLabel('')
-            : workspaces.items.find(w => w.sessionIds.includes(sessionId))?.title ?? workspaceLabel(cwd ?? '')
+            : sessionWorkspace?.title ?? workspaceLabel(cwd ?? ''))
         }
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
@@ -48,7 +65,10 @@ export function ConversationRoot({
         anchorRef: pickerAnchor,
         onPick: (workspaceId) => {
           setPickerOpen(false)
-          selectWorkspace(workspaceId)
+          setPendingWorkspaceId(workspaceId)
+          void selectWorkspace(workspaceId).catch(() => {
+            setPendingWorkspaceId(current => current === workspaceId ? undefined : current)
+          })
         },
         onClose: () => { setPickerOpen(false) },
       })}
