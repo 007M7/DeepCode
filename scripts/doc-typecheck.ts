@@ -10,7 +10,7 @@ import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { builtDeclarationPath } from './doc-typecheck-paths.ts'
-import { extractFences } from './md-fences.ts'
+import { markdownFences } from './markdown.ts'
 import { partitionPairedMarkdownDerivatives } from './paired-markdown-derivatives.ts'
 import { isArchivedAgentNotePath } from './repo-files.ts'
 
@@ -46,8 +46,10 @@ const KIND_BY_INFO: Record<string, BlockKind> = {
 /** Extract every recognized TypeScript fence from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const file = relative(root, absPath)
-  return extractFences(absPath, info => KIND_BY_INFO[info] ?? null)
-    .map(f => ({ file, line: f.line, kind: f.kind, code: f.code }))
+  return markdownFences(readFileSync(absPath, 'utf8')).flatMap((fence) => {
+    const kind = KIND_BY_INFO[fence.info]
+    return kind === undefined ? [] : [{ file, line: fence.line, kind, code: fence.code }]
+  })
 }
 
 const configHost: ts.ParseConfigFileHost = {
