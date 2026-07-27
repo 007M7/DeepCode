@@ -26,7 +26,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 | 键 | 默认 | 含义 |
 |---|---|---|
-| `providerName` | `sdk` | `ctx.subagents` 上的注册名。 |
+| `providerName` | `dsh-sdk` | `ctx.subagents` 上的注册名。 |
 | `command` | 必填 | 每次 run 生成的可执行文件（子运行时 bin 或打包 exe）。 |
 | `args` | `[]` | 命令参数（通常是子进程的 `cordis.yml` 路径）。 |
 | `cwd` | 父会话 cwd | 工作目录覆盖；校验规则与 [`subagent-acp`](../subagent-acp/README.md) 相同。 |
@@ -41,14 +41,14 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 - id: subagent-sdk
   name: '@deepseek-ai/dsh-subagent-sdk'
   config:
-    providerName: sdk
+    providerName: dsh-sdk
     command: node
     args: ['./packages/examples/jsonrpc-demo/lib/bin.js', './examples/jsonrpc-agent/cordis.yml']
     env:
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
-  config: { provider: sdk, toolName: subagent, maxDepth: 'provider-managed' }
+  config: { provider: dsh-sdk, toolName: subagent, maxDepth: 'provider-managed' }
 ```
 
 ## 进程边界

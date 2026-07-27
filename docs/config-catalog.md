@@ -1353,7 +1353,7 @@ Requires: `subagents`
 ```ts config-catalog
 /** Config: how to spawn and drive the child SDK runtime process. */
 export interface Config {
-  /** Provider name on `ctx.subagents` (default `sdk`). */
+  /** Provider name on `ctx.subagents` (default `dsh-sdk`). */
   providerName: string
   /** The executable to spawn for each run (the child runtime bin or packaged exe). */
   command: string

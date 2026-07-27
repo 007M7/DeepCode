@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleLaunch, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { resolveExampleLaunch, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 const fixtureDir = new URL('../../../../examples/jsonrpc-agent/tests/fixtures/subagent/subagent-sdk/', import.meta.url)
 const driver = fileURLToPath(new URL('driver.ts', fixtureDir))
@@ -60,6 +60,10 @@ describe('SDK subagent cwd inheritance through a real cordis.yml', () => {
       libBinScript: driver,
       configPath,
       tsconfigPath: repoTsconfig,
+      // Two complete harness runtimes boot in sequence (driver, then the SDK
+      // child); from-source tsx boots under load need more than the default
+      // 30s window.
+      processTimeoutMs: 120_000,
       env: {
         DSH_TEST_CHILD_COMMAND: childLaunch.command,
         DSH_TEST_CHILD_ARGS: JSON.stringify(childLaunch.args),
@@ -97,5 +101,7 @@ describe('SDK subagent cwd inheritance through a real cordis.yml', () => {
     expect(childEvents.some(event => event.type === 'user/message')).toBe(true)
     const childAnswers = childEvents.filter(event => event.type === 'assistant/message')
     expect(childAnswers.length).toBeGreaterThan(0)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+    // 15s of vitest headroom past the subprocess deadline, mirroring
+    // LOADER_SMOKE_TEST_TIMEOUT_MS's margin over the default window.
+  }, 135_000)
 })

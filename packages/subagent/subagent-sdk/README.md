@@ -26,7 +26,7 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 
 | Key | Default | Meaning |
 |---|---|---|
-| `providerName` | `sdk` | Registry name on `ctx.subagents`. |
+| `providerName` | `dsh-sdk` | Registry name on `ctx.subagents`. |
 | `command` | required | Executable spawned per run (the child runtime bin or packaged exe). |
 | `args` | `[]` | Command arguments (typically the child's `cordis.yml` path). |
 | `cwd` | parent session cwd | Working-directory override; same validation as [`subagent-acp`](../subagent-acp/README.md). |
@@ -41,14 +41,14 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 - id: subagent-sdk
   name: '@deepseek-ai/dsh-subagent-sdk'
   config:
-    providerName: sdk
+    providerName: dsh-sdk
     command: node
     args: ['./packages/examples/jsonrpc-demo/lib/bin.js', './examples/jsonrpc-agent/cordis.yml']
     env:
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
-  config: { provider: sdk, toolName: subagent, maxDepth: 'provider-managed' }
+  config: { provider: dsh-sdk, toolName: subagent, maxDepth: 'provider-managed' }
 ```
 
 ## Process boundary

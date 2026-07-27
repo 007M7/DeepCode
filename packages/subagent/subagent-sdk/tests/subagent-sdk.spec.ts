@@ -37,8 +37,11 @@ function request(text = 'p', signal = new AbortController().signal) {
 async function setup(fakeEnv: Record<string, string> = {}, config: Partial<sdk.Config> = {}) {
   const ctx = new Context()
   await ctx.plugin(SubagentService)
+  // The Config type models the post-validation shape, so the default registry
+  // name is stated here; the Loader-composition fixture omits providerName and
+  // exercises the schemastery default end to end.
   await ctx.plugin(sdk, {
-    providerName: 'sdk',
+    providerName: 'dsh-sdk',
     command: process.execPath,
     args: [fakeRuntime],
     provider: 'fake-provider',
@@ -84,7 +87,7 @@ describe('sdkStopReason', () => {
 describe('dsh-subagent-sdk provider', () => {
   it('runs a child turn end to end with a parent-unique run id', async () => {
     const ctx = await setup({ FAKE_TEXT: 'hello from sdk child' })
-    const run = await ctx.subagents.start('sdk', request('do X'))
+    const run = await ctx.subagents.start('dsh-sdk', request('do X'))
     expect(run.localAgent).toBeUndefined()
     const result = await run.result
     expect(result.stopReason).toBe('completed')
@@ -94,7 +97,7 @@ describe('dsh-subagent-sdk provider', () => {
     expect(run.dispose()).toBe(disposal)
     await disposal
 
-    const nextRun = await ctx.subagents.start('sdk', request('again'))
+    const nextRun = await ctx.subagents.start('dsh-sdk', request('again'))
     expect(nextRun.id).not.toBe(run.id)
     await nextRun.result
     await nextRun.dispose()
@@ -106,7 +109,7 @@ describe('dsh-subagent-sdk provider', () => {
     const recordFile = join(tmp, 'init.jsonl')
     try {
       const ctx = await setup({ FAKE_RECORD_INIT: recordFile })
-      const run = await ctx.subagents.start('sdk', request())
+      const run = await ctx.subagents.start('dsh-sdk', request())
       await run.result
       await run.dispose()
       const { readFileSync } = await import('node:fs')
@@ -126,7 +129,7 @@ describe('dsh-subagent-sdk provider', () => {
         DEEPSEEK_API_KEY: 'explicit-child-key',
         FAKE_TEXT: 'done',
       })
-      const run = await ctx.subagents.start('sdk', request())
+      const run = await ctx.subagents.start('dsh-sdk', request())
       const result = await run.result
       const answer = text(result.output)
       expect(answer).toContain('DSH_TEST_AMBIENT_SECRET_KEY=\n')
@@ -140,7 +143,7 @@ describe('dsh-subagent-sdk provider', () => {
 
   it('maps a max-tokens child turn end', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'max-tokens', FAKE_STATUS: 'error' })
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     expect((await run.result).stopReason).toBe('max-tokens')
     await run.dispose()
     await ctx.fiber.dispose()
@@ -148,7 +151,7 @@ describe('dsh-subagent-sdk provider', () => {
 
   it('flattens a child turn error into stopReason error and keeps partial text', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'error', FAKE_STATUS: 'error', FAKE_TEXT: 'partial answer' })
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(text(result.output)).toBe('partial answer')
@@ -158,7 +161,7 @@ describe('dsh-subagent-sdk provider', () => {
 
   it('reports a settled-without-turn child as an error', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'none', FAKE_STATUS: 'error' })
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     expect((await run.result).stopReason).toBe('error')
     await run.dispose()
     await ctx.fiber.dispose()
@@ -167,7 +170,7 @@ describe('dsh-subagent-sdk provider', () => {
   it('aborting the required signal settles a hung child as aborted', async () => {
     const ctx = await setup({ FAKE_HANG_PROMPT: '1' }, { disposeEofGraceMs: 200, disposeGraceMs: 200 })
     const controller = new AbortController()
-    const run = await ctx.subagents.start('sdk', request('p', controller.signal))
+    const run = await ctx.subagents.start('dsh-sdk', request('p', controller.signal))
     controller.abort('test')
     const result = await run.result
     expect(result.stopReason).toBe('aborted')
@@ -215,7 +218,7 @@ describe('dsh-subagent-sdk provider', () => {
     // the failure settles, so the accumulated partial text (no complete
     // assistant/message ever arrived) must survive into the error result.
     const ctx = await setup({ FAKE_STREAM_THEN_MALFORMED: '1' }, { shutdownTimeoutMs: 100, disposeEofGraceMs: 200, disposeGraceMs: 200 })
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(text(result.output)).toBe('streamed then cut short')
@@ -225,7 +228,7 @@ describe('dsh-subagent-sdk provider', () => {
 
   it('dispose cancels a hung child locally and reaps it', async () => {
     const ctx = await setup({ FAKE_HANG_PROMPT: '1' }, { shutdownTimeoutMs: 100, disposeEofGraceMs: 200, disposeGraceMs: 200 })
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     await run.dispose()
     expect((await run.result).stopReason).toBe('aborted')
     await ctx.fiber.dispose()
@@ -260,7 +263,7 @@ describe('dsh-subagent-sdk provider', () => {
 
   it('rejects after reaping when the child dies before the handshake', async () => {
     const ctx = await setup({ FAKE_EXIT_BEFORE_INIT: '1', FAKE_STDERR: 'scripted boot failure' })
-    const failure = await ctx.subagents.start('sdk', request()).then(
+    const failure = await ctx.subagents.start('dsh-sdk', request()).then(
       () => { throw new Error('start unexpectedly succeeded') },
       (error: unknown) => error,
     )
@@ -318,10 +321,10 @@ describe('dsh-subagent-sdk provider', () => {
     const ctx = await setup({ FAKE_MALFORMED_PROMPT: '1' })
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
-    const run = await ctx.subagents.start('sdk', request())
+    const run = await ctx.subagents.start('dsh-sdk', request())
     expect((await run.result).stopReason).toBe('error')
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('subagent-sdk "sdk": child run failed (error)')
+    expect(warnings[0]).toContain('subagent-sdk "dsh-sdk": child run failed (error)')
     await run.dispose()
     await ctx.fiber.dispose()
   })
@@ -379,7 +382,7 @@ describe('dsh-subagent-sdk provider', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'subagent-sdk-cwd-'))
     try {
       const ctx = await setup({ FAKE_ECHO_CWD: '1', FAKE_TEXT: 'done' }, { cwd: tmp })
-      const run = await ctx.subagents.start('sdk', request())
+      const run = await ctx.subagents.start('dsh-sdk', request())
       const result = await run.result
       const { realpathSync } = await import('node:fs')
       expect(text(result.output)).toContain(`cwd=${realpathSync(tmp)}`)
@@ -393,7 +396,7 @@ describe('dsh-subagent-sdk provider', () => {
   it('fails loud when neither config cwd nor parent session cwd exists', async () => {
     const ctx = await setup()
     const parent = { id: 'parent', session: { header: {} } } as unknown as Agent
-    await expect(ctx.subagents.start('sdk', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+    await expect(ctx.subagents.start('dsh-sdk', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
       .rejects.toThrow('no working directory for the child')
     await ctx.fiber.dispose()
   })

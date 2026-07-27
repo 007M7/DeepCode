@@ -27,7 +27,7 @@ export const inject = ['subagents']
 
 /** Config: how to spawn and drive the child SDK runtime process. */
 export interface Config {
-  /** Provider name on `ctx.subagents` (default `sdk`). */
+  /** Provider name on `ctx.subagents` (default `dsh-sdk`). */
   providerName: string
   /** The executable to spawn for each run (the child runtime bin or packaged exe). */
   command: string
@@ -67,7 +67,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  providerName: z.string().default('sdk'),
+  providerName: z.string().default('dsh-sdk'),
   command: z.string().required(),
   args: z.array(z.string()).default([]),
   cwd: z.string(),
