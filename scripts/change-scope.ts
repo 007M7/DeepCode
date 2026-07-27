@@ -53,10 +53,19 @@ interface ChangeScopeOptions {
   json: boolean
 }
 
-function executeGit(cwd: string, args: string[]): GitCommandResult {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8',
-    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+function executeGit(cwd: string, args: string[], context: string): GitCommandResult {
+  const result = executeGitBytes(cwd, args)
+  return {
+    status: result.status,
+    stdout: decodeGitText(result.stdout, context, 'stdout'),
+    stderr: decodeGitText(result.stderr, context, 'stderr'),
+    error: result.error,
+  }
+}
+
+function executeGitBytes(cwd: string, args: string[]): GitBytesCommandResult {
+  const result = spawnSync('git', ['-C', cwd, '-c', 'core.fsmonitor=false', ...args], {
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LANG: 'C', LC_ALL: 'C' },
     maxBuffer: MAX_GIT_OUTPUT,
   })
   return {
@@ -67,16 +76,11 @@ function executeGit(cwd: string, args: string[]): GitCommandResult {
   }
 }
 
-function executeGitBytes(cwd: string, args: string[]): GitBytesCommandResult {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
-    maxBuffer: MAX_GIT_OUTPUT,
-  })
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    error: result.error,
+function decodeGitText(output: Buffer, context: string, stream: 'stdout' | 'stderr'): string {
+  try {
+    return UTF8_DECODER.decode(output)
+  } catch {
+    throw new Error(`${context}: Git ${stream} is not valid UTF-8`)
   }
 }
 
@@ -85,7 +89,7 @@ function failureDetail(result: GitCommandResult): string {
 }
 
 function requireGit(cwd: string, args: string[], context: string): string {
-  const result = executeGit(cwd, args)
+  const result = executeGit(cwd, args, context)
   if (result.status !== 0) throw new Error(`${context}: ${failureDetail(result)}`)
   return result.stdout
 }
@@ -116,6 +120,7 @@ function parseOptions(args: string[]): ChangeScopeOptions {
 }
 
 function resolveCommit(root: string, label: 'base' | 'head', ref: string): string {
+  const context = `cannot resolve ${label} ref ${JSON.stringify(ref)}`
   const result = executeGit(root, [
     '-c',
     'core.warnAmbiguousRefs=true',
@@ -123,7 +128,7 @@ function resolveCommit(root: string, label: 'base' | 'head', ref: string): strin
     '--verify',
     '--end-of-options',
     `${ref}^{commit}`,
-  ])
+  ], context)
   if (/\bambiguous\b/iu.test(result.stderr)) {
     throw new Error(`${label} ref ${JSON.stringify(ref)} is ambiguous; use a fully qualified ref or commit ID`)
   }
@@ -138,7 +143,11 @@ function resolveCommit(root: string, label: 'base' | 'head', ref: string): strin
 }
 
 function resolveMergeBase(root: string, baseSha: string, headSha: string): string {
-  const result = executeGit(root, ['merge-base', '--all', baseSha, headSha])
+  const result = executeGit(
+    root,
+    ['merge-base', '--all', baseSha, headSha],
+    'cannot resolve the merge base',
+  )
   if (result.status !== 0) {
     throw new Error(`base and head do not have a merge base: ${failureDetail(result)}`)
   }
@@ -150,7 +159,11 @@ function resolveMergeBase(root: string, baseSha: string, headSha: string): strin
 }
 
 function currentBranch(root: string): string | null {
-  const result = executeGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+  const result = executeGit(
+    root,
+    ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+    'cannot inspect the current branch',
+  )
   if (result.status === 1) return null
   if (result.status !== 0) throw new Error(`cannot inspect the current branch: ${failureDetail(result)}`)
   return stripGitLineTerminator(result.stdout)

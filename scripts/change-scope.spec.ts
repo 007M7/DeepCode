@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -43,9 +43,9 @@ function gitBytes(cwd: string, args: string[], input?: Buffer): Buffer {
   })
 }
 
-function write(path: string, content: string): void {
+function write(path: string, content: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, content)
+  writeFileSync(path, content, mode === undefined ? undefined : { mode })
 }
 
 function fixture(worktreeName = 'worktree'): Fixture {
@@ -207,6 +207,67 @@ describe('change-scope', () => {
       untracked: ['untracked.txt'],
     })
     expect(repositoryState(root)).toEqual(before)
+  })
+
+  it.skipIf(process.platform === 'win32')('does not execute a configured filesystem monitor', () => {
+    const { container, root } = fixture()
+    const monitor = join(container, 'fsmonitor.sh')
+    const sideEffect = `${monitor}.ran`
+    write(monitor, '#!/bin/sh\ntouch "$0.ran"\n', 0o755)
+    git(root, ['config', 'core.fsmonitor', monitor])
+
+    const report = jsonReport(root, 'HEAD')
+
+    expect(report.paths).toEqual({ committed: [], staged: [], unstaged: [], untracked: [] })
+    expect(existsSync(sideEffect)).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects non-UTF-8 branch and upstream names without partial output', () => {
+    const invalidBranch = fixture()
+    const branchHead = git(invalidBranch.root, ['rev-parse', 'HEAD'])
+    const invalidBranchName = Buffer.from([0x80])
+    writeFileSync(join(invalidBranch.root, '.git/packed-refs'), Buffer.concat([
+      Buffer.from(`${branchHead} refs/heads/`),
+      invalidBranchName,
+      Buffer.from('\n'),
+    ]))
+    writeFileSync(
+      join(invalidBranch.root, '.git/HEAD'),
+      Buffer.concat([Buffer.from('ref: refs/heads/'), invalidBranchName, Buffer.from('\n')]),
+    )
+    const branchOutput: string[] = []
+
+    expect(() => {
+      writeChangeScope(['--base', branchHead, '--json'], invalidBranch.root, chunk => branchOutput.push(chunk))
+    }).toThrow('cannot inspect the current branch: Git stdout is not valid UTF-8')
+    expect(branchOutput).toEqual([])
+
+    const invalidUpstream = fixture()
+    const upstreamHead = git(invalidUpstream.root, ['rev-parse', 'HEAD'])
+    const invalidUpstreamName = Buffer.from([0x81])
+    writeFileSync(join(invalidUpstream.root, '.git/packed-refs'), Buffer.concat([
+      Buffer.from(`${upstreamHead} refs/remotes/origin/`),
+      invalidUpstreamName,
+      Buffer.from('\n'),
+    ]))
+    const configPath = join(invalidUpstream.root, '.git/config')
+    const config = readFileSync(configPath)
+    const merge = Buffer.from('\tmerge = refs/heads/master\n')
+    const mergeIndex = config.indexOf(merge)
+    expect(mergeIndex).toBeGreaterThanOrEqual(0)
+    writeFileSync(configPath, Buffer.concat([
+      config.subarray(0, mergeIndex),
+      Buffer.from('\tmerge = refs/heads/'),
+      invalidUpstreamName,
+      Buffer.from('\n'),
+      config.subarray(mergeIndex + merge.length),
+    ]))
+    const upstreamOutput: string[] = []
+
+    expect(() => {
+      writeChangeScope(['--base', upstreamHead, '--json'], invalidUpstream.root, chunk => upstreamOutput.push(chunk))
+    }).toThrow('cannot inspect the configured upstream: Git stdout is not valid UTF-8')
+    expect(upstreamOutput).toEqual([])
   })
 
   it.skipIf(process.platform === 'win32')('rejects distinct non-UTF-8 Git paths without partial output', () => {
