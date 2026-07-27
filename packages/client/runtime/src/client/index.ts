@@ -7,7 +7,7 @@ import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
-import type { UseProjection } from './sessions/projection-cell.ts'
+import type { UseProjection } from './sessions/projection-store.ts'
 
 export { SlotsService } from './slots.ts'
 export type { RootOwnerProps } from './slots.ts'
@@ -35,12 +35,11 @@ export type {
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
-// Projection cells (session-projection RFC): domain plugins register cells at
-// scope materialization via `binding.session.projections.register(spec)`.
+// Projection value store (session-projection RFC, push model): host-computed
+// whole values per key; domains ship projection support with zero client code.
 export type {
-  ProjectionCell, ProjectionCellSet, ProjectionCellSpec, ProjectionSchemaLike, ProjectionsBaseline,
-  SessionProjectionMap, UseProjection,
-} from './sessions/projection-cell.ts'
+  ProjectionsBaseline, ProjectionValueStore, SessionProjectionMap, UseProjection,
+} from './sessions/projection-store.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
