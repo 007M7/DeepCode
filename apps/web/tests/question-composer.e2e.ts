@@ -28,7 +28,10 @@ const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
 const MODE = webSnapshotMode()
 
-const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". After I answer, reply with the single word DONE and stop.'
+// The options carry long descriptions on purpose: the squeeze assertion below
+// needs option copy that WRAPS, which is the only shape that reproduces a
+// collapsed row painting its copy outside its own box.
+const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and two options: label "Blue" with description "A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.", and label "Green" with description "A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions." After I answer, reply with the single word DONE and stop.'
 
 describe('web e2e: resident question composer round trip', () => {
   let scaffold: WebScaffold
@@ -77,6 +80,48 @@ describe('web e2e: resident question composer round trip', () => {
       // golden below owns the resulting transcript.
       const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    }
+
+    // Squeezed card: the option rows are the capped card's scroll content, so
+    // shrinking the seat must push overflow into the option list, never
+    // collapse a row below the height its own copy needs — a collapsed row
+    // paints its centered copy outside the row box, over the title and the
+    // neighbouring rows. Measured on the live composer at seat heights that
+    // force the cap, then restored for the answer gesture below. Replay only:
+    // record mode must reach the recording write below, not abort on layout.
+    if (MODE !== 'record') {
+      const original = page.viewportSize() ?? { width: 1680, height: 1000 }
+      for (const height of [520, 440, 380]) {
+        await page.setViewportSize({ width: 900, height })
+        const squeeze = await composer.evaluate((card) => {
+          // Role/ARIA selectors, not the CSS-module class names: the built
+          // client hashes those.
+          const rows = [...card.querySelectorAll<HTMLElement>(
+            '[role="radio"], [role="checkbox"], [aria-expanded]',
+          )]
+          const spill = rows.map(row => Math.max(...[...row.children].map((child) => {
+            const box = row.getBoundingClientRect()
+            const inner = child.getBoundingClientRect()
+            return Math.max(box.top - inner.top, inner.bottom - box.bottom)
+          })))
+          const list = rows[0]?.parentElement ?? null
+          return {
+            rows: rows.length,
+            spill: Math.max(...spill),
+            // Wrapped copy is the shape that overflows a collapsed row, and a
+            // scrolling list proves the seat is genuinely capped. Without both,
+            // the spill assertion would hold vacuously.
+            wrappedRows: rows.filter(row => row.getBoundingClientRect().height > 42).length,
+            scrolls: list === null ? false : list.scrollHeight > list.clientHeight,
+          }
+        })
+        expect(squeeze.rows).toBeGreaterThan(0)
+        expect(squeeze.wrappedRows).toBeGreaterThan(0)
+        expect(squeeze.scrolls).toBe(true)
+        // Sub-pixel tolerance: every row's copy stays inside its border box.
+        expect(squeeze.spill).toBeLessThan(0.6)
+      }
+      await page.setViewportSize(original)
     }
 
     await composer.getByRole('radio', { name: 'Blue' }).click()
