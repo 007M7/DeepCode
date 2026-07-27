@@ -46,7 +46,7 @@ hook 本身会在 agent 的会话工作区中运行：对 agent scope 点，桥�
 | `UserPromptSubmit` | `agent/prompt-submit`（waterfall） | `block`（退出码 2）→ `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts` |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `block` → `PreToolDecision.deny`（没有 `allow`／`ask`） |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `block` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
-| `Stop` | `agent/turn-continuation`（waterfall） | 阻塞 Stop hook 使用原因作为下一步 steering，强制 `continue` |
+| `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
 
 工具调用的 payload 携带真实 `tool_name`（matcher 测试的相同值）与 Codex `tool_input: { command }` 形状（存在 `command` arg 时使用该值，否则使用 `''`）。matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）或会话源（`SessionStart`）；`UserPromptSubmit`／`Stop` 忽略 matcher。
 

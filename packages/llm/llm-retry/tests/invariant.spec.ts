@@ -61,10 +61,12 @@ describe('llm-retry invariants', () => {
 
     expect(() => {
       session.append('llm/retry', { turn: 1, step: 1, ...normal })
-      session.append('step/start', { turn: 1, step: 2 })
-      session.append('step/end', { turn: 1, step: 2 })
+      session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
+      session.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+      session.append('step/start', { turn: 2, step: 1 })
+      session.append('step/end', { turn: 2, step: 1 })
       session.append('llm/retry', {
-        turn: 1, step: 2, ...normal, retry: 2, delayMs: 0,
+        turn: 2, step: 1, ...normal, retry: 2, delayMs: 0,
       })
       const unbounded = closeStep(ctx, 'retry-invariant-always')
       unbounded.append('llm/retry', { turn: 1, step: 1, ...always })
@@ -194,26 +196,32 @@ describe('llm-retry invariants', () => {
     const ctx = await setup()
     const mismatch = closeStep(ctx, 'retry-invariant-numbering')
     mismatch.append('llm/retry', { turn: 1, step: 1, ...normal })
-    mismatch.append('step/start', { turn: 1, step: 2 })
-    mismatch.append('step/end', { turn: 1, step: 2 })
+    mismatch.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
+    mismatch.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    mismatch.append('step/start', { turn: 2, step: 1 })
+    mismatch.append('step/end', { turn: 2, step: 1 })
     expect(() => {
-      mismatch.append('llm/retry', { turn: 1, step: 2, ...normal, retry: 1 })
+      mismatch.append('llm/retry', { turn: 2, step: 1, ...normal, retry: 1 })
     }).toThrow(/must equal provider policy retry 2/)
 
     const reset = closeStep(ctx, 'retry-invariant-reset')
     reset.append('llm/retry', { turn: 1, step: 1, ...normal })
-    reset.append('step/start', { turn: 1, step: 2 })
+    reset.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
+    reset.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    reset.append('step/start', { turn: 2, step: 1 })
     reset.append('assistant/message', {
-      turn: 1,
-      step: 2,
+      turn: 2,
+      step: 1,
       content: [{ type: 'text', text: 'success' }],
       provenance: { provider: 'mock', model: 'mock' },
     }, { surfaceOp: 'append' })
-    reset.append('step/end', { turn: 1, step: 2 })
-    reset.append('step/start', { turn: 1, step: 3 })
-    reset.append('step/end', { turn: 1, step: 3 })
+    reset.append('step/end', { turn: 2, step: 1 })
+    reset.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    reset.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    reset.append('step/start', { turn: 3, step: 1 })
+    reset.append('step/end', { turn: 3, step: 1 })
     expect(() => {
-      reset.append('llm/retry', { turn: 1, step: 3, ...normal })
+      reset.append('llm/retry', { turn: 3, step: 1, ...normal })
     }).not.toThrow()
   })
 

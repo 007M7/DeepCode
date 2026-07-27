@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, RequestError, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { providerForClosedStep } from './history.ts'
@@ -63,11 +63,11 @@ export interface RetryInternals {
 }
 
 type DownstreamOutcome =
-  | { readonly type: 'decision'; readonly decision: RequestErrorDecision }
+  | { readonly type: 'decision'; readonly decision: RequestErrorAction }
   | { readonly type: 'error'; readonly error: unknown }
 
 async function settleDownstream(
-  next: () => Promise<RequestErrorDecision>,
+  next: () => Promise<RequestErrorAction>,
 ): Promise<DownstreamOutcome> {
   try {
     return { type: 'decision', decision: await next() }
@@ -121,9 +121,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   validateConfig(config)
   const random = internals.random ?? Math.random
   const lifetime = new AbortController()
-  const active = new Set<Promise<RequestErrorDecision>>()
+  const active = new Set<Promise<RequestErrorAction>>()
 
-  function track(operation: Promise<RequestErrorDecision>): Promise<RequestErrorDecision> {
+  function track(operation: Promise<RequestErrorAction>): Promise<RequestErrorAction> {
     const tracked = operation.finally(() => active.delete(tracked))
     active.add(tracked)
     return tracked
@@ -140,9 +140,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     retry: number,
     delayMs: number,
     signal: AbortSignal,
-  ): Promise<RequestErrorDecision> {
+  ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-    if (fusedSignal.aborted) return { action: 'fail' }
+    if (fusedSignal.aborted) return
     const eventData = policy.mode === 'normal'
       ? {
         turn,
@@ -166,8 +166,8 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
         failure,
       }
     agent.session.append('llm/retry', eventData)
-    if (!await cancellableDelay(delayMs, fusedSignal)) return { action: 'fail' }
-    return { action: 'retry' }
+    if (!await cancellableDelay(delayMs, fusedSignal)) return
+    return { kind: 'retry' }
   }
 
   async function recover(
@@ -179,8 +179,8 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     priorFailures: readonly LlmFailure[],
     policy: ResolvedRetryPolicy | undefined,
     signal: AbortSignal,
-    next: () => Promise<RequestErrorDecision>,
-  ): Promise<RequestErrorDecision> {
+    next: () => Promise<RequestErrorAction>,
+  ): Promise<RequestErrorAction> {
     if (policy === undefined) return next()
     // The call-local policy belongs to the registration that served this
     // failure. Recover only the durable provider identity from the header;
@@ -191,19 +191,19 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       throw new Error(`llm-retry: no request provider for closed turn ${turn}/step ${step}`)
     }
     if (policy.mode === 'always') {
-      if (signal.aborted || lifetime.signal.aborted) return { action: 'fail' }
+      if (signal.aborted || lifetime.signal.aborted) return
       const fusedSignal = AbortSignal.any([signal, lifetime.signal])
       // The loop and plugin lifetime stay open until delegated recovery settles.
       // An abort then wins before the decision or fallback can mutate later state.
       const downstream = await settleDownstream(next)
-      if (fusedSignal.aborted) return { action: 'fail' }
+      if (fusedSignal.aborted) return
       if (downstream.type === 'error') {
         ctx.logger.warn(
           `llm-retry: provider "${provider}" always policy ignored a downstream recovery failure: %o`,
           downstream.error,
         )
       }
-      if (downstream.type === 'decision' && downstream.decision.action === 'retry') {
+      if (downstream.type === 'decision' && downstream.decision?.kind === 'retry') {
         return downstream.decision
       }
     } else if (!policy.retryableCodes.includes(failure.code)) {
@@ -211,12 +211,11 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     }
 
     const policyKey = retryPolicyKey(policy)
-    const firstPriorStep = step - priorFailures.length
+    const firstPriorTurn = turn - priorFailures.length
     const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
       event.type === 'llm/retry'
-      && event.data.turn === turn
-      && event.data.step >= firstPriorStep
-      && event.data.step < step
+      && event.data.turn >= firstPriorTurn
+      && event.data.turn < turn
       && event.data.provider === provider
       && event.data.policyKey === policyKey,
     )
@@ -249,12 +248,12 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     priorFailures: readonly LlmFailure[],
     policy: ResolvedRetryPolicy | undefined,
     signal: AbortSignal,
-    next: () => Promise<RequestErrorDecision>,
+    next: () => Promise<RequestErrorAction>,
   ) => {
     // A waterfall may have captured this callback before its registration was
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
-    if (lifetime.signal.aborted) return Promise.resolve<RequestErrorDecision>({ action: 'fail' })
+    if (lifetime.signal.aborted) return Promise.resolve<RequestErrorAction>(undefined)
     return track(recover(agent, turn, step, error, failure, priorFailures, policy, signal, next))
   })
 

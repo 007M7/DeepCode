@@ -9,7 +9,6 @@ describe('ACP automation codec', () => {
       [{ kind: 'max-tokens' }, 'max_tokens'],
       [{ kind: 'aborted' }, 'cancelled'],
       [{ kind: 'disposed' }, 'cancelled'],
-      [{ kind: 'rejected', reason: 'blocked' }, 'cancelled'],
       [{ kind: 'interrupted' }, 'cancelled'],
       [{ kind: 'error', step: 1, message: 'boom' }, 'end_turn'],
     ]

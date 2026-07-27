@@ -102,7 +102,7 @@ describe('session-log invariants', () => {
     } as never) }).toThrow(/seq must strictly increase/)
   })
 
-  it('enforces turn numbering and enclosure', async () => {
+  it('enforces turn numbering and encloses events other than idle context', async () => {
     const first = await setup()
     const open = first.ctx.sessions.create()
     open.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -119,9 +119,9 @@ describe('session-log invariants', () => {
 
     const outside = (await setup()).ctx.sessions.create()
     expect(() => outside.append('user/message', {
-      content: [{ type: 'text', text: 'hi' }],
-      source: { kind: 'user' },
-    }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
+      content: [{ type: 'text', text: 'idle context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }, { surfaceOp: 'append' })).not.toThrow()
     expect(() => outside.append('steering/message', {
       turn: 1,
       content: [{ type: 'text', text: 'go' }],

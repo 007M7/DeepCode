@@ -73,13 +73,13 @@ describe('deriveTrajectoryLayout', () => {
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
     expect(turns).toHaveLength(1)
     expect(turns[0]?.turn).toBe(1)
-    const kinds = turns[0]?.groups.flatMap((g) => g.cells.map((c) => c.kind))
+    const kinds = turns[0]?.groups.flatMap(g => g.cells.map(c => c.kind))
     expect(kinds).toEqual(['user', 'message', 'tool'])
-    const message = turns[0]?.groups.flatMap((g) => g.cells).find((c) => c.kind === 'message')
+    const message = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'message')
     expect(message).toMatchObject({
       input: 10, output: 20, think: 5, timeSeconds: 5,
     })
-    const tool = turns[0]?.groups.flatMap((g) => g.cells).find((c) => c.kind === 'tool')
+    const tool = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'tool')
     expect(tool?.text).toBe('bash · {"command":"ls"}')
     expect(tool?.timeSeconds).toBe(1.3)
   })
@@ -87,14 +87,14 @@ describe('deriveTrajectoryLayout', () => {
   it('adds runningCalls not already present and leaves their time blank', () => {
     const turns = deriveTrajectoryLayout({
       codeDispatches: new Map(),
-      nodes: [] as unknown as ConversationSnapshot['nodes'],
+      nodes: [],
       partial: null,
       runningCalls: [{
         callId: 'r1', name: 'bash', argsRaw: '{"command":"pwd"}',
         turn: 1, step: 2, time: 9_000, callView: null,
       }],
     })
-    expect(turns[0]?.groups.map((g) => g.title)).toEqual(['Step 2'])
+    expect(turns[0]?.groups.map(g => g.title)).toEqual(['Step 2'])
     expect(turns[0]?.groups[0]?.cells[0]).toMatchObject({
       kind: 'tool', text: 'bash · {"command":"pwd"}', timeSeconds: null,
     })
@@ -113,9 +113,9 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    const cells = turns[0]?.groups.flatMap((g) => g.cells) ?? []
-    expect(cells.find((c) => c.kind === 'message')?.timeSeconds).toBeNull()
-    expect(turns[0]?.groups.find((g) => g.title === 'Step 1')?.description).toBeUndefined()
+    const cells = turns[0]?.groups.flatMap(g => g.cells) ?? []
+    expect(cells.find(c => c.kind === 'message')?.timeSeconds).toBeNull()
+    expect(turns[0]?.groups.find(g => g.title === 'Step 1')?.description).toBeUndefined()
   })
 
   it('builds a wall-span step description with a tool histogram', () => {
@@ -156,9 +156,9 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    expect(turns.map((t) => t.turn)).toEqual([1, 2])
-    expect(turns[0]?.groups.flatMap((g) => g.cells.map((c) => c.text))).toEqual(['first', 'ok1'])
-    expect(turns[1]?.groups.flatMap((g) => g.cells.map((c) => c.text))).toEqual(['second', 'ok2'])
+    expect(turns.map(t => t.turn)).toEqual([1, 2])
+    expect(turns[0]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['first', 'ok1'])
+    expect(turns[1]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['second', 'ok2'])
   })
 
   it('keeps usage on the fallback Message row when assistant has no text block', () => {
@@ -170,7 +170,7 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    const message = turns[0]?.groups.flatMap((g) => g.cells).find((c) => c.kind === 'message')
+    const message = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'message')
     expect(message).toMatchObject({
       text: '', input: 11, output: 22, think: 3,
     })
@@ -199,8 +199,8 @@ describe('deriveTrajectoryLayout', () => {
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
     const message = turns[0]?.groups
-      .flatMap((g) => g.cells)
-      .find((c) => c.kind === 'message' && c.text === 'done')
+      .flatMap(g => g.cells)
+      .find(c => c.kind === 'message' && c.text === 'done')
     // From context at 9s, not from the earlier user/tool surfaces.
     expect(message?.timeSeconds).toBe(1)
   })
@@ -234,10 +234,10 @@ describe('run_code sub-dispatch cells', () => {
       settledSub(2, 'read', 7_300, 7_800),
     ]]]) as unknown as ConversationSnapshot['codeDispatches']
     const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
-    const cells = turns[0]!.groups.flatMap((g) => g.cells)
-    expect(cells.map((c) => c.kind)).toEqual(['tool', 'subtool', 'subtool'])
+    const cells = turns[0]!.groups.flatMap(g => g.cells)
+    expect(cells.map(c => c.kind)).toEqual(['tool', 'subtool', 'subtool'])
     // Sequential indexes across the interleave; durations from the pair times.
-    expect(cells.map((c) => c.index)).toEqual([1, 2, 3])
+    expect(cells.map(c => c.index)).toEqual([1, 2, 3])
     expect(cells[1]).toMatchObject({ text: 'bash · {"x":1}', timeSeconds: 1 })
     expect(cells[2]).toMatchObject({ timeSeconds: 0.5 })
   })
@@ -249,7 +249,7 @@ describe('run_code sub-dispatch cells', () => {
     }
     const codeDispatches = new Map([['p1', [running]]]) as unknown as ConversationSnapshot['codeDispatches']
     const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
-    const sub = turns[0]!.groups.flatMap((g) => g.cells).find((c) => c.kind === 'subtool')
+    const sub = turns[0]!.groups.flatMap(g => g.cells).find(c => c.kind === 'subtool')
     expect(sub).toMatchObject({ text: 'grep · {"pattern":"x"}', timeSeconds: null })
   })
 })

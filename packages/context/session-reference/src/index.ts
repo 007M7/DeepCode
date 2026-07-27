@@ -7,9 +7,9 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
 import type { SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_CANDIDATE_LIMIT,
@@ -20,7 +20,7 @@ import {
 } from './config.ts'
 import { retainReferencedSession, type ReferenceRetentionStats, type ReferencedSessionData } from './projection.ts'
 import { stringifyTagSafeJson } from './serialization.ts'
-import type { PreparedReferencedMessage, SessionReferenceCandidate, SessionReferenceInput } from './types.ts'
+import type { PreparedReferencedMessage, SessionReferenceCandidate, SessionReferenceInput, SessionReferenceSource } from './types.ts'
 
 export type * from './types.ts'
 export type { Config, SessionReferenceErrorCode } from './config.ts'
@@ -148,7 +148,7 @@ export class SessionReferenceService extends Service {
    * @param content - already host-normalized readable message content.
    * @param references - structured source sessions in mention order.
    * @param signal - optional cancellation boundary for host request teardown.
-   * @returns detached content and zero or one prepared contexts.
+   * @returns detached content and optional referenced-session context.
    */
   async prepare(
     agent: Agent,
@@ -158,7 +158,7 @@ export class SessionReferenceService extends Service {
   ): Promise<PreparedReferencedMessage> {
     const acceptedContent = structuredClone(content)
     const inputs = normalizeReferences(agent.id, references, this.config.maxReferences)
-    if (inputs.length === 0) return { content: acceptedContent, contexts: [] }
+    if (inputs.length === 0) return { content: acceptedContent }
     assertNotCancelled(signal)
     let prepared: PreparedSource[]
     try {
@@ -181,7 +181,7 @@ export class SessionReferenceService extends Service {
 
     const rendered = this.renderSources(prepared)
     const prompt = renderPrompt(rendered.map(source => source.data))
-    const meta = {
+    const source: SessionReferenceSource = {
       kind: 'session-reference',
       version: 1,
       references: rendered.map((source, index) => ({
@@ -191,14 +191,12 @@ export class SessionReferenceService extends Service {
         ...source.stats,
         inputIndex: index,
       })),
-    } satisfies JsonValue
-    const context: HookContext = {
-      source: { kind: 'plugin', plugin: 'session-reference' },
-      content: [{ type: 'text', text: prompt }],
-      placement: 'prompt-prefix',
-      meta,
     }
-    return { content: acceptedContent, contexts: [context] }
+    const additionalContext: UserMessageData = {
+      source,
+      content: [{ type: 'text', text: prompt }],
+    }
+    return { content: acceptedContent, additionalContext }
   }
 
   private renderSources(sources: readonly PreparedSource[]): RenderedSource[] {
