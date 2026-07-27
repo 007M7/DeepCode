@@ -19,7 +19,7 @@ export function Button({ variant = 'ghost', size = 'md', icon, className, childr
   variant?: ButtonVariant
   size?: 'md' | 'sm'
   icon?: ReactNode
-  className?: string
+  className?: string | undefined
   children?: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (

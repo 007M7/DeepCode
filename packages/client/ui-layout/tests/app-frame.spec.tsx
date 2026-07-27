@@ -39,7 +39,7 @@ let fireResize: (() => void) | null = null
 class ResizeObserverStub {
   #cb: ResizeObserverCallback
   constructor(cb: ResizeObserverCallback) { this.#cb = cb }
-  observe(): void { fireResize = () => { this.#cb([], this as unknown as ResizeObserver) } }
+  observe(): void { fireResize = () => { this.#cb([], this) } }
   unobserve(): void {}
   disconnect(): void { fireResize = null }
 }
@@ -48,7 +48,7 @@ let frameWidth = 1920
 
 /** Test-local selector hook over a framework-neutral store instance. */
 function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
-  return <S,>(sel: (s: T) => S): S => sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot))
+  return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
 function mountFrame() {
@@ -118,7 +118,7 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (h: number) => { clearTimeout(h) })
   window.innerWidth = frameWidth
   Element.prototype.getBoundingClientRect = function () {
-    return { width: frameWidth, height: 1080, top: 0, left: 0, right: frameWidth, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+    return { width: frameWidth, height: 1080, top: 0, left: 0, right: frameWidth, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) }
   }
   // jsdom lacks pointer capture: emulate per-element so hasPointerCapture gates pass.
   const captured = new WeakSet<Element>()
@@ -143,12 +143,12 @@ describe('AppFrame', () => {
     const { slotCalls, getByTestId } = mountFrame()
     expect(getByTestId('center-content')).toBeTruthy()
     expect(getByTestId('details-content')).toBeTruthy()
-    const keys = slotCalls.map((c) => c.key)
+    const keys = slotCalls.map(c => c.key)
     expect(keys).toContain('conversation')
     expect(keys).toContain('details')
     expect(keys).not.toContain('conversation.empty')
-    expect(slotCalls.find((c) => c.key === 'conversation')!.props).toEqual({})
-    expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
+    expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
+    expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
   })
 
   it('keeps the conversation slot mounted while no session is current', () => {
@@ -157,7 +157,7 @@ describe('AppFrame', () => {
     sessionMode.current = false
     const { slotCalls, getByTestId } = mountFrame()
     expect(getByTestId('center-content')).toBeTruthy()
-    expect(slotCalls.map((c) => c.key)).toContain('conversation')
+    expect(slotCalls.map(c => c.key)).toContain('conversation')
   })
 
   it('renders both column occupants before baselines settle (no loading gate)', () => {
@@ -165,13 +165,13 @@ describe('AppFrame', () => {
     // pending rendering — both occupants mount from first paint.
     baselinesReady.current = false
     const { slotCalls } = mountFrame()
-    expect(slotCalls.map((c) => c.key)).toContain('conversation')
-    expect(slotCalls.map((c) => c.key)).toContain('details')
+    expect(slotCalls.map(c => c.key)).toContain('conversation')
+    expect(slotCalls.map(c => c.key)).toContain('details')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {
     const { slotCalls } = mountFrame()
-    expect(slotCalls.find((c) => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
+    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
   })
 
   it('sidebar drag widens through rAF-batched pointer moves', () => {
@@ -211,7 +211,7 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 360])
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
-    const lastSidebarCall = slotCalls.filter((c) => c.key === 'sidebar').at(-1)!
+    const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
     expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
   })
 
