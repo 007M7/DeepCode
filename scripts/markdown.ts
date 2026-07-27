@@ -31,6 +31,12 @@ export interface MarkdownFence {
   info: string
   /** Block body without the fence delimiters. */
   code: string
+  /**
+   * Whether a closing fence delimiter terminates the block — mdast silently
+   * closes an unterminated fence at end of file. False on indented
+   * (non-fenced) blocks, whose end line is code.
+   */
+  closed: boolean
 }
 
 /** Parse GitHub-flavored Markdown with the repository's standard extensions. */
@@ -56,13 +62,16 @@ export function visitMarkdown(node: Nodes, visitor: (node: Nodes) => boolean | v
  * @returns each block's opening line, language, info string, and body.
  */
 export function markdownFences(source: string): MarkdownFence[] {
+  const lines = source.split('\n')
   const fences: MarkdownFence[] = []
   visitMarkdown(parseMarkdown(source), (node) => {
     if (node.type !== 'code' || node.position === undefined) return
     const lang = node.lang ?? null
     const meta = node.meta ?? ''
     const info = lang === null ? '' : meta === '' ? lang : `${lang} ${meta}`
-    fences.push({ line: node.position.start.line, lang, info, code: node.value })
+    const endLine = lines[node.position.end.line - 1] ?? ''
+    const closed = /^ {0,3}(`{3,}|~{3,})\s*$/.test(endLine)
+    fences.push({ line: node.position.start.line, lang, info, code: node.value, closed })
   })
   return fences
 }

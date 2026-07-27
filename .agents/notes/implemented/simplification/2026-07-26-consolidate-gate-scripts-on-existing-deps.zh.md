@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-`scripts/` 下的门禁大多已经在用正确的工具（15 个以上的门禁使用 `node:fs` 的 `globSync`，markdown 门禁使用 mdast/micromark），但少数几个掉队的脚本仍在手写同类门禁早已用既有依赖或内置模块完成的事情：
+`scripts/` 下的门禁大多本已在用正确的工具（15 个以上的门禁使用 `node:fs` 的 `globSync`，markdown 门禁使用 mdast/micromark），但少数几个掉队的脚本曾手写同类门禁早已用既有依赖或内置模块完成的事情：
 
-- **重复的围栏扫描器。**`scripts/md-fences.ts`（约 55 行，由 `doc-typecheck.ts` 消费）和 `scripts/verify-type-equiv.ts` 中的 `extractEquivBlocks`（约 39 行）是同一个围栏代码块正则行扫描器的两份拷贝，而 `scripts/verify-mermaid.ts` 已经通过访问 mdast `code` 节点来提取代码围栏；`scripts/markdown.ts` 自己的 `markdownProseLines` 也是先解析成 mdast，再用第二个正则手工跟踪围栏状态。这两个正则扫描器只识别第 0 列的反引号围栏，因此在波浪线围栏和缩进围栏上与基于 mdast 的门禁悄悄不一致。
-- **手写的 argv 解析。**`scripts/publint-all.ts` 中的 `parseOptions` 和 `scripts/verify-built-package-invariants.mjs` 中与之几乎相同的拷贝（约 26 行）手工推进 argv 下标，而同类脚本（`verify-runtime-closure.ts`、`build-exe-for-python-sdk.ts`、`packages/sdk/scripts/src/args.ts`）已经在使用 `node:util` 的内置 `parseArgs`。
-- **手写的目录遍历。**五处代码各自重写了 `globSync` 已覆盖的嵌套 `readdirSync` 遍历：`verify-runtime-closure.ts` 对 packages 与 vendor manifest（元数据清单）的扫描、`dev-web.ts` 的 `discoverPluginDirs`、`verify-package-paths.ts` 的 `realPackageNames`、`verify-client-domain-graph.ts` 的 `listSources`，以及 `publint-all.ts` 的 `addPath`（合计约 55–65 行）。`scripts/package-invariants.ts` 展示了一行式的 `globSync` 模板。
+- **重复的围栏扫描器。**`scripts/md-fences.ts`（约 55 行，由 `doc-typecheck.ts` 消费）和 `scripts/verify-type-equiv.ts` 中的 `extractEquivBlocks`（约 39 行）曾是同一个围栏代码块正则行扫描器的两份拷贝，而 `scripts/verify-mermaid.ts` 早已通过访问 mdast `code` 节点来提取代码围栏；`scripts/markdown.ts` 自己的 `markdownProseLines` 也曾先解析成 mdast，再用第二个正则手工跟踪围栏状态。这两个正则扫描器只识别第 0 列的反引号围栏，因此在波浪线围栏和缩进围栏上与基于 mdast 的门禁悄悄不一致。
+- **手写的 argv 解析。**`scripts/publint-all.ts` 中的 `parseOptions` 和 `scripts/verify-built-package-invariants.mjs` 中与之几乎相同的拷贝（约 26 行）曾手工推进 argv 下标，而同类脚本（`verify-runtime-closure.ts`、`build-exe-for-python-sdk.ts`、`packages/sdk/scripts/src/args.ts`）早已在使用 `node:util` 的内置 `parseArgs`。
+- **手写的目录遍历。**五处代码曾各自重写 `globSync` 已覆盖的嵌套 `readdirSync` 遍历：`verify-runtime-closure.ts` 对 packages 与 vendor manifest（元数据清单）的扫描、`dev-web.ts` 的 `discoverPluginDirs`、`verify-package-paths.ts` 的 `realPackageNames`、`verify-client-domain-graph.ts` 的 `listSources`，以及 `publint-all.ts` 的 `addPath`（合计约 55–65 行）。`scripts/package-invariants.ts` 展示了一行式的 `globSync` 模板。
 
 所有替换都不需要引入新依赖；每一处替换用的都是既有的 devDependency 或 Node 内置模块。
 
@@ -29,5 +29,5 @@ Status: implemented
 ## 后果
 
 - 只剩一个围栏解析器：所有 markdown 门禁现在都经由 mdast 归类代码围栏，因此波浪线围栏、缩进围栏和四反引号容器围栏在各处的行为完全一致。文档树中不存在正则扫描器处理有误的围栏形态，所以在落地这次替换的代码树上门禁结果不变：`pnpm run doc-sync` 及每个被改写的门禁在改动前后各跑一遍，输出逐字节相同（`doc-typecheck` 的块数/opt-out 计数、`verify-type-equiv` 的匹配计数、`publint`、`verify-built-package-invariants`、`verify-runtime-closure`、`verify-package-paths`、`verify-client-domain-graph`，以及两个包 README 散文门禁）。
-- `verify-type-equiv` 不再对未闭合的围栏报专门的错误：mdast 会在文件末尾闭合未闭合的代码块，这样的块会进入 manifest 检查，并在那里以孤儿或漂移的形式照样失败，而不是触发专门的扫描器错误。`doc-typecheck` 的扫描器本来就没有这条错误路径。
+- `verify-type-equiv` 仍然拒绝未闭合的类型等价围栏：mdast 会在文件末尾静默闭合未闭合的代码块（其比较随后可能通过），因此共享辅助函数会报告闭合定界符是否存在，门禁在块未闭合时报错，保留了被删扫描器的这条拒绝路径。`doc-typecheck` 的扫描器本来就没有这条错误路径。
 - `parseArgs` 对重复出现的选项保留最后一个值而不报错——一个测试未固定的开发工具边缘用例，作为删除两份手写解析器的交换被接受。（严格模式下，需要取值处遇到以 `--` 开头的 token 仍会拒绝，与被替换的解析器行为一致。）

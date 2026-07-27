@@ -2,6 +2,7 @@
 
 import {
   globSync,
+  readdirSync,
   readFileSync,
   statSync,
 } from 'node:fs'
@@ -91,7 +92,10 @@ function publicationFiles(target: PackageTarget): PackFile[] {
 function addPath(path: string, paths: Set<string>): void {
   const stat = statSync(path)
   if (stat.isDirectory()) {
-    for (const entry of globSync('**/*', { cwd: path, withFileTypes: true })) {
+    // readdirSync, not globSync: `**/*` skips dot-prefixed segments, but npm
+    // pack publishes dotfiles inside included directories, and this view must
+    // match what npm publishes.
+    for (const entry of readdirSync(path, { recursive: true, withFileTypes: true })) {
       if (entry.isFile()) paths.add(resolve(entry.parentPath, entry.name))
     }
   } else if (stat.isFile()) {

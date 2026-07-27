@@ -88,6 +88,9 @@ function extractEquivBlocks(docRel: string): EquivBlock[] {
       throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — use the concise \`ts public-api\` fence`)
     }
     if (fence.info !== 'ts type-equiv' && fence.info !== 'ts public-api') continue
+    if (!fence.closed) {
+      throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — unterminated type-equivalence fence (missing closing \`\`\`)`)
+    }
     const symbol = blockSymbol(fence.code)
     if (symbol === null) {
       throw new Error(`verify-type-equiv: ${docRel}:${fence.line} — type-equiv block has no parseable interface/type/class declaration`)
