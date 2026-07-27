@@ -10,7 +10,7 @@
  * inline error) without forking the state.
  */
 import type { ModelTarget, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -109,7 +109,7 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => scope.slots.register({
       name: 'conversation.input.model',
       inject: (sessionId): ModelSelectInjected => {
-        const directory = models.directoryFor(sessionId as SessionId)
+        const directory = models.directoryFor(sessionId)
         return {
           directory: directory.store,
           load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },

@@ -127,7 +127,8 @@ export class FakeApiClient implements IApiClient {
   // wire shapes so cases can program requires-bearing catalogs and dual-address
   // skill lists without casts.
   onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>> = () => Promise.resolve(ok({ commands: [] }))
-  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>> = () => Promise.resolve(ok({ matched: false }))
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>> =
+    () => Promise.resolve(ok({ matched: false }))
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>> = () => Promise.resolve(ok({ skills: [] }))
 
   readonly commands: IApiClient['commands'] = {
