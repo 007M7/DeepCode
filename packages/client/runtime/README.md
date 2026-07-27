@@ -6,7 +6,9 @@ Client cordis boot and React-free object services: SlotsService wraps SlotCore a
 
 ## Workspace and Session lists
 
-Workspace and Session lists have independent monotone `pending` → `ready` baseline phases and separate refresh activity/error state. Incremental frames arriving during a list request replay over its response. The first successful baseline establishes Host order; later refreshes update rows and membership without changing the relative order of identities already shown. Workspace recency is derived only after both baselines are ready and never changes Workspace list order.
+Workspace and Session lists have independent monotone `pending` → `ready` baseline phases and separate refresh activity/error state. Incremental upsert/removal frames and unary mutation echoes arriving during a list request replay over its response. The first successful baseline establishes Host order; later refreshes update rows and membership without changing the relative order of identities already shown. Removed Workspace ids retain process-local tombstones so late changed frames cannot resurrect them; reconnect still takes `workspace.list` as the baseline. Workspace recency is derived only after both baselines are ready and never changes Workspace list order.
+
+`WorkspacesService.delete(workspaceId)` removes the registration from the client projection after the successful unary response; the matching `host/workspace-removed` frame is idempotent and synchronizes other tabs. Session state and the current Session selection are independent, so accounted Sessions immediately project under Ungrouped after their Workspace disappears.
 
 SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
 

@@ -1,17 +1,19 @@
 /**
- * Agent-scoped provider/model target snapshot shared by interactive front doors.
+ * Agent-scoped LLM target snapshot shared by interactive front doors.
  * @module @deepseek-ai/dsh-agent/llm-target
  */
 
 import type { Context } from 'cordis'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
-/** Complete provider/model route selected for one live agent. */
+/** Complete provider/model route and optional reasoning effort selected for one live agent. */
 export interface AgentLlmTarget {
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
   model: string
+  /** Adapter-owned reasoning effort, or provider/default behavior when absent. */
+  reasoningEffort?: ReasoningEffortId
 }
 
 /** Mutable selection plus the target captured for the current step. */
@@ -24,9 +26,11 @@ export interface AgentLlmTargetRef {
 
 /**
  * Couple one mutable target to agent-scoped prompt assembly and request routing.
- * Prompt assembly snapshots the selected pair before delegating, then applies
- * both prompt variables and request config to that snapshot so a concurrent
- * switch takes effect on a later step instead of splitting the two surfaces.
+ * Prompt assembly snapshots the selected target before delegating, then applies
+ * its route to prompt variables and its route/effort to request config so a
+ * concurrent switch takes effect on a later step instead of splitting the two
+ * surfaces. An absent selected effort clears any inherited effort so a model
+ * switch can restore that target's provider/default behavior.
  *
  * @param agentCtx - The target agent's scoped context.
  * @param target - Mutable selection owned by the calling front door.
@@ -52,10 +56,15 @@ export function installAgentLlmTarget(agentCtx: Context, target: AgentLlmTargetR
     async (_agent, _turn, _step, _config, _signal, next): Promise<LlmCallConfig> => {
       const resolved = await next()
       const selected = target.assembled
-      return selected === undefined ? resolved : {
-        ...resolved,
+      if (selected === undefined) return resolved
+      const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
+      return {
+        ...withoutInheritedEffort,
         provider: selected.provider,
         model: selected.model,
+        ...selected.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: selected.reasoningEffort },
       }
     },
   )

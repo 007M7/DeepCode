@@ -87,10 +87,15 @@ type SessionTreeProps = Pick<
   query: string
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
+  onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
-function SessionTree({ useSessions, startSession, open, workspaces, query, onRenameRequest, insertSessionBefore }: SessionTreeProps) {
+function SessionTree({
+  useSessions, startSession, open, workspaces, query,
+  onRenameRequest, onDeleteRequest, insertSessionBefore,
+}: SessionTreeProps) {
   const list = useSessions((s) => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
@@ -128,11 +133,17 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
               }}
-              onRename={group.workspaceId === undefined
+              actions={group.workspaceId === undefined
                 ? undefined
-                : () => {
-                    /* v8 ignore next -- narrowing guard: the closure is only created for real-workspace groups. */
-                    if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                : {
+                    rename: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                    },
+                    delete: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+                    },
                   }}
             />
             {group.sessions.map((node, index) => {
@@ -236,6 +247,7 @@ export function WorkspaceBrowser({
   startSession,
   open,
   renameWorkspace,
+  deleteWorkspace,
   insertSessionBefore,
   createWorkspace,
 }: WorkspaceBrowserProps) {
@@ -288,6 +300,41 @@ export function WorkspaceBrowser({
     }).catch((reason: unknown) => {
       setRenaming(false)
       setRenameError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Delete dialog is separate from the row so a successful removal can
+  // unmount that row without tearing down the in-flight confirmation state.
+  const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteCommittedId, setDeleteCommittedId] = useState<WorkspaceId | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  useEffect(() => {
+    if (deleteCommittedId === null
+      || workspaces.some(workspace => workspace.workspaceId === deleteCommittedId)) return
+    setDeleting(false)
+    setDeleteCommittedId(null)
+    setDeleteTarget(null)
+  }, [deleteCommittedId, workspaces])
+  const closeDelete = () => {
+    if (deleting) return
+    setDeleteTarget(null)
+    setDeleteError(null)
+  }
+  const confirmDelete = () => {
+    /* v8 ignore next -- the Modal is absent without a target and its button is disabled while deleting. */
+    if (deleting || deleteTarget === null) return
+    setDeleting(true)
+    setDeleteCommittedId(null)
+    setDeleteError(null)
+    deleteWorkspace(deleteTarget.workspaceId).then(() => {
+      // Keep the confirmation pending until this component has rendered the
+      // committed list projection without the deleted id. Closing earlier
+      // exposes one stale React frame to the next Create Workspace gesture.
+      setDeleteCommittedId(deleteTarget.workspaceId)
+    }).catch((reason: unknown) => {
+      setDeleting(false)
+      setDeleteError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -382,6 +429,10 @@ export function WorkspaceBrowser({
                   setRenameDraft(currentTitle)
                   setRenameError(null)
                 }}
+                onDeleteRequest={(workspaceId, title) => {
+                  setDeleteTarget({ workspaceId, title })
+                  setDeleteError(null)
+                }}
               />
             ))}
       </div>
@@ -415,6 +466,30 @@ export function WorkspaceBrowser({
           <div className={css.renameError} role="alert">A workspace named “{renameTrimmed}” already exists.</div>
         )}
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
+      </Modal>
+      <Modal
+        open={deleteTarget !== null}
+        onClose={closeDelete}
+        title="Delete workspace"
+        {...deleteTarget === null
+          ? {}
+          : { description: `This removes “${deleteTarget.title}” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.` }}
+        footer={(
+          <>
+            <Button variant="outline" disabled={deleting} onClick={closeDelete}>Cancel</Button>
+            <Button
+              variant="outline"
+              className={css.deleteAction!}
+              disabled={deleting}
+              onClick={confirmDelete}
+            >
+              Delete workspace
+            </Button>
+          </>
+        )}
+      >
+        {deleting && <div className={css.deleteStatus} role="status">Deleting workspace…</div>}
+        {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
       </Modal>
     </div>
   )

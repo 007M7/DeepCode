@@ -60,7 +60,7 @@ export function WorkspaceCreateFlow({
   const [creating, setCreating] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
   const normalizedWorkspaceName = workspaceName.trim()
-  const duplicateWorkspaceName = normalizedWorkspaceName !== ''
+  const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
   const items: MenuEntry[] = [
