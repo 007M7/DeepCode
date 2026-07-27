@@ -1,6 +1,6 @@
 # Agent Note: Evaluate landstrip before building a Windows sandbox launcher
 
-Status: proposed
+Status: rejected — landstrip is not battle-tested (a days-old single-maintainer project, ~48 GitHub stars at rejection); a security-invariant dependency must have proven adoption, so the win32 rung keeps the in-house-launcher plan
 
 English | [中文](2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.zh.md)
 
