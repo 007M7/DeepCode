@@ -27,15 +27,15 @@ env:
 
 jobs:
 
-  # Three standard Linux jobs isolate coverage, static analysis, and the
+  # Three enterprise jobs isolate coverage, static analysis, and the
   # build-backed consumer tail. The static job publishes its exact build so
   # consumers do not repeat the longest part of their critical path.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: dsh-enterprise-ubuntu-latest-32core-test
     name: node 24 / static
     env:
-      DSH_GATE_CONCURRENCY: '1'
+      DSH_GATE_CONCURRENCY: '8'
     steps:
       # Fetch complete history so the archive gate can read the trusted PR base from a reused shallow checkout.
       - uses: actions/checkout@v6
@@ -81,11 +81,11 @@ jobs:
 
   node-24-coverage:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
     name: node 24 / coverage
     env:
-      DSH_COVERAGE_MAX_WORKERS: '1'
-      DSH_GATE_CONCURRENCY: '1'
+      DSH_COVERAGE_MAX_WORKERS: '24'
+      DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -122,15 +122,15 @@ jobs:
   node-24-consumers:
     needs: node-24
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: dsh-enterprise-ubuntu-latest-32core-test
     name: node 24 / snapshots and artifacts
     env:
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '1'
-      DSH_GATE_CONCURRENCY: '1'
+      DSH_ESLINT_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '8'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
-      DSH_PUBLINT_CONCURRENCY: '1'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
+      DSH_PUBLINT_CONCURRENCY: '8'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '32'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -693,8 +693,8 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # This bookkeeping-only verdict must not depend on custom-pool provisioning.
-    runs-on: ubuntu-latest
+    # The required verdict must not add a separate standard-hosted billing dependency.
+    runs-on: dsh-enterprise-ubuntu-latest-32core-test
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:

@@ -12,24 +12,24 @@ Billing health, a runner definition's `Ready` state, and a large autoscaling cei
 
 ## Decision
 
-[CI](../../../../.github/workflows/ci.yml) runs the three required primary Node 24 jobs on standard `ubuntu-latest` and the complete required Windows job on standard `windows-2025`. Static gates publish their exact built tree for the snapshot and artifact job, while coverage remains independent. Top-level gates, coverage, ESLint, publint, and snapshot replay use single-worker bounds on these smaller hosts. Node 22.19, Node 26, and Python SDK compatibility also use standard capacity. The lightweight `all checks passed` aggregate remains a separate scheduling decision because it performs no checkout or repository gate.
+[CI](../../../../.github/workflows/ci.yml) runs the required primary Node 24 jobs, plus the stable `all checks passed` aggregate, on repo-restricted enterprise 32-core pools. The aggregate performs no checkout or repository gate, but sharing the enterprise pool prevents the required verdict from introducing a separate standard-hosted billing dependency after its substantive jobs have already succeeded. The required Windows job runs on standard `windows-2025` with single-worker bounds, keeping the complete Windows contract independent of enterprise Windows allocation. Standard `ubuntu-latest` jobs retain Node 22.19, Node 26, and Python SDK compatibility, and `master` runs complete serial Linux, macOS, and Windows references. Those standard-hosted jobs keep the portable execution boundary observable without duplicating the primary inventory on every pull request.
 
-The three Linux primary jobs, Node compatibility, Python SDK, and `windows node 24 / complete` remain dependencies of `all checks passed`; no gate is removed or made observational to recover availability. Branch protection continues to require `e2e` and `all checks passed`.
+The two Linux primary jobs, Node compatibility, Python SDK, and `windows node 24 / complete` remain dependencies of `all checks passed`; branch protection continues to require `e2e` and `all checks passed`. There is no automatic fallback when a remaining enterprise Linux label cannot allocate: the standard jobs continue to report their own contracts, but they cannot manufacture the missing required result.
 
-The [larger-runner decision](2026-07-22-evidence-based-larger-hosted-runners.md) owns the retained performance measurements and manual suites. The [serial cross-platform reference](2026-07-21-serial-cross-platform-ci-reference.md) remains the independent standard-hosted completeness check.
+The [larger-runner decision](2026-07-22-evidence-based-larger-hosted-runners.md) owns the current primary topology and its measurements. The [serial cross-platform reference](2026-07-21-serial-cross-platform-ci-reference.md) remains the independent standard-hosted completeness check, and the manual larger-runner suites retain size comparisons without expanding the ordinary required matrix.
 
 ## Alternatives considered
 
-**Wait for enterprise allocation to recover.** A queue with no assigned runner emits no repository diagnostic and can block every pull request indefinitely, so external recovery is not a correctness path.
+**Keep the Linux primary jobs and aggregate on standard capacity.** This removes the remaining enterprise allocation dependency, but complete standard-runner jobs give materially slower feedback and still experience shared-capacity queues. The current split retains portable compatibility and serial evidence while spending enterprise capacity on the Linux primary critical path.
 
-**Use only the smallest enterprise pools.** Every named pool crosses the same enterprise allocation boundary; reducing core count does not remove the dependency that caused the queue.
+**Select enterprise size from advertised core count.** Benchmarks show non-monotonic scaling and setup variance, so exact complete-job measurements choose the required pools instead.
 
 **Skip or demote checks while capacity is unavailable.** This would make the status green by dropping evidence rather than by running the repository's required contracts.
 
-**Keep larger-runner worker limits on standard runners.** Concurrent repository gates and their inner worker pools can oversubscribe the smaller memory and CPU allocation, turning an availability repair into contention failures.
+**Use one worker policy on every host.** Outer gate concurrency and inner tool workers contend differently on Linux, Windows, and standard runners; measured host-specific bounds avoid turning additional cores into slower execution.
 
 ## Consequences
 
-Ordinary pull requests can acquire every substantive runner without enterprise-specific configuration. A live exact-head run proves the same commands that branch protection consumes, at the cost of longer elapsed time on smaller hosts.
+Ordinary pull requests spend enterprise capacity on the Linux critical path while standard Windows trades longer runtime for independent allocation. A live exact-head run proves the same commands that branch protection consumes; queue delay is reported separately from each job's `startedAt` to `completedAt` execution interval.
 
-Manual larger-runner benchmarks can remain queued without blocking pull requests. Restoring larger runners to the required path needs a separate evidence-based decision after exact-head jobs receive nonzero runner IDs and complete reliably; changing a pool definition's status alone is insufficient.
+Standard compatibility and required Windows jobs remain useful when enterprise allocation is degraded, but they do not make a blocked required Linux job or aggregate green. Recovering Linux availability may require restoring the complete standard-hosted topology; changing a pool definition's status alone is insufficient evidence that it can receive work.
