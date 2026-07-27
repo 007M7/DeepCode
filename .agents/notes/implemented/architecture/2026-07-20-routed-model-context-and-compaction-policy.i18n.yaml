@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-20-routed-model-context-and-compaction-policy.md: b637ba24d4ba5fc25c8cdd515a821ee97883a326
-2026-07-20-routed-model-context-and-compaction-policy.zh.md: 084e762ec29ddc0aecb0bf422c147b9d3122726b
+2026-07-20-routed-model-context-and-compaction-policy.md: b00c744e4ac79983a1f492d710e7b1542278c4f4
+2026-07-20-routed-model-context-and-compaction-policy.zh.md: 88e26aa7a99e8deb434d9a8fd80784be410a999a

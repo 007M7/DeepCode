@@ -48,6 +48,26 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "ReasoningEffortId",
+      "source": "packages/llm/llm/src/brand.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmReasoningEffortInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelReasoningInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmResolvedModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "GenerateOptions",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -291,6 +311,11 @@
       "symbol": "BlockAssembler",
       "source": "packages/llm/llm/src/assembler.ts",
       "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/llm-streaming.md",
+      "symbol": "PreparedLlmCall",
+      "source": "packages/llm/llm/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/llm-streaming.md",
