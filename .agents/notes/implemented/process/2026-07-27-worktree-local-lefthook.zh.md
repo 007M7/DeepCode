@@ -12,7 +12,7 @@ Lefthook 生成的钩子会优先使用安装时从对应 worktree 记录的绝�
 
 ## 决策
 
-钩子安装以 worktree 为作用域。当 `CI=true` 时，安装程序会在探测 Git 或做出任何变更之前返回，因为自动化任务不会使用贡献者钩子。否则，为了获取配置作用域的来源信息，安装程序要求 Git 2.26 或更高版本；它会将格式版本为 0 的仓库升级到格式版本 1，启用 `extensions.worktreeConfig`，并将当前 worktree 的 `core.hooksPath` 设为指向 `$GIT_DIR/dsh-hooks` 的绝对路径。首次启用这一仓库级扩展前，安装程序会检查主 worktree 与每个已注册关联 worktree 中尚未生效的 `config.worktree` 文件，并拒绝任何一经激活就会改变当前或其他 worktree 的设置。主 worktree 使用 `$GIT_COMMON_DIR/dsh-hooks`；每个关联 worktree 则使用 `$GIT_COMMON_DIR/worktrees/<id>` 下的对应目录。仓库级锁会串行化配置迁移与钩子写入，包括并发触发的重复安装。每个锁都会记录进程 ID 和随机所有权令牌；释放锁时会验证同一个文件身份与完全一致的记录。安装程序绝不会自动破坏所属进程已结束或内容无效的锁，因此诊断会要求贡献者先确认没有安装程序正在运行，再手动移除该锁。
+钩子安装以 worktree 为作用域。当 `CI=true` 或 `GITHUB_ACTIONS=true` 时，安装程序会在探测 Git 或做出任何变更之前返回，因为自动化任务不会使用贡献者钩子。否则，为了获取配置作用域的来源信息，安装程序要求 Git 2.26 或更高版本；它会将格式版本为 0 的仓库升级到格式版本 1，启用 `extensions.worktreeConfig`，并将当前 worktree 的 `core.hooksPath` 设为指向 `$GIT_DIR/dsh-hooks` 的绝对路径。首次启用这一仓库级扩展前，安装程序会检查主 worktree 与每个已注册关联 worktree 中尚未生效的 `config.worktree` 文件，并拒绝任何一经激活就会改变当前或其他 worktree 的设置。主 worktree 使用 `$GIT_COMMON_DIR/dsh-hooks`；每个关联 worktree 则使用 `$GIT_COMMON_DIR/worktrees/<id>` 下的对应目录。仓库级锁会串行化配置迁移与钩子写入，包括并发触发的重复安装。每个锁都会记录进程 ID 和随机所有权令牌；释放锁时会验证同一个文件身份与完全一致的记录。安装程序绝不会自动破坏所属进程已结束或内容无效的锁，因此诊断会要求贡献者先确认没有安装程序正在运行，再手动移除该锁。
 
 安装程序通过私有所有权标记识别其钩子目录，并以幂等方式更新该目录。它会检查 `core.hooksPath` 的生效作用域、来源和值，并拒绝没有所有权标记的目录、所有命令作用域路径，以及所有非本安装程序所有的 worktree 作用域路径，包括通过 `config.worktree` 中的 include 加载的值。安装程序会用 Git 的解析器跟踪 `includeIf`；若命令作用域或 worktree 作用域的目标配置提供钩子路径，或者无法安全证明它不会提供钩子路径，安装程序就会拒绝继续。因此，安装时未生效的条件日后也无法在安装程序的直接配置值之前隐藏用户自有路径。系统配置、全局配置或共用仓库配置中存在相同风险时，必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`，从而只让当前 worktree 显式启用 Lefthook，其他 worktree 则继续使用继承路径。与钩子无关的 `includeIf` 仍然有效。完成验证后，Lefthook 子进程的环境会移除命令作用域的 Git 配置。这项显式选择不会尝试串联任意钩子管理器。
 

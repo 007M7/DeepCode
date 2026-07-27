@@ -119,6 +119,7 @@ function createFixture(names: { main?: string; linked?: string } = {}): Fixture 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CI: 'false',
+    GITHUB_ACTIONS: 'false',
     GIT_AUTHOR_EMAIL: 'hooks@example.test',
     GIT_AUTHOR_NAME: 'Hooks Test',
     GIT_COMMITTER_EMAIL: 'hooks@example.test',
@@ -188,25 +189,30 @@ function runInstaller(
 }
 
 describe('worktree-local Lefthook installer', () => {
-  it('skips hook installation when CI is true', async () => {
-    const fixture = createFixture()
-    const common = commonDirectory(fixture)
-    const missingInclude = join(fixture.container, 'missing-ci-credentials.gitconfig')
-    git(fixture, fixture.main, [
-      'config',
-      '--local',
-      'includeIf.gitdir:/github/workspace/.git.path',
-      missingInclude,
-    ])
+  for (const [label, extraEnv] of [
+    ['CI', { CI: 'true' }],
+    ['GitHub Actions', { GITHUB_ACTIONS: 'true' }],
+  ] satisfies [string, NodeJS.ProcessEnv][]) {
+    it(`skips hook installation when ${label} marks an automated job`, async () => {
+      const fixture = createFixture()
+      const common = commonDirectory(fixture)
+      const missingInclude = join(fixture.container, 'missing-ci-credentials.gitconfig')
+      git(fixture, fixture.main, [
+        'config',
+        '--local',
+        'includeIf.gitdir:/github/workspace/.git.path',
+        missingInclude,
+      ])
 
-    const result = await runInstaller(fixture, fixture.main, { CI: 'true' })
+      const result = await runInstaller(fixture, fixture.main, extraEnv)
 
-    expect(result.status, result.stderr).toBe(0)
-    expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
-    expect(git(fixture, fixture.main, ['config', '--get', 'core.repositoryFormatVersion'])).toBe('0')
-    expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
-    expect(existsSync(join(common, 'config.worktree'))).toBe(false)
-  })
+      expect(result.status, result.stderr).toBe(0)
+      expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
+      expect(git(fixture, fixture.main, ['config', '--get', 'core.repositoryFormatVersion'])).toBe('0')
+      expect(existsSync(hooksPath(fixture, fixture.main))).toBe(false)
+      expect(existsSync(join(common, 'config.worktree'))).toBe(false)
+    })
+  }
 
   it('isolates main and linked worktrees without changing legacy common hooks', async () => {
     const fixture = createFixture()

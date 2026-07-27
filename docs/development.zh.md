@@ -19,7 +19,7 @@
 pnpm install
 ```
 
-安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。当 `CI=true` 时，该脚本会在探测 Git 前返回，因为自动化任务不会使用贡献者钩子。否则，包装脚本要求使用 Git 2.26 或更高版本，并会为当前 worktree 在其自身的 Git 目录下设置显式钩子目录；因此，关联 worktree 会使用各自的 lefthook 二进制文件和配置，而不会改写共用钩子。首次安装会启用 Git 的 worktree 专属配置扩展和仓库格式 1；见 [worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md)。
+安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。当 `CI=true` 或 `GITHUB_ACTIONS=true` 时，该脚本会在探测 Git 前返回，因为自动化任务不会使用贡献者钩子。否则，包装脚本要求使用 Git 2.26 或更高版本，并会为当前 worktree 在其自身的 Git 目录下设置显式钩子目录；因此，关联 worktree 会使用各自的 lefthook 二进制文件和配置，而不会改写共用钩子。首次安装会启用 Git 的 worktree 专属配置扩展和仓库格式 1；见 [worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md)。
 
 如果依赖是从缓存恢复或 `postinstall` 被跳过而导致缺少钩子，请手动安装：
 

@@ -19,7 +19,7 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. With `CI=true`, the wrapper returns before Git discovery because automated jobs do not consume contributor hooks. Otherwise, it requires Git 2.26 or newer and gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. With `CI=true` or `GITHUB_ACTIONS=true`, the wrapper returns before Git discovery because automated jobs do not consume contributor hooks. Otherwise, it requires Git 2.26 or newer and gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
