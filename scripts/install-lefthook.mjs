@@ -569,6 +569,7 @@ function refuseScopedHooksPath(entry) {
 }
 
 async function main() {
+  if (process.env.CI === 'true') return
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
   if (probe.status !== 0) return
   const root = stripGitLineTerminator(probe.stdout)
