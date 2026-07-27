@@ -126,6 +126,7 @@ describe('dsh-tool-todo', () => {
     { label: 'empty content', todos: [{ content: '   ', status: 'pending' }], fragment: 'non-empty' },
     { label: 'duplicate content', todos: [{ content: 'dup', status: 'pending' }, { content: 'dup', status: 'completed' }], fragment: 'duplicate' },
     { label: 'two in_progress', todos: [{ content: 'a', status: 'in_progress' }, { content: 'b', status: 'in_progress' }], fragment: 'in_progress' },
+    { label: 'unknown item keys', todos: [{ content: 'a', status: 'pending', children: [] }], fragment: 'not a declared property' },
   ])('rejects $label as an isError result', async ({ todos, fragment }) => {
     const ctx = await setup()
     const result = await callTodo(ctx, { todos })
