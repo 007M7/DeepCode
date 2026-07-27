@@ -1221,7 +1221,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
-  it('disposal during agent/step seam ends the turn disposed', { timeout: 15000 }, async () => {
+  it('disposal during agent/step listeners ends the turn disposed', { timeout: 15000 }, async () => {
     // Start disposal, then release pre-step; awaiting disposal first would
     // deadlock on the blocked driver.
     const adapter = new MockAdapter(['hang'])
@@ -1258,13 +1258,13 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await disposalDone
     await driverDone(agent)
 
-    // After the pre-step seam finishes, the post-seam cancel/dispose check
+    // After the agent/step listeners finish, the post-listener cancel/dispose check
     // catches disposal. The step was never opened, no LLM call was made.
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    // Disposal wins the post-seam check — reason is `disposed`.
+    // Disposal wins the post-listener check — reason is `disposed`.
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
@@ -1272,8 +1272,8 @@ describe('disposal and cancellation during pre-step assembly', () => {
     // (turn boundaries have no agent/* mirror).
   })
 
-  it('cancel during agent/step seam ends the turn aborted', { timeout: 15000 }, async () => {
-    // Release pre-step after cancellation to exercise the post-seam check.
+  it('cancel during agent/step listeners ends the turn aborted', { timeout: 15000 }, async () => {
+    // Release agent/step after cancellation to exercise the post-listener check.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))

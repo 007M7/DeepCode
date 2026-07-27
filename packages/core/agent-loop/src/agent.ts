@@ -415,8 +415,8 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
-   * Run the `agent/step` seam, commit pending input, derive one request, and
-   * execute its tool calls inside one durable step boundary.
+   * Run the `agent/step` extension point, commit pending input, derive one
+   * request, and execute its tool calls inside one durable step boundary.
    */
   private async step(
     turn: number,
@@ -425,8 +425,8 @@ export class ReactLoopAgent implements Agent {
   ): Promise<StepOutcome> {
     const { session } = this
 
-    // The single between-steps seam: listeners inject, steer, or edit the log
-    // here; the request derives from the log after this settles.
+    // The single between-steps extension point: listeners inject, steer, or
+    // edit the log here; the request derives from the log after this settles.
     await this.loopCtx.serial(agentCarrier(this), 'agent/step', this, turn, step, signal)
     signal.throwIfAborted()
 

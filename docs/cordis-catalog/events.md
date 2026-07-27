@@ -304,14 +304,14 @@ Source: [`packages/core/agent/src/types.ts:254`](../../packages/core/agent/src/t
 
 ### `agent/step` — serial
 
-Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation). The single "between steps" seam: inject context, steer, or edit the session log here — the request's history derives from the log right after this settles.
+Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation). The single "between steps" extension point: inject context, steer, or edit the session log here — the request's history derives from the log right after this settles.
 
 ```ts cordis-catalog
 /**
  * Awaited serial checkpoint before EVERY request of a turn is built (the
  * first as well as each post-tools continuation). The single "between
- * steps" seam: inject context, steer, or edit the session log here — the
- * request's history derives from the log right after this settles.
+ * steps" extension point: inject context, steer, or edit the session log
+ * here — the request's history derives from the log right after this settles.
  * @param agent - the agent about to send a request.
  * @param turn - the open turn number.
  * @param step - the step number about to open.
