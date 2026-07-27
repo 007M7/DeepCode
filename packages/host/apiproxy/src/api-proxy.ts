@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -279,6 +279,15 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
       // Unparseable stored arguments: same soft-fall as a live parse failure.
       return undefined
     }
+  }
+  return undefined
+}
+
+/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
+function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event !== undefined && event.type === 'todo/write') return event.data.todos
   }
   return undefined
 }
@@ -642,7 +651,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
           return { event, ...view === undefined ? {} : { view } }
         })
-        return ok(request, { events: entries, hasMore: page.hasMore })
+        // Tail page carries the session-level todo projection over the FULL
+        // log (the page window may not contain the last todo/write; a paged
+        // client cannot reconstruct session-level state from it).
+        const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
+        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
       },
 
       async prompt(request) {
@@ -762,6 +775,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           throw error
         }
         return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async delete(request) {
+        const { workspaceId } = request.payload
+        const operation = workspaceCreationChain.then(() =>
+          ctx.workspace.delete(brandWorkspaceId(workspaceId)))
+        workspaceCreationChain = operation.then(() => undefined, () => undefined)
+        if (!await operation) return workspaceNotFound(request, workspaceId)
+        return ok(request, { deleted: true as const })
       },
 
       async insertSessionBefore(request) {
@@ -977,8 +999,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
           }),
           ctx.on('domain/changed', (change) => {
-            if (change.domain !== 'workspace' || change.operation !== 'put') return
+            if (change.domain !== 'workspace') return
             if (change.table === '') {
+              if (change.operation !== 'put') return
               const state = workspaceDomainState.parse(change.value)
               for (const workspaceId of state.workspaceIds) {
                 if (committedWorkspaceIds.has(workspaceId)) continue
@@ -991,7 +1014,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
               return
             }
-            if (change.table !== 'workspaces' || !committedWorkspaceIds.has(change.key)) return
+            if (change.table !== 'workspaces') return
+            if (change.operation === 'deleted') {
+              if (!committedWorkspaceIds.delete(change.key)) return
+              queue.push(frame({
+                type: 'host/workspace-removed',
+                workspaceId: change.key as WorkspaceId,
+              }))
+              return
+            }
+            if (!committedWorkspaceIds.has(change.key)) return
             // Existing-entity table writes are complete attach/touch commits.
             // A new entity's first put waits for the global registry write above.
             queue.push(frame({

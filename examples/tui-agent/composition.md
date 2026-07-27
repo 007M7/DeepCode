@@ -12,6 +12,8 @@ flowchart LR
   cfg --> plugin_tui_hmr
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
+  plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
+  cfg --> plugin_tui_subprocess
   plugin_tui_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_tui_bash
   plugin_tui_tui_agent["tui-agent<br/>@deepseek-ai/dsh-tui-demo"]
@@ -69,6 +71,7 @@ flowchart LR
 | --- | --- |
 | `hmr` | `@cordisjs/plugin-hmr` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
+| `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `tui-agent` | `@deepseek-ai/dsh-tui-demo` |
 | `session-title-llm` | `@deepseek-ai/dsh-session-title-first-message-llm` |

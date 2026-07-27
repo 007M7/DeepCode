@@ -43,7 +43,10 @@ declare module 'cordis' {
  *   failures settle as `killed` with the error on stderr.
  * - {@link BashProcess.readOutput} is incremental: consecutive reads never
  *   repeat output. Lossy reads report truncation and available spill files.
- * - Disposal kills all running background processes and awaits their exit.
+ * - A still-running background process is stopped and awaited when its
+ *   owning composition tears down. With the subprocess seam that
+ *   boundary is `ctx.subprocess` disposal, so a background process survives
+ *   an executor-only reload.
  */
 export abstract class BashExecutor extends Service {
   constructor(ctx: Context) {

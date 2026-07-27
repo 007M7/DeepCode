@@ -27,7 +27,7 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -169,17 +169,19 @@ describe('bash sample row', () => {
     expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
   })
 
-  it('summarizes the command and hands clicks to openDetails on both arms', () => {
+  it('summarizes as Bash · description and hands clicks to openDetails on both arms', () => {
     const openGlobal = vi.fn()
     const global = render(<BashRow {...rowProps(ROOT, { openDetails: openGlobal })} />)
     // Two renders share document.body: query inside each container.
     const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
+    expect(globalRow.textContent).toContain('Bash')
     expect(globalRow.textContent).toContain('Build')
     fireEvent.click(globalRow)
     expect(openGlobal).toHaveBeenCalledTimes(1)
     const openScoped = vi.fn()
     const scoped = render(<BashRow {...rowProps(CHILD, { openDetails: openScoped })} />)
     const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
+    expect(scopedRow.textContent).toContain('Bash')
     expect(scopedRow.textContent).toContain('Build')
     fireEvent.click(scopedRow)
     expect(openScoped).toHaveBeenCalledTimes(1)

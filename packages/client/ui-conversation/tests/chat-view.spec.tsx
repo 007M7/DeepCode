@@ -29,7 +29,7 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -264,7 +264,7 @@ describe('ChatView', () => {
     expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
   })
 
-  it('clicking a tool row opens details with callId and toolName; selection paints the outline', () => {
+  it('clicking a tool row opens details with callId and toolName; selection marks data-selected', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     fireEvent.click(view.getByText('run a'))

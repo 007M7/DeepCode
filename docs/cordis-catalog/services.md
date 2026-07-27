@@ -257,7 +257,7 @@ Implementations must honor these semantics:
 - run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
 - start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
-- Disposal kills all running background processes and awaits their exit.
+- A still-running background process is stopped and awaited when its owning composition tears down. With the subprocess seam that boundary is `ctx.subprocess` disposal, so a background process survives an executor-only reload.
 
 ```ts cordis-catalog
 /**
@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -315,7 +315,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../core-data-structures/subprocess.md) · [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
@@ -730,33 +730,57 @@ listProviders(): LlmProviderInfo[]
 async listModels(provider: string): Promise<LlmModelInfo[]>
 
 /**
- * Resolve context capacity from the adapter that owns one exact route.
- * This query is independent of the advisory model catalog: an unlisted model
- * may return metadata, while `undefined` never rejects later routing.
+ * Resolve and validate all metadata from the adapter that owns one exact
+ * route. The result is detached from adapter-owned objects; catalog
+ * membership remains advisory and does not control request routing.
  * @param provider - registered provider route to inspect.
  * @param model - exact model id passed to the adapter.
- * @returns detached context metadata, or `undefined` when the adapter has none.
+ * @param signal - optional cancellation for adapter-owned asynchronous lookup.
+ * @returns exact model identity plus available context and reasoning metadata.
  */
-async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, ): Promise<LlmResolvedModelInfo>
+
+/**
+ * Validate a conversation call config against its exact model capability and
+ * materialize an adapter-configured default. Unsupported explicit efforts
+ * reject before provider I/O; no clamping or aliasing is performed. This
+ * standalone query does not bind a later dispatch; use {@link prepareCall}
+ * when logging and streaming must share one adapter registration.
+ * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @returns a detached config only when a default must be materialized.
+ */
+async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>
+
+/**
+ * Resolve one call under its current adapter registration. The returned
+ * one-shot handle keeps that registration across header logging and dispatch,
+ * so HMR cannot combine one adapter's capability result with another adapter.
+ * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @returns a prepared config and its registration-bound stream entry point.
+ */
+async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
  * instance owns its historical provider and the target provider. Final
- * adapter selection, dispatch, and iteration failures retain their original
- * Error identity and are tagged in a call-local scope for narrow agent-loop
- * request recovery; middleware and nested-call failures remain untagged for
- * the outer call.
+ * adapter selection remains fixed through asynchronous exact-model resolution
+ * and dispatch. Selection, dispatch, and iteration failures retain their
+ * original Error identity and are tagged in a call-local scope for narrow
+ * agent-loop request recovery; middleware and nested-call failures remain
+ * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:177`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1342,7 +1366,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:606`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:611`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1558,6 +1582,31 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
+
+## `ctx.subprocess` — `SubprocessService` (abstract seam)
+
+Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
+- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- Disposal of the service terminates all still-running managed processes and awaits their exit.
+
+```ts cordis-catalog
+/**
+ * Start one managed child process from a fully-specified spec; this seam
+ * applies no defaults.
+ * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
+ * @returns the live process handle (streams/readers, signalling, outcome promise).
+ */
+abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+```
+
+Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
+
+Source: [`packages/subprocess/subprocess/src/index.ts:88`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -1878,7 +1927,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:150`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:153`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
@@ -2014,6 +2063,16 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Delete one workspace registration while retaining its directory and every
+ * session log. The durable order is updated before the table deletion; a
+ * failed table write restores the prior order and keeps the entity
+ * published. Unknown ids are an idempotent no-op for domain callers.
+ * @param id - Workspace registration to remove.
+ * @returns `true` when a record was deleted, `false` when it was unknown.
+ */
+delete(id: WorkspaceId): Promise<boolean>
 
 /**
  * Resolve by canonical directory path without creating or mutating a

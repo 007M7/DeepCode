@@ -59,6 +59,16 @@ export const workspaceRenameValueSchema = z.object({
   workspace: workspaceViewSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.rename'>>>
 
+/** workspace.delete request payload. */
+export const workspaceDeleteRequestSchema = z.object({
+  workspaceId: workspaceIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.delete'>>>
+
+/** workspace.delete response value. */
+export const workspaceDeleteValueSchema = z.object({
+  deleted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.delete'>>>
+
 /** workspace.insertSessionBefore request payload (anchor omitted = append to end). */
 export const workspaceInsertSessionBeforeRequestSchema = z.object({
   workspaceId: workspaceIdSchema,
