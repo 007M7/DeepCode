@@ -29,18 +29,11 @@ export const STATUS_PULSE_PERIOD_MS = 1400
 
 /**
  * Brightness floor of the running throb, as a fraction of the settled gray. At
- * 0 the pulse swells from fully invisible (a blank glyph column, see
- * {@link STATUS_FADE_MIN_OPACITY}) up to full and back, so the dimmest point of
- * each breath truly disappears rather than lingering as a faint mark.
+ * 0 the pulse swells from the near-background trough up to full and back. The
+ * trough is still rendered as the dimmest gray, not clipped to a blank, so the
+ * cosine breathes symmetrically bold→dim→bold.
  */
 export const STATUS_PULSE_FLOOR = 0
-
-/**
- * Opacity below which the truecolor running glyph is hidden entirely (a blank
- * column) instead of painted as a near-background gray, so the trough of the
- * pulse reads as invisible. The fixed glyph width is preserved by the blank.
- */
-export const STATUS_FADE_MIN_OPACITY = 0.12
 
 /**
  * Muted-gray foreground the truecolor running glyph fades through, from the
@@ -243,8 +236,8 @@ export function runningPhaseGlyph(events: readonly SessionEvent[], running: bool
 /**
  * The running throb's brightness at continuous clock `nowMs`: a cosine between
  * {@link STATUS_PULSE_FLOOR} and 1 over {@link STATUS_PULSE_PERIOD_MS}, so the
- * dim glyph breathes without ever blinking off. Multiplied by the fade envelope
- * to gate appear/disappear.
+ * dim glyph breathes bold→dim→bold without ever blinking off. Multiplied by the
+ * fade envelope, which alone drives appear/disappear at turn boundaries.
  *
  * @param nowMs - Monotonic render clock in milliseconds.
  * @returns Brightness fraction in [{@link STATUS_PULSE_FLOOR}, 1].
@@ -256,16 +249,16 @@ export function pulseLevel(nowMs: number): number {
 }
 
 /**
- * One frame of the running glyph at fade `opacity` (0 = invisible trough,
- * 1 = settled dim gray). The character and its width never change — only the
- * gray fades — so the prompt caret column stays fixed and the glyph reads as
- * the caret dimly appearing and disappearing, never a colored indicator.
+ * One frame of the running glyph at fade `opacity` (0 = near-background trough
+ * gray, 1 = settled dim gray). The character and its width never change — only
+ * the gray fades — so the prompt caret column stays fixed and the glyph reads as
+ * the caret dimly breathing, never a colored indicator.
  *
- * With truecolor the glyph's 24-bit gray foreground interpolates between
- * {@link STATUS_FADE_GRAY}'s trough and settled stops, so both the fade and the
- * running throb render as brightness; below {@link STATUS_FADE_MIN_OPACITY} it
- * is hidden entirely so the pulse trough disappears. Without truecolor there is
- * no per-frame gray, so `visible` (driven by the fade envelope, not the opacity)
+ * With truecolor the glyph's 24-bit gray foreground interpolates continuously
+ * between {@link STATUS_FADE_GRAY}'s trough and settled stops, so both the fade
+ * and the running throb render as a smooth, symmetric brightness swing with no
+ * hard cutoff to clip the trough into a blank. Without truecolor there is no
+ * per-frame gray, so `visible` (driven by the fade envelope, not the opacity)
  * shows the glyph in the palette's muted role or leaves a blank column — a
  * single dim appear/disappear at fixed width, still dim rather than accent, and
  * no throb-driven blink. With color off entirely a visible glyph is bare,
@@ -277,7 +270,7 @@ export function pulseLevel(nowMs: number): number {
  * @param truecolor - Whether the terminal accepts 24-bit foreground codes.
  * @param opacity - Brightness fraction in [0, 1] for the truecolor gray.
  * @param visible - Whether the non-truecolor fallback shows the glyph at all.
- * @returns The dim-gray glyph at this opacity, or a single space when hidden.
+ * @returns The gray glyph at this opacity, or a single space when hidden.
  */
 export function fadeGlyph(
   glyph: string,
@@ -289,9 +282,6 @@ export function fadeGlyph(
 ): string {
   if (truecolor && colorEnabled) {
     const o = Math.min(Math.max(opacity, 0), 1)
-    // Below the visibility threshold the glyph is fully hidden, so the pulse
-    // trough disappears rather than lingering as a near-background gray.
-    if (o < STATUS_FADE_MIN_OPACITY) return ' '
     const [tr, tg, tb] = STATUS_FADE_GRAY.trough
     const [sr, sg, sb] = STATUS_FADE_GRAY.settled
     const r = Math.round(tr + (sr - tr) * o)

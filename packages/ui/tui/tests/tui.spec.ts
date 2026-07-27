@@ -1616,7 +1616,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     return r
   }
 
-  it('throbs the running glyph in dim gray, swelling from invisible to full, never accent', async () => {
+  it('throbs the running glyph in dim gray, breathing between trough and full without blanking, never accent', async () => {
     let clock = 0
     let chunkIndex = 0
     const result = await setup({ status: 'running', config: { theme: { color: true, truecolor: true } }, now: () => clock })
@@ -1631,11 +1631,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
       return result.terminal.output
     }
 
-    // The pulse swells from fully invisible at its trough to the settled peak
-    // and back. At phase 0 (t=1400, pulse level 0, past fade-in) the glyph is
-    // hidden — the slot carries no ● — so the dimmest breath truly disappears.
+    // The pulse breathes between the dimmest trough gray and the settled peak
+    // and back, never blanking. At phase 0 (t=1400, pulse level 0, past fade-in)
+    // the glyph still paints the trough gray, so the breath dims but never
+    // disappears — a symmetric bold→dim→bold throb.
     const trough = await frameAt(1_400)
-    expect(trough).not.toMatch(/●/u)
+    expect(trough).toMatch(/●/u)
+    expect(glyphGray(trough)).toBe(43)
     // Half a period later (t=2100, pulse peak) it paints the brightest gray.
     const peak = await frameAt(2_100)
     expect(glyphGray(peak)).toBe(136)
