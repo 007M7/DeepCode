@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-pty-local
 
+English | [中文](README.zh.md)
+
 Local Linux/macOS `node-pty` backend for `ctx.pty`; loading it on another platform fails as unsupported. It starts an interactive shell under the shared `ctx.sandboxPolicy`, strips credential-shaped ambient environment variables, retains bounded line-oriented output, detects readiness, and tears down the captured process tree rooted at the `node-pty` child.
 
 ## Plugin (`pty-local`)

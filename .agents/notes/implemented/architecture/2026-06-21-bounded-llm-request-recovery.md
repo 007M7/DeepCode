@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-21-bounded-llm-request-recovery.zh.md)
+
 ## Problem
 
 `dsh-llm` can report provider failures either by throwing during adapter dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary tags thrown failures so `dsh-agent-loop` can distinguish them from middleware and result-processing defects, and the loop normalizes both delivery forms into `agent/request-error` after closing the failed step. The default decision is `fail`; `dsh-compact-basic` is the only shipped recovery listener, and it retries a canonical context-window overflow only after compaction proves that the durable surface shrank.

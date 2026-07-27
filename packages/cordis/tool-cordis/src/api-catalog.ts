@@ -768,38 +768,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'tasks',
-    summary: 'The `tasks` service: the runtime-global background task registry.',
+    summary: 'Abstract background task registry.',
     methods: [
       {
-        signature: 'start(spec: TaskStart): TaskId',
+        signature: 'abstract start(spec: TaskStart): TaskId',
         jsDoc: '/**\n * Preflight access, validation, and owner cleanup before starting and\n * atomically registering work. A throwing starter leaves nothing registered;\n * after it returns, registration cannot fail. Settlement records the outcome,\n * notifies listeners, and releases waiters.\n * @param spec - task identity, owner, and synchronous starter.\n * @returns the registry-issued `<kind>-N` id.\n */',
       },
       {
-        signature: 'list(caller?: Agent): TaskSnapshot[]',
+        signature: 'abstract list(caller?: Agent): TaskSnapshot[]',
         jsDoc: '/**\n * List caller-owned and unowned tasks in registration order without exposing\n * another session\'s labels.\n * @param caller - reading agent; a non-agent caller sees only unowned tasks.\n * @returns fresh snapshots.\n */',
       },
       {
-        signature: 'get(id: TaskId, caller?: Agent): TaskSnapshot',
+        signature: 'abstract get(id: TaskId, caller?: Agent): TaskSnapshot',
         jsDoc: '/**\n * Return a non-consuming snapshot without changing its read cursor or notice\n * state. Throws for an unknown or foreign task.\n * @param id - task to look up.\n * @param caller - reading agent checked against the owner.\n * @returns a fresh snapshot.\n */',
       },
       {
-        signature: 'read(id: TaskId, caller?: Agent): TaskRead',
+        signature: 'abstract read(id: TaskId, caller?: Agent): TaskRead',
         jsDoc: '/**\n * Read the next stream delta, or the idempotent final output after settlement.\n * A terminal read marks the task reported. Throws for an unknown or foreign\n * task.\n * @param id - task to read.\n * @param caller - reading agent checked against the owner.\n * @returns output text and the post-read snapshot.\n */',
       },
       {
-        signature: 'kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
+        signature: 'abstract kill(id: TaskId, caller?: Agent, reason?: string): \'requested\' | \'already-finished\'',
         jsDoc: '/**\n * Request cancellation, then mark the task stopping and reported. A producer\n * throw propagates without changing task state. Throws for an unknown or\n * foreign task.\n * @param id - task to cancel.\n * @param caller - killing agent checked against the owner.\n * @param reason - logged reason forwarded to the producer.\n * @returns `requested` for live work, otherwise `already-finished`.\n */',
       },
       {
-        signature: 'async wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
-        jsDoc: '/**\n * Wait for settlement or timeout without cancelling the task. Caller abort\n * rejects only while the task is live; after settlement it returns the\n * terminal snapshot so a notice suppressed for this waiter is still delivered.\n * Timed-out and aborted waits detach their resolvers. Throws for invalid,\n * unknown, or foreign input.\n * @param id - task to wait for.\n * @param timeoutMs - positive finite wait bound in milliseconds.\n * @param caller - waiting agent checked against the owner.\n * @param signal - optional cancellation of the wait itself.\n * @returns snapshot at settlement or timeout.\n */',
+        signature: 'abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>',
+        jsDoc: '/**\n * Wait for settlement or timeout without cancelling the task. Caller abort\n * rejects only while the task is live; after settlement the terminal\n * snapshot wins so a notice suppressed for this waiter is still delivered.\n * Throws for invalid, unknown, or foreign input.\n * @param id - task to wait for.\n * @param timeoutMs - positive finite wait bound in milliseconds.\n * @param caller - waiting agent checked against the owner.\n * @param signal - optional cancellation of the wait itself.\n * @returns snapshot at settlement or timeout.\n */',
       },
       {
-        signature: 'onTaskDone(listener: TaskDoneListener): () => void',
+        signature: 'abstract onTaskDone(listener: TaskDoneListener): () => void',
         jsDoc: '/**\n * Register an effect-scoped completion listener. Each listener is contained;\n * returned promises are observed but not awaited. No listener runs after\n * service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
-        signature: 'attachSurface(name: string): () => void',
+        signature: 'abstract attachSurface(name: string): () => void',
         jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. {@link start}\n * refuses work while none is attached.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
       },
     ],
@@ -941,10 +941,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'list(): Workspace[]',
         jsDoc: '/**\n * Synchronous workspace projection in durable registry order. Every\n * entity\'s `sessionIds` getter is already filtered by the startup/live\n * canonical-cwd header index; this method performs no persistence reads.\n * @returns a fresh ordered array of workspace entities.\n */',
-      },
-      {
-        signature: 'async touchSession(sessionId: SessionId): Promise<void>',
-        jsDoc: '/**\n * Move one accounted, cwd-validated session to the front of its workspace.\n * Ungrouped sessions and candidates filtered by the header check are\n * no-ops. The owning workspace\'s relative position never changes.\n * @param sessionId - Session whose activity was observed.\n * @returns resolution after the possible record write.\n */',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -1174,6 +1170,34 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
+    name: 'slash/input-begin-command',
+    mode: 'bail',
+    signature: '\'slash/input-begin-command\'(request: BeginCommandRequest): true | undefined',
+    jsDoc: '/**\n * Applies one command claim to the scoped Input. Dispatched with the\n * session\'s scope carrier; the owning session\'s input listener returns\n * `true` only after the phase and span CAS checks pass and the machine\n * actually mutated — producers treat anything else as "not applied".\n * @param request - Claim and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Applies one command claim to the scoped Input.',
+  },
+  {
+    name: 'slash/input-consume-token',
+    mode: 'bail',
+    signature: '\'slash/input-consume-token\'(request: ConsumeTokenRequest): true | undefined',
+    jsDoc: '/**\n * Consumes one command token after business success (popup settle /\n * menu-pick execute). Same carrier routing and applied-truth contract.\n * @param request - Exact span or bare-token guard.\n * @mode bail\n */',
+    summary: 'Consumes one command token after business success (popup settle / menu-pick execute).',
+  },
+  {
+    name: 'slash/input-insert-reference',
+    mode: 'bail',
+    signature: '\'slash/input-insert-reference\'(request: InsertReferenceRequest): true | undefined',
+    jsDoc: '/**\n * Inserts one reference into the scoped Input (same carrier routing and\n * applied-truth contract as begin-command).\n * @param request - Reference and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).',
+  },
+  {
+    name: 'slash/input-insert-text',
+    mode: 'bail',
+    signature: '\'slash/input-insert-text\'(request: InsertTextRequest): true | undefined',
+    jsDoc: '/**\n * Replaces the trigger token span with literal text — the plain-text\n * reference path (decision 21). Same carrier routing and applied-truth\n * contract; the draft gains ordinary characters, no occurrence entry.\n * @param request - Replacement text and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Replaces the trigger token span with literal text — the plain-text reference path (decision 21).',
+  },
+  {
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
@@ -1221,6 +1245,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'tools/change\'(): void',
     jsDoc: '/**\n * A tool was registered or unregistered, or a scoped restriction changed\n * (the available tool set changed — possibly for one scope only). An\n * UNFILTERED registry-subject notification, deliberately not scope-filtered\n * dispatch: a global change concerns every agent\'s next assembly, so a\n * scoped listener subscribing here sees every change, not just its own\n * scope\'s.\n * @mode emit\n */',
     summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
+  },
+  {
+    name: 'tools/code-dispatch-log',
+    mode: 'waterfall',
+    signature: '\'tools/code-dispatch-log\'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>',
+    jsDoc: '/**\n * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before\n * the bridge appends its `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the unshaped content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
+    summary: 'Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
   },
   {
     name: 'tools/execute',
@@ -2522,7 +2553,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Workspace',
-    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
 ]
 

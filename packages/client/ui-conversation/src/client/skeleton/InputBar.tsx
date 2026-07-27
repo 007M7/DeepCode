@@ -1,60 +1,47 @@
-// Shared empty-state and resident composer. Running retains the draft, locks
-// the textarea, and exposes only Stop. Bottom controls are local visual state.
+/** The default composer body: the 'conversation.composer.bar' slot entry
+ * (decision 20). Machine state arrives through the standard provide channel
+ * (useInput + inputActions); the keyboard/DOM command face and stop arrive
+ * through this entry's own inject; layout-phase inputs (variant, placeholder,
+ * region-slot content) ride the owner props. Session facts
+ * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ComposerBarProps } from '../contract/slots.ts'
+import { deriveDecorations } from '../input/decorations.ts'
 import css from './InputBar.module.css'
 
-/** Prompt failure surface (mirrors the session snapshot's promptError shape). */
+/** Prompt failure surface (derived from promptError). */
 export interface InputBarError {
-  op: 'workspace' | 'session' | 'send' | 'stop'
+  op: 'send' | 'stop'
   message: string
 }
 
-export interface InputBarProps {
-  draft: string
-  running: boolean
-  disabled: boolean
-  error: InputBarError | null
-  /** Observable async phase for browser fixtures and assistive technology. */
-  status?: string
-  /** Hero = empty-state centered card; composer = resident bottom bar. */
-  variant: 'hero' | 'composer'
-  placeholder?: string
-  accessory?: ReactNode
-  onDraftChange: (text: string) => void
-  onSend: (mode: 'queue' | 'steer') => void
-  onStop: () => void
-  onAdd?: () => void
-  addLabel?: string
-}
+export type InputBarProps = ComposerBarProps
 
-interface SelectOption {
-  id: string
-  label: string
-}
-
-const PLAN_OPTIONS: readonly SelectOption[] = [
-  { id: 'plan', label: 'Plan' },
-  { id: 'agent', label: 'Agent' },
-]
-
-const READONLY_OPTIONS: readonly SelectOption[] = [
+const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
   { id: 'readonly', label: 'Read-only' },
   { id: 'readwrite', label: 'Read-write' },
 ]
 
-const MODEL_OPTIONS: readonly SelectOption[] = [
-  { id: 'v4-pro-high', label: 'DeepSeek-V4-Pro High' },
-  { id: 'v4-pro', label: 'DeepSeek-V4-Pro' },
-]
-
 export function InputBar({
-  draft, running, disabled, error, status, variant, placeholder, accessory,
-  onDraftChange, onSend, onStop, onAdd, addLabel = 'Add attachment',
+  useSession, useInput, inputActions, keyboard, stop, renderSlot,
+  variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
+  const input = useInput(s => s)
+  const notice = useSyncExternalStore(keyboard.notices.subscribe, keyboard.notices.getSnapshot)
+  const promptError = useSession(s => s.promptError)
+  const running = useSession(s => s.running)
+  const disabled = useSession(s => s.removed)
+  // Prompt failures are ordinary failures (no create/attach transaction
+  // exists anymore): the strip renders promptError, the draft stays in the
+  // machine, and the user resubmits.
+  const error: InputBarError | null = promptError === null
+    ? null
+    : { op: promptError.op, message: `${promptError.error.message} (${promptError.error.code})` }
+  const draft = input.draft
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
@@ -69,33 +56,146 @@ export function InputBar({
     }, 10)
   }
 
-  // Placeholder chrome: selection is local until plan/mode/model seams land.
-  const [planId, setPlanId] = useState('plan')
+  // Placeholder chrome: Access selection stays local until its seam lands
+  // (plan/model are real seats now — the named single slots below).
   const [readonlyId, setReadonlyId] = useState('readonly')
-  const [modelId, setModelId] = useState('v4-pro-high')
 
-  // Locked while running: the browser drops keystrokes AND focus on a disabled
-  // textarea — no sending mid-turn, stop or wait.
-  const locked = disabled || running
+  // Queue cut 1: running input stays free; locked = session disabled only.
+  // The transient machine locks (adjudicating pending / submitting) render
+  // read-only — the draft stays visible and focused, keystrokes drop.
+  const locked = disabled
+  const machineBusy = input.phase === 'adjudicating' || input.phase === 'submitting'
 
-  // Unlock (mount / session switch / turn end) returns focus to the box.
+  // Unlock (mount / session switch) returns focus to the box.
   useEffect(() => {
     if (!locked) inputRef.current?.focus()
   }, [locked])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key !== 'Enter') return
-    if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
-    if (e.shiftKey) return // native newline
-    if (e.ctrlKey || e.metaKey) {
-      // execCommand keeps the browser undo stack intact, unlike a setState splice.
+    // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
+    // IME guard so a composition-closing Shift+Enter still breaks the line.
+    if (e.key === 'Enter' && e.shiftKey) return
+    const composing = composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      if (keyboard.arbitrate(e.key === 'ArrowUp' ? 'up' : 'down', composing) === 'consumed') e.preventDefault()
+      return
+    }
+    if (e.key === 'Escape') {
+      // Escape layering: an open overlay closes; claimed without an overlay
+      // does NOT release (backspacing the token is the only exit gesture).
+      keyboard.dismissPopup()
+      if (keyboard.arbitrate('escape', composing) === 'consumed') e.preventDefault()
+      return
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
+      // The machine owns the undo/redo log (chip transactions have semantics
+      // the browser stack cannot represent); never let the native stack run.
       e.preventDefault()
-      document.execCommand('insertText', false, '\n')
+      if (machineBusy || locked) return
+      const redo = e.key === 'y' || (e.shiftKey && (e.key === 'z' || e.key === 'Z'))
+      if (redo) keyboard.redo()
+      else keyboard.undo()
+      return
+    }
+    if (e.key === ' ') {
+      if (composing) return
+      if (keyboard.space()) e.preventDefault() // claim token already carries the trailing separator
+      return
+    }
+    if (e.key !== 'Enter') return
+    if (composing) return
+    // Menu-open Enter picks the highlight through arbitration; a no-highlight
+    // menu passes down to the machine's own adjudication.
+    const arbitrated = keyboard.arbitrate('enter', composing)
+    if (arbitrated !== 'pass') {
+      e.preventDefault()
+      return
+    }
+    if (e.ctrlKey || e.metaKey) {
+      // Newline as a machine transaction (the machine owns undo history; an
+      // execCommand write would fork a second, browser-owned history).
+      e.preventDefault()
+      if (!machineBusy && !locked) {
+        const el = e.currentTarget
+        const sel = selectionOf(el)
+        keyboard.newline(sel)
+        const caret = sel.start + 1
+        requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
+      }
       return
     }
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
-    if (!empty && !locked) onSend('queue')
+    if (locked || machineBusy) return
+    inputActions.submit('queue')
+  }
+
+  const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
+    if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
+    const next = e.target.value
+    keyboard.setDraft(next)
+    keyboard.track(next, e.target.selectionStart ?? next.length)
+  }
+
+  // ---- chip atomicity (DOM layer; the machine sees only transactions) ----
+  // Placeholders occupy exactly one char, so caret positions are always
+  // BETWEEN them — what needs normalizing is deletion (whole chip per
+  // Backspace/Delete via native single-char semantics, which U+FFFC already
+  // gives us) and selection endpoints: Shift-extension snapping is native
+  // too (one char = one step). Mouse selection of a chip is handled in the
+  // backdrop click handler below. Undo/redo must NOT reach the browser: the
+  // machine owns the transaction log.
+  const selectionOf = (el: HTMLTextAreaElement) => ({
+    start: el.selectionStart ?? 0,
+    end: el.selectionEnd ?? el.selectionStart ?? 0,
+  })
+
+  const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
+    const el = e.currentTarget
+    const { start, end } = selectionOf(el)
+    if (start === end) return
+    const slice = draft.slice(start, end)
+    const touched = input.occurrences.filter(o => o.offset >= start && o.offset < end)
+    if (touched.length === 0 && !cut) return // plain copy of plain text: native path is fine
+    e.preventDefault()
+    // Expand placeholders to their owner clipboard projections.
+    let text = ''
+    let cursor = start
+    for (const o of touched) {
+      text += draft.slice(cursor, o.offset) + o.clipboardText
+      cursor = o.offset + 1
+    }
+    text += draft.slice(cursor, end)
+    e.clipboardData.setData('text/plain', text)
+    if (cut && !machineBusy && !locked) {
+      keyboard.setDraft(draft.slice(0, start) + draft.slice(end), { start, end, insertedLength: 0 })
+      requestAnimationFrame(() => { el.setSelectionRange(start, start) })
+    }
+    void slice
+  }
+
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (machineBusy || locked) return
+    const text = e.clipboardData.getData('text/plain')
+    if (text === '') return
+    e.preventDefault()
+    const el = e.currentTarget
+    const sel = selectionOf(el)
+    // Sync components stay empty at this layer: hot-snapshot matching needs
+    // the Slash roster, which lives behind keyboard.track — the paste attempt
+    // opens in the machine and the controller upgrades tokens as matches
+    // land (paste-upgrade). The DOM layer only starts the transaction.
+    keyboard.pasteBegin(text, sel)
+    const caret = sel.start + text.length
+    requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
+    keyboard.track(keyboard.snapshot.draft, caret)
+  }
+
+  const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
+    // Any caret/selection gesture ends a live paste attempt (the machine
+    // cannot observe DOM selection). Cheap no-op when none is live.
+    if (keyboard.snapshot.paste !== undefined) keyboard.invalidatePaste()
+    void e
   }
 
   // Button presses steal focus from the textarea; suppress at mousedown so typing continues seamlessly.
@@ -107,51 +207,132 @@ export function InputBar({
   const primaryLabel = running ? 'Stop generating' : 'Send message'
   const onPrimary = (): void => {
     if (running) {
-      onStop()
+      stop()
       return
     }
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled) onSend('queue')
+    if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
   }
 
-  const renderSelect = (
-    aria: string,
-    value: string,
-    options: readonly SelectOption[],
-    onPick: (id: string) => void,
-  ): ReactNode => (
+  // Access placeholder select (the one remaining local-chrome control).
+  const accessSelect: ReactNode = (
     <select
       className={css.select}
-      aria-label={aria}
-      value={value}
+      aria-label="Access mode"
+      value={readonlyId}
       disabled={locked}
-      onChange={(e: ChangeEvent<HTMLSelectElement>) => { onPick(e.target.value) }}
+      onChange={(e: ChangeEvent<HTMLSelectElement>) => { setReadonlyId(e.target.value) }}
     >
-      {options.map(opt => (
+      {READONLY_OPTIONS.map(opt => (
         <option key={opt.id} value={opt.id}>{opt.label}</option>
       ))}
     </select>
   )
 
+  // Mirror-layer decorations: a visible backdrop with transparent text. The
+  // claim token highlights through behind the textarea glyphs; each U+FFFC
+  // placeholder renders as a chip (the textarea's own glyph is invisible, the
+  // backdrop chip supplies the visual); the claim hint is ghost text.
+  const deco = deriveDecorations(input, keyboard.lexicon())
+  const backdrop: ReactNode[] = []
+  {
+    // Segment boundaries: the token range end, every chip offset, and every
+    // text-ref range (decision 21) — merged in draft order (the sources never
+    // overlap: chips sit on placeholders, text-refs on plain tokens, the
+    // claim token only leads).
+    let cursor = 0
+    const pushPlain = (upTo: number): void => {
+      if (upTo > cursor) backdrop.push(draft.slice(cursor, upTo))
+      cursor = upTo
+    }
+    if (deco.token !== null) {
+      backdrop.push(
+        <mark key="token" className={css.hlToken} data-decoration="token">
+          {draft.slice(deco.token.start, deco.token.end)}
+        </mark>,
+      )
+      cursor = deco.token.end
+    }
+    type Boundary =
+      | { at: number; kind: 'chip'; chip: (typeof deco.chips)[number] }
+      | { at: number; kind: 'text-ref'; ref: (typeof deco.textRefs)[number] }
+    const boundaries: Boundary[] = [
+      ...deco.chips.map(chip => ({ at: chip.offset, kind: 'chip' as const, chip })),
+      ...deco.textRefs.map(ref => ({ at: ref.start, kind: 'text-ref' as const, ref })),
+    ].sort((a, b) => a.at - b.at)
+    for (const b of boundaries) {
+      if (b.at < cursor) continue // claim-token overlap: the leading mark wins
+      pushPlain(b.at)
+      if (b.kind === 'chip') {
+        const chip = b.chip
+        backdrop.push(
+          // The cell's ::before renders U+FFFC itself so its advance equals the
+          // textarea's placeholder exactly (same char, same font); the label is
+          // a clipped overlay that never affects layout.
+          <span
+            key={`chip-${chip.occurrenceId}`}
+            className={clsx(css.chip, chip.invalid && css.chipInvalid)}
+            data-decoration="chip"
+            data-occurrence={chip.occurrenceId}
+            data-invalid={chip.invalid || undefined}
+            title={chip.label}
+          >
+            <span className={css.chipLabel}>{chip.label}</span>
+          </span>,
+        )
+        cursor = chip.offset + 1 // the placeholder char the chip stands for
+      } else {
+        // Plain-range highlight (decision 21): the glyphs stay the
+        // textarea's (advance untouched); the mark paints the chip look.
+        backdrop.push(
+          <mark key={`ref-${b.ref.start}`} className={css.textRef} data-decoration="text-ref">
+            {draft.slice(b.ref.start, b.ref.end)}
+          </mark>,
+        )
+        cursor = b.ref.end
+      }
+    }
+    pushPlain(draft.length)
+    if (deco.hint !== null) {
+      backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{deco.hint}</span>)
+    }
+  }
+
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)}>
-      {status !== undefined && <div className={css.status} role="status">{status}</div>}
-      {error !== null && <div className={css.error} role="alert">{error.message}</div>}
+      {error !== null && (
+        <div className={css.error} role="alert">
+          {error.message}
+        </div>
+      )}
+      {notice !== null && (
+        <div className={clsx(css.notice, notice.level === 'error' && css.noticeError)} role="status">
+          {notice.text}
+        </div>
+      )}
       <div className={css.card}>
+        {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
         <div className={css.grow}>
+          <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
           <textarea
             ref={inputRef}
             className={css.input}
             value={draft}
             disabled={locked}
-            placeholder={placeholder ?? (disabled ? 'Session unavailable' : running ? 'Generating a response…' : 'Message the agent')}
+            readOnly={machineBusy}
+            data-phase={input.phase}
+            placeholder={placeholder ?? (disabled ? 'Session unavailable' : 'Message the agent')}
             rows={2}
-            onChange={(e) => onDraftChange(e.target.value)}
+            onChange={onChange}
             onKeyDown={onKeyDown}
+            onSelect={onSelect}
+            onCopy={e => { onCopyOrCut(e, false) }}
+            onCut={e => { onCopyOrCut(e, true) }}
+            onPaste={onPaste}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
           />
@@ -171,18 +352,21 @@ export function InputBar({
               <IconPlusOutline16 size={14} />
             </button>
             <div className={css.modes}>
-              {renderSelect('Plan mode', planId, PLAN_OPTIONS, setPlanId)}
-              {renderSelect('Access mode', readonlyId, READONLY_OPTIONS, setReadonlyId)}
+              {renderSlot('conversation.input.plan', { locked })}
+              {accessSelect}
             </div>
+            {leftItems}
           </div>
           <div className={css.trailing}>
-            {renderSelect('Model', modelId, MODEL_OPTIONS, setModelId)}
+            {rightItems}
+            {renderSlot('conversation.input.model', { locked })}
+            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
             <button
               type="button"
               className={clsx(css.primary, running && css.stopping)}
               aria-label={primaryLabel}
               title={primaryLabel}
-              disabled={!running && (empty || disabled)}
+              disabled={!running && (empty || disabled || machineBusy)}
               onMouseDown={keepFocus}
               onClick={onPrimary}
             >

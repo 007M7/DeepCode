@@ -13,9 +13,9 @@ export type {
 } from './contract/views.ts'
 export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type {
-  ChatStore, ChatViewInjected, ChatViewSlotProps, ComposerChainProps, ConversationInjected,
-  ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
-  EmptyStateInjected, EmptyStateSlotProps, EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
+  ChatStore, ChatViewInjected, ChatViewSlotProps, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
+  EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 

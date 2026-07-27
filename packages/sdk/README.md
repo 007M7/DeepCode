@@ -1,5 +1,7 @@
 # SDK packages
 
+English | [中文](README.zh.md)
+
 Developer tooling for creating, editing, building, and running DeepSeek Harness projects.
 
 The [feature Agent Note](../../.agents/notes/proposed/feature/2026-07-14-sdk-developer-projects.md) owns the developer workflow; the [architecture Agent Note](../../.agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md) owns the package and project-editing boundaries.

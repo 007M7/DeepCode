@@ -4,10 +4,9 @@
  * details), the drag handles (pointer capture + rAF throttle), the concession
  * chain (columns.ts), and the child-slot render decisions: the sidebar slot
  * renders HERE with live parameters from the concession solve, and the
- * session pair renders under the SessionProvider standard seat (render-prop
- * form, injected by the renderer because the children declaration contains
- * session-scope slots; session data arrives through framework-standard props
- * and each registrant's inject face). Pure component: everything arrives
+ * session-aware occupants render in fixed column positions; strict entries
+ * gate themselves on current-session availability while session-maybe
+ * entries retain identity. Pure component: everything arrives
  * through the three framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
@@ -21,7 +20,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'conversation.empty'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'details'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
 
 /** Center column grid item (session-body building block). */
@@ -81,18 +80,13 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
   )
 }
 
-/** The three-column frame (see module doc). SessionProvider arrives as a standard seat (declaring a session-scope child summons it — no framework import). */
+/** The three-column frame (see module doc). */
 export function AppFrame({
   useStore,
   actions,
   renderSlot,
-  SessionProvider,
-  useSessions,
-  useWorkspaces,
 }: AppFrameProps) {
   const panels = useStore((s) => s)
-  const sessions = useSessions(s => s)
-  const baselinesReady = useWorkspaces(s => s.baselinesReady)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
@@ -157,42 +151,15 @@ export function AppFrame({
           width: cols.sidebar,
         })}
       </div>
-      {!baselinesReady
-        ? (
-          <>
-            <CenterColumn>
-              <div role="status">Loading workspaces and sessions…</div>
-            </CenterColumn>
-            <DetailsColumn />
-          </>
-          )
-        : sessions.intent !== undefined
-          ? (
-            <>
-              <CenterColumn>
-                {renderSlot('conversation.empty', {})}
-              </CenterColumn>
-              <DetailsColumn />
-            </>
-            )
-          : (
-            <SessionProvider
-              empty={() => (
-                <>
-                  <CenterColumn><div role="status">Opening session…</div></CenterColumn>
-                  <DetailsColumn />
-                </>
-              )}
-            >
-              {() => (
-                <>
-                  {/* Session data and actions arrive from standard hooks and the registrant's inject face. */}
-                  <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-                  <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
-                </>
-              )}
-            </SessionProvider>
-            )}
+      <>
+        {/* Both column occupants stay at fixed tree positions from first
+            paint — no loading gate (user ruling: the bare status line looked
+            worse than the shell's own pending rendering). The conversation
+            is session-maybe; the strict details entry naturally renders
+            empty while no session is current. */}
+        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+      </>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {panels.sidebar > 0 && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}

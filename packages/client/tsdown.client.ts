@@ -33,7 +33,7 @@ export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|
  * Documented TEMPORARY exemption, not a platform module (hence not in
  * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
  * shallowEqual) lives in runtime pending its promotion-time rehoming, and
- * five importers (i18n, ui-layout, ui-conversation ×3) ride this single
+ * five importers (locale, ui-layout, ui-conversation ×3) ride this single
  * exemption. At runtime the lazy CJS table answers the require natively:
  * runtime is an immediately-tier row, its factory is registered before any
  * dependent bundle materializes. TODO(webload/store-rehome): remove with the

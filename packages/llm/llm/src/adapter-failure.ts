@@ -47,13 +47,25 @@ export function markLlmAdapterFailure(
   const error = value instanceof Error
     ? value as Error & { code?: string }
     : new HarnessError(String(value), 'UNKNOWN', { cause: value })
-  const carried = error instanceof HarnessError ? ownFailureSnapshot(error) : undefined
-  const failure = carried !== undefined && carried.code === error.code ? carried : Object.freeze({
+  // Cross-package copies preserve own data but not class identity. Trust the
+  // carried facts only when both own properties agree after validation.
+  const carried = ownFailureSnapshot(error)
+  const failure = carried !== undefined && carried.code === ownErrorCode(error) ? carried : Object.freeze({
     message: errorMessage(error),
     code: harnessErrorCode(error),
   })
   failures.set(error, failure)
   return error
+}
+
+/** Read a foreign error's own data-backed `code` without invoking accessors. */
+function ownErrorCode(error: Error): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'code')
+    return descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined
+  } catch (_sdkPropertyTrap) {
+    return undefined
+  }
 }
 
 /** Snapshot an own data property without invoking an SDK-defined accessor. */

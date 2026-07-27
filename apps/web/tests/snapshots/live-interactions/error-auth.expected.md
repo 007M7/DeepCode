@@ -1,0 +1,16 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Reply with a one-sentence description of event sourcing, then stop.
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- button "Send message" [disabled]

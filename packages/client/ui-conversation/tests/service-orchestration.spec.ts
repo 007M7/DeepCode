@@ -23,11 +23,9 @@ async function bench(withSessions = true) {
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const loadOlder = vi.fn(() => Promise.resolve())
-  const updatePendingPrompt = vi.fn()
-  const retryPendingPrompt = vi.fn()
   const sessions = {
     binding: (sessionId: SessionId) => ({
-      sessionId, session: { prompt, cancel, loadOlder, updatePendingPrompt, retryPendingPrompt },
+      sessionId, session: { prompt, cancel, loadOlder },
     }),
     scopeOf,
   } as unknown as SessionsService
@@ -35,22 +33,18 @@ async function bench(withSessions = true) {
   await ctx.plugin(ConversationService).await()
   const root = ctx.get('conversation') as ConversationService
   const scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: sid('s1') }).get('conversation') as ConversationService
-  return { root, scoped, prompt, cancel, loadOlder, updatePendingPrompt, retryPendingPrompt }
+  return { root, scoped, prompt, cancel, loadOlder }
 }
 
 describe('ConversationService', () => {
-  it('routes ordinary and retained-prompt operations through the public Session binding', async () => {
+  it('routes operations through the public Session binding', async () => {
     const b = await bench()
     await b.scoped.send('hello', 'steer')
     await b.scoped.cancel()
     await b.scoped.loadOlder()
-    b.scoped.updatePendingPrompt('revised')
-    b.scoped.retryPendingPrompt()
     expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'steer')
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
-    expect(b.updatePendingPrompt).toHaveBeenCalledWith('revised')
-    expect(b.retryPendingPrompt).toHaveBeenCalledOnce()
   })
 
   it('folds Session business failures into callback rejections', async () => {

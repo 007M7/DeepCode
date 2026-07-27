@@ -9,18 +9,18 @@
  * SlotsService suite, not here.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { act, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, fireEvent, render } from '@testing-library/react'
+import { useEffect, type ReactNode } from 'react'
 import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSlotRenderer, SessionProvider, SlotOwnershipError, StaleAuthorizationError,
-  type RenderOpts, type SessionCell,
+  type RenderOpts, type SessionProvideInfo,
   type SlotRendererHost, type StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-web-react'
 
 type AnyProps = Record<string, unknown>
 type RenderSlotFn = (key: string, owner: object, opts?: RenderOpts) => ReactNode
-type RenderSlotChainFn = (key: string, owner: object, opts?: { fallback?: ReactNode }) => ReactNode
+type RenderSlotChainFn = (key: string, owner: object, opts?: { fallback?: ReactNode; overlay?: boolean }) => ReactNode
 type DeclaredSpec = SlotSpec<SlotEntryDef>
 /** Entry literal helper: fake entries default the mandatory options bag. */
 const entryOf = (partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }): StoredEntry =>
@@ -83,7 +83,7 @@ function makeHost() {
   const list = observable<{ ids: string[] }>({ ids: [] })
   const workspaces = observable<{ ids: string[] }>({ ids: [] })
   const current = observable<string | undefined>(undefined)
-  const cells = new Map<string, SessionCell>()
+  const infos = new Map<string, SessionProvideInfo>()
 
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
@@ -121,7 +121,9 @@ function makeHost() {
     sessions: {
       list,
       current,
-      cell: (id) => cells.get(id),
+      provideInfo: (id) => infos.get(id),
+      maybeProvideInfo: (id) => (id === undefined ? undefined : infos.get(id))
+        ?? { sessionId: undefined, hooks: {}, props: {} },
     },
     workspaces: { list: workspaces },
   }
@@ -148,14 +150,15 @@ function makeHost() {
         bump(key)
       }
     },
-    addSession: (id: string): SessionCell => {
-      // Bare source per cell (identity-stable): the machinery binds useSession from it.
-      const cell: SessionCell = {
+    addSession: (id: string): SessionProvideInfo => {
+      // Bare source per bundle (identity-stable): the machinery binds useSession from it.
+      const info: SessionProvideInfo = {
         sessionId: id,
-        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+        hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
+        props: {},
       }
-      cells.set(id, cell)
-      return cell
+      infos.set(id, info)
+      return info
     },
   }
 }
@@ -472,6 +475,103 @@ describe('chain outlets and the renderSlotChain binding', () => {
   })
 })
 
+describe('overlay chains (ChainRenderOpts.overlay)', () => {
+  /** Fallback probe: counts mounts and holds uncontrolled DOM state (the
+   *  composer-draft stand-in an unmount would wipe). */
+  function fallbackProbe(onMount: () => void) {
+    return function Probe() {
+      useEffect(onMount, [])
+      return <input aria-label="probe" defaultValue="" />
+    }
+  }
+
+  it('keeps the fallback mounted and state-holding through a takeover, hidden then restored', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>TAKEOVER</b>,
+      select: (owner) => (owner as { take?: boolean }).take ? {} : null,
+    }))
+    const mounted = vi.fn()
+    const Probe = fallbackProbe(mounted)
+    let take = false
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', { take }, { fallback: <Probe />, overlay: true }))
+    const wrapper = () => view.container.querySelector<HTMLElement>('[data-chain-overlay-fallback="k.chain"]')!
+    const input = () => view.container.querySelector<HTMLInputElement>('input[aria-label="probe"]')!
+
+    // Resident phase: fallback visible through the layout-neutral wrapper.
+    expect(wrapper().style.display).toBe('contents')
+    fireEvent.change(input(), { target: { value: 'draft-in-flight' } })
+
+    // Election: entry overlays, fallback hides in place — same DOM node, no remount.
+    take = true
+    act(() => { h.add('root', { component: () => null }) })   // root bump re-renders the dispatch site
+    expect(view.container.textContent).toContain('TAKEOVER')
+    expect(wrapper().style.display).toBe('none')
+    expect(input().value).toBe('draft-in-flight')
+
+    // Takeover ends: fallback shows again with its state intact, still the original mount.
+    take = false
+    act(() => { h.add('root', { component: () => null }) })
+    expect(view.container.textContent).not.toContain('TAKEOVER')
+    expect(wrapper().style.display).toBe('contents')
+    expect(input().value).toBe('draft-in-flight')
+    expect(mounted).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves non-overlay chains on the unmount path: a takeover discards fallback state', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>TAKEOVER</b>,
+      select: (owner) => (owner as { take?: boolean }).take ? {} : null,
+    }))
+    const mounted = vi.fn()
+    const Probe = fallbackProbe(mounted)
+    let take = false
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', { take }, { fallback: <Probe /> }))
+    fireEvent.change(view.container.querySelector('input[aria-label="probe"]')!, { target: { value: 'gone' } })
+    expect(view.container.querySelector('[data-chain-overlay-fallback]')).toBeNull()
+
+    take = true
+    act(() => { h.add('root', { component: () => null }) })
+    expect(view.container.querySelector('input[aria-label="probe"]')).toBeNull()   // unmounted
+
+    take = false
+    act(() => { h.add('root', { component: () => null }) })
+    const remounted = view.container.querySelector<HTMLInputElement>('input[aria-label="probe"]')!
+    expect(remounted.value).toBe('')                    // fresh mount, state discarded
+    expect(mounted).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps election semantics under overlay: priority order, selector-crash decline, live dispose back to fallback', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    h.add('k.chain', chainEntryOf({
+      component: () => <span>never</span>,
+      select: () => { throw new Error('selector boom') },
+      priority: 1,
+    }))
+    const dispose = h.add('k.chain', chainEntryOf({
+      component: () => <b>ELECTED</b>,
+      select: () => ({}),
+      priority: 2,
+    }))
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', {}, { fallback: <i>resident</i>, overlay: true }))
+    expect(view.container.textContent).toContain('ELECTED')
+    expect(spy.mock.calls.some(([msg]) => String(msg).includes('chain selector crashed'))).toBe(true)
+    spy.mockRestore()
+    act(() => { dispose() })
+    const wrapper = view.container.querySelector<HTMLElement>('[data-chain-overlay-fallback="k.chain"]')!
+    expect(wrapper.style.display).toBe('contents')
+    expect(view.container.textContent).toBe('resident')
+  })
+})
+
 describe('standard-kit synthesis', () => {
   it('delivers a live useSessions hook to every slot component', () => {
     const h = makeHost()
@@ -562,14 +662,15 @@ describe('standard-kit synthesis', () => {
     expect(seen2.at(-1)!['SessionProvider']).toBeUndefined()
   })
 
-  it('fails loud when a session slot renders outside SessionProvider', () => {
+  it('renders nothing for a strict session slot while no session is current', () => {
+    // Strict session entries decline (render null) without a session; the
+    // loud path is reserved for a missing root binding provider.
     const h = makeHost()
     h.declare('k.session', SINGLE_SESSION)
     h.add('k.session', { component: () => <b>x</b> })
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => mountRoot(h, { 'k.session': SINGLE_SESSION },
-      (renderSlot) => renderSlot('k.session', {}))).toThrow(/outside SessionProvider/)
-    spy.mockRestore()
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION },
+      (renderSlot) => renderSlot('k.session', {}))
+    expect(view.container.querySelector('b')).toBeNull()
   })
 
   it('delivers the store pair for store-declaring entries and writes through baked actions', () => {

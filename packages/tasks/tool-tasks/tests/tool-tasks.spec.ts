@@ -6,7 +6,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
+import { TaskId } from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
@@ -20,7 +21,7 @@ async function setup(config: ToolTasks.Config = {}) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   const agentsFiber = await ctx.plugin(AgentRegistry)
-  await ctx.plugin(TaskService)
+  await ctx.plugin(LocalTaskService)
   const toolsFiber = await ctx.plugin(ToolTasks, config)
   return { ctx, agentsFiber, toolsFiber }
 }
@@ -91,7 +92,7 @@ describe('tool-tasks setup', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await expect(ctx.plugin(ToolTasks, { waitTimeoutMs: 100, maxWaitTimeoutMs: 50 }))
       .rejects.toThrow('waitTimeoutMs (100) exceeds maxWaitTimeoutMs (50)')
   })
@@ -108,7 +109,7 @@ describe('tool-tasks setup', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     ToolTasks.apply(ctx, {})
     expect(ctx.tools.get('task_output')).toBeDefined()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
