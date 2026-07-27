@@ -18,7 +18,7 @@ Consume `todo/write` as a Session side effect, not a surface node, and render it
 
 ### TodoPanel: the durable list as a persistent strip
 
-The panel mounts through the `conversation.input.dock` slot (a plain registrant plugin, `todoDockEntry`, the QueueDock posture: `inject: ['slots', 'conversation']` as the load-order seam, `order: -1` above the queue rows), hidden while empty, collapsible with the in-progress item as the collapsed one-line hint; ✓/●/○ glyphs mirror the TUI plan panel. It reads `snapshot.todos` via the standard-kit `useSession` hook the dock entry receives — no store, no service, no ctx. The inner component stays props-complete and framework-free; the dock adapter is a one-line wrapper.
+The panel mounts through the `conversation.input.dock` slot (a plain registrant plugin, `todoDockEntry`, the QueueDock posture: `inject: ['slots', 'conversation']` as the load-order seam, `order: -1` above the queue rows), hidden while empty, collapsible to a header of title + `"<done>/<total> tasks · <n> in progress"` (no in-progress content hint when collapsed). Status glyphs are the figma todo set (green check ring / blue fading ring / dashed pending ring) on a tip-surface card (`--dsw-specific-tip`, 14px radius, `width: calc(100% - 88px)` / `max-width: 776px` centered; InputBar top pad 6px is the gap to the composer card). It reads `snapshot.todos` via the standard-kit `useSession` hook the dock entry receives — no store, no service, no ctx. The inner component stays props-complete and framework-free; the dock adapter is a one-line wrapper.
 
 ### TodoRow: the per-call row through the keyed toolview slot
 
