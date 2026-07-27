@@ -3,6 +3,7 @@
  * @module @deepseek-ai/dsh-llm-mock-server/cli
  */
 
+import { parseArgs } from 'node:util'
 import { MAX_MOCK_LLM_TIMER_DELAY_MS, MOCK_LLM_BEHAVIORS } from './index.ts'
 import type {
   ConcreteMockLlmBehavior,
@@ -63,14 +64,6 @@ Other:
   --help
 `
 
-function optionValue(argv: readonly string[], index: number, option: string): string {
-  const value = argv[index + 1]
-  if (value === undefined || value.startsWith('--')) {
-    throw new Error(`dsh-llm-mock-server: ${option} requires a value`)
-  }
-  return value
-}
-
 function numberValue(option: string, value: string): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) throw new Error(`dsh-llm-mock-server: ${option} must be a finite number`)
@@ -122,66 +115,64 @@ function parseRandomWeights(raw: string): MockLlmRandomWeights {
   return weights
 }
 
+/** parseArgs vocabulary: every documented flag; only `--repeat-last` and `--help` are boolean. */
+const CLI_OPTIONS = {
+  'sequence': { type: 'string' },
+  'host': { type: 'string' },
+  'port': { type: 'string' },
+  'api-key': { type: 'string' },
+  'listen-delay-ms': { type: 'string' },
+  'repeat-last': { type: 'boolean' },
+  'seed': { type: 'string' },
+  'random-weights': { type: 'string' },
+  'success-text': { type: 'string' },
+  'partial-text': { type: 'string' },
+  'reasoning-text': { type: 'string' },
+  'chunk-size': { type: 'string' },
+  'chunk-delay-ms': { type: 'string' },
+  'disconnect-delay-ms': { type: 'string' },
+  'retry-after-ms': { type: 'string' },
+  'request-id': { type: 'string' },
+  'tool-name': { type: 'string' },
+  'tool-arguments': { type: 'string' },
+} as const
+
 /**
  * Parse standalone server arguments without starting a process or listener.
+ * Tokenizing rides `node:util` `parseArgs` (strict, no positionals); numeric
+ * coercion, bounds, and cross-option constraints remain manual below it.
  * @param argv - arguments after the executable name.
  * @returns help or validated run configuration.
  */
 export function parseMockLlmCliArgs(argv: readonly string[]): MockLlmCliParseResult {
   if (argv.includes('--help')) return { kind: 'help' }
 
-  let sequenceRaw: string | undefined
-  let host: string | undefined
-  let port = 8_000
-  let apiKey: string | undefined
-  let listenDelayMs: number | undefined
-  let repeatLast = false
-  let randomSeed: number | undefined
-  let randomWeights: MockLlmRandomWeights | undefined
-  let successText: string | undefined
-  let partialText: string | undefined
-  let reasoningText: string | undefined
-  let chunkSize: number | undefined
-  let chunkDelayMs: number | undefined
-  let disconnectDelayMs: number | undefined
-  let retryAfterMs: number | undefined
-  let requestId: string | undefined
-  let toolName: string | undefined
-  let toolArguments: string | undefined
+  const { values } = parseArgs({ args: [...argv], options: CLI_OPTIONS, strict: true, allowPositionals: false })
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const option = argv[index] as string
-    if (option === '--repeat-last') {
-      repeatLast = true
-      continue
-    }
-    const value = optionValue(argv, index, option)
-    index += 1
-    switch (option) {
-      case '--sequence': sequenceRaw = value; break
-      case '--host': host = value; break
-      case '--port': port = numberValue(option, value); break
-      case '--api-key': apiKey = value; break
-      case '--listen-delay-ms':
-        listenDelayMs = boundedIntegerValue(option, value, 0, MAX_MOCK_LLM_TIMER_DELAY_MS)
-        break
-      case '--seed': randomSeed = numberValue(option, value); break
-      case '--random-weights': randomWeights = parseRandomWeights(value); break
-      case '--success-text': successText = value; break
-      case '--partial-text': partialText = value; break
-      case '--reasoning-text': reasoningText = value; break
-      case '--chunk-size': chunkSize = numberValue(option, value); break
-      case '--chunk-delay-ms': chunkDelayMs = numberValue(option, value); break
-      case '--disconnect-delay-ms': disconnectDelayMs = numberValue(option, value); break
-      case '--retry-after-ms': retryAfterMs = numberValue(option, value); break
-      case '--request-id': requestId = value; break
-      case '--tool-name': toolName = value; break
-      case '--tool-arguments': toolArguments = value; break
-      default: throw new Error(`dsh-llm-mock-server: unknown option ${JSON.stringify(option)}`)
-    }
-  }
+  const host = values.host
+  const port = values.port === undefined ? 8_000 : numberValue('--port', values.port)
+  const apiKey = values['api-key']
+  const listenDelayMs = values['listen-delay-ms'] === undefined
+    ? undefined
+    : boundedIntegerValue('--listen-delay-ms', values['listen-delay-ms'], 0, MAX_MOCK_LLM_TIMER_DELAY_MS)
+  const repeatLast = values['repeat-last'] ?? false
+  const randomSeed = values.seed === undefined ? undefined : numberValue('--seed', values.seed)
+  const randomWeights = values['random-weights'] === undefined ? undefined : parseRandomWeights(values['random-weights'])
+  const successText = values['success-text']
+  const partialText = values['partial-text']
+  const reasoningText = values['reasoning-text']
+  const chunkSize = values['chunk-size'] === undefined ? undefined : numberValue('--chunk-size', values['chunk-size'])
+  const chunkDelayMs = values['chunk-delay-ms'] === undefined ? undefined : numberValue('--chunk-delay-ms', values['chunk-delay-ms'])
+  const disconnectDelayMs = values['disconnect-delay-ms'] === undefined
+    ? undefined
+    : numberValue('--disconnect-delay-ms', values['disconnect-delay-ms'])
+  const retryAfterMs = values['retry-after-ms'] === undefined ? undefined : numberValue('--retry-after-ms', values['retry-after-ms'])
+  const requestId = values['request-id']
+  const toolName = values['tool-name']
+  const toolArguments = values['tool-arguments']
 
-  if (sequenceRaw === undefined) throw new Error('dsh-llm-mock-server: --sequence is required')
+  if (values.sequence === undefined) throw new Error('dsh-llm-mock-server: --sequence is required')
+  const sequenceRaw = values.sequence
   const parsedSequence = parseSequence(sequenceRaw)
   if (parsedSequence.startsUnavailable && port === 0) {
     throw new Error('dsh-llm-mock-server: connection_refused requires an explicit nonzero --port')
