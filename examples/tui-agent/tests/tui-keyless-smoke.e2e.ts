@@ -383,8 +383,8 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       inspect: async (cwd) => { header = await readLoggedRequestHeader(cwd) },
     })
     expect(header.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
-    expect(header.prefix).toContain('- `dsh-customize`: Customize a dsh installation. Use before any requested change that potentailly impacts the checkout that powers the current DSH process or installed `dsh` command, including code, docs, skills, configuration, tests, commit history, or PR-branch updates; do not edit the personal staging checkout directly.')
-    expect(header.prefix).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback checkout. Use when the user asks to update or upgrade DSH.')
+    expect(header.prefix).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
+    expect(header.prefix).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
     expect(header.prefix).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

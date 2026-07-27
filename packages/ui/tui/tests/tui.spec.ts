@@ -4150,9 +4150,11 @@ describe('terminal mounting', () => {
       }
     }
     const terminal = new QueryFailTerminal()
+    // Anchor cwd under $HOME so the prompt renders the `~/` abbreviation
+    // deterministically; process.cwd() is not guaranteed under $HOME in CI.
     const result = await createTuiTestHarness(terminal, vi.fn(), {
       config: { theme: { color: true } },
-      cwd: process.cwd(),
+      cwd: join(homedir(), 'projects', 'dsh-tui'),
     })
     await tick()
     expect(terminal.output).toContain('\x1b[94m~/')
