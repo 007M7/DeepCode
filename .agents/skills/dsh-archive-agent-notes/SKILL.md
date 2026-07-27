@@ -1,6 +1,6 @@
 ---
 name: dsh-archive-agent-notes
-description: Use when auditing, pruning, archiving, restoring, or reviewing Agent Notes in deepseek-harness; classifies implemented notes by future decision value, deletes rejected notes that no longer prevent a tempting fallacy, and applies the frozen archived/{kind} triplet and manifest contract.
+description: Use when adding, auditing, pruning, archiving, restoring, or reviewing Agent Notes in deepseek-harness; checks every new note for superseded active records, classifies implemented notes by future decision value, deletes rejected notes that no longer prevent a tempting fallacy, and applies the frozen archived/{kind} triplet and manifest contract.
 ---
 
 # Archive DeepSeek Harness Agent Notes
@@ -10,6 +10,10 @@ Reduce the active decision corpus without erasing history that can still guide w
 ## Read the contracts
 
 Read [the Agent Note contract](../../notes/README.md), [the archive instructions](../../notes/archived/AGENTS.md), and the applicable active lifecycle instructions before classifying. Use current code, configuration, package docs, generated catalogs, newer Agent Notes, and inbound links to establish whether a rationale still owns or constrains anything.
+
+## Check supersession when adding a note
+
+Every new Agent Note triggers a scoped audit of active notes covering the same decision, mechanism, or rejected alternative. Classify each full or partial supersession while writing the new note: archive qualifying implemented triplets in the same PR, retain and cross-link partial supersessions or independently useful rationale, reject obsolete proposals, and delete rejected notes that no longer prevent a plausible mistake. Apply the Agent Note contract's consolidation rule when the new owner absorbs every unique proposition; do not defer a known match to a later corpus audit.
 
 ## Classify by future value
 
