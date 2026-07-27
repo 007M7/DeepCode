@@ -429,6 +429,23 @@ describe('SubagentService.listChildren', () => {
     expect(exactReads).toBe(1)
   })
 
+  it('a mapped per-child failure during an abort cannot become a successful result', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    await startChild(ctx, parent, 'aborted behind a diagnostic')
+    const controller = new AbortController()
+    const query = ctx.get('sessionQuery')!
+    query.listEvents = () => {
+      // The read fails with a diagnostic-mapped code while the caller aborts:
+      // the loop's post-inspection checkpoint must fail the scan rather than
+      // return a one-diagnostic success.
+      controller.abort()
+      return Promise.reject(new SessionQueryError('backend read failed', 'SESSION_QUERY_PERSISTENCE_FAILED'))
+    }
+    await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
   it('a pre-aborted signal stops before any candidate read', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     await startChild(ctx, parent, 'never read')

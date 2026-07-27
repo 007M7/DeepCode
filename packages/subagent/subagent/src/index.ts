@@ -275,6 +275,11 @@ export class SubagentService extends Service {
     const entries: SubagentListEntry[] = []
     for (const node of trace.descendants) {
       const entry = await this.inspectChild(query, parentSessionId, node.session, signal)
+      // Recheck after the inspection settles, not only inside it: a mapped
+      // per-child failure during an abort becomes a diagnostic and skips the
+      // inspection's own checkpoints, and a cancelled scan must not return a
+      // successful result or start another candidate read.
+      assertListingNotCancelled(signal)
       if (entry !== undefined) entries.push(entry)
     }
     return entries
