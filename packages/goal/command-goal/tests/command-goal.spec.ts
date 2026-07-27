@@ -31,6 +31,7 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     session,
     ctx: new Context(),
     get status() { return status },
+    get acceptsNextStep() { return status === 'running' },
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),

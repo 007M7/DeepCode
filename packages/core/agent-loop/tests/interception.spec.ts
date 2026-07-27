@@ -183,6 +183,7 @@ describe('agent/prompt-submit', () => {
     send(agent, 'admitted prompt')
     await entered.promise
     expect(agent.status).toBe('running')
+    expect(agent.acceptsNextStep).toBe(true)
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
 
     agent.inject({
@@ -195,6 +196,7 @@ describe('agent/prompt-submit', () => {
 
     decision.resolve({ kind: 'allow' })
     await idle
+    expect(agent.acceptsNextStep).toBe(false)
 
     const staged = events(agent).filter(event =>
       event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
@@ -230,6 +232,7 @@ describe('agent/prompt-submit', () => {
     const blockedIdle = waitForIdle(ctx, agent)
     send(agent, 'blocked prompt')
     await entered.promise
+    expect(agent.acceptsNextStep).toBe(true)
     agent.inject({
       content: [{ type: 'text', text: 'staged context' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -238,6 +241,7 @@ describe('agent/prompt-submit', () => {
     decision.resolve({ kind: 'block', reason: 'policy' })
     await blockedIdle
 
+    expect(agent.acceptsNextStep).toBe(false)
     expect(events(agent)).toEqual([])
     expect(adapter.requests).toEqual([])
 

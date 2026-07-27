@@ -43,6 +43,7 @@ function stubAgent(session: Session): Agent {
     options: {},
     session,
     status: 'idle',
+    acceptsNextStep: false,
     ctx: new Context(),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),

@@ -147,6 +147,12 @@ export interface Agent {
   readonly session: Session
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
+  /**
+   * Whether a `next-step` send currently stages for prompt admission or the
+   * open turn. Unlike {@link status}, this excludes admission exit and turn
+   * settlement, when a waking `next-step` send becomes a queued follow-up.
+   */
+  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 

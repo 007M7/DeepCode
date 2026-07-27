@@ -2893,7 +2893,7 @@ export function createTuiChat(
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
       return
     }
-    if (agent.status === 'running') {
+    if (agent.acceptsNextStep) {
       // Steering is never subject to prompt admission; an attached snapshot
       // drains beside it at the same step boundary through the outbox.
       if (attachedContext !== undefined) {

@@ -30,6 +30,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     options: {},
     session,
     get status() { return status },
+    get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),

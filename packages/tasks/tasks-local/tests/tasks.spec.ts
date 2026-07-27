@@ -23,6 +23,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     options: {},
     session: new Session(id),
     status: 'idle' as const,
+    acceptsNextStep: false,
     ctx: scopeFiber.ctx,
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),

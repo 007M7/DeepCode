@@ -338,6 +338,7 @@ describe('steering from late extension points is never stranded', () => {
       if (event.type === 'turn/start') turns.push(event.data.turn)
       if (event.type === 'turn/end' && !steeredOnce) {
         steeredOnce = true
+        expect(agent.acceptsNextStep).toBe(false)
         agent.steer({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } })
       }
     })

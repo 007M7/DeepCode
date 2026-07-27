@@ -17,11 +17,12 @@ import type {
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  return {
+  const agent: Agent = {
     id,
     options: {},
     session: new Session(id),
     status: 'idle',
+    acceptsNextStep: false,
     ctx: new Context(),
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
@@ -30,8 +31,8 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     cancel() {},
     retry() {},
     whenIdle() { return Promise.resolve() },
-    ...overrides,
   }
+  return Object.assign(agent, overrides)
 }
 
 describe('AgentRegistry', () => {

@@ -45,6 +45,7 @@ function agentForCwd(cwd: string): Agent {
     options: {},
     session,
     status: 'idle',
+    acceptsNextStep: false,
     send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),

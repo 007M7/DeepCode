@@ -41,7 +41,7 @@ function config(): ResolvedConfig {
 function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
-    id, options: {}, session: new Session(id), status: 'idle', ctx,
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
     followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
   }
 }
@@ -248,7 +248,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
       followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
@@ -291,7 +291,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
       followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, retry() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
