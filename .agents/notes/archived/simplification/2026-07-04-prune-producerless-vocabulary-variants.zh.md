@@ -31,4 +31,4 @@ Archived: 2026-07-26
 
 ## 后果
 
-操作行为没有变化——原本就没有内容能够构造这些值。镜像事件移除（[边界镜像 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md)、[流分片 Agent Note](2026-07-02-remove-stream-chunk-mirror.md)）只触及瞬态 `agent/*` 事件，从不触及持久词汇，因此不存在冲突。后来的轮次前准入清理将 `rejected` 和 `prompt/blocked` 连同其生产者一并移除；轮中的 `hook/invoked`/`hook/result` 仍然体现同一条以生产者为准的准入规则。图像块自身的 `cache?` 字段归属[删除图像 Agent Note](2026-07-04-drop-image-content-block.md)，后者将其与该块一同移除；本 Agent Note 覆盖剩余块类型上的两个字段。
+操作行为没有变化——原本就没有内容能够构造这些值。镜像事件移除（[边界镜像 Agent Note](2026-06-20-remove-agent-boundary-mirror-events.md)、[流分片 Agent Note](2026-07-02-remove-stream-chunk-mirror.md)）只触及瞬态 `agent/*` 事件，从不触及持久词汇，因此不存在冲突。其他位置已经遵守准入策略：`rejected`、`prompt/blocked` 和 `hook/invoked`/`hook/result` 都有实时生产者——本 Agent Note 将同一门槛扩展到缺少生产者的三个变体。图像块自身的 `cache?` 字段归属[删除图像 Agent Note](2026-07-04-drop-image-content-block.md)，后者将其与该块一同移除；本 Agent Note 覆盖剩余块类型上的两个字段。
