@@ -1,99 +1,69 @@
 terminal 100x40 buffer=normal length=40 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=36 bufferRow=36
+cursor hidden column=7 viewportRow=34 bufferRow=34
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Snapshot agent ready."
   style 1-21 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| "▌ "
-  style 0-0 fg=green
-5| "▌ ✓ pnpm run test:coverage                                                                          "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-25 bold
-6| "▌ Run the coverage gate                                                                             "
-  style 0-0 fg=green
-  style 2-22 fg=bright-black
-7| "▌ /workspace/project                                                                                "
-  style 0-0 fg=green
-  style 2-19 dim
-8| "▌ … +4 lines (Ctrl+O to expand)                                                                     "
-  style 0-0 fg=green
-  style 2-30 dim
-9| "▌ [exit 0]                                                                                          "
-  style 0-0 fg=green
-  style 2-9 dim
-10| "▌ "
-  style 0-0 fg=green
+4| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+5| <blank>
+6| "● Tool / bash / Run the coverage gate"
+  style 0-36 fg=green
+7| "$ pnpm run test:coverage                                                                            "
+  style 0-23 fg=cyan
+8| "/workspace/project                                                                                  "
+  style 0-17 dim
+9| "… +4 lines (Ctrl+O to expand)                                                                       "
+  style 0-28 dim
+10| "[exit 0]                                                                                            "
+  style 0-7 dim
 11| <blank>
-12| "▌ "
-  style 0-0 fg=green
-13| "▌ ✓ Edit renderer                                                                                   "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-16 bold
-14| "▌ src/view.ts                                                                                       "
-  style 0-0 fg=green
-  style 2-12 bold
-15| "▌ - old line                                                                                        "
-  style 0-0 fg=green
-  style 2-11 fg=red
-16| "▌ … +5 lines (Ctrl+O to expand)                                                                     "
-  style 0-0 fg=green
-  style 2-30 dim
-17| "▌ + expect(screen).toMatchSnapshot()                                                                "
-  style 0-0 fg=green
-  style 2-35 fg=green
-18| "▌ "
-  style 0-0 fg=green
-19| <blank>
-20| "▌ "
-  style 0-0 fg=green
-21| "▌ ✓ Delegate renderer audit                                                                         "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-26 bold
-22| "▌ The renderer has explicit lifecycle ownership.                                                    "
-  style 0-0 fg=green
-23| "▌ "
-  style 0-0 fg=green
-24| <blank>
-25| "▌ "
-  style 0-0 fg=green
-26| "▌ ✓ Read output from background task subagent-7                                                     "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-46 bold
-27| "▌ audit complete                                                                                    "
-  style 0-0 fg=green
-28| "▌ [status: completed]                                                                               "
-  style 0-0 fg=green
-29| "▌ "
-  style 0-0 fg=green
-30| <blank>
-31| "▌ "
-  style 0-0 fg=green
-32| "▌ ✓ Load skill dsh-code-review                                                                      "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-29 bold
-33| "▌ Loaded review instructions.                                                                       "
-  style 0-0 fg=green
-34| "▌ "
-  style 0-0 fg=green
-35| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-36| "                                                                                                    "
-  style 1-1 inverse
-37| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-38| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                             0% context  tools:collapsed"
-  style 0-43 dim
-  style 73-99 dim
-39| <blank>
+12| "● Tool / edit"
+  style 0-12 fg=green
+13| "src/view.ts                                                                                         "
+  style 0-10 bold
+14| "- old line                                                                                          "
+  style 0-9 fg=red
+15| "… +3 lines (Ctrl+O to expand)                                                                       "
+  style 0-28 dim
+16| "└ +2 -2 · 1 file                                                                                    "
+  style 0-15 dim
+17| <blank>
+18| "● Tool / subagent"
+  style 0-16 fg=green
+19| "Delegate renderer audit                                                                             "
+20| "The renderer has explicit lifecycle ownership.                                                      "
+21| <blank>
+22| "● Tool / task_output"
+  style 0-19 fg=green
+23| "Read output from background task subagent-7                                                         "
+24| "                                                                                                    "
+25| "… +2 lines (Ctrl+O to expand)                                                                       "
+  style 0-28 dim
+26| "                                                                                                    "
+27| <blank>
+28| "● Tool / skill"
+  style 0-13 fg=green
+29| "Load skill dsh-code-review                                                                          "
+30| "Loaded review instructions.                                                                         "
+31| "Model wait 0.0s                                                                                     "
+  style 0-14 dim
+32| <blank>
+33| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
+  style 0-17 fg=bright-blue bold
+  style 18-31 fg=bright-black
+  style 34-50 fg=bright-black
+  style 53-57 fg=bright-black
+  style 60-69 fg=bright-black
+34| " dsh >                                                                                              "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+35-39| <blank>

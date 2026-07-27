@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
+
 importers:
 
   .:
@@ -11,6 +14,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 0.25.1
         version: 0.25.1(zod@4.4.3)
+      '@deepseek-ai/dsh-tool-session-query':
+        specifier: workspace:^
+        version: link:packages/session-query/tool-session-query
       '@stylistic/eslint-plugin':
         specifier: ^5.10.0
         version: 5.10.0(eslint@10.5.0(jiti@2.7.0))
@@ -4428,7 +4434,10 @@ importers:
     dependencies:
       '@earendil-works/pi-tui':
         specifier: 0.80.7
-        version: 0.80.7
+        version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
+      saxes:
+        specifier: 6.0.0
+        version: 6.0.0
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -11043,7 +11052,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.80.7':
+  '@earendil-works/pi-tui@0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
