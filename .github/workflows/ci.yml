@@ -240,44 +240,7 @@ jobs:
           exit "$sandbox_status"
 
       - name: Run compatibility, snapshot, and artifact gates
-        run: |
-          pnpm run check:ci:lint &
-          lint_pid=$!
-          pnpm run check:node-compat &
-          compat_pid=$!
-          DSH_EXAMPLE_MODE=lib pnpm run test:snapshot &
-          snapshot_pid=$!
-          pnpm run publint &
-          publint_pid=$!
-          pnpm run verify-node-next-types &
-          node_next_pid=$!
-          pnpm run verify-built-package-invariants &
-          built_invariants_pid=$!
-          DSH_EXAMPLE_MODE=lib pnpm exec vitest run --config vitest.e2e.config.ts \
-            examples/headless-agent/tests/keyless-smoke.e2e.ts \
-            examples/tui-agent/tests/tui-keyless-smoke.e2e.ts \
-            packages/examples/cli-demo/tests/built-bin.e2e.ts \
-            packages/examples/acp-demo/tests/built-bin.e2e.ts \
-            packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts \
-            packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts \
-            packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts &
-          built_bin_pid=$!
-
-          final_status=0
-          capture_status() {
-            local child_status=0
-            wait "$1" || child_status=$?
-            if (( final_status == 0 && child_status != 0 )); then
-              final_status=$child_status
-            fi
-          }
-          for child_pid in \
-            "$lint_pid" "$compat_pid" "$snapshot_pid" \
-            "$publint_pid" "$node_next_pid" "$built_invariants_pid" "$built_bin_pid"
-          do
-            capture_status "$child_pid"
-          done
-          exit "$final_status"
+        run: pnpm run check:ci:consumers
 
 
   node-compat:

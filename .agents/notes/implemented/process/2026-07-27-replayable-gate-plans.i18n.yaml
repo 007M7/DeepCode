@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-27-replayable-gate-plans.md
+2026-07-27-replayable-gate-plans.md: 604fb87ebe91f8ebd606d128e8927535502b6ea9
+2026-07-27-replayable-gate-plans.zh.md: e24d77ff6245bac6a06cd9f9ea8e849dafc95051
