@@ -1,10 +1,11 @@
 # Agent Note: 会话前缀——派生历史之前的仅请求消息
 
 Status: implemented
-
-下文所述的仅请求前缀 seam 后来已被[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)移除。当前的生产方在 `agent/step` 时注入持久的带来源 `user/message` 上下文；本记录保留了早先的设计及其权衡。
+Archived: 2026-07-28
 
 [English](2026-07-07-session-prefix.md) | 中文
+
+下文所述的仅请求前缀 seam 后来已被[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)移除。当前的生产方在 `agent/step` 时注入持久的带来源 `user/message` 上下文；本记录保留了早先的设计及其权衡。
 
 ## 问题
 
