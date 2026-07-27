@@ -48,7 +48,7 @@
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-subagent-acp": "workspace:*",
     "@deepseek-ai/dsh-subagent-fork": "workspace:*",
-    "@deepseek-ai/dsh-subagent-sdk": "workspace:*",
+    "@deepseek-ai/dsh-subagent-dsh-sdk": "workspace:*",
     "@deepseek-ai/dsh-subagent-spawn": "workspace:*",
     "@deepseek-ai/dsh-tasks-local": "workspace:*",
     "@deepseek-ai/dsh-time-context": "workspace:*",

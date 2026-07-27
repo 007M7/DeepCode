@@ -38,9 +38,9 @@
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-sdk/driver.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-sdk/child-mock-llm.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-sdk/mock-delegating-llm.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -600,7 +600,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/subagent/subagent-sdk": {
+    "packages/subagent/subagent-dsh-sdk": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"

@@ -14,8 +14,8 @@
 
 # providerName is omitted: the composition exercises the shipped default
 # (`dsh-sdk`) through the real Loader.
-- id: subagent-sdk
-  name: '@deepseek-ai/dsh-subagent-sdk'
+- id: subagent-dsh-sdk
+  name: '@deepseek-ai/dsh-subagent-dsh-sdk'
   config:
     command: !!js process.env.DSH_TEST_CHILD_COMMAND
     args: !!js JSON.parse(process.env.DSH_TEST_CHILD_ARGS ?? '[]')

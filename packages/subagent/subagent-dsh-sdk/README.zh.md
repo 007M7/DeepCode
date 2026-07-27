@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-subagent-sdk
+# @deepseek-ai/dsh-subagent-dsh-sdk
 
 [English](README.md) | 中文
 
@@ -8,7 +8,7 @@ SDK provider 把每个子代理作为一个完整的 DeepSeek Harness 运行时�
 
 `start(request)` 先解析子进程工作目录，经 `DeepSeekHarness` 生成运行时，并在履行前完成 `initialize` 握手（携带配置的 `provider`/`model` 路由）。因此履行意味着子运行时已就绪、所有权已移交调用方。生成、握手或发布前取消的失败只在子进程被收割之后拒绝；工作目录解析失败在生成任何东西之前拒绝。
 
-工作目录的解析与 ACP 后端完全一致，经由共享的 [`subagent-subprocess` 助手](../subagent-subprocess/README.md)：设置了 `cwd` 覆盖则用之（加载时校验一次），否则用发起委托的父会话 cwd——绝不用服务器进程自己的 cwd。解析出的路径同时成为子进程 cwd 与其 SDK 会话的工作区 cwd。
+工作目录的解析与 ACP 后端完全一致，经由接缝共享的进程外助手（[`dsh-subagent`](../subagent/README.md)）：设置了 `cwd` 覆盖则用之（加载时校验一次），否则用发起委托的父会话 cwd——绝不用服务器进程自己的 cwd。解析出的路径同时成为子进程 cwd 与其 SDK 会话的工作区 cwd。
 
 返回的 run id 铸造于父命名空间；子运行时的会话 id 只存在于子进程内部。发布之后，provider 跑一个 SDK 回合，并从子会话事件中读取答案：最后一条完整 `assistant/message`，或回合被截断时已累积的 `text-delta` 流——部分答案在取消与错误路径上都得以保留。
 
@@ -38,8 +38,8 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 | `disposeGraceMs` | `3000` | 终止后的退出确认窗口；POSIX 在 SIGTERM 之后、SIGKILL 之前也等待同样时长。 |
 
 ```yaml
-- id: subagent-sdk
-  name: '@deepseek-ai/dsh-subagent-sdk'
+- id: subagent-dsh-sdk
+  name: '@deepseek-ai/dsh-subagent-dsh-sdk'
   config:
     providerName: dsh-sdk
     command: node
@@ -53,7 +53,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 ## 进程边界
 
-子环境由 [`buildChildEnv`](../subagent-subprocess/README.md) 构建：先移除形似凭据的环境变量，再应用显式 `config.env` 值。JSON-RPC 线就是真实的序列化边界。
+子环境以 [`dsh-subprocess`](../../subprocess/README.md) 接缝的 `scrubbedParentEnv()` 为基底——移除形似凭据与 `DSH_*` 的环境变量——再在擦除之后合并显式 `config.env` 值。子进程由 SDK 客户端生成而非经 `ctx.subprocess`（subprocess README 记载的 SDK 托管传输例外），因此本后端自行应用该擦除。JSON-RPC 线就是真实的序列化边界。
 
 本包没有默认导出。否则 Cordis loader 解包会隐藏具名 `inject` 元数据；见[事后分析 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 

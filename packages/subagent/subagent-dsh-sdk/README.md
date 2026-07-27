@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-subagent-sdk
+# @deepseek-ai/dsh-subagent-dsh-sdk
 
 English | [中文](README.zh.md)
 
@@ -8,7 +8,7 @@ The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a 
 
 `start(request)` resolves the child's working directory, spawns the runtime through `DeepSeekHarness`, and completes the `initialize` handshake (with the configured `provider`/`model` route) before it fulfills. Fulfillment therefore means the child runtime is ready and ownership has transferred to the caller. A spawn, handshake, or pre-publication cancellation failure rejects only after the subprocess has been reaped; a working-directory resolution failure rejects before anything is spawned.
 
-The working directory resolves exactly like the ACP backend, through the shared [`subagent-subprocess` helpers](../subagent-subprocess/README.md): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session.
+The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session.
 
 The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider runs one SDK turn and reads the child's answer from its session events: the last complete `assistant/message`, or the `text-delta` stream accumulated so far when the turn was cut short — a partial answer survives cancel and error paths.
 
@@ -38,8 +38,8 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 | `disposeGraceMs` | `3000` | Exit-confirmation grace after termination; POSIX also waits this long after SIGTERM before SIGKILL. |
 
 ```yaml
-- id: subagent-sdk
-  name: '@deepseek-ai/dsh-subagent-sdk'
+- id: subagent-dsh-sdk
+  name: '@deepseek-ai/dsh-subagent-dsh-sdk'
   config:
     providerName: dsh-sdk
     command: node
@@ -53,7 +53,7 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 
 ## Process boundary
 
-The child environment is built by [`buildChildEnv`](../subagent-subprocess/README.md): credential-shaped ambient variables are removed, then explicit `config.env` values are applied. The JSON-RPC wire is the real serialization boundary.
+The child environment is the [`dsh-subprocess`](../../subprocess/README.md) seam's `scrubbedParentEnv()` base — ambient credential-shaped and `DSH_*` names dropped — with explicit `config.env` values merged after the scrub. The child is spawned by the SDK client rather than through `ctx.subprocess` (the subprocess README's documented exception for SDK-managed transports), which is why this backend applies the scrub itself. The JSON-RPC wire is the real serialization boundary.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 

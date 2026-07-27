@@ -7,7 +7,7 @@
  * `request.parent` is the session's workspace cwd. This plugin uses named
  * exports only; a default would hide its loader metadata (see
  * `docs/postmortem/0001-acp-default-export-drops-inject.md`).
- * @module @deepseek-ai/dsh-subagent-sdk
+ * @module @deepseek-ai/dsh-subagent-dsh-sdk
  */
 
 import type { Context } from 'cordis'
@@ -22,7 +22,7 @@ import {
   type SdkRunSpec,
 } from './run.ts'
 
-export const name = 'subagent-sdk'
+export const name = 'subagent-dsh-sdk'
 export const inject = ['subagents']
 
 /** Config: how to spawn and drive the child SDK runtime process. */
@@ -98,7 +98,7 @@ class SdkProvider implements SubagentProvider {
     const spec: SdkRunSpec = {
       command: this.config.command,
       args: this.config.args,
-      cwd: resolveChildCwd('subagent-sdk', this.config.cwd, request.parent.session.header.cwd),
+      cwd: resolveChildCwd('subagent-dsh-sdk', this.config.cwd, request.parent.session.header.cwd),
       provider: this.config.provider,
       model: this.config.model,
       env: this.config.env,
@@ -108,7 +108,7 @@ class SdkProvider implements SubagentProvider {
       onError: (error, stopReason) => {
         // The seam forbids `result` rejecting, so a child-level failure is
         // flattened to a stop reason — preserve it here rather than losing it.
-        this.ctx.logger.warn(`subagent-sdk "${this.name}": child run failed (${stopReason}): ${error.message}`)
+        this.ctx.logger.warn(`subagent-dsh-sdk "${this.name}": child run failed (${stopReason}): ${error.message}`)
       },
     }
     return startSdkRun(request, spec)
@@ -118,12 +118,12 @@ class SdkProvider implements SubagentProvider {
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  assertPositiveFinite('subagent-sdk', 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
-  assertPositiveFinite('subagent-sdk', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
-  assertPositiveFinite('subagent-sdk', 'disposeGraceMs', resolved.disposeGraceMs)
+  assertPositiveFinite('subagent-dsh-sdk', 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
+  assertPositiveFinite('subagent-dsh-sdk', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
+  assertPositiveFinite('subagent-dsh-sdk', 'disposeGraceMs', resolved.disposeGraceMs)
   // Interpret a relative configured cwd against the harness launch directory
   // ONCE, at load, and fail a misconfigured directory here — not per start.
-  const configuredCwd = validateConfiguredCwd('subagent-sdk', resolved.cwd)
+  const configuredCwd = validateConfiguredCwd('subagent-dsh-sdk', resolved.cwd)
   const validated: ResolvedConfig = configuredCwd === undefined
     ? resolved
     : { ...resolved, cwd: configuredCwd }

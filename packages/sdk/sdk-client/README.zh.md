@@ -4,7 +4,7 @@
 
 以子进程方式驱动 DeepSeek Harness 运行时、走 stdio JSON-RPC 的 TypeScript 客户端 SDK——[Python SDK](../../../python/README.md)（`deepseek-harness`）的设计孪生，共享同一个运行时对端、协议与分层：`DeepSeekHarness` 是高层回合 API，`HarnessClient` 是低层协议客户端。纯库：不在任何 Cordis 上下文注册；它所生成的运行时进程是一个完整 harness，其组成由自己的 `cordis.yml` 决定。
 
-与 Python SDK 不同，启动规格完全显式（`command`/`args`）：本包面向仓库近旁的 TypeScript 消费者——[`dsh-subagent-sdk`](../../subagent/subagent-sdk/README.md) 后端、测试、自动化——它们知道自己要启动哪个运行时。捆绑运行时解析（寻找打包可执行文件）仍归 Python 发行版负责。
+与 Python SDK 不同，启动规格完全显式（`command`/`args`）：本包面向仓库近旁的 TypeScript 消费者——[`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) 后端、测试、自动化——它们知道自己要启动哪个运行时。捆绑运行时解析（寻找打包可执行文件）仍归 Python 发行版负责。
 
 ## DeepSeekHarness
 
@@ -26,9 +26,9 @@ console.log(result.status, result.finalResponse)
 
 回合 API 之下的协议客户端：显式 `start()`/`initialize()`/`prompt()`/`request()`/`close()`，外加通知订阅。`subscribe(filter?)` 返回 `NotificationSubscription`（可等待的 `next()`、非阻塞 `tryNext()`、异步迭代）；`subscribeSessionTree(id)` 把范围限定到一个会话及从 `subagent.started` 血缘边发现的后代——运行时对上下文内每个会话都发通知，范围限定在客户端完成，与 Python SDK 完全一致。错误表面有类型：`JsonRpcResponseError`（线上错误响应，保留 code/data）、`RequestTimeoutError`（配置的时限已到；线上没有取消方法，请求在服务端继续运行直到 close）、`SdkProtocolError`（响应超出文档化协议）、`TransportClosedError`（运行时已消失——消息携带退出码与有界 stderr 尾部）。
 
-`close()` 先请求协议 `shutdown`（受 `shutdownTimeoutMs` 约束，默认 1000 毫秒），然后走共享的 stdin-EOF → SIGTERM → SIGKILL [处置阶梯](../../subagent/subagent-subprocess/README.md)（`disposeEofGraceMs` 默认 6000，`disposeGraceMs` 默认 3000）直到进程真正退出。幂等，已关闭的客户端拒绝复用。
+`close()` 先请求协议 `shutdown`（受 `shutdownTimeoutMs` 约束，默认 1000 毫秒），然后走 stdin-EOF → SIGTERM → SIGKILL 阶梯（`disposeEofGraceMs` 默认 6000，`disposeGraceMs` 默认 3000）直到进程真正退出。该阶梯为本客户端私有：它运行在任何 harness 上下文之外，无法搭乘 [`dsh-subprocess`](../../subprocess/README.md) 服务——即该接缝记载的 SDK 托管传输例外。幂等，已关闭的客户端拒绝复用。
 
-`HarnessClientOptions.env` 给定时整体替换子环境（`undefined` 原样继承父环境）；凭据策略归调用方——`dsh-subagent-subprocess` 的 `buildChildEnv` 是面向隔离启动的先擦除后注入助手。
+`HarnessClientOptions.env` 给定时整体替换子环境（`undefined` 原样继承父环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
 
 ## 测试
 

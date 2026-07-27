@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
 import { resolveExampleLaunch, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
-const fixtureDir = new URL('../../../../examples/jsonrpc-agent/tests/fixtures/subagent/subagent-sdk/', import.meta.url)
+const fixtureDir = new URL('../../../../examples/jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/', import.meta.url)
 const driver = fileURLToPath(new URL('driver.ts', fixtureDir))
 const configPath = fileURLToPath(new URL('cordis.yml', fixtureDir))
 const childConfigPath = fileURLToPath(new URL('child.cordis.yml', fixtureDir))
@@ -54,8 +54,8 @@ describe('SDK subagent cwd inheritance through a real cordis.yml', () => {
     let childEvents: SessionEvent[] = []
     let workspace = ''
     const { stderr } = await runLoaderSmoke({
-      label: 'sdk-subagent cwd composition smoke',
-      tempDirPrefix: 'sdk-subagent-cwd-e2e-',
+      label: 'dsh-sdk-subagent cwd composition smoke',
+      tempDirPrefix: 'dsh-sdk-subagent-cwd-e2e-',
       binScript: driver,
       libBinScript: driver,
       configPath,

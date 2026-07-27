@@ -4,7 +4,7 @@
  * under their never-reject and idempotence contracts.
  */
 
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,17 @@ describe('child cwd resolution', () => {
     expect(assertUsableCwd('p', 'config cwd', tmpdir())).toBe(tmpdir())
     expect(() => assertUsableCwd('p', 'config cwd', 'relative/path')).toThrow('must be an absolute path')
     expect(() => assertUsableCwd('p', 'config cwd', join(tmpdir(), 'dsh-no-such-dir-xyz'))).toThrow('not an accessible directory')
+  })
+
+  it('rejects an existing path that is a file, not a directory', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'oop-file-'))
+    const file = join(tmp, 'plain.txt')
+    try {
+      writeFileSync(file, 'not a dir\n')
+      expect(() => assertUsableCwd('p', 'config cwd', file)).toThrow('not an accessible directory')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 
   // Windows ACLs do not expose the POSIX directory search-bit state this fixture creates.

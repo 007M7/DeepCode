@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-subagent-sdk",
+  "name": "@deepseek-ai/dsh-subagent-dsh-sdk",
   "description": "Out-of-process SDK subagent backend: drives a child DeepSeek Harness runtime subprocess over stdio JSON-RPC through the TypeScript SDK client",
   "version": "0.0.1",
   "private": true,
