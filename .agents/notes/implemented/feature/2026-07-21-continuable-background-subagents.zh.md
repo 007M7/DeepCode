@@ -39,7 +39,7 @@ durable child Session
 
 如果没有附加 Task 控制面，`TaskService.start()` 会拒绝 producer。因此，接受 child 输入的用户界面适配器必须附加 Task 控制面，或运行于加载了 `@deepseek-ai/dsh-tool-tasks` 的部署中；仅加载 Task 服务并不足够。SDK 生成的 spawn 与 fork 组合在挂载 subagent 控制插件对的同时，也会挂载 `@deepseek-ai/dsh-tasks` 与 `@deepseek-ai/dsh-tool-tasks`。这项依赖是 parent 和用户启动的激活共用 Task 结果、取消和通知路径所付出的代价。
 
-取消始终作用于当前完整激活。如果用户消息和 parent 消息已经加入同一个轮次，任一调用方发起取消都会中止该轮次、dispose 其 run，并将对应 Task 结算为 `killed`；这些消息没有独立的结果或取消权。若需要独立取消，后续消息必须另起轮次，而不能加入当前轮次。
+取消始终作用于当前完整激活。如果用户消息和 parent 消息已经加入同一个轮次，任一调用方发起取消都会中止该轮次、dispose 其 run，并将对应 Task 结算为 `killed`；这些消息没有独立的结果或取消权。`sendMessage()` 要求调用方提供信号；若在线 steering 正在等待请求准入时该信号被中止，激活自有的 controller 会被中止，以便提供方丢弃待处理消息，并且该调用仅在子 agent 完全停稳后结算。若需要独立取消，后续消息必须另起轮次，而不能加入当前轮次。
 
 从持久化存储恢复的 Task 会在查找描述符或等待任何提供方操作之前，创建由本次激活持有的 `AbortController`；描述符查找、直接 parent 鉴权和描述符归并都在该 Task producer 内部执行，因此同一信号覆盖它们，其失败会将该 Task 结算为 `failed`。对于不接受信号的持久化调用，可以让底层 I/O 执行完毕；但控制服务必须在每次这类 await 返回后重新检查取消状态，如已取消，之后不得开始或发布任何 child 工作。在 Agent 发布前收到中止信号时，提供方必须先回滚其创建事务并达到完全停稳状态，然后才让恢复调用以拒绝结束。Agent 发布后，提供方必须消除创建期间移交取消信号时的竞态，在返回前将同一信号附加到存活 run；之后取消会停止 child 轮次。即使提供方的恢复调用尚未返回 `SubagentRun`，`task_kill` 与对确切 owner 实例的 dispose 仍通过这条路径生效。Task 结算会等待回滚或 run dispose 完成，只有在激活完全停稳后才记录 `killed`。
 
@@ -57,7 +57,7 @@ durable child Session
 
 ### 面向模型的 `send_message`
 
-模型获得一个由 `SubagentControlService.sendMessage()` 支撑的 `send_message(subagent_id, message)` 工具。控制操作负责在 steering 与恢复之间编排；它不同于 run 的 `SubagentRun.steer?()`，后者只能向已活跃的 run 发送消息。工具本身不执行生命周期路由。该工具将后续消息的来源标记为 `{ kind: 'coordinator', senderSessionId: parent.id }`；控制服务要求调用方提供 `MessageSource`，并在在线 steering 与 cold resume 两条路径中传递该来源。child 模型收到的仍是普通的 user role 内容，而持久化的来源信息可防止模型生成的后续消息被归类为直接用户输入。用户适配器则提供 `{ kind: 'user' }`。该工具位于单独加载的 `@deepseek-ai/dsh-tool-subagent-control` 包中，因此按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 实例可以继续为 spawn、fork 或 ACP 注册不同的委派工具，而不会重复注册全局控制工具。
+模型获得一个由 `SubagentControlService.sendMessage()` 支撑的 `send_message(subagent_id, message)` 工具。控制操作负责在 steering 与恢复之间编排；它不同于 run 的 `SubagentRun.steer?()`，后者只能向已活跃的 run 发送消息。工具本身不执行生命周期路由。该工具将后续消息的来源标记为 `{ kind: 'coordinator', senderSessionId: parent.id }`，并转发其执行信号；控制服务要求调用方同时提供 `MessageSource` 和取消信号。来源会贯穿在线 steering 和 cold resume 两条路径，而取消只控制尚未完成的在线投递等待，因为 cold resume Task 会立即返回，并自行负责后续取消。child 模型收到的仍是普通的 user role 内容，而持久化的来源信息可防止模型生成的后续消息被归类为直接用户输入。用户适配器则提供 `{ kind: 'user' }` 及其交互信号。该工具位于单独加载的 `@deepseek-ai/dsh-tool-subagent-control` 包中，因此按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 实例可以继续为 spawn、fork 或 ACP 注册不同的委派工具，而不会重复注册全局控制工具。
 
 - 如果 child 存在运行中的 Task 并支持在线消息，服务会调用 `run.steer(message, source)` 并返回现有 task id；它不会创建新 Task。
 - 如果 child 没有运行中的 Task，`send_message` 会创建新 Task，使用该消息从持久化存储恢复会话，并返回新的 task id。

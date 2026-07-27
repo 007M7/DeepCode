@@ -1978,9 +1978,11 @@ startContinuable(spec: ContinuableStartSpec): ContinuableStart
  * @param childId - durable child session id.
  * @param message - user-role content to deliver.
  * @param source - durable caller attribution.
+ * @param signal - caller cancellation; while live delivery awaits admission,
+ *   abort cancels the shared activation so the wait reaches quiescence.
  * @returns the existing steered Task or newly started Task.
  */
-sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>
+sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, signal: AbortSignal, ): Promise<SendMessageResult>
 
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR

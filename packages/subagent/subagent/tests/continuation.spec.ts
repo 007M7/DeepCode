@@ -119,14 +119,16 @@ const coordinatorSource = {
   kind: 'coordinator',
   senderSessionId: SessionId('parent'),
 } as const
+const testSendSignal = new AbortController().signal
 
 function sendMessage(
   ctx: Context,
   parent: Agent,
   childId: SessionId,
   content: ReturnType<typeof message>,
+  signal: AbortSignal = testSendSignal,
 ) {
-  return ctx.subagents.sendMessage(parent, childId, content, { kind: 'user' })
+  return ctx.subagents.sendMessage(parent, childId, content, { kind: 'user' }, signal)
 }
 
 describe('SubagentService.startContinuable', () => {
@@ -422,6 +424,7 @@ describe('SubagentService.sendMessage', () => {
       started.childId,
       message('also consider Y'),
       coordinatorSource,
+      testSendSignal,
     )
     releaseFirst()
     const delivered = await delivery
@@ -438,6 +441,27 @@ describe('SubagentService.sendMessage', () => {
       (event): event is SessionEvent<'steering/message'> => event.type === 'steering/message',
     )
     expect(steering?.data.message.source).toEqual(coordinatorSource)
+  })
+
+  it('cancels the active Task without enqueueing when live delivery is already aborted', async () => {
+    const { ctx, parent, adapter } = await setup(['hang'])
+    const started = ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const controller = new AbortController()
+    controller.abort('caller already cancelled')
+
+    await expect(sendMessage(
+      ctx,
+      parent,
+      started.childId,
+      message('must not enqueue'),
+      controller.signal,
+    )).rejects.toMatchObject({ code: 'CANCELLED' })
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+    const snapshot = await waitTerminal(ctx, started.taskId, parent)
+    expect(snapshot.status).toBe('killed')
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.events.some(event => event.type === 'steering/message')).toBe(false)
   })
 
   it('rejects before acknowledgement when terminal policy prevents steering admission', async () => {
@@ -473,6 +497,7 @@ describe('SubagentService.sendMessage', () => {
       started.childId,
       message('follow-up that terminal policy rejects'),
       coordinatorSource,
+      testSendSignal,
     )
     releaseTool.resolve(undefined)
     await expect(delivery).rejects.toThrow(/message was not delivered/)
@@ -495,6 +520,7 @@ describe('SubagentService.sendMessage', () => {
       started.childId,
       message('and then?'),
       coordinatorSource,
+      testSendSignal,
     )
     expect(followUp.route).toBe('started')
     expect(followUp.taskId).not.toBe(started.taskId)

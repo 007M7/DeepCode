@@ -72,6 +72,7 @@ export function apply(ctx: Context): void {
         SessionId(args.subagent_id),
         message,
         { kind: 'coordinator', senderSessionId: parent.id },
+        exec.signal,
       )
       return Promise.resolve(result)
     },

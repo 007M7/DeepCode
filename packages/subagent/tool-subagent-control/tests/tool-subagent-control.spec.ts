@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,9 +34,10 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks, {})
   await ctx.plugin(tool)
-  ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
+  const adapter = new MockAdapter(script)
+  ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-  return { ctx, parent }
+  return { ctx, parent, adapter }
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -44,9 +45,15 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 let calls = 0
-function callTool(ctx: Context, name: string, args: unknown, agent?: unknown) {
+function callTool(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  agent?: unknown,
+  signal: AbortSignal = testToolSignal,
+) {
   return ctx.tools.execute({
-    signal: testToolSignal,
+    signal,
     callId: CallId(`call-${++calls}`),
     name,
     arguments: args,
@@ -112,6 +119,40 @@ describe('dsh-tool-subagent-control', () => {
     expect(steered).toBe('also consider Y')
     expect(source).toEqual({ kind: 'coordinator', senderSessionId: parent.id })
     expect(text(result)).toBe('message delivered to running task subagent-9')
+  })
+
+  it('cancels a pending live-delivery wait when the tool signal aborts', async () => {
+    const { ctx, parent, adapter } = await setup(['hang'])
+    const started = ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'hung work',
+      request: { prompt: [{ type: 'text', text: 'wait' }], parent },
+    })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const deliveryStarted: PromiseWithResolvers<void> = Promise.withResolvers()
+    const sendMessage = ctx.subagents.sendMessage.bind(ctx.subagents)
+    ctx.subagents.sendMessage = (agent, childId, message, source, signal) => {
+      const delivery = sendMessage(agent, childId, message, source, signal)
+      deliveryStarted.resolve()
+      return delivery
+    }
+
+    const controller = new AbortController()
+    const execution = callTool(ctx, 'send_message', {
+      subagent_id: started.childId,
+      message: 'follow up',
+    }, parent, controller.signal)
+    await deliveryStarted.promise
+    controller.abort('parent tool cancelled')
+
+    const result = await execution
+    expect(result.isError).toBe(true)
+    expect(result.error?.info?.code).toBe('CANCELLED')
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+    const snapshot = await ctx.tasks.wait(started.taskId, 5_000, parent)
+    expect(snapshot.status).toBe('killed')
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.events.some(event => event.type === 'steering/message')).toBe(false)
   })
 
   it('reports a delivery failure as an errored, not-delivered result', async () => {

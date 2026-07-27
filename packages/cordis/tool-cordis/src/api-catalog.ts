@@ -893,8 +893,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Start one durable continuable child through a Task-backed initial\n * activation.\n * @param spec - provider, Task label, and delegation request.\n * @returns the stable child id and initial activation Task id.\n */',
       },
       {
-        signature: 'sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, ): Promise<SendMessageResult>',
-        jsDoc: '/**\n * Deliver a message to a continuable child by steering its live activation\n * or cold-resuming a fresh Task-backed activation.\n * @param parent - live direct parent authorizing the operation.\n * @param childId - durable child session id.\n * @param message - user-role content to deliver.\n * @param source - durable caller attribution.\n * @returns the existing steered Task or newly started Task.\n */',
+        signature: 'sendMessage( parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource, signal: AbortSignal, ): Promise<SendMessageResult>',
+        jsDoc: '/**\n * Deliver a message to a continuable child by steering its live activation\n * or cold-resuming a fresh Task-backed activation.\n * @param parent - live direct parent authorizing the operation.\n * @param childId - durable child session id.\n * @param message - user-role content to deliver.\n * @param source - durable caller attribution.\n * @param signal - caller cancellation; while live delivery awaits admission,\n *   abort cancels the shared activation so the wait reaches quiescence.\n * @returns the existing steered Task or newly started Task.\n */',
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',

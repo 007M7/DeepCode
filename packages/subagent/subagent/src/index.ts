@@ -228,6 +228,8 @@ export class SubagentService extends Service {
    * @param childId - durable child session id.
    * @param message - user-role content to deliver.
    * @param source - durable caller attribution.
+   * @param signal - caller cancellation; while live delivery awaits admission,
+   *   abort cancels the shared activation so the wait reaches quiescence.
    * @returns the existing steered Task or newly started Task.
    */
   sendMessage(
@@ -235,8 +237,9 @@ export class SubagentService extends Service {
     childId: SessionId,
     message: ContentBlock[],
     source: MessageSource,
+    signal: AbortSignal,
   ): Promise<SendMessageResult> {
-    return this.requireContinuations().sendMessage(parent, childId, message, source)
+    return this.requireContinuations().sendMessage(parent, childId, message, source, signal)
   }
 
   /**

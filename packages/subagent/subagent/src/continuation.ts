@@ -248,6 +248,8 @@ export class SubagentContinuationManager {
    * @param childId - the stable child session id.
    * @param message - the user-role content to deliver.
    * @param source - caller-supplied attribution retained across either route.
+   * @param signal - caller cancellation. During live delivery, abort cancels
+   *   the shared activation and rejects only after it reaches quiescence.
    * @returns whether the message `steered` the existing Task or `started` a new one.
    */
   async sendMessage(
@@ -255,13 +257,14 @@ export class SubagentContinuationManager {
     childId: SessionId,
     message: ContentBlock[],
     source: MessageSource,
+    signal: AbortSignal,
   ): Promise<SendMessageResult> {
     this.assertOwnership(childId)
     const activation = this.activations.get(childId)
     if (activation !== undefined) {
       return {
         route: 'steered',
-        taskId: await this.steerActivation(activation, parent, childId, message, source),
+        taskId: await this.steerActivation(activation, parent, childId, message, source, signal),
       }
     }
     return { route: 'started', taskId: this.resumeActivation(parent, childId, message, source) }
@@ -298,6 +301,7 @@ export class SubagentContinuationManager {
     childId: SessionId,
     message: ContentBlock[],
     source: MessageSource,
+    signal: AbortSignal,
   ): Promise<TaskId> {
     const taskId = activation.taskId
     /* v8 ignore next 3 -- the install and Task registration share one synchronous frame, so an observed activation carries its Task id. */
@@ -323,9 +327,23 @@ export class SubagentContinuationManager {
         'NOT_DELIVERED',
       )
     }
+    const cancelActivation = (): void => {
+      activation.controller.abort(signal.reason)
+    }
+    signal.addEventListener('abort', cancelActivation, { once: true })
+    if (signal.aborted) {
+      cancelActivation()
+      signal.removeEventListener('abort', cancelActivation)
+      return await this.cancelledLiveDelivery(activation, childId)
+    }
     try {
       await run.steer(message, source)
     } catch (error: unknown) {
+      try {
+        signal.throwIfAborted()
+      } catch {
+        return await this.cancelledLiveDelivery(activation, childId, error)
+      }
       // Confirmed steering lost the race with request admission. Deliberately no
       // cold-resume fallback here: that would attach the message to a turn the
       // caller did not observe.
@@ -334,8 +352,28 @@ export class SubagentContinuationManager {
         'NOT_DELIVERED',
         { cause: error },
       )
+    } finally {
+      signal.removeEventListener('abort', cancelActivation)
     }
     return taskId
+  }
+
+  /** Reject a cancelled live delivery only after its shared activation is quiescent. */
+  private async cancelledLiveDelivery(
+    activation: ActiveActivation,
+    childId: SessionId,
+    cause?: unknown,
+  ): Promise<never> {
+    /* v8 ignore if -- a published run implies the producer assigned `done` before its provider await resolved. */
+    if (activation.done === undefined) {
+      throw new Error('published subagent activation has no settlement promise')
+    }
+    await activation.done
+    throw new SubagentError(
+      `subagent "${childId}" live delivery was cancelled; the message was not delivered`,
+      'CANCELLED',
+      cause === undefined ? undefined : { cause },
+    )
   }
 
   /**
