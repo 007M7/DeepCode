@@ -1137,7 +1137,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       "description": "The COMPLETE task list, replacing any previous list.",
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "content": {
             "type": "string",

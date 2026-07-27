@@ -24,7 +24,7 @@ const SID = 's1' as SessionId
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
   const session = createSnapshotStore<ConversationSnapshot>({
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
+    pending: [], queue: [], todos: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
     loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   })

@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -326,6 +326,15 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
       // Unparseable stored arguments: same soft-fall as a live parse failure.
       return undefined
     }
+  }
+  return undefined
+}
+
+/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
+function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event !== undefined && event.type === 'todo/write') return event.data.todos
   }
   return undefined
 }
@@ -839,7 +848,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
           return { event, ...view === undefined ? {} : { view } }
         })
-        return ok(request, { events: entries, hasMore: page.hasMore })
+        // Tail page carries the session-level todo projection over the FULL
+        // log (the page window may not contain the last todo/write; a paged
+        // client cannot reconstruct session-level state from it).
+        const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
+        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
       },
 
       async prompt(request) {
