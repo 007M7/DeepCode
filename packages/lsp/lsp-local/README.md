@@ -12,7 +12,7 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export).
 - Lazily single-flights one server process per `(server id, canonical workspace realpath)`. A live server error is not replayed; if the selected pooled transport fails before or during a read-only query, the provider awaits its disposal and retries that query once on a fresh process.
 - Uses a compatibility-first **transient-open** sequence per query: canonicalize and read the source with Node APIs, `textDocument/didOpen` (version 1, full text), the requested request, then `textDocument/didClose` in `finally`. A failed or canceled `didOpen` write terminates the instance before the pool can reuse it. Documents close after each call, so the first version needs no `didChange`, content cache, or document LRU.
 - Serializes each source-read/open/query/close lifecycle through one abortable per-workspace queue so queued calls read current source only when their turn starts; distinct workspaces run in parallel.
-- After protocol shutdown fails, terminates the server's descendant tree through POSIX process-group signaling or synchronous Windows `taskkill /T /F`. Windows suppresses only taskkill's already-absent-tree result; command, permission, and other tree-kill failures remain visible.
+- After protocol shutdown fails, terminates the server's descendant tree through the subprocess seam (POSIX process-group signaling; Windows `taskkill /T /F`). Tree-kill delivery is contained like every group signal — it races server exit — and quiescence is confirmed by the handle's tree-liveness wait rather than by the kill's own outcome.
 - Reads sources through Node filesystem APIs in the subprocess's host namespace — NOT `ctx.fs`, and emits no `fs/observed`: only the LSP result is model-visible, so a query does not satisfy read-before-write policy.
 
 ## Configuration
@@ -23,7 +23,7 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
 |---|---|---|
 | `command` | (required) | Executable to spawn — absolute, or resolved on the child PATH at load. Launch uses no shell. |
 | `args` | `[]` | Arguments passed to the executable. |
-| `env` | `{}` | Extra env merged on top of the credential-scrubbed ambient env (vars matching `KEY`/`SECRET`/`TOKEN` are not forwarded). |
+| `env` | `{}` | Extra env merged on top of the credential-scrubbed ambient env (vars matching `KEY`/`SECRET`/`TOKEN` are not forwarded); an explicit `DSH_*` entry merges after the seam's scrub of ambient ones. |
 | `extensionToLanguage` | (required) | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). |
 | `initializationOptions` | `null` | Static `initialize` options forwarded to the server. |
 | `configuration` | `null` | Static answer to every `workspace/configuration` item. |

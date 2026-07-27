@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-本仓库的文档通过相对路径互相链接：`[topic](../implemented/2026-…-….md)`、`[the cookbook](adding-a-tool.md)`、`[architecture.md](../../architecture.md)`。此前没有任何机制验证这些目标是否存在。重命名或移动文件会静默破坏所有指向它的链接，且在读者点击之前不可见。[Doc-sync 强制](2026-06-11-doc-sync-enforcement.md)已经将两类文档漂移机械化（无法编译的代码块、陈旧的事件分类表），[verify-md-wrap](2026-06-11-doc-sync-enforcement.md) 覆盖了第三类（硬换行的段落），但死链是第四类同样可机械检查、却仍靠肉眼验证的问题。
+本仓库的文档通过相对路径互相链接：`[topic](../implemented/2026-…-….md)`、`[the cookbook](adding-a-tool.md)`、`[architecture.md](../../architecture.md)`。此前没有任何机制验证这些目标是否存在。重命名或移动文件会静默破坏所有指向它的链接，且在读者点击之前不可见。[Doc-sync 强制](../../archived/process/2026-06-11-doc-sync-enforcement.md)已经将两类文档漂移机械化（无法编译的代码块、陈旧的事件分类表），[verify-md-wrap](../../archived/process/2026-06-11-doc-sync-enforcement.md) 覆盖了第三类（硬换行的段落），但死链是第四类同样可机械检查、却仍靠肉眼验证的问题。
 
 引入这道门禁的直接动因是 Agent Note（agent 决策记录）目录树重组：将 `docs/adr/` 与 `.agents/notes/` 统一到同一个 `.agents/notes/` 下，并设置 `proposed/`、`implemented/`、`rejected/` 子目录，需要手工重命名约 40 条文档间链接。只要有一处路径输入错误，就会在没有任何检查拦截的情况下交付断链。
 

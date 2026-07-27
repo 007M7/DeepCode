@@ -33,7 +33,7 @@
 
 每会话沙箱模式覆盖词汇（`'sandbox/mode'` 事件、`effectiveSandboxMode(events)` fold 以及 `setSandboxMode(session, mode)` 写入路径）不位于此处。它是所有强制执行家族共享的策略状态，属于 [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/)。`run()` 返回 `BashRunResult`；`start()` 返回 `BashProcess`，其增量读取与终止方法由 `dsh-tool-bash` 适配为通用任务注册。沙箱执行器会在前台结果与已结算进程句柄上标记 `BashSandboxInfo`。详见 `src/types.ts` 与 [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md)。
 
-`stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的单一真源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，拒绝普通 `env` 中的这些名称，再合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态。面向模型的工具不公开任何一个字段。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
+`stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的单一真源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，再在普通 `env` 之后合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态，`env` 条目也无法顶掉受管值。面向模型的工具不公开任何一个字段。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
 
 ## 模型体验
 

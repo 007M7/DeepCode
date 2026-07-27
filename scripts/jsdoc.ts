@@ -19,7 +19,7 @@ export function rawJsDoc(text: string, node: ts.Node): string {
 }
 
 /** A dispatch mode, rendered as the badge after an event name in the catalog. */
-export type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
+export type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial' | 'bail'
 
 /**
  * Parse a raw JSDoc block into description prose and an optional `@mode`. Prose
@@ -59,7 +59,7 @@ export function parseJsDoc(raw: string): { doc: string; mode: Mode | null; hasMo
   }
   for (const line of inner) {
     const tagLine = line.trimStart()
-    const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(tagLine)
+    const m = /^@mode\s+(emit|waterfall|parallel|serial|bail)\s*$/.exec(tagLine)
     if (m) { mode = m[1] as Mode; hasMode = true; flushPara(); inTags = true; continue }
     if (/^@mode\b/.test(tagLine)) { hasMode = true; flushPara(); inTags = true; continue }
     if (tagLine.startsWith('@')) { flushPara(); inTags = true; continue }

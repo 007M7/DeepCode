@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
-import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { packChunkRuns, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
@@ -66,7 +66,7 @@ async function seedResumeSession(cwd: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     JSON.stringify(toHeaderLine(meta)),
-    ...events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(events).map(record => JSON.stringify(record)),
     '',
   ].join('\n'))
 }
@@ -103,7 +103,7 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Prom
 // other route (see fixtures/tui-scripted-llm.ts).
 const SELECT_PRO_MODEL = [
   { waitFor: 'scripted TUI ready.', send: '/model\r' },
-  { waitFor: 'Select model', send: '\x1b[B\r' },
+  { waitFor: 'Select model', send: '\x1b[B\x1b[Z\r' },
 ] as const
 
 describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
@@ -156,6 +156,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
+    expect(output).toContain('Reasoning effort: Max.')
     expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
     expect(output).toContain('Leaving plan mode (applies from the next step).')
     expect(output).toContain('Default mode confirmed.')

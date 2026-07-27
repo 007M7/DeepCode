@@ -13,8 +13,9 @@
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
 | [`goal/`](goal/README.md) | 持久化的同会话 goal 状态与生命周期 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
+| [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
-| [`pty/`](pty/README.md) | 持久 PTY 能力系列：按所有者隔离的会话、本地实现、面向模型的工具 | 产品：稳定表面 |
+| [`pty/`](pty/README.md) | 持久 PTY 能力系列：按所有者隔离的会话、本地实现和面向模型的工具 | 产品：稳定表面 |
 | [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：面向模型所写程序的运行时 seam + worker 线程后端 | 产品：稳定表面 |
 | [`sandbox/`](sandbox/README.md) | 进程限制 seam；bwrap/Landlock/Seatbelt 后端 | 产品：稳定表面 |
 | [`fs/`](fs/README.md) | 文件系统能力系列：seam、本地实现、面向模型的文件工具、bash 后端发现工具 | 产品：稳定表面 |
@@ -34,7 +35,7 @@
 | [`cordis/`](cordis/README.md) | 自指运行时工具集：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session-persistence/`](session-persistence/README.md) | 持久化能力系列：seam + JSONL/SQLite 后端 | 产品：稳定表面 |
-| [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、关系、语义过滤、SQLite 全文搜索 | 产品：稳定表面 |
+| [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务、共享 LLM 策略和选用提供方 | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
@@ -44,7 +45,7 @@
 | [`ui/`](ui/README.md) | 人类／客户端集成：TUI 与 JSON-RPC、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
 | [`examples/`](examples/README.md) | 演示组合包（agent-spine + TUI/CLI/ACP/JSON-RPC bin），由叶节点加载 | 支持：示例基础设施 |
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
-| [`util/`](util/README.md) | 组间共享的零依赖工具（`Branded<B>`、home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
+| [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
 
 组用于区分产品 API 与支持基础设施。新包加入现有组；新组则更新其 README 和此表。
 

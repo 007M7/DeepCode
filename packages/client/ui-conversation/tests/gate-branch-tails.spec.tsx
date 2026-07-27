@@ -18,9 +18,9 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, intent: null, pendingPrompt: null, lastAgentError: null,
+    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   } as ConversationSnapshot
 }
 
@@ -65,9 +65,9 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready' })
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     const view = render(
@@ -76,6 +76,8 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useInput={(() => { throw new Error('unused') }) as never}
+        inputActions={{ setDraft: () => {}, submit: () => {} } as never}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
@@ -83,5 +85,43 @@ describe('render branch tails', () => {
     )
     expect(view.getByText('详情')).toBeTruthy()
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
+  })
+
+  it('DetailsPanel resolves a run_code sub-callId to its full logged args and output', () => {
+    localStorage.clear()
+    const snap = snapshotBase()
+    const longText = 'x'.repeat(1_000)
+    snap.codeDispatches = new Map([['p1', [{
+      kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
+      call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
+      callTime: 8_000,
+      content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
+    }]]])
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
+    const emptyList = createSnapshotStore<SessionListState>(
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
+    const view = render(
+      <DetailsPanel
+        sessionId={SID}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useInput={(() => { throw new Error('unused') }) as never}
+        inputActions={{ setDraft: () => {}, submit: () => {} } as never}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
+      />,
+    )
+    // Sub-call material: the sub-tool name titles the panel, args pretty-print,
+    // and the COMPLETE logged output renders (no truncation anywhere).
+    expect(view.getByText('read')).toBeTruthy()
+    expect(view.getByText(/notes\/demo\.txt/)).toBeTruthy()
+    expect(view.getByText(longText)).toBeTruthy()
   })
 })

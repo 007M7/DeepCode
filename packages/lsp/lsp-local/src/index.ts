@@ -25,6 +25,8 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
 import { LspInstance } from './instance.ts'
+import type { ConnectionSpawner } from './connection.ts'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { InstanceSpec } from './instance.ts'
 
 export { canonicalizeWorkspace, readHostSource } from './host.ts'
@@ -44,10 +46,10 @@ export { LspConnection } from './connection.ts'
 export const name = 'lsp-local'
 
 /** Services required by this plugin. */
-export const inject = ['lsp']
+export const inject = ['lsp', 'subprocess']
 
 /** Credential-shaped ambient env vars are NOT forwarded to the child by default. */
-const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
+
 
 const DEFAULT_MAX_MESSAGE_BYTES = 16_000_000
 const DEFAULT_MAX_STDERR_BYTES = 1_000_000
@@ -127,7 +129,7 @@ export function apply(ctx: Context, config: Config): void {
     validateServerConfig(providerId, resolved)
     const childEnv = buildChildEnv(resolved.env)
     const executable = resolveExecutable(resolved.command, childEnv)
-    return new LocalLspProvider(providerId, resolved, childEnv, executable)
+    return new LocalLspProvider(providerId, resolved, childEnv, executable, spec => ctx.subprocess.spawn(spec))
   })
 
   ctx.effect(() => {
@@ -189,6 +191,7 @@ class LocalLspProvider implements LspProvider {
     private readonly config: ResolvedServerConfig,
     private readonly childEnv: Record<string, string>,
     private readonly executable: string,
+    private readonly spawner: ConnectionSpawner,
   ) {
     this.id = LspProviderId(providerId)
     this.extensionToLanguage = config.extensionToLanguage
@@ -285,7 +288,7 @@ class LocalLspProvider implements LspProvider {
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
     }
-    return new LspInstance(spec)
+    return new LspInstance(spec, this.spawner)
   }
 
   /** Dispose every live instance and block further queries. */
@@ -302,12 +305,9 @@ class LocalLspProvider implements LspProvider {
   }
 }
 
-/** The ambient env minus credential-shaped vars, plus the config's explicit env. */
+/** The seam's scrubbed parent env (credential-shaped and DSH_* names dropped), plus the config's explicit env. */
 function buildChildEnv(extra: Record<string, string>): Record<string, string> {
-  const scrubbed = Object.entries(process.env).filter(
-    ([key, value]) => value !== undefined && !SENSITIVE_ENV_PATTERN.test(key),
-  ) as [string, string][]
-  return { ...Object.fromEntries(scrubbed), ...extra }
+  return { ...scrubbedParentEnv(), ...extra }
 }
 
 /**

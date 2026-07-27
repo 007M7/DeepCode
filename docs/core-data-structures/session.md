@@ -175,7 +175,7 @@ The request envelope — the `EpochHeader` (call config + rendered system prompt
  * canonical empty optional fields are absent.
  */
 interface EpochHeader {
-  /** The conversation's call configuration (provider, model, and sampling scalars). */
+  /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -572,6 +572,6 @@ The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepse
 
 ## Durability contract
 
-What a persistence backend relies on: the durable log persists every event losslessly, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. A backend may choose its own storage encoding for an event batch as long as `load` returns the exact appended events (the JSONL backend's opt-in packed chunk rows are such an encoding — see [persistence.md](persistence.md)). All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting checked by the session invariant companion, is a breaking change to the on-disk format.
+What a persistence backend relies on: the durable log persists every event losslessly, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. A backend may choose its own storage encoding for an event batch as long as `load` returns the exact appended events (the JSONL backend's default packed chunk rows are such an encoding — see [persistence.md](persistence.md)). All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting checked by the session invariant companion, is a breaking change to the on-disk format.
 
 The backends that consume this contract are on [persistence.md](persistence.md).

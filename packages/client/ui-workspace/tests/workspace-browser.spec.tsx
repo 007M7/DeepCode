@@ -15,14 +15,13 @@ beforeEach(() => { localStorage.clear() })
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, updatedAt, ...overrides,
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
 })
 const sessionState = (items: readonly SessionSummary[], overrides: Partial<SessionListState> = {}): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
   phase: 'ready',
-  intent: undefined,
   ...overrides,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
@@ -30,7 +29,7 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, intent: undefined, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+  items, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
   recentWorkspaceId: items[0]?.workspaceId,
 })
 const hook = <T,>(snapshot: T) => <S,>(selector: (state: T) => S): S => selector(snapshot)
@@ -55,6 +54,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     startSession: vi.fn(),
     open: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
+    deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     ...overrides,
@@ -176,18 +176,31 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('b')).toBeNull()
   })
 
-  it('renders the intent placeholder in both modes', () => {
-    const intent = { sessionId: sid('intent'), target: { kind: 'workspace' as const, workspaceId: wid('alpha') }, prompt: '', phase: 'connecting' as const }
-    const sessions = sessionState([], { intent, current: sid('intent') })
+  it('shows only the current blank session as New Session in grouped, flat, and search modes', () => {
+    const currentBlank = summary('alpha-blank', 9, { blank: true })
+    const staleBlank = summary('beta-blank', 8, { blank: true })
+    const sessions = sessionState(
+      [currentBlank, staleBlank],
+      { current: currentBlank.id },
+    )
     const b = mount({
       useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', ['alpha-blank']), workspace('beta', ['beta-blank']),
+      ])),
     })
-    // Grouped: the current-group effect expands the target group.
-    expect(screen.getByText('New session')).toBeTruthy()
+    expect(screen.getByText('New Session')).toBeTruthy()
+    expect(screen.queryByText('alpha-blank')).toBeNull()
+    expect(screen.queryByText('beta-blank')).toBeNull()
+    expect(screen.getByText('1 session')).toBeTruthy()
+
+    rerender(b, { useSessions: hook({ ...sessions, current: staleBlank.id }) })
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
     b.store.actions.setGroupBy('flat')
     rerender(b, {})
-    expect(screen.getByText('New session')).toBeTruthy()
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
+    fireEvent.change(screen.getByPlaceholderText('Search name, keywords...'), { target: { value: 'new session' } })
+    expect(screen.getAllByText('New Session')).toHaveLength(1)
   })
 
   it('searches across groups, clears via the clear button, and shows the empty states', () => {
@@ -443,6 +456,79 @@ describe('WorkspaceBrowser', () => {
     fireEvent.change(screen.getByLabelText('Workspace name'), { target: { value: 'Other' } })
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+  })
+
+  it('confirms Workspace deletion, explains retention, and blocks duplicate submission', async () => {
+    let resolveDelete!: () => void
+    const deleteWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
+    const browser = mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['session'], 'Alpha')])),
+      deleteWorkspace,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete workspace' })
+    expect(dialog.textContent).toContain('removes “Alpha” from the workspace list')
+    expect(dialog.textContent).toContain('folder and session logs will be kept')
+    expect(dialog.textContent).toContain('sessions will appear under Ungrouped')
+
+    const confirm = screen.getByRole('button', { name: 'Delete workspace' }) as HTMLButtonElement
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(deleteWorkspace).toHaveBeenCalledOnce()
+    expect(deleteWorkspace).toHaveBeenCalledWith(wid('alpha'))
+    expect(confirm.disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Deleting workspace…')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    await act(async () => { resolveDelete() })
+    // RPC success alone does not close: the component waits until its
+    // useWorkspaces projection has committed the removal, preventing a stale
+    // duplicate-name frame from leaking into the next create gesture.
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    rerender(browser, { useWorkspaces: hook(workspaceState([])) })
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
+  })
+
+  it('keeps the delete dialog open on failure and allows retry or cancellation', async () => {
+    const deleteWorkspace = vi.fn()
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+      .mockRejectedValueOnce('denied')
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+      deleteWorkspace,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('storage unavailable') })
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
+  })
+
+  it('Cancel, Escape, and Close dismiss deletion without calling the action', () => {
+    const deleteWorkspace = vi.fn(async () => {})
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+      deleteWorkspace,
+    })
+    const open = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Alpha' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
+    }
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    open()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(deleteWorkspace).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
   })
 
   it('search hides drag affordances (rows are not draggable during search)', () => {

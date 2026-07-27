@@ -29,7 +29,7 @@ ACP 自动化服务器应用：默认 agent 主干、客户端通过 [`@deepseek
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | bash 与本地 skill 发现共享的 harness 主目录。 |
 | `sessionTitle` | 主干示例限制 | 持久后备标题限制；标题仍不会进入 ACP wire。 |
 | `persistenceRoot` | `./.sessions` | JSONL 后端根目录，以及派生 `session-query.db` 索引的父目录。 |
-| `packChunks` | `false` | 在存储中打包连续的增量 chunk 事件。 |
+| `packChunks` | `true` | 在存储中打包连续的增量 chunk 事件。 |
 | `persistenceCompression` | `zstd` | 带校验和的 Zstandard 帧，或原始 `none`。 |
 | `workspaceContext` | 必填 | Workspace 指令字节预算／配置，或 `false`。 |
 | `skills` | 拥有者默认值 | Skill 注册表、本地提供方和面向模型的 skill 工具。 |

@@ -21,7 +21,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, delimiter } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import { vi } from 'vitest'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -457,17 +457,25 @@ async function waitForPersistedTurnStart(
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
   minimumTurn?: number,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (true) {
+  let invalidRecord: { error: unknown } | undefined
+  await vi.waitFor(async () => {
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    const openTurn = log === undefined ? undefined : latestOpenTurn(log.content)
-    if (openTurn !== undefined && (minimumTurn === undefined || openTurn >= minimumTurn)) return
-    if (Date.now() >= deadline) {
+    let openTurn: number | undefined
+    try {
+      openTurn = log === undefined ? undefined : latestOpenTurn(log.content)
+    } catch (error) {
+      // A malformed persisted record is a scenario bug, not a not-yet state:
+      // vi.waitFor retries every callback throw, so capture the validation
+      // failure, resolve the wait, and rethrow immediately below.
+      invalidRecord = { error }
+      return
+    }
+    if (openTurn === undefined || (minimumTurn !== undefined && openTurn < minimumTurn)) {
       const detail = minimumTurn === undefined ? 'turn/start' : `turn/start at or beyond turn ${minimumTurn}`
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${detail} within ${timeoutMs}ms`)
     }
-    await delay(WAIT_POLL_INTERVAL_MS)
-  }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  if (invalidRecord !== undefined) throw invalidRecord.error
 }
 
 /**
@@ -481,15 +489,12 @@ async function waitForPersistedTurnEnd(
   sessionId: string,
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (true) {
+  await vi.waitFor(async () => {
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    if (log !== undefined && latestTurnIsClosed(log.content)) return
-    if (Date.now() >= deadline) {
+    if (log === undefined || !latestTurnIsClosed(log.content)) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
     }
-    await delay(WAIT_POLL_INTERVAL_MS)
-  }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
 
 /** Wait for a cwd-relative marker proving an external action reached readiness. */
@@ -499,13 +504,11 @@ async function waitForWorkspaceFile(
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
   const target = join(cwd, path)
-  const deadline = Date.now() + timeoutMs
-  while (!existsSync(target)) {
-    if (Date.now() >= deadline) {
+  await vi.waitFor(() => {
+    if (!existsSync(target)) {
       throw new Error(`snapshot-harness: workspace file "${path}" did not appear within ${timeoutMs}ms`)
     }
-    await delay(WAIT_POLL_INTERVAL_MS)
-  }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
 
 /** Return whether the last complete raw-JSONL turn boundary closes its turn. */

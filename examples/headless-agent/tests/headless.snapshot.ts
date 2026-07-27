@@ -28,6 +28,7 @@ const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -124,6 +125,46 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 }
 
 describe('headless stream-json snapshots', () => {
+  it('logs the model default and a dynamic next-step reasoning effort', async () => {
+    const result = await runLoaderSmoke({
+      label: 'reasoning effort headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-reasoning-effort-',
+      binScript,
+      configPath: reasoningConfigPath,
+      binArgs: ['--config', reasoningConfigPath, '--output-format', 'stream-json', 'prove dynamic reasoning effort'],
+      tsconfigPath,
+    })
+
+    expect(result.stderr).toBe('')
+    const headers = parseJsonl(result.stdout)
+      .map(record => record.event)
+      .filter((event): event is JsonObject => (
+        event !== null
+        && typeof event === 'object'
+        && !Array.isArray(event)
+        && 'type' in event
+        && event.type === 'request/header'
+      ))
+      .map((event) => {
+        const data = event.data as JsonObject
+        return (data.header as JsonObject).config
+      })
+    expect(headers).toMatchInlineSnapshot(`
+      [
+        {
+          "model": "cli-mock",
+          "provider": "cli-mock",
+          "reasoningEffort": "high",
+        },
+        {
+          "model": "cli-mock",
+          "provider": "cli-mock",
+          "reasoningEffort": "off",
+        },
+      ]
+    `)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('replays the advanced toolchain through the one-shot app', async () => {
     const prompt = await scenarioPrompt(advancedScenarioDir, 'advanced-toolchain')
     const fixtureFiles = [

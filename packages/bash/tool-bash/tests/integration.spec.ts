@@ -8,9 +8,10 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -27,8 +28,9 @@ async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: str
     await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot, compression: 'none' })
   }
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(TaskService)
+  await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -169,7 +171,7 @@ describe('bash tool through the agent loop', () => {
   })
 
   it('background: start ack → completion notice as user/message → task_output collects it', async () => {
-    // The task id is deterministic (a fresh TaskService counts per kind from 1),
+    // The task id is deterministic (a fresh LocalTaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true }),

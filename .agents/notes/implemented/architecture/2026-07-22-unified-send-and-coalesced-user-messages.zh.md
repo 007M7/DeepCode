@@ -41,6 +41,6 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 ## 相关
 
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md)——本决策所依托的“每轮次只认领一条消息”规则。
-- [remove-agent-steering-mirror](../simplification/2026-07-04-remove-agent-steering-mirror.md)——折叠镜像实时事件的先例。
+- [remove-agent-steering-mirror](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)——折叠镜像实时事件的先例。
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md)——`keepInbox` 所扩展的取消原因信号。
 - [intent-named-agent-delivery](2026-07-24-intent-named-agent-delivery.md)——公开辅助方法以及接受完全解析输入的接口。

@@ -6,13 +6,15 @@
   "ignoreBinaries": [
     "bwrap",
     "python3",
-    "sandbox-exec"
+    "sandbox-exec",
+    "taskkill"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
     "python/sdk-runtime"
   ],
   "ignoreDependencies": [
+    "@yarnpkg/cli-dist",
     "lightningcss"
   ],
   "workspaces": {
@@ -274,8 +276,14 @@
       ]
     },
     "packages/session-query/session-query-sqlite": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     },
     "packages/code-runtime/code-runtime-worker": {
       "entry": [
@@ -328,8 +336,14 @@
       ]
     },
     "packages/session-persistence/session-checkpoint-policy": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     },
     "packages/util/paths": {
       "entry": [
@@ -494,15 +508,6 @@
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/mock-acp-server.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
-    "packages/subagent/subagent-subprocess": {
-      "entry": [
-        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",

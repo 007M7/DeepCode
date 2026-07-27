@@ -71,6 +71,21 @@ describe('createFixtureApi', () => {
     expect(empty.result.value).toEqual({ events: [], hasMore: false })
   })
 
+  it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
+    const api = createFixtureApi()
+    const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
+    if (!tail.result.ok) throw new Error('history failed')
+    const events = tail.result.value.events.map(e => e.event)
+    const todoAt = events.findIndex(e => e.type === 'todo/write')
+    expect(todoAt).toBeGreaterThan(0)
+    // Production ordering (the tool appends mid-execution): call → snapshot → result.
+    expect(events[todoAt - 1]?.type).toBe('tool/call')
+    expect(events[todoAt + 1]?.type).toBe('tool/result')
+    const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
+    expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
+    expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
+  })
+
   it('create adds a session and pushes host/session-added to open host streams', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
@@ -87,7 +102,7 @@ describe('createFixtureApi', () => {
     await consuming
     if (!created.result.ok) throw new Error('create failed')
     const createdId = created.result.value.sessionId
-    expect(seen).toEqual([{ type: 'host/session-added', sessionId: createdId, cwd: '/tmp/fixture' }])
+    expect(seen).toEqual([{ type: 'host/session-added', sessionId: createdId, blank: true, cwd: '/tmp/fixture' }])
     const list = await api.sessions.list(req({}))
     if (!list.result.ok) throw new Error('list failed')
     expect(list.result.value.items.some(s => s.sessionId === createdId)).toBe(true)
@@ -365,6 +380,31 @@ describe('createFixtureApi', () => {
     expect(noop.result.value.workspace.updatedAt).toBe(before)
   })
 
+  it('workspace.delete removes only the Workspace row and emits the removal frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const missing = await api.workspace.delete(req({ workspaceId: 'fx-ws-void' as WorkspaceId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const deleted = await api.workspace.delete(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    await consuming
+    expect(seen).toEqual([{ type: 'host/workspace-removed', workspaceId: 'fx-ws-fixture' }])
+    const list = await api.workspace.list(req({}))
+    if (!list.result.ok) throw new Error('workspace list failed')
+    expect(list.result.value.items.some(workspace => workspace.workspaceId === 'fx-ws-fixture')).toBe(false)
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
+  })
+
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
@@ -384,7 +424,7 @@ describe('createFixtureApi', () => {
     await consuming
     // The session lands with the workspace's path as cwd, and the account
     // write pushes the fresh workspace snapshot after session-added.
-    expect(seen[0]).toEqual({ type: 'host/session-added', sessionId: id, cwd: '/tmp/fixture' })
+    expect(seen[0]).toEqual({ type: 'host/session-added', sessionId: id, blank: true, cwd: '/tmp/fixture' })
     expect(seen[1]).toMatchObject({
       type: 'host/workspace-changed',
       workspace: { workspaceId: 'fx-ws-fixture', sessionIds: [id, 'fx-alpha', 'fx-beta', 'fx-gamma'] },
@@ -413,7 +453,7 @@ describe('createFixtureApi', () => {
     expect(frames[0]).toMatchObject({
       type: 'host/workspace-changed', workspace: { sessionIds: [preallocated] },
     })
-    expect(frames[1]).toEqual({ type: 'host/session-added', sessionId: preallocated, cwd: made.result.value.workspace.path })
+    expect(frames[1]).toEqual({ type: 'host/session-added', sessionId: preallocated, blank: true, cwd: made.result.value.workspace.path })
 
     const retried = await api.sessions.create(req({
       workspaceId: made.result.value.workspace.workspaceId,

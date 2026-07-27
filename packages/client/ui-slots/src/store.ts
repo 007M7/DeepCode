@@ -8,6 +8,15 @@
 export type SnapshotSelectorHook<T> = <S>(sel: (s: T) => S, eq?: (a: S, b: S) => boolean) => S
 
 /**
+ * Selector hook over a source that follows the current session. The hook is
+ * always present, while its selected value is absent whenever no session is
+ * current. This keeps hook call sites stable across no-session/session
+ * transitions without pretending that a session snapshot exists.
+ */
+export type MaybeSnapshotSelectorHook<T> =
+  <S>(sel: (s: T) => S, eq?: (a: S, b: S) => boolean) => S | undefined
+
+/**
  * Action declaration table: pure immer-draft transforms over the store state,
  * declared as the store's complete write set (the audit face — components can
  * only write through these).

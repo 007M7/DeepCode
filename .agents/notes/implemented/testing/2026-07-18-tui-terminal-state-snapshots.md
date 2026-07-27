@@ -33,7 +33,7 @@ The live-model fixtures use `DSH_SNAPSHOT=record`; record mode rewrites their pr
 
 ### Semantic terminal projection
 
-The package-local `HeadlessTerminal` implements the same pi-tui `Terminal` interface as the process terminal and feeds every ANSI write into the pinned `@xterm/headless` parser. Snapshot code waits for synchronized frames to quiesce before reading state, so a checkpoint represents a completed screen rather than a timer-dependent write prefix.
+The package-local `HeadlessTerminal` implements the same pi-tui `Terminal` interface as the process terminal and feeds every ANSI write into the pinned `@xterm/headless` parser. Snapshot code waits for synchronized frames to quiesce before reading state. The streaming checkpoint freezes the loader interval while allowing real wall-clock delay across one animation tick, so it pins semantic status rather than whichever spinner glyph the scheduler happened to render.
 
 Each expected output projects dimensions, active-buffer and viewport coordinates, lifecycle and cursor state, rows, wrap markers, and non-default style ranges into text. Scroll-heavy cards capture the used buffer; overlays capture the visible viewport. Text and style remain separate so a reviewer can distinguish content changes from presentation changes without decoding ANSI bytes.
 

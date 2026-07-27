@@ -31,6 +31,7 @@ import {
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
+  type SelectItem,
   type SelectListTheme,
   type SlashCommand,
   type Terminal,
@@ -53,6 +54,8 @@ import { assertNever, errorChain } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   LlmModelInfo,
+  LlmModelReasoningInfo,
+  ReasoningEffortId,
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
@@ -233,7 +236,7 @@ const maxModelOptionsSchema = z.number().step(1).min(1).default(8)
 const maxResumeOptionsSchema = z.number().step(1).min(1).default(8)
 const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
-const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
+const modelDialogWidthSchema = z.number().step(1).min(20).default(76)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
 const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
@@ -356,7 +359,7 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     maxResumeOptions: config?.maxResumeOptions ?? 8,
     questionDialogWidth: config?.questionDialogWidth ?? 200,
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
-    modelDialogWidth: config?.modelDialogWidth ?? 72,
+    modelDialogWidth: config?.modelDialogWidth ?? 76,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
     fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
     fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
@@ -580,15 +583,39 @@ function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'
 interface ModelChoice extends AgentLlmTarget {
   modelName: string
   description?: string
+  reasoning?: LlmModelReasoningInfo
+}
+
+interface ModelDialogSelection {
+  choice: ModelChoice
+  reasoningEffort: ReasoningEffortId | undefined
 }
 
 function targetLabel(target: AgentLlmTarget): string {
   return `${target.provider}/${target.model}`
 }
 
+function compactTargetLabel(target: AgentLlmTarget): string {
+  return `${target.model}${target.reasoningEffort === undefined ? '' : ` ${target.reasoningEffort}`}`
+}
+
+function targetReasoningLabel(choice: ModelChoice, effort: ReasoningEffortId | undefined): string | undefined {
+  if (effort === undefined) return choice.reasoning === undefined ? undefined : 'provider default'
+  return choice.reasoning?.efforts.find(candidate => candidate.id === effort)?.name ?? effort
+}
+
 function initialTarget(agent: Agent): AgentLlmTarget | undefined {
   const logged = agent.session.requestHeader()?.config
-  if (logged !== undefined) return { provider: logged.provider, model: logged.model }
+  if (logged !== undefined) {
+    if (logged.reasoningEffort === undefined) {
+      return { provider: logged.provider, model: logged.model }
+    }
+    return {
+      provider: logged.provider,
+      model: logged.model,
+      reasoningEffort: logged.reasoningEffort,
+    }
+  }
   if (agent.options.provider === undefined || agent.options.model === undefined) return undefined
   return { provider: agent.options.provider, model: agent.options.model }
 }
@@ -607,11 +634,15 @@ async function readModelChoices(
     ) {
       models.push({ provider: provider.id, id: current.model, name: current.model })
     }
-    return models.map((model): ModelChoice => ({
-      provider: provider.id,
-      model: model.id,
-      modelName: model.name,
-      ...model.description === undefined ? {} : { description: model.description },
+    return Promise.all(models.map(async (model): Promise<ModelChoice> => {
+      const reasoning = (await ctx.llm.resolveModelInfo(provider.id, model.id)).reasoning
+      return {
+        provider: provider.id,
+        model: model.id,
+        modelName: model.name,
+        ...model.description === undefined ? {} : { description: model.description },
+        ...reasoning === undefined ? {} : { reasoning },
+      }
     }))
   }))
   return groups.flat()
@@ -1226,24 +1257,40 @@ function renderDialog(
 
 class ModelDialog implements Component {
   private readonly list: SelectList
+  private readonly items: Map<string, SelectItem>
+  private readonly choices: Map<string, ModelChoice>
+  private readonly efforts: Map<string, ReasoningEffortId | undefined>
+  private readonly currentValue: string | undefined
 
   constructor(
     choices: readonly ModelChoice[],
     current: AgentLlmTarget | undefined,
     maxVisible: number,
     private readonly palette: Palette,
-    done: (choice: ModelChoice) => void,
+    done: (selection: ModelDialogSelection) => void,
     cancel: () => void,
   ) {
-    this.list = new SelectList(choices.map(choice => ({
-      value: targetLabel(choice),
-      label: displayText(targetLabel(choice)),
-      description: [
-        displayText(choice.modelName),
-        ...choice.description === undefined ? [] : [displayText(choice.description)],
-        ...current?.provider === choice.provider && current.model === choice.model ? ['current'] : [],
-      ].join(' — '),
-    })), maxVisible, dialogSelectTheme(palette))
+    this.items = new Map()
+    this.choices = new Map()
+    this.efforts = new Map()
+    this.currentValue = current === undefined ? undefined : targetLabel(current)
+    for (const choice of choices) {
+      const value = targetLabel(choice)
+      const isCurrent = current?.provider === choice.provider && current.model === choice.model
+      this.choices.set(value, choice)
+      this.efforts.set(
+        value,
+        isCurrent
+          ? current.reasoningEffort ?? choice.reasoning?.defaultEffort
+          : choice.reasoning?.defaultEffort,
+      )
+      this.items.set(value, {
+        value,
+        label: displayText(value),
+        description: this.describeChoice(choice, isCurrent),
+      })
+    }
+    this.list = new SelectList([...this.items.values()], maxVisible, dialogSelectTheme(palette))
     const currentIndex = current === undefined
       ? 0
       : choices.findIndex(choice => choice.provider === current.provider && choice.model === current.model)
@@ -1252,9 +1299,46 @@ class ModelDialog implements Component {
       const selected = choices.find(choice => targetLabel(choice) === item.value)
       /* v8 ignore next -- SelectList only returns values built from `choices`. */
       if (selected === undefined) return
-      done(selected)
+      done({
+        choice: selected,
+        reasoningEffort: this.efforts.get(item.value),
+      })
     }
     this.list.onCancel = cancel
+  }
+
+  private describeChoice(choice: ModelChoice, isCurrent: boolean): string {
+    const selectedEffort = this.efforts.get(targetLabel(choice))
+    const effort = choice.reasoning?.efforts.find(candidate => candidate.id === selectedEffort)
+    const effortLabel = selectedEffort === undefined
+      ? choice.reasoning === undefined ? undefined : 'provider default'
+      : effort?.name ?? selectedEffort
+    return [
+      displayText(choice.modelName),
+      ...choice.description === undefined ? [] : [displayText(choice.description)],
+      ...effortLabel === undefined ? [] : [displayText(effortLabel)],
+      ...isCurrent ? ['current'] : [],
+    ].join(' — ')
+  }
+
+  private cycleReasoningEffort(): void {
+    const selectedItem = this.list.getSelectedItem()
+    /* v8 ignore next -- the dialog is opened only for a non-empty catalog. */
+    if (selectedItem === null) return
+    const choice = this.choices.get(selectedItem.value)
+    if (choice?.reasoning === undefined) return
+    const current = this.efforts.get(selectedItem.value)
+    const efforts: Array<ReasoningEffortId | undefined> = [
+      ...choice.reasoning.defaultEffort === undefined ? [undefined] : [],
+      ...choice.reasoning.efforts.map(effort => effort.id),
+    ]
+    const currentIndex = efforts.indexOf(current)
+    const next = efforts[(currentIndex + 1) % efforts.length]
+    this.efforts.set(selectedItem.value, next)
+    const item = this.items.get(selectedItem.value)
+    /* v8 ignore next -- items and choices are constructed from the same values. */
+    if (item === undefined) return
+    item.description = this.describeChoice(choice, selectedItem.value === this.currentValue)
   }
 
   invalidate(): void {
@@ -1262,7 +1346,11 @@ class ModelDialog implements Component {
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(data)
+    if (matchesKey(data, Key.shift(Key.tab))) {
+      this.cycleReasoningEffort()
+    } else {
+      this.list.handleInput(data)
+    }
     this.invalidate()
   }
 
@@ -1271,7 +1359,7 @@ class ModelDialog implements Component {
     return renderDialog('Select model', [
       ...this.list.render(innerWidth),
       '',
-      this.palette.dim('↑/↓ navigate • Enter select • Esc cancel'),
+      this.palette.dim('↑/↓ navigate • Shift+Tab reasoning • Enter select • Esc cancel'),
     ], width, this.palette)
   }
 }
@@ -1938,7 +2026,7 @@ export function createTuiChat(
     () => sessionTitle ?? config.welcome,
     palette,
     resolved.color && resolved.truecolor,
-    () => target.current?.model,
+    () => target.current === undefined ? undefined : compactTargetLabel(target.current),
   )
   const footer = new FooterComponent(
     agent,
@@ -1946,7 +2034,7 @@ export function createTuiChat(
     () => toolsExpanded,
     () => tokens,
     runtime.formatCwd,
-    () => target.current?.model,
+    () => target.current === undefined ? undefined : compactTargetLabel(target.current),
     () => contextWindow === undefined
       ? undefined
       : Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100)),
@@ -2019,8 +2107,8 @@ export function createTuiChat(
     contextWindow = undefined
     const resolution = selected === undefined
       ? Promise.resolve({ kind: 'resolved', contextWindow: undefined } as const)
-      : ctx.llm.resolveModelContext(selected.provider, selected.model).then(
-        context => ({ kind: 'resolved', contextWindow: context?.contextWindow } as const),
+      : ctx.llm.resolveModelInfo(selected.provider, selected.model).then(
+        info => ({ kind: 'resolved', contextWindow: info.context?.contextWindow } as const),
         (error: unknown) => ({ kind: 'error', error } as const),
       )
     contextResolution = resolution
@@ -2036,14 +2124,31 @@ export function createTuiChat(
   }
   resolveContextWindow(target.current)
 
-  const selectModel = (selected: ModelChoice): void => {
-    if (target.current?.provider === selected.provider && target.current.model === selected.model) {
-      appendNotice(`Model is already ${targetLabel(selected)}.`)
+  const selectModel = (
+    selected: ModelChoice,
+    explicitReasoning?: { effort: ReasoningEffortId | undefined },
+  ): void => {
+    const sameRoute = target.current?.provider === selected.provider && target.current.model === selected.model
+    const reasoningEffort = explicitReasoning === undefined
+      ? (sameRoute ? target.current?.reasoningEffort ?? selected.reasoning?.defaultEffort : selected.reasoning?.defaultEffort)
+      : explicitReasoning.effort
+    if (sameRoute && target.current?.reasoningEffort === reasoningEffort) {
+      const reasoning = targetReasoningLabel(selected, reasoningEffort)
+      appendNotice(`Model is already ${targetLabel(selected)}${reasoning === undefined ? '' : ` with reasoning effort ${displayText(reasoning)}`}.`)
       return
     }
-    target.current = { provider: selected.provider, model: selected.model }
+    target.current = {
+      provider: selected.provider,
+      model: selected.model,
+      ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    }
     resolveContextWindow(target.current)
-    appendNotice(`Model selected: ${targetLabel(selected)}. New steps will use it.`)
+    const reasoning = targetReasoningLabel(selected, reasoningEffort)
+    appendNotice([
+      `Model selected: ${targetLabel(selected)}.`,
+      ...reasoning === undefined ? [] : [`Reasoning effort: ${displayText(reasoning)}.`],
+      'New steps will use it.',
+    ].join(' '))
   }
 
   const showModelSelector = (choices: readonly ModelChoice[]): void => {
@@ -2059,9 +2164,9 @@ export function createTuiChat(
         target.current,
         resolved.maxModelOptions,
         palette,
-        (selected) => {
+        (selection) => {
           void session.close()
-          selectModel(selected)
+          selectModel(selection.choice, { effort: selection.reasoningEffort })
         },
         () => { void session.close() },
       ),
@@ -2633,12 +2738,17 @@ export function createTuiChat(
     const steps = events.filter(event => event.type === 'step/start').length
     const toolCalls = events.filter(event => event.type === 'tool/call').length
     const model = target.current === undefined ? 'unset' : displayText(targetLabel(target.current))
+    const effort = target.current === undefined
+      ? 'unset'
+      : target.current.reasoningEffort === undefined
+        ? 'default'
+        : displayText(target.current.reasoningEffort)
     const groups: readonly (readonly StatusCardRow[])[] = [
       [
         ['Session', displayText(agent.session.id)],
         ['Title', displayText(sessionTitle ?? 'untitled')],
         ['Directory', displayText(cwd)],
-        ['Model', `${model} ${palette.dim(`(reasoning ${showReasoning ? 'shown' : 'hidden'})`)}`],
+        ['Model', `${model} ${palette.dim(`(effort ${effort}; reasoning blocks ${showReasoning ? 'shown' : 'hidden'})`)}`],
       ],
       [
         ['Agent', [

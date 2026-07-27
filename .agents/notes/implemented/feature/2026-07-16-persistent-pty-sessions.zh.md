@@ -80,6 +80,8 @@ macOS 没有精确 syscall 层。任何前台进程组输出静默都会返回 `
 
 Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 sleep 或网络阻塞的命令可能看似 ready。Tier 3 在 `timeoutMs` 后返回 `timeout`，避免前台工具调用无限占住 agent。结果保留这些区别；调用方可以通过 `ctx.tasks` 等待、向前台组发信号，或从另一个会话排查。
 
+一次 send 在任一层级 settle 之后，`PtySendOperation.append` 就不再接受输出，此后子进程的输出不会再进入那个已 settle 的 operation；它仍然会进入 scrollback，以及此时恰好处于活跃状态的任何 send。因此，等待自己所启动的 operation 上出现标记的测试，必须把 `idleSilenceMs` 与 `timeoutMs` 设得高于子进程自身的启动耗时；否则在负载较高的 macOS runner 上，解释器启动会在标记打印之前就结束这次 send。
+
 `node-pty` data 通知进入同一个终端 parser。parser 的 carry state 会处理跨 callback 的控制序列和位于 callback 末尾的回车；因此，即使 CRLF 被拆开，也只会生成一个换行，而不会产生改变分页的空行。实现会规范化行式输出，但不承诺正确操作全屏应用。
 
 ### 模型可见输出与持久性
@@ -154,7 +156,7 @@ plugins:
 
 - 每文件覆盖率固定 owner 隔离、并发预留、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
 - Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程静止性、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
-- 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 下的前台 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即静默。
+- 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、在由场景掌控的时间界限内先有意延迟子进程就绪，再对 raw mode 前台进程发送 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
 - 包契约、架构图、核心数据结构、生成目录和 website API 描述同一个已发布接口。
 - 仓库 CI 等价序列负责类型、lint、覆盖率、快照、文档、构建、hygiene、demo 和 built-entry 验证。

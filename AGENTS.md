@@ -12,9 +12,9 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
 packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
-  prompt/      workspace instructions
-  llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
+  llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
+  subprocess/  subprocess seam + local process-tree impl
   pty/         persistent PTY seam/backend/tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
   lsp/         language-server seam + local stdio provider + model-facing lsp tool
@@ -23,17 +23,17 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   compact/     compaction seam + basic backend
   context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
-  workflow/    workflow seam + worker-thread engine + the workflow tool
-  todo/        the todo_write tool
+  workflow/    workflow seam + worker-thread engine + workflow tool
+  todo/        todo_write tool
   plan/        plan mode as logged per-agent collaboration state
   guard/       loop-hygiene plugins
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
-  hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
+  hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   acp/         automation-only Agent Client Protocol server
   ui/          TUI/JSON-RPC bridges; boot, approval, interaction plugins
   examples/    demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load
-  support/     dev/test infrastructure packages
+  support/     dev/test infrastructure
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
 native/      node-addon-landlock-run source of record (see native/README.md)
@@ -60,12 +60,13 @@ pnpm run typecheck
 pnpm run lint
 pnpm run duplication    # cross-file TypeScript clone detection
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
+pnpm run check:windows-wine  # ONLY when diagnosing a known Windows failure (needs wine); CI owns this signal
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
-pnpm run doc-sync       # all documentation gates; see the doc-sync leaf list in scripts/run-gates.ts
-pnpm run website:build  # VitePress build (doubles as the site's dead-link check)
+pnpm run doc-sync       # all documentation gates; leaf list in scripts/run-gates.ts
+pnpm run website:build  # VitePress build (doubles as dead-link check)
 pnpm run demo:headless "task" # one-shot agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:cordis    # self-referential demo: the agent modifies its own runtime (needs key)
+pnpm run demo:cordis    # the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP automation server (needs DEEPSEEK_API_KEY)
 ```
 
@@ -97,6 +98,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
+- **Prefer maintained dependencies over hand-rolling** when they genuinely delete owned code and tests ([policy](.agents/notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
 - **No hardcoded tunables in plugins**: deployment-varying choices are validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test seam is not configurability. Protocol constants, external specs, and security invariants stay fixed.
 - **Misconfiguration fails loud** at load when self-contained, otherwise at the earliest resolvable point; never silently skip a missing referent.
@@ -107,12 +109,12 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
-- **Every non-trivial change MUST include at least one Agent Note in the same PR.** Update the owning note or add one, validate its premises against code, and exempt only mechanical/local edits ([scope](.agents/notes/README.md#when-to-write-one)).
+- **Non-trivial changes MUST include an Agent Note in the same PR;** only mechanical/local edits are exempt ([scope](.agents/notes/README.md#when-to-write-one)). Archived notes are frozen: never edit or treat them as current authority ([archive policy](.agents/notes/README.md#archiving-and-deletion)).
 - **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible behavior change adds or updates a keyless snapshot through a real runnable example in the same PR; package tests, e2e-only assertions, and mock-only fixtures do not substitute for the assembled application transcript. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
-- **Keep PRs coherent; use merge commits.** Split independent features or design decisions when combining them obscures ownership, intent, or verification. Never squash, rebase, or rewrite pushed branches; fix the introducing PR, then merge down its stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
-- **Label PRs:** exactly one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), all matching areas; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) remains extensible for recurring distinctions.
+- **Use incremental merge commits.** Split independent changes; never squash, rebase, or rewrite pushed history. Fix the introducing PR before merging down-stack. If the base advances mid-merge, never restart: finish the checkpoint, push when authorized, then merge the newer tip separately ([rationale](.agents/notes/implemented/process/2026-07-26-incremental-pr-base-retargeting.md)).
+- **Label PRs:** one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), each matching area; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) is extensible.
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.
 

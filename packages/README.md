@@ -13,14 +13,15 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
 | [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
+| [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
-| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local impl, model-facing tools | Product — stable surface |
-| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: runtime seam for model-written programs + worker-thread backend | Product — stable surface |
+| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: seam, local impl, model-facing file tools, bash-backed discovery tools | Product — stable surface |
 | [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool | Product — stable surface |
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
-| [`compact/`](compact/README.md) | Compaction capability family: abstract seam + basic backend (tool deferred) | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
@@ -34,7 +35,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
-| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, relationships, semantic filtering, SQLite full-text search | Product — stable surface |
+| [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
 | [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |
 | [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
@@ -44,7 +45,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`ui/`](ui/README.md) | Human/client integrations: TUI and JSON-RPC, approval/interaction seams, ask-user tool | Product — stable surface |
 | [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
-| [`util/`](util/README.md) | Zero-dependency utilities shared across groups (`Branded<B>`, home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
+| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 
 Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
 
@@ -52,6 +53,6 @@ Groups distinguish product API from support infrastructure. New packages join an
 
 The dependency graph is generated: [docs/module-graph.md](../docs/module-graph.md) (`pnpm run gen-module-graph`, freshness-gated in CI).
 
-**Extension plugins depend on interfaces, never the concrete loop.** `dsh-agent-loop` is swappable; UI, hook, and tool plugins use `dsh-agent`. Composition bundles, including `dsh-agent-spine-demo`, may depend on spine plugins. Capabilities split into interface/implementation/consumer packages; see [capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md).
+**Extension plugins depend on interfaces, never the concrete loop.** `dsh-agent-loop` is swappable; UI, hook, and tool plugins use `dsh-agent`. Composition bundles, including `dsh-agent-spine-demo`, may depend on spine plugins. Capabilities split into interface / implementation / consumer packages; see [capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md).
 
 Package READMEs cover purpose, APIs, extension points, and [Model Experience](../docs/cookbook/adding-a-package.md#4-write-the-package-readme) unless on the model-agnostic [omission allowlist](../scripts/verify-package-readme-model-experience.ts). They also carry `## Known Limitations and Deferred Work` or use its [allowlist](../scripts/verify-package-readme-limitations.ts).
