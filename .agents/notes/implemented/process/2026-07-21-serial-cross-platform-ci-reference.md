@@ -24,7 +24,7 @@ The macOS reference runs the ordinary Vitest project in forked processes. Node 2
 
 Master reference jobs are diagnostic and do not participate in the pull request's required `all checks passed` result. A pull request runs only its required jobs; a master push runs only the three serial references. Performance is evaluated from completed hosted-job timestamps and reported as a measurement; it is not encoded as a `timeout-minutes` value.
 
-The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, and `windows-2025` labels. Required pull-request jobs use the same portable Linux and Windows capacity under the [required-CI decision](2026-07-23-portable-required-pull-request-ci.md). Higher-core hosted runners remain manual benchmarks because a correctness path must remain runnable without repository-external runner configuration.
+The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, and `windows-2025` labels; `serial / windows` is the one remaining native-Windows job, the complete-kernel oracle behind the Wine-hosted pull-request lane ([Wine lane decision](2026-07-27-wine-windows-gates-experiment.md)). Required pull-request jobs use portable standard capacity under the [required-CI decision](2026-07-23-portable-required-pull-request-ci.md). Higher-core hosted runners remain manual benchmarks because a correctness path must remain runnable without repository-external runner configuration.
 
 ## Alternatives considered
 
