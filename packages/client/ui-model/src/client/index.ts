@@ -20,7 +20,7 @@ import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
 
 export { ModelDirectory } from './directory.ts'
-export type { ModelDirectoryState } from './directory.ts'
+export type { ModelDirectoryState, ModelEffort } from './directory.ts'
 export { ModelService } from './service.ts'
 export type { ModelSelectInjected } from './slots.ts'
 
@@ -114,6 +114,7 @@ export function apply(ctx: ClientContext): void {
           directory: directory.store,
           load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },
           select: (target: ModelTarget) => directory.select(target).then(() => true, () => false),
+          setEffort: effort => directory.setEffort(effort),
         }
       },
     }, ModelSelect), 'ui-model: composer model seat registration')

@@ -11,8 +11,19 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
+/** Thinking-effort display levels (the deepseek wire vocabulary). */
+export type ModelEffort = 'high' | 'max'
+
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
+  /**
+   * Displayed thinking-effort level. Client-local echo only for now: the
+   * design pairs model and effort as one two-level selection, but no wire
+   * carries a per-session effort override yet (the deepseek adapter's
+   * reasoningEffort is deployment config) — selecting it updates this
+   * display state and nothing else.
+   */
+  effort: ModelEffort
   /** Target the host reports for the next assembled step; null before the first load. */
   current: ModelTarget | null
   /** Successfully loaded provider groups (last good load). */
@@ -29,7 +40,7 @@ export interface ModelDirectoryState {
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, groups: [], failures: [], status: 'idle', error: null,
+    effort: 'high', current: null, groups: [], failures: [], status: 'idle', error: null,
   })
 
   /** Latest operation wins; an older response never overwrites a newer one. */
@@ -63,7 +74,13 @@ export class ModelDirectory {
       throw new Error(`session.models failed: ${result.error.code}: ${result.error.message}`)
     }
     const { current, groups, failures } = result.value
-    this.store.set({ current, groups, failures, status: 'ready', error: null })
+    this.store.update((s) => {
+      s.current = current
+      s.groups = groups
+      s.failures = failures
+      s.status = 'ready'
+      s.error = null
+    })
     return result.value
   }
 
@@ -88,6 +105,15 @@ export class ModelDirectory {
       throw new Error(`session.selectModel failed: ${result.error.code}: ${result.error.message}`)
     }
     this.store.update((s) => { s.current = result.value.selected; s.status = 'ready'; s.error = null })
+  }
+
+  /**
+   * Set the displayed effort level (client-local; see the state field's contract).
+   * @param effort - the level to display.
+   */
+  setEffort(effort: ModelEffort): void {
+    if (this.disposed) return
+    this.store.update((s) => { s.effort = effort })
   }
 
   /** Scope teardown: late settlements lose write access to the store. */

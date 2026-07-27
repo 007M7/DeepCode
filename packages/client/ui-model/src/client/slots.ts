@@ -6,7 +6,7 @@
  */
 import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ModelDirectoryState } from './directory.ts'
+import type { ModelDirectoryState, ModelEffort } from './directory.ts'
 
 /** Injected business face of the composer model seat. */
 export interface ModelSelectInjected {
@@ -20,4 +20,10 @@ export interface ModelSelectInjected {
    * @returns whether the host accepted the selection.
    */
   select(target: ModelTarget): Promise<boolean>
+  /**
+   * Set the displayed thinking-effort level (client-local echo; see the
+   * directory state contract).
+   * @param effort - the level to display.
+   */
+  setEffort(effort: ModelEffort): void
 }
