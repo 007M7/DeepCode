@@ -6,7 +6,7 @@
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -167,6 +167,22 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
+  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // todo/write snapshot event feeding the TodoPanel plan strip.
+  const fixtureTodos = [
+    { content: '梳理需求', status: 'completed' },
+    { content: '实现 fixture 样本', status: 'in_progress' },
+    { content: '浏览器验收', status: 'pending' },
+  ]
+  const todoArgs = JSON.stringify({ todos: fixtureTodos })
+  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  // The real tool appends the snapshot mid-execution — between tool/call and
+  // tool/result — so the fixture reproduces that exact ordering (the last
+  // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
+  const callIndex = events.length - 4
+  const callTime = events[callIndex]?.time as number
+  events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
+  events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
 
@@ -279,6 +295,15 @@ function pageOf(
     return view === undefined ? { event } : { event, view }
   })
   return { events, hasMore: start > 0 }
+}
+
+/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i]
+    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+  }
+  return undefined
 }
 
 interface StreamConn<F> {
@@ -619,12 +644,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
+        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
+        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, page)
+        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload

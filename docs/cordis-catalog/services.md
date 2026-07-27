@@ -730,33 +730,57 @@ listProviders(): LlmProviderInfo[]
 async listModels(provider: string): Promise<LlmModelInfo[]>
 
 /**
- * Resolve context capacity from the adapter that owns one exact route.
- * This query is independent of the advisory model catalog: an unlisted model
- * may return metadata, while `undefined` never rejects later routing.
+ * Resolve and validate all metadata from the adapter that owns one exact
+ * route. The result is detached from adapter-owned objects; catalog
+ * membership remains advisory and does not control request routing.
  * @param provider - registered provider route to inspect.
  * @param model - exact model id passed to the adapter.
- * @returns detached context metadata, or `undefined` when the adapter has none.
+ * @param signal - optional cancellation for adapter-owned asynchronous lookup.
+ * @returns exact model identity plus available context and reasoning metadata.
  */
-async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, ): Promise<LlmResolvedModelInfo>
+
+/**
+ * Validate a conversation call config against its exact model capability and
+ * materialize an adapter-configured default. Unsupported explicit efforts
+ * reject before provider I/O; no clamping or aliasing is performed. This
+ * standalone query does not bind a later dispatch; use {@link prepareCall}
+ * when logging and streaming must share one adapter registration.
+ * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @returns a detached config only when a default must be materialized.
+ */
+async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>
+
+/**
+ * Resolve one call under its current adapter registration. The returned
+ * one-shot handle keeps that registration across header logging and dispatch,
+ * so HMR cannot combine one adapter's capability result with another adapter.
+ * @param config - provider/model route and optional request controls.
+ * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @returns a prepared config and its registration-bound stream entry point.
+ */
+async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
  * instance owns its historical provider and the target provider. Final
- * adapter selection, dispatch, and iteration failures retain their original
- * Error identity and are tagged in a call-local scope for narrow agent-loop
- * request recovery; middleware and nested-call failures remain untagged for
- * the outer call.
+ * adapter selection remains fixed through asynchronous exact-model resolution
+ * and dispatch. Selection, dispatch, and iteration failures retain their
+ * original Error identity and are tagged in a call-local scope for narrow
+ * agent-loop request recovery; middleware and nested-call failures remain
+ * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:177`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1342,7 +1366,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:606`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:611`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1878,7 +1902,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:150`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:153`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

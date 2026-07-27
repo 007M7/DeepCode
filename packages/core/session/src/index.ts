@@ -183,6 +183,11 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
     const header = record['header']
     const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    if (reasoningEffort !== undefined
+      && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
+      throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
+    }
   }
   if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
     throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)

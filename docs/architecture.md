@@ -91,7 +91,7 @@ forever:
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
+      agent/request -> prepare reasoning/default under turn signal -> log request/header -> checkpoint -> llm/stream (frozen, registration-bound)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -125,7 +125,7 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded r
 
 Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retries open steps; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit nothing.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal retires before `turn/end`. Effective `cancel()` emits its cause, clears queues, and aborts; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Other failures use `agent/error`. Cancellation and disposal beat recovery; the turn signal also cancels asynchronous model-capability preparation before any request header is committed, and undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal retires before `turn/end`. Effective `cancel()` emits its cause, clears queues, and aborts; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Session events are turn-enclosed; reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures use `agent/error`. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
