@@ -27,6 +27,7 @@ export interface ModelDirectoryState {
 
 /** One session's shared directory controller; disposed with the session scope. */
 export class ModelDirectory {
+  /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
     current: null, groups: [], failures: [], status: 'idle', error: null,
   })
