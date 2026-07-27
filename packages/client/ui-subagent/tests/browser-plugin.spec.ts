@@ -43,6 +43,11 @@ function sessionsWith(sessions: SessionSummary[]) {
   }
 }
 
+function provideSlotFaces(ctx: Context): void {
+  ctx.provide('conversation', {})
+  ctx.provide('slots', { register: () => () => {} })
+}
+
 /** Boot the plugin over fake slash/sessions faces; returns the captured source and the list face. */
 async function fullBench(sessions: SessionSummary[]) {
   const ctx = new Context()
@@ -50,6 +55,7 @@ async function fullBench(sessions: SessionSummary[]) {
   const face = sessionsWith(sessions)
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
+  provideSlotFaces(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { source: captured!, face }
 }
@@ -76,13 +82,14 @@ const req = (query: string) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions'])
+    expect(inject).toEqual(['slash', 'sessions', 'conversation', 'slots'])
   })
 
   it('registers the "@" subagent source; disposal frees the name (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SlashService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
+    provideSlotFaces(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService

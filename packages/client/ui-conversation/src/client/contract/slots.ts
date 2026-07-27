@@ -17,6 +17,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * remounted when the current session id changes.
      */
     'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
+    /** Session-header actions contributed by feature plugins. */
+    'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
@@ -134,6 +136,9 @@ export interface ConversationSessionOwnerProps {
    */
   wrapActiveBody?: (view: ReactNode) => ReactNode
 }
+
+/** Header actions derive their state from the standard session/global kit. */
+export interface ConversationHeaderActionOwnerProps {}
 
 /**
  * The input-region slot currency (plan §1.4): dock/left/right entries read
@@ -329,6 +334,8 @@ export type ComposerBarProps =
  */
 export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
+  /** A catalog-addressed child whose exact parent Agent is unavailable. */
+  subagentReadOnly: boolean
 }
 
 /**
@@ -350,7 +357,7 @@ export type ConversationSlotProps =
 /** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
-  & PropsRenderSlots<'conversation.view'>
+  & PropsRenderSlots<'conversation.view' | 'conversation.session.header.actions'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
 

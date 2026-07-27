@@ -1,0 +1,10 @@
+- tree "子代理会话":
+  - treeitem "event-sourcing researcher 已完成" [expanded] [level=1]:
+    - button "收起 event-sourcing researcher 的下级子代理":
+      - img
+    - text: event-sourcing researcher 已完成
+  - group:
+    - treeitem "example editor 已完成" [level=2]:
+      - button "展开 example editor 的下级子代理":
+        - img
+      - text: example editor 已完成

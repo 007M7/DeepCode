@@ -1,0 +1,31 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Ask a research subagent to"
+    - text: /
+    - button "event-sourcing researcher" [disabled]
+    - text: · 2 turns
+  - button "1 个子代理":
+    - text: 1 个子代理
+    - img
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: Explain event sourcing in one sentence.
+- button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
+  - img
+  - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
+- paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
+- text: Now give the same explanation to a human reader.
+- button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
+  - img
+  - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
+- paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
+- text: cache hit 99% · 15,738 tokens · 2 turns · 2 steps
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- button "Send message" [disabled]

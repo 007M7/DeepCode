@@ -165,7 +165,10 @@ export function apply(ctx: Context): void {
   // the resident parent keeps Hero and composer layout identity stable.
   slots.register({
     name: 'conversation.session',
-    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    children: {
+      'conversation.view': { kind: 'list', scope: 'session' },
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
       views: {

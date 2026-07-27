@@ -57,6 +57,9 @@ export function ConversationSession({
           <>
             <div className={css.titleRow}>
               <h1 className={css.sessionTitle}>{title}</h1>
+              <div className={css.headerActions}>
+                {renderSlot('conversation.session.header.actions', {})}
+              </div>
             </div>
             {tabs.length > 1 && (
               <div className={css.tabs} role="tablist">

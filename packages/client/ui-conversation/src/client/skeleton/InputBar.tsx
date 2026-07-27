@@ -44,6 +44,7 @@ export function InputBar({
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
+  const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
   // host value; owner-prop placeholders — hero, session-unavailable — win).
@@ -283,10 +284,11 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  const primaryLabel = running ? t('input.stop') : t('input.send')
+  const ordinary = subagent === null
+  const primaryLabel = running && ordinary ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
     if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
-    if (running) {
+    if (running && ordinary) {
       stop()
       return
     }

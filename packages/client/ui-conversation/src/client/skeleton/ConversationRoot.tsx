@@ -19,6 +19,7 @@ export function ConversationRoot({
   const openState = useSession(s => s.openState)
   const composerPhase = useSession(s => s.composerPhase)
   const pending = useSession(s => s.pending) ?? []
+  const subagentReadOnly = useSession(s => s?.subagent?.parentAvailable === false) ?? false
   const session = useSession(s => s)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
@@ -153,7 +154,7 @@ export function ConversationRoot({
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(
     'conversation.composer',
-    { interactions: pending },
+    { interactions: pending, subagentReadOnly },
     { fallback: composerBar, overlay: true },
   )
 

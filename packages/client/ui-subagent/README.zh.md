@@ -2,11 +2,13 @@
 
 [English](README.md) | 中文
 
-subagent 引用 source 的浏览器半侧：把 `@` 触发的 `subagent` source 注册进 `ctx.slash`。候选零 RPC——从注册时捕获的根 `ctx.sessions.list` 快照过滤（每次调用的投影所指会话的子会话：`parentId` 匹配、`running`、`displayTitle` 包含 query）；pick 一个候选会把字面文本 `@label ` 经 slash 管线落进草稿（决策 21 的纯文本引用），source 的 `codec` 把两种投影都产出为 `@label`——在 `@` 消费功能定义模型表示之前，模型序列化保持原始 label。source 不实现 `matchSpace`／`matchEnter` 钩子——subagent 引用永不进入命令裁决，随普通提示词落入 default sink。
+Web subagent 功能 owner：向 `conversation.session.header.actions` 贡献可懒加载展开的目录树，向会话编辑器链贡献 parent 不可用时的替代呈现，并保留注册到 `ctx.slash` 的既有 `@` 引用 source。
 
-没有运行中子会话的会话就是没有候选。本阶段只交付「菜单 + 引用文本」；消费一个 `@label` 意味着什么（对子会话做 steering（中途引导）、恢复已 dispose（资源释放）的子会话）是未来的业务工作。
+页头操作通过标准 `useSessions` 钩子读取 `subagentsByParent` 与会话摘要。非空目录到达后，它会显示健康的直接 child 数量，并按服务顺序显示一棵紧凑树。每个健康行都组合其持久化 label、`running`／`inactive` 活动状态（分别呈现为「正在处理」／「已完成」）、由日志支撑的可选 title 与会话摘要中的活动时间；损坏、不受支持或不可用的行仍保持可读但禁用。展开某一行时，会懒加载该 child 的直接目录，并向运行时报告每个可见分支，使成员帧只在树正被消费的位置触发去抖动刷新。选择任意深度的条目都会使用该行的确切地址 `{parentSessionId, childSessionId}` 调用 `SessionsService.openSubagent()`。组件局部状态负责树的可见性、已展开分支与键盘焦点。ArrowRight／ArrowLeft 展开和折叠分支；ArrowUp／ArrowDown、Home、End 与 Escape 用于导航或关闭树；关闭后焦点返回触发器。样式只使用 token。
 
-`/client` 的导出内容只有插件主体（`apply`／`inject`）；source 对象是注册 effect 的内部实现。
+已寻址 child 没有确切的存活 parent 时，会选中只读编辑器配置项并说明恢复路径。parent 存活时，child 保留普通输入 chrome，其 Session 会通过 `subagent.prompt` 路由；本包绝不接收宿主 context，也不调用面向模型的工具。目录与编辑器行为由 [Web subagent 对话 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-web-subagent-conversations.md)规定。
+
+`@` source 仍然刻意保持独立且惰性。候选是从 `ctx.sessions.list` 零 RPC 得到的运行中 child；pick 会插入字面文本 `@label `，codec 投影为 `@label`。它不参与命令裁决，也不会把 label 解析成继续执行地址。
 
 ## 模型体验
 
@@ -14,18 +16,18 @@ subagent 引用 source 的浏览器半侧：把 `@` 触发的 `subagent` source 
 
 #### 模型看到的内容
 
-被 pick 的候选会把字面文本 `@label`（子会话的显示标题）落进草稿；该文本原样进入普通用户消息（`session.prompt`）到达模型，没有专用内容块、提示词 section 或 host 侧解析。目前不存在任何消费语义：模型看到的是纯文本，只能自行解读。
+只有旧有 `@` 引用 source 会影响模型输入：pick 的候选以字面文本 `@label` 进入普通用户消息，没有专用内容块或宿主侧解析。浏览目录、导航 child、查看持久化 transcript 与用户继续交互 UI 都不会添加提示词 section；继续交互内容会经宿主 subagent 适配器成为普通 user-role 事件。
 
 #### Token 影响
 
-有条件且极小：只有 pick（或手动键入相同文本）会把 label 的字符加进那一条用户消息。浏览菜单增加零模型 token（候选永不离开浏览器）。
+有条件且仅追加：字面 `@label` 或用户后续消息只会向对应的新用户消息增加 token。目录与 transcript 操作增加零模型 token。
 
 #### KV Cache 影响
 
-仅追加：引用是追加在可复用历史前缀之后的新用户消息的一部分。该包绝不改写较早的请求 token。
+仅追加。本包绝不改写更早的请求 token。
 
 ## 已知限制与暂缓事项
 
-- **`@` 消费语义尚未构建**：引用只是不具消费语义的纯文本；将其接入对指名子会话进行 steering／发送消息的机制（以及是否允许恢复已 dispose 的子会话），仍有待台账中的专门设计决策。
-- **候选只有运行中的子会话**：已完成或已 dispose 的 subagent 永不出现；roster 只含 scope 所指会话的直接子会话，不含孙辈，也不含跨会话 agent（智能体）。
-- **label 是显示标题，不是稳定 id**：两个子会话共用一个显示标题时，产生的引用无法区分；标题变更会使先前插入的文本失去指向。引用仍是不具消费语义的纯文本时尚可接受；消费功能必须绑定到会话 id。
+- **目录只有粗粒度存活状态**：它不能显示持久化结果、耗时、确切的 Activation 状态或正确的取消按钮。
+- **侧边栏仍包含 child Session**：完全去重需要可扩展的持久化分类器，且不得误隐藏普通 fork。
+- **`@` 引用仍是显示标题文本**：重复或改名后的 label 会有歧义，因此它们刻意不获得继续执行语义。

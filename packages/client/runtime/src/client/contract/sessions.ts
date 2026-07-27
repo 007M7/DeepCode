@@ -37,11 +37,28 @@ export interface ISessions {
    */
   open(id: SessionId): void
   /**
+   * Open a healthy catalog child through its exact direct-parent address.
+   * @param address - catalog-derived parent and child ids.
+   */
+  openSubagent(address: SubagentAddress): void
+  /**
    * Resolve an already discovered direct-parent address without opening it.
    * @param id - possible addressed child id.
    * @returns the retained address, when present.
    */
   subagentAddress(id: SessionId): SubagentAddress | undefined
+  /**
+   * Mark whether a catalog menu is consuming live membership updates.
+   * @param parentSessionId - catalog owner.
+   * @param open - current menu state.
+   */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void
+  /**
+   * Refresh one direct-child catalog.
+   * @param parentSessionId - catalog owner.
+   * @returns completion of the current or newly started refresh.
+   */
+  refreshSubagents(parentSessionId: SessionId): Promise<void>
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**
