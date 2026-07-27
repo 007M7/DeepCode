@@ -21,7 +21,16 @@
       "path": "../ui-command"
     },
     {
+      "path": "../ui-conversation"
+    },
+    {
+      "path": "../ui-primitives"
+    },
+    {
       "path": "../ui-slash"
+    },
+    {
+      "path": "../ui-slots"
     },
     {
       "path": "../../support/invariants"
