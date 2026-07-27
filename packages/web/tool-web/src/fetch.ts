@@ -45,22 +45,68 @@ export function parseFetchArgs(args: { url: string }): { url: string } {
 }
 
 /**
+ * Nesting-depth ceiling above which HTML skips conversion and passes through
+ * raw. Conversion runs synchronously on the event loop, and unclosed-tag
+ * nesting makes domino's tree (and turndown's walk over it) superlinear —
+ * measured: depth 512 ≈ 0.15s, 2,000 ≈ 2s, 20,000 ≈ 5s — during which the
+ * cooperative `fetchTimeoutMs` timer cannot fire. Real pages nest a few dozen
+ * levels; 512 is far above content and far below weaponizable. A robustness
+ * invariant, not a tunable.
+ */
+const MAX_CONVERSION_DEPTH = 512
+
+/** Elements that never take a closing tag, so they must not count toward nesting depth. */
+const VOID_ELEMENTS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+])
+
+/**
+ * Estimate the maximum element nesting depth of an HTML string with one linear
+ * tag scan. Overestimates when markup-like text sits inside `script`/`style`
+ * bodies or comments (the scan does not parse those), which can only cause a
+ * spurious raw-HTML fallback, never a missed bound.
+ *
+ * @param html - the decoded HTML body.
+ * @returns the deepest open-element count the scan reaches.
+ */
+export function htmlNestingDepth(html: string): number {
+  let depth = 0
+  let max = 0
+  for (const tag of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*?(\/?)>/g)) {
+    const [, closing, rawName = '', selfClosing] = tag
+    const name = rawName.toLowerCase()
+    if (VOID_ELEMENTS.has(name) || selfClosing === '/') continue
+    if (closing === '/') {
+      if (depth > 0) depth -= 1
+    } else {
+      depth += 1
+      if (depth > max) max = depth
+    }
+  }
+  return max
+}
+
+/**
  * Render a fetched body to model-facing markdown text.
  *
  * @param body - the decoded body; `html` is converted via turndown, `text`
- *   passes through verbatim. When turndown throws (deeply pathological HTML
- *   overflows its recursive DOM walk), the raw HTML passes through instead —
- *   a degraded page beats an error for a body the provider already decoded.
+ *   passes through verbatim. HTML nested beyond {@link MAX_CONVERSION_DEPTH}
+ *   skips conversion up front (the synchronous walk over such trees is
+ *   superlinear and blocks the event loop past the cooperative timeout), and
+ *   when turndown itself throws the raw HTML passes through instead — a
+ *   degraded page beats an error for a body the provider already decoded.
  * @returns the text for the tool's output block.
  */
 export function renderBody(body: WebFetchBody): string {
   switch (body.kind) {
     case 'html':
+      if (htmlNestingDepth(body.content) > MAX_CONVERSION_DEPTH) return body.content
       try {
         return turndown.turndown(body.content)
       } catch {
-        // turndown's DOM walk recurses per element; pathological nesting (a
-        // few thousand levels) throws RangeError. Provider errors stay
+        // turndown's DOM walk recurses per element; malformed markup the depth
+        // scan cannot see can still throw RangeError. Provider errors stay
         // structured WebErrors upstream; conversion failure downgrades to raw HTML.
         return body.content
       }
@@ -72,17 +118,28 @@ export function renderBody(body: WebFetchBody): string {
   }
 }
 
+/** The truncation notice appended when the provider or the output cap cut content. */
+const TRUNCATION_FOOTER = '\n\n(Content truncated. Fetch a more specific URL or section for the full text.)'
+
 /**
- * Format a fetch result as one model-facing text block.
+ * Format a fetch result as one model-facing text block, bounded as a whole.
+ * Markdown escaping can expand converted HTML (worst case ~2× the provider's
+ * body cap), so the bound applies here, where the complete output — header,
+ * rendered body, and footer — is known.
  *
  * @param result - the seam's fetch outcome.
+ * @param maxOutputChars - cap on the complete returned string; a cut body gets
+ *   the same fetch-something-narrower notice as provider-side truncation.
  * @returns a `Fetched <url> (HTTP <status>)` header, the rendered body, and a
- *   fetch-something-narrower notice when the provider truncated the content.
+ *   truncation notice when the provider or the cap cut the content.
  */
-export function formatFetchOutput(result: WebFetchResult): string {
-  const header = `Fetched ${result.url} (HTTP ${result.statusCode})`
-  const footer = result.truncated ? '\n\n(Content truncated. Fetch a more specific URL or section for the full text.)' : ''
-  return `${header}\n\n${renderBody(result.body)}${footer}`
+export function formatFetchOutput(result: WebFetchResult, maxOutputChars: number): string {
+  const header = `Fetched ${result.url} (HTTP ${result.statusCode})\n\n`
+  const body = renderBody(result.body)
+  const full = `${header}${body}${result.truncated ? TRUNCATION_FOOTER : ''}`
+  if (full.length <= maxOutputChars) return full
+  const budget = Math.max(0, maxOutputChars - header.length - TRUNCATION_FOOTER.length)
+  return `${header}${body.slice(0, budget)}${TRUNCATION_FOOTER}`
 }
 
 /**
@@ -102,8 +159,11 @@ export function presentFetchCall(args: { url: string }): GenericCallView {
  *   registrations; both are effect-scoped and unregister on plugin dispose.
  * @param timeoutMs - the cooperative tool-call budget (ms) attached as the tool's
  *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-timeout-policy` to enforce.
+ * @param maxOutputChars - cap on the complete rendered tool output (see
+ *   {@link formatFetchOutput}); markdown escaping can outgrow the provider's
+ *   body cap, so the model-context bound is enforced on the rendered result.
  */
-export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
+export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChars: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: 111,
@@ -147,7 +207,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
           truncated: { type: 'boolean', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value) }],
+      render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value, maxOutputChars) }],
     },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.

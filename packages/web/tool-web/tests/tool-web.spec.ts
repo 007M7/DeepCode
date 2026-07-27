@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import TurndownService from 'turndown'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -9,6 +10,7 @@ import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import {
   formatSearchOutput,
   formatFetchOutput,
+  htmlNestingDepth,
   parseSearchArgs,
   parseFetchArgs,
   presentSearchCall,
@@ -92,11 +94,13 @@ describe('search formatting', () => {
 })
 
 describe('fetch formatting', () => {
+  const NO_CAP = 1_000_000
+
   it('renders an html body to markdown text with a status header', () => {
     const out = formatFetchOutput({
       url: 'https://a.test', statusCode: 200, truncated: false,
       body: { kind: 'html', content: '<h1>Title</h1><p>Body text</p>' },
-    })
+    }, NO_CAP)
     expect(out).toContain('Fetched https://a.test (HTTP 200)')
     expect(out).toContain('# Title')
     expect(out).toContain('Body text')
@@ -106,9 +110,35 @@ describe('fetch formatting', () => {
     const out = formatFetchOutput({
       url: 'https://a.test', statusCode: 200, truncated: true,
       body: { kind: 'text', content: 'plain' },
-    })
+    }, NO_CAP)
     expect(out).toContain('plain')
     expect(out).toContain('Content truncated')
+  })
+
+  it('caps the complete output and notes truncation, even when markdown escaping expands the body', () => {
+    // 1,000 underscores render as 2,000 escaped characters — conversion can
+    // outgrow a provider-side body cap, so the bound applies to the output.
+    const out = formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html', content: `<p>${'_'.repeat(1000)}</p>` },
+    }, 500)
+    expect(out.length).toBeLessThanOrEqual(500)
+    expect(out).toContain('Fetched https://a.test (HTTP 200)')
+    expect(out).toContain('\\_\\_')
+    expect(out).toContain('Content truncated')
+    // Exact and tiny caps: the complete result is bounded, header and footer included.
+    const exact = formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'text', content: 'abc' },
+    }, 'Fetched https://a.test (HTTP 200)\n\nabc'.length)
+    expect(exact).toBe('Fetched https://a.test (HTTP 200)\n\nabc')
+    const tiny = formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: true,
+      body: { kind: 'text', content: 'abcdef' },
+    }, 10)
+    expect(tiny).toContain('Fetched https://a.test (HTTP 200)')
+    expect(tiny).toContain('Content truncated')
+    expect(tiny).not.toContain('abcdef')
   })
 
   it('renderBody dispatches on kind', () => {
@@ -129,14 +159,38 @@ describe('fetch formatting', () => {
       .toBe('**bold _italic_**\n\n> quoted')
   })
 
-  it('falls back to the raw html body when turndown throws on pathological nesting', { timeout: 60_000 }, () => {
-    // Nesting past V8's default stack overflows turndown/domino's recursive
-    // walk with a RangeError (measured: 4k levels throw on the main thread,
-    // 8k in a worker); 20k adds margin over either stack size. The raw body
-    // must pass through instead of throwing.
+  it('passes deeply nested html through raw without attempting conversion', () => {
+    // Unclosed-tag nesting makes the synchronous conversion superlinear
+    // (seconds at 20k levels, during which the cooperative timeout cannot
+    // fire), so the depth preflight skips conversion entirely; this must
+    // return fast, not merely not-throw.
     const depth = 20_000
     const pathological = '<div>'.repeat(depth) + 'x' + '</div>'.repeat(depth)
+    const started = Date.now()
     expect(renderBody({ kind: 'html', content: pathological })).toBe(pathological)
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('htmlNestingDepth counts open elements, ignoring void and self-closing tags', () => {
+    expect(htmlNestingDepth('<div><p>x</p></div>')).toBe(2)
+    expect(htmlNestingDepth('<div><br><img src="x"><input/></div>')).toBe(1)
+    expect(htmlNestingDepth('</div></div><p>x</p>')).toBe(1)
+    expect(htmlNestingDepth('plain text, no tags')).toBe(0)
+    expect(htmlNestingDepth('<div>'.repeat(600))).toBe(600)
+  })
+
+  it('falls back to the raw html when turndown throws despite a shallow depth scan', () => {
+    // Comments hide markup from the depth scan by design (it may only
+    // over-count, never under-count real elements); simulate the residual
+    // turndown failure path with a converter throw instead.
+    const spy = vi.spyOn(TurndownService.prototype, 'turndown').mockImplementation(() => {
+      throw new RangeError('Maximum call stack size exceeded')
+    })
+    try {
+      expect(renderBody({ kind: 'html', content: '<p>x</p>' })).toBe('<p>x</p>')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('validates url (non-empty), no timeout parameter', () => {

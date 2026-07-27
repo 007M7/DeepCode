@@ -13,7 +13,7 @@ import { applyWebSearchTool, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
 
 export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
-export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall, renderBody } from './fetch.ts'
+export { applyWebFetchTool, formatFetchOutput, htmlNestingDepth, parseFetchArgs, presentFetchCall, renderBody } from './fetch.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-web'
@@ -24,7 +24,16 @@ export const inject = ['tools', 'web', 'systemPrompt']
 /** Default cooperative tool-call timeout budget (ms) for the web tools. */
 export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 30_000
 
-/** Plugin config: which web tools to register, the source cap, and per-tool budgets. */
+/**
+ * Default cap on one `web_fetch` output's characters. Markdown escaping can
+ * roughly double converted HTML, so this sits at 2× the local provider's
+ * default 100,000-char body cap: it never cuts what that composition's
+ * provider bound already admits, while restoring a model-context bound for
+ * providers with larger or absent body caps.
+ */
+export const DEFAULT_FETCH_MAX_OUTPUT_CHARS = 200_000
+
+/** Plugin config: which web tools to register, the source cap, per-tool budgets, and the fetch output cap. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
@@ -36,6 +45,8 @@ export interface Config {
   fetchTimeoutMs?: number
   /** Cooperative timeout budget (ms) for `web_search`. Defaults to 30000. */
   searchTimeoutMs?: number
+  /** Cap on one `web_fetch` output's characters (header, rendered body, and footer). Defaults to 200000. */
+  fetchMaxOutputChars?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -44,6 +55,7 @@ export const Config: z<Config> = z.object({
   searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS),
   fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
   searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
+  fetchMaxOutputChars: z.number().default(DEFAULT_FETCH_MAX_OUTPUT_CHARS),
 })
 
 /** The shape after schemastery applies its defaults to every field. */
@@ -71,6 +83,7 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('searchMaxResults', resolved.searchMaxResults)
   assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
   assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
+  assertPositiveInteger('fetchMaxOutputChars', resolved.fetchMaxOutputChars)
   if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
-  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs)
+  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars)
 }

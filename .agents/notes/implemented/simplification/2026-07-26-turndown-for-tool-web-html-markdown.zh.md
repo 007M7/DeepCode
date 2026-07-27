@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`packages/web/tool-web/src/fetch.ts` 持有一个模块级 [`turndown`](https://github.com/mixmark-io/turndown) 实例（`headingStyle: 'atx'`、`codeBlockStyle: 'fenced'`、`bulletListMarker: '-'`——固定的面向模型呈现方式，不是部署可调项），配合 `@joplin/turndown-plugin-gfm` 的组合 `gfm` 插件提供表格／删除线支持，并用 `remove(['script', 'style', 'noscript'])` 替代旧实现的整体剥离。`renderBody` 的 `html` 分支把调用包在 try/catch 中，失败时回退为原始 HTML 主体：正则版本从不可能抛异常，而 turndown/domino 的递归 DOM 遍历在数千层嵌套（实测：主线程 4k 层抛出，worker 线程 8k 层抛出）会以 `RangeError` 栈溢出，对提供方已经解码的主体来说，降级页面好过报错。`html.ts` 及其转换测试已删除；回退路径与状态头、截断页脚的格式化在 `tests/tool-web.spec.ts` 中有测试覆盖，README 的 Known Limitations 用病态嵌套回退条目替换了正则转换器的警示说明。gfm 插件不带类型声明；`src/turndown-plugin-gfm.d.ts` 基于 `@types/turndown`（devDependency）声明了唯一被导入的导出。
+`packages/web/tool-web/src/fetch.ts` 持有一个模块级 [`turndown`](https://github.com/mixmark-io/turndown) 实例（`headingStyle: 'atx'`、`codeBlockStyle: 'fenced'`、`bulletListMarker: '-'`——固定的面向模型呈现方式，不是部署可调项），配合 `@joplin/turndown-plugin-gfm` 的组合 `gfm` 插件提供表格／删除线支持，并用 `remove(['script', 'style', 'noscript'])` 替代旧实现的整体剥离。`renderBody` 的 `html` 分支对转换做了双重防护：一次线性标签扫描预检把嵌套超过 512 层的主体直接原样透传（同步遍历在未闭合嵌套上呈超线性——实测 2 万层需要数秒——期间协作式超时无法触发），扫描看不到的标记若仍让 turndown 抛异常，则由 try/catch 回退为原始 HTML；对提供方已经解码的主体来说，降级页面好过报错。`formatFetchOutput` 对完整输出设上限（`fetchMaxOutputChars` 配置，默认 200,000）：markdown 转义可能把转换后的 HTML 膨胀到提供方主体上限的约 2 倍。`html.ts` 及其转换测试已删除；透传、回退与整体输出上限，连同状态头、截断页脚的格式化，都在 `tests/tool-web.spec.ts` 中有测试覆盖，README 的 Known Limitations 用病态嵌套回退条目替换了正则转换器的警示说明。gfm 插件不带类型声明；`src/turndown-plugin-gfm.d.ts` 基于 `@types/turndown`（devDependency）声明了唯一被导入的导出。
 
 提案标记的依赖体积问题的裁决结果支持替换：`@deepseek-ai/dsh-tool-web` 在单文件可执行文件闭包内（[single-exe 决策记录](../architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)），可执行文件的资产 glob 会把这三个包按发布原样打入约 7.9 MB——但其中约 6 MB 是 `@mixmark-io/domino` 的测试语料（`test/**`），运行时 `lib/` 仅约 550 KB，相对约 174 MB 的产物，两种口径都不到 0.5%。
 
@@ -33,5 +33,5 @@ Status: implemented
 
 ## 测试
 
-- `packages/web/tool-web/tests/tool-web.spec.ts` 通过 `renderBody` 覆盖 turndown 转换面（实体、链接、表格、嵌套、script/style/noscript 移除），并用实测可稳定溢出的 2 万层嵌套输入覆盖原始 HTML 回退；该包 src 的逐文件覆盖率为 100%。
+- `packages/web/tool-web/tests/tool-web.spec.ts` 通过 `renderBody` 覆盖 turndown 转换面（实体、链接、表格、嵌套、script/style/noscript 移除）、2 万层嵌套的快速原样透传、深度扫描的空元素／自闭合／不平衡用例、残余的转换器抛错回退，以及在膨胀、恰好、极小预算下的整体输出上限；该包 src 的逐文件覆盖率为 100%。
 - acp-agent 的 `web-fetch` 快照无密钥地端到端固定组装后的行为（真实 Loader 组合、真实 HTTP 抓取、真实转换）。

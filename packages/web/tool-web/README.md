@@ -26,8 +26,9 @@ The normalized seam results are also the canonical tool values: `WebSearchResult
 | `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
 | `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch`. |
 | `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search`. |
+| `fetchMaxOutputChars` | `200000` | Cap on one `web_fetch` output's characters — header, rendered body, and footer together; a cut body gets the truncation notice. |
 
-`fetchTimeoutMs`/`searchTimeoutMs` declare each tool's cooperative timeout budget (attached as `ToolDefinition.timeoutMs`), enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md); the model-facing schema exposes no timeout argument.
+`fetchTimeoutMs`/`searchTimeoutMs` declare each tool's cooperative timeout budget (attached as `ToolDefinition.timeoutMs`), enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md); the model-facing schema exposes no timeout argument. `fetchMaxOutputChars` bounds the complete rendered output because markdown escaping can expand converted HTML past a provider's body cap (worst case ~2×); the default is 2× the local provider's default 100,000-character body cap, so it never cuts what that bound already admits.
 
 ```yaml
 - id: tool-web
@@ -126,6 +127,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **HTML→markdown conversion falls back to raw HTML on pathological input** — [turndown](https://github.com/mixmark-io/turndown) (with GFM tables/strikethrough) converts fetched HTML through a real DOM, but its recursive walk overflows on absurdly deep nesting (thousands of levels); such a body passes through unconverted rather than erroring ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)).
+- **HTML→markdown conversion falls back to raw HTML on pathological input** — [turndown](https://github.com/mixmark-io/turndown) (with GFM tables/strikethrough) converts fetched HTML through a real DOM, but the synchronous walk is superlinear on deep unclosed nesting, so bodies nested past a fixed 512-level preflight bound pass through unconverted (as does anything that still makes turndown throw) rather than stalling the event loop or erroring ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)).
 - **The model-facing surface is minimal by design, with promotions deferred** — `max_results` stays a config bound (not a model argument), and `web_fetch` takes only `url` (no `format`/`prompt`/LLM-summarization mode); both are named later steps in [the seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md).
 - **No web-specific permission policy** — both tools execute without requesting `ctx.approval`; a deployment that needs confirmation must add a `tools/pre-execute` policy, and the package does not define persistent URL/domain grants.
