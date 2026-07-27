@@ -251,7 +251,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
     expect(ctx.tasks.list()).toEqual([])
   }, 15_000)
 
-  it('uses cordis_mount DTO ids directly for active and pending mounts, then confirms removal', async () => {
+  it('uses cordis_mount DTO ids directly for running and pending temporary Plugins, then confirms removal', async () => {
     ctx = await typedCodeModeHarness()
     await ctx.plugin(ToolCordis)
 
@@ -262,14 +262,14 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
       const pending = await tools.cordis_mount({
         code: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }",
       });
-      const before = await tools.cordis_inspect({ what: 'dynamic' });
-      const unmounted = await tools.cordis_unmount({ id: active.id });
-      const after = await tools.cordis_inspect({ what: 'dynamic' });
+      const before = await tools.cordis_inspect({ what: 'temporary' });
+      const stopped = await tools.cordis_unmount({ id: active.id });
+      const after = await tools.cordis_inspect({ what: 'temporary' });
       await tools.cordis_unmount({ id: pending.id });
       return {
         active,
         pending,
-        unmounted,
+        stopped,
         beforeContainsId: before.includes(active.id),
         afterContainsId: after.includes(active.id),
       };
@@ -290,7 +290,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
         provides: [],
         waitingFor: ['missing-code-mode-service'],
       },
-      unmounted: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
+      stopped: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
       beforeContainsId: true,
       afterContainsId: false,
     })

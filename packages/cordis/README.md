@@ -6,4 +6,4 @@ Model-facing tools over the live cordis runtime the agent itself runs inside: in
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`tool-cordis/`](tool-cordis/README.md) | The `cordis_inspect` / `cordis_mount` / `cordis_unmount` tools: read the runtime, evaluate model-written plugin code in a `node:vm` sandbox, and manage the dynamic mounts under one group fiber | registers on `ctx.tools` |
+| [`tool-cordis/`](tool-cordis/README.md) | The `cordis_inspect` / `cordis_mount` / `cordis_unmount` tools: read the current-process runtime and manage in-memory temporary Plugins under one owned group fiber | registers on `ctx.tools` |
