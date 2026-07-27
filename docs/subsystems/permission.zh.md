@@ -2,13 +2,13 @@
 
 [English](permission.md) | 中文
 
-[dsh-permission](../../packages/ui/permission) 的权限预设层（`ctx.permission`，`PermissionService`）把两个相互独立的强制执行旋钮，即[沙箱模式](sandbox.md)（`sandbox/mode`）与[审批策略](approval.md)（`approval/policy`），捆绑成具名预设，供客户端作为单个权限（Permissions）选择器提供。它是一项可选能力，不属于 agent loop（智能体循环）主干，也不拥有任何强制执行：执行、提示词叙述与回放仍然读取各自旋钮的折叠结果，预设切换只记录意图，并通过每个旋钮各自的规范 setter 写入。[包（package）README](../../packages/ui/permission/README.md) 负责组合状态与限制；[沙箱切换设计](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责决策依据。
+[dsh-permission](../../packages/ui/permission) 的权限预设层（`ctx.permission`，`PermissionService`）把两个相互独立的强制执行旋钮（knob），即[沙箱模式](sandbox.md)（`sandbox/mode`）与[审批策略](approval.md)（`approval/policy`），捆绑成具名预设，供客户端作为单个权限（Permissions）选择器提供。它是一项可选能力，不属于 agent loop（智能体循环）主干，也不拥有任何强制执行：执行、提示词叙述与回放仍然读取各自旋钮的折叠结果，预设切换只记录意图，并通过每个旋钮各自的规范 setter 写入。[包（package）README](../../packages/ui/permission/README.md) 负责组合状态与限制；[沙箱切换设计](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责决策依据。
 
 源码：[`packages/ui/permission/src/index.ts`](../../packages/ui/permission/src/index.ts)
 
 ## 预设表
 
-预设是一个表键，映射到一组沙箱／审批组合，外加可选的客户端展示信息；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
+预设是一个表键，映射到一个沙箱／审批组合，外加可选的客户端展示信息；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -36,7 +36,7 @@ interface Config {
 }
 ```
 
-该服务要求一个施加沙箱隔离的 `ctx.bash` 执行器和 `ctx.approval`，配置错误在插件加载时即失败：名为 `custom` 的表项会抛出异常（该名称保留给派生的「非预设」状态）；在不施加隔离的 bash 执行器（没有 `sandboxMode` 能力事实）之上组合同样抛出异常，因为预设捆绑了一个沙箱模式。
+该服务要求一个施加隔离的 `ctx.bash` 执行器和 `ctx.approval`，配置错误在插件加载时即失败：名为 `custom` 的表项会抛出异常（该名称保留给派生的「非预设」状态）；在不施加隔离的 bash 执行器（没有 `sandboxMode` 能力事实）之上组合同样抛出异常，因为预设捆绑了一个沙箱模式。
 
 ## 当前预设与派生的 `custom`
 

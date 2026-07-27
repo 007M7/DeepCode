@@ -24,7 +24,7 @@ interface WebRoute {
 }
 ```
 
-匹配顺序固定：先查 exact 表，再取最长匹配前缀，最后落到静态 dist 回退。注册顺序不携带任何面向请求的语义：具名路由在组合上互不相交，启动窗口期内尚未被认领的请求全部由回退应答。回退保持锁定语义：非 GET/HEAD 返回 405，越出 dist 根目录的路径穿越返回 403，任何未命中都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 交付（[`static.ts`](../../packages/host/webserver/src/static.ts)）。
+匹配顺序固定：先查 exact 表，再取最长匹配前缀，最后落到静态 dist 回退。注册顺序不携带任何面向请求的语义：具名路由在组合上互不相交，启动窗口期内尚未被认领的请求全部由回退应答。回退遵循固定语义：非 GET/HEAD 返回 405，越出 dist 根目录的遍历返回 403，任何未命中都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 提供（[`static.ts`](../../packages/host/webserver/src/static.ts)）。
 
 ## 配置
 
@@ -44,6 +44,6 @@ interface Config {
 
 ## 服务
 
-`HttpServerService`（`ctx.httpServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会从 init 抛出，形成一个 FAILED fiber，由启动阶段的大声失败巡检报告。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层面的契约，冲突即配置错误。`tapIndex(transform)` 添加一个纯的 html 到 html 转换，按注册顺序应用于每个 index 响应（`/` 和每次 SPA 回退）；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port` 读取监听端口，`config.port` 为 0 时读到的是操作系统分配的值。
+`HttpServerService`（`ctx.httpServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会从 init 抛出，形成一个 FAILED fiber，由启动的大声失败 sweep 上报。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层契约，冲突即配置错误。`tapIndex(transform)` 添加一个纯的 html 到 html 转换，按注册顺序应用于每个 index 响应（`/` 和每次 SPA 回退）；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port` 读取监听端口，`config.port` 为 0 时读到的是操作系统分配的值。
 
-处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能保持响应打开（如 SSE（Server-Sent Events）），而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.md) 中。
+处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包（package）从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.md) 中。
