@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md: 047449f4915c973e86cdb9f05f6dc51535133534
-2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.zh.md: 379d57e1e0006bf8f567d0b750ca0bb641ca6b49
+2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md: 236139f9198f178d44cdf0867cbad2377a127359
+2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.zh.md: 3932f73a2bf147ce5088b5c42e85982c70cdb945

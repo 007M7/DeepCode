@@ -1,6 +1,6 @@
 # Agent Note: 在构建 Windows 沙箱启动器之前先评估 landstrip
 
-Status: proposed
+Status: rejected — landstrip 未经实战检验（问世仅数天、单一维护者、驳回时 GitHub 星标约 48 个）；安全不变式级的依赖必须有成熟的采用度，因此 win32 梯级维持自研启动器的原计划
 
 [English](2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md) | 中文
 
