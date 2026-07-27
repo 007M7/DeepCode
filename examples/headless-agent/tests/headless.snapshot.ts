@@ -24,6 +24,8 @@ const ptyStreamExpected = join(ptyScenarioDir, 'stream-json.expected.jsonl')
 const ptyConfigPath = fileURLToPath(new URL('../pty.cordis.snapshot.yml', import.meta.url))
 const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
+const retryScenarioDir = join(snapshotsDir, 'provider-retry')
+const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
@@ -125,6 +127,46 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 }
 
 describe('headless stream-json snapshots', () => {
+  it('retries a transient provider failure through the one-shot app', async () => {
+    const prompt = await scenarioPrompt(retryScenarioDir, 'provider-retry')
+    const streamExpected = join(retryScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'provider retry headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-provider-retry-',
+      binScript,
+      configPath: retryConfigPath,
+      binArgs: ['--config', retryConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const records = parseJsonl(logs[0]?.content ?? '')
+        const retries = records.filter(record => record.type === 'llm/retry')
+        expect(retries).toHaveLength(1)
+        expect(retries[0]?.data).toMatchObject({
+          provider: 'deepseek',
+          mode: 'normal',
+          policyKey: '["normal",1,["RATE_LIMIT"],1,1,0]',
+          retry: 1,
+          maxRetries: 1,
+          delayMs: 1,
+          failure: { message: 'snapshot transient failure', code: 'RATE_LIMIT', status: 429 },
+        })
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('logs the model default and a dynamic next-step reasoning effort', async () => {
     const result = await runLoaderSmoke({
       label: 'reasoning effort headless stream-json snapshot',

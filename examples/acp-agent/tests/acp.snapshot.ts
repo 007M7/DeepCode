@@ -131,10 +131,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
   // into a degenerate empty completion, so the fixture scripts the adapters'
-  // EMPTY_RESPONSE error finish (step 1) followed by the recovered reply
-  // (step 2), proving the default retry policy end to end: the durable
+  // EMPTY_RESPONSE error finish in turn 1 followed by the recovered reply
+  // in retry turn 2, proving the default retry policy end to end: the durable
   // llm/retry event, no ACP output for the discarded attempt, the recovered
-  // reply, and a clean completed turn. Its overlay only pins a deterministic
+  // reply, and a clean completed retry turn. Its overlay only pins a deterministic
   // 1 ms zero-jitter delay, so it shares the default header class.
   { name: 'empty-response-retry', hasModelTurn: true, recorded: false, configPath: RETRY_CONFIG },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a

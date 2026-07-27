@@ -11,8 +11,16 @@ import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelInfo,
+  LlmProviderInfo,
+  LlmResolvedModelInfo,
+  ResolvedRetryPolicy,
+  RetryPolicyConfig,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
@@ -48,6 +56,8 @@ export interface ReplayProviderConfig {
   name?: string
   /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
+  /** Optional provider-owned retry policy used by assembled recovery snapshots. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** Resolved plugin configuration. */
@@ -412,6 +422,15 @@ class ReplayAdapter extends LlmAdapter {
     /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
     if (configured === undefined) return super.providerInfo(provider)
     return { id: provider, name: configured.name ?? provider }
+  }
+
+  override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return super.providerRetryPolicy(provider)
+    return configured.retryPolicy === undefined
+      ? undefined
+      : resolveRetryPolicy(configured.retryPolicy, `llm-replay: provider "${provider}" retryPolicy`)
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
