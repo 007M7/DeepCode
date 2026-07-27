@@ -2039,16 +2039,21 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendUser(source, 'source background')
       },
     })
-    // Real send() emits agent/inbox/discard when an enqueue listener cancels
-    // synchronously, before followup() returns to assign the message id. This
-    // stub reproduces that timing: the wrapper must match on content, since id
-    // is not yet observable at discard time.
+    // Real send() publishes its snapshotted message, then an enqueue listener
+    // may synchronously cancel and discard it before followup() returns the
+    // already-assigned id. This stub reproduces that ordering.
+    const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
     result.agent.followup = (input) => {
       result.agent.sent.push(input.content)
-      result.ctx.emit('agent/inbox/discard', result.agent, [{
-        id: AgentMessageId('unassigned'), content: input.content, source: input.source,
-      }])
-      return AgentMessageId('stub')
+      const message = {
+        id: AgentMessageId('stub'),
+        content: structuredClone(input.content),
+        source: structuredClone(input.source),
+      }
+      result.ctx.emit('agent/inbox/enqueue', foreign, message, 'queued')
+      result.ctx.emit('agent/inbox/enqueue', result.agent, message, 'queued')
+      result.ctx.emit('agent/inbox/discard', result.agent, [message])
+      return message.id
     }
 
     result.terminal.send('@sync-source')
@@ -2058,9 +2063,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
-    // The synchronous discard released both listeners despite the id being
-    // unassigned: replaying the prompt's admission attaches no stranded
-    // snapshot, and nothing leaks for the TUI lifetime.
+    // The synchronous discard released the listeners even though followup()
+    // had not returned the id yet: replaying the prompt's admission attaches
+    // no stranded snapshot, and nothing leaks for the TUI lifetime.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
       'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),

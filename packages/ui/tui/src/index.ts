@@ -2910,38 +2910,50 @@ export function createTuiChat(
     // Idle: the snapshot rides the prompt's admission transaction so a
     // blocking hook discards both together.
     let cleanedUp = false
+    let acceptedId: AgentMessageId | undefined
+    let acceptedContent: ContentBlock[] | undefined
+    const enqueued = new Map<AgentMessageId, ContentBlock[]>()
+    const discarded = new Set<AgentMessageId>()
     const cleanup = (): void => {
-      // Each trigger detaches both listeners, so a second call needs a
-      // future third trigger; kept so adding one cannot double-release.
+      // Every completion path detaches all three listeners. Keep this
+      // idempotent so later cleanup paths cannot double-release them.
       /* v8 ignore next -- unreachable idempotence guard, see above */
       if (cleanedUp) return
       cleanedUp = true
+      detachEnqueue()
       detachSubmit()
       detachDiscard()
     }
+    // send() snapshots input before publishing it, and publishes enqueue
+    // before returning its id. Capture that snapshot by id so admission can
+    // use exact reference identity without depending on caller-owned input.
+    const detachEnqueue = ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) enqueued.set(message.id, message.content)
+    })
     // Prepended so this wrapper is outermost: it observes the admission
     // whether a downstream hook allows or blocks, and detaches either way.
     const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _source, _signal, next) => {
-      if (subject !== agent || submitted !== content) return next()
+      if (subject !== agent || submitted !== acceptedContent) return next()
       cleanup()
       const decision = await next()
       if (decision.kind !== 'allow') return decision
       return { ...decision, additionalContexts: [...decision.additionalContexts ?? [], attachedContext] }
     }, { prepend: true })
-    // Installed BEFORE followup(): admission runs synchronously inside it on
-    // the common path, and a listener registered after cleanup() already ran
-    // would never be released. Match on the `content` reference, not the
-    // returned id: an enqueue listener that synchronously cancels emits
-    // discard before followup() returns to assign the id, and content is the
-    // same reference send() carries onto the message (mirrors detachSubmit).
+    // Installed before followup(): an enqueue listener can synchronously
+    // cancel and discard before followup() returns its id.
     const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
-      if (subject === agent && messages.some(message => message.content === content)) cleanup()
+      if (subject !== agent) return
+      for (const message of messages) discarded.add(message.id)
+      if (acceptedId !== undefined && discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
     try {
-      agent.followup({ content, source: { kind: 'user' } })
+      acceptedId = agent.followup({ content, source: { kind: 'user' } })
+      acceptedContent = enqueued.get(acceptedId) ?? content
+      detachEnqueue()
+      if (discarded.has(acceptedId)) cleanup()
     } catch (error: unknown) {
       cleanup()
       throw error
