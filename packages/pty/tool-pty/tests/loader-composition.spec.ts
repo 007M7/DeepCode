@@ -71,6 +71,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       '    pollIntervalMs: 10',
       '    exactProbeAfterMs: 20',
       '    idleSilenceMs: 250',
+      '    handoffGraceMs: 250',
       '    timeoutMs: 2000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pty'",
