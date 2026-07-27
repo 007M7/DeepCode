@@ -28,6 +28,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts with package-contributed servi
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for the bash executors, the LSP host, and the ACP subagent backend |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
@@ -177,7 +178,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 |---|---|
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; schemas enter prompt assembly |
-| Add shell execution | implement and register a `ctx.bash` backend |
+| Add shell execution | implement and register a `ctx.bash` backend (the local one spawns through `ctx.subprocess`) |
 | Add persistent terminal execution | register a `ctx.pty` backend and `dsh-tool-pty` |
 | Add a human command | register on `ctx.commands`; adapters discover and dispatch it without a model turn |
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |

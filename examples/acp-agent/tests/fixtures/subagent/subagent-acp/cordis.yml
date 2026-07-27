@@ -10,6 +10,10 @@
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
+# The out-of-process ACP backend spawns its child through the subprocess seam.
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: subagent-acp
   name: '@deepseek-ai/dsh-subagent-acp'
   config:

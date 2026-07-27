@@ -31,6 +31,7 @@
     "@deepseek-ai/dsh-lsp": "workspace:*",
     "@deepseek-ai/dsh-lsp-local": "workspace:*",
     "@deepseek-ai/dsh-plan-mode": "workspace:*",
+    "@deepseek-ai/dsh-subprocess-local": "workspace:*",
     "@deepseek-ai/dsh-permission": "workspace:*",
     "@deepseek-ai/dsh-pty": "workspace:*",
     "@deepseek-ai/dsh-pty-local": "workspace:*",
