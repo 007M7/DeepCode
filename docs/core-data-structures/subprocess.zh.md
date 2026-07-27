@@ -132,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## 句柄：流、读取器与以进程树为范围的终止
 
-spawn 会立即返回一个实时句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树，`dispose(graces)` 运行进程外子进程所需的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。
+spawn 会立即返回一个实时句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树——这足以让消费方构建自己的拆卸阶梯（ACP 后端以 stdin EOF 打头的 `disposeAcpChild` 即是模板）。
 
 ```ts type-equiv
 /**
@@ -171,15 +171,6 @@ interface SubprocessHandle {
    * @returns `true` when the tree exited, `false` when the signal aborted first.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
-  /**
-   * Tear the child down to quiescence, resolving only after exit: close stdin
-   * (when this handle owns a piped one) and allow cooperative flush for
-   * `eofGraceMs`, then SIGTERM with a `graceMs` window (POSIX), then forced
-   * tree termination with a final bounded `graceMs` wait.
-   * @param graces - the ladder's two windows, from the consumer's Config.
-   * @throws when the child still has not exited `graceMs` after the forced tier.
-   */
-  dispose(graces: SubprocessDisposeGraces): Promise<void>
 }
 ```
 
@@ -227,31 +218,6 @@ interface SubprocessCollectedOutputs {
 }
 ```
 
-```ts type-equiv
-/**
- * The two grace periods of the cooperative dispose ladder
- * ({@link SubprocessHandle.dispose}). Consumers carry them as defaulted,
- * validated Config fields, so teardown timing is deployment-tunable and this
- * seam hardcodes nothing.
- */
-interface SubprocessDisposeGraces {
-  /**
-   * Tier-1 window (ms): after stdin EOF, how long the child gets to quiesce
-   * ON ITS OWN — flush durable state, tear down its own descendants — before
-   * escalation to platform termination. Usually WIDER than
-   * {@link SubprocessDisposeGraces.graceMs}: a cooperative child's EOF-driven
-   * teardown may itself wait on a signal-trapping grandchild plus a final
-   * flush.
-   */
-  eofGraceMs: number
-  /**
-   * Termination confirmation window (ms): POSIX applies it after `SIGTERM`
-   * and again after `SIGKILL`; Windows applies it after the forced tree
-   * termination.
-   */
-  graceMs: number
-}
-```
 
 ## 结果只承载退出事实
 

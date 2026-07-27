@@ -479,40 +479,6 @@ describe('stdio dispositions', () => {
   })
 })
 
-describe('dispose ladder', () => {
-  it('tier 1: a cooperative child exits on stdin EOF without any signal', async () => {
-    const running = spawnSubprocess({
-      ...spec('read -r line; exit 0'),
-      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
-    })
-    await running.dispose({ eofGraceMs: 5_000, graceMs: 200 })
-    const outcome = await running.done
-    expect(outcome.exitCode).toBe(0)
-    expect(outcome.signal).toBeNull()
-  })
-
-  it('tier 2: an EOF-deaf child dies by SIGTERM', async () => {
-    const running = spawnSubprocess({
-      ...spec('sleep 60'),
-      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
-    })
-    await running.dispose({ eofGraceMs: 100, graceMs: 5_000 })
-    const outcome = await running.done
-    expect(outcome.signal).toBe('SIGTERM')
-  })
-
-  it('tier 3: a TERM-trapping child dies by SIGKILL, and dispose() is idempotent', async () => {
-    const running = spawnSubprocess(spec('trap \'\' TERM; echo armed; sleep 60'))
-    await waitForStdout(running, 'armed\n')
-    const first = running.dispose({ eofGraceMs: 50, graceMs: 200 })
-    const second = running.dispose({ eofGraceMs: 50, graceMs: 200 })
-    expect(second).toBe(first)
-    await first
-    const outcome = await running.done
-    expect(outcome.signal).toBe('SIGKILL')
-  })
-})
-
 describe('windows tree semantics (injected platform)', () => {
   it('terminate routes through taskkill by root pid', async () => {
     const killed: number[] = []
@@ -563,7 +529,7 @@ describe('waitForExit', () => {
   })
 })
 
-describe('tree-survivor escalation (terminate/dispose reach helpers the leader left behind)', () => {
+describe('tree-survivor escalation (terminate and bounded waits reach helpers the leader left behind)', () => {
   it('terminate() SIGKILLs a TERM-trapping descendant after the direct child settles', async () => {
     // The leader spawns a TERM-trapping helper with all stdio detached from
     // the collected pipes, then exits: the helper holds the GROUP alive while
@@ -582,18 +548,21 @@ describe('tree-survivor escalation (terminate/dispose reach helpers the leader l
     await waitGone(helper)
   })
 
-  it('dispose() holds each tier on whole-tree exit, not direct-child settlement', async () => {
-    const pidFile = join(spillDir, `survivor-dispose-${Date.now()}.pid`)
+  it('a bounded waitForExit reports false while a survivor lives, true after escalation', async () => {
+    const pidFile = join(spillDir, `survivor-wait-${Date.now()}.pid`)
     const running = spawnSubprocess(spec(
       `bash -c 'trap "" TERM; echo $$ > ${pidFile}; sleep 60' >/dev/null 2>&1 & disown; exit 0`,
       { graceMs: 200 },
     ))
     const helper = await waitForPidFile(pidFile)
     await running.done
-    expect(() => process.kill(helper, 0)).not.toThrow()
-
-    await running.dispose({ eofGraceMs: 100, graceMs: 300 })
-    // The ladder only returns once the WHOLE tree is gone.
+    // A consumer-owned teardown tier bounds its wait and reads the verdict.
+    const bound = new AbortController()
+    const timer = setTimeout(() => { bound.abort() }, 100)
+    await expect(running.waitForExit(bound.signal)).resolves.toBe(false)
+    clearTimeout(timer)
+    running.terminate()
+    await expect(running.waitForExit()).resolves.toBe(true)
     expect(() => process.kill(helper, 0)).toThrow()
   })
 
@@ -626,11 +595,10 @@ describe('coverage seams', () => {
     expect(() => { taskkillProcessTree(2 ** 30) }).not.toThrow()
   })
 
-  it('dispose on a spawn-failed handle observes the rejection and returns', async () => {
+  it('a spawn-failed handle rejects done while waitForExit reports gone', async () => {
     const running = spawnSubprocess(spec('true', { cwd: '/nonexistent-dir-dsh-dispose-test' }))
-    const disposal = running.dispose({ eofGraceMs: 1_000, graceMs: 1_000 })
     await expect(running.done).rejects.toThrow()
-    await expect(disposal).resolves.toBeUndefined()
+    await expect(running.waitForExit()).resolves.toBe(true)
   })
 
   it("an 'inherit' stdout with collected stderr wires only the requested collector", async () => {
@@ -677,25 +645,10 @@ describe('coverage seams', () => {
     await expect(running.waitForExit()).resolves.toBe(true)
   })
 
-  it('dispose() on an already-exited tree returns without delivering a signal', async () => {
-    const running = spawnSubprocess(spec('true'))
-    await running.done
-    await running.waitForExit()
-    const spy = vi.spyOn(process, 'kill')
-    try {
-      await running.dispose({ eofGraceMs: 50, graceMs: 50 })
-      const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
-      expect(delivered).toEqual([])
-    } finally {
-      spy.mockRestore()
-    }
-  })
-
-  it('a batch-stdin handle exposes no stdin and dispose skips the EOF tier', async () => {
+  it('a batch-stdin handle exposes no stdin surface', async () => {
     const running = spawnSubprocess(spec('cat', { stdin: 'batch\n' }))
     expect(running.stdin).toBeUndefined()
     await running.done
-    await running.dispose({ eofGraceMs: 50, graceMs: 50 })
     expect(running.collected.stdout!.readFrom(0).text).toBe('batch\n')
   })
 })
@@ -724,33 +677,15 @@ describe('coverage seams 2', () => {
     await expect(running.waitForExit()).resolves.toBe(true)
   })
 
-  it('the win32 dispose ladder skips the POSIX SIGTERM tier and force-terminates', async () => {
-    const kills: number[] = []
-    const running = spawnSubprocess({
-      ...spec('sleep 60'),
-      stdio: { stdin: 'pipe', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
-    }, {
-      spillDir,
-      platform: 'win32',
-      taskkill: (pid) => {
-        kills.push(pid)
-        try {
-          process.kill(pid, 'SIGKILL')
-        } catch {
-          // Already gone.
-        }
-      },
-    })
-    await running.dispose({ eofGraceMs: 50, graceMs: 5_000 })
-    // Exactly one forced tree termination: no POSIX SIGTERM tier ran.
-    expect(kills).toEqual([running.pid])
-  })
-
-  it('dispose throws when even SIGKILL produces no exit within the grace', async () => {
-    // An inert taskkill simulates a tree that never reports exit.
+  it('an inert win32 taskkill leaves the tree alive for a bounded wait to report', async () => {
+    // An inert taskkill simulates a tree that never reports exit: terminate()
+    // delivers nothing, so a bounded consumer wait must come back false.
     const running = spawnSubprocess(spec('sleep 60'), { spillDir, platform: 'win32', taskkill: () => {} })
-    await expect(running.dispose({ eofGraceMs: 20, graceMs: 40 }))
-      .rejects.toThrow(/did not exit within 40ms after forced termination/)
+    running.terminate()
+    const bound = new AbortController()
+    const timer = setTimeout(() => { bound.abort() }, 60)
+    await expect(running.waitForExit(bound.signal)).resolves.toBe(false)
+    clearTimeout(timer)
     // Real cleanup: the injected platform spawned without detachment, so the
     // child is a plain (group-less) POSIX process — kill it directly.
     process.kill(running.pid, 'SIGKILL')

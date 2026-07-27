@@ -14,7 +14,7 @@ ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 s
 
 发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose 请求了取消，则以 `aborted` 兑现。
 
-`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，关闭 stdin，并等待 `disposeEofGraceMs`。随后 POSIX 先升级到 SIGTERM，等待 `disposeGraceMs` 后再使用 SIGKILL；Windows 会直接强制终止，因为 Node 会把两个信号都映射到 `TerminateProcess`。强制终止后，各平台最多再等待 `disposeGraceMs` 以确认退出；若信号出错或未退出，则拒绝。每次运行都使用全新进程；尚未实现进程池。
+`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），最后进行有界的整树退出等待；若仍有存活进程，则拒绝。每次运行都使用全新进程；尚未实现进程池。
 
 ## 能力与上下文
 

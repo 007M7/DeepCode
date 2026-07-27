@@ -16,8 +16,8 @@ import type { SpawnInternals } from './spawn.ts'
 /**
  * Local subprocess service: detached process trees, Node-shaped stdio
  * dispositions (raw pipes, inherit, bounded tail-keep collection with spill
- * files), credential-scrubbed environment, tree-scoped signalling with
- * SIGTERM→grace→SIGKILL escalation, and the cooperative dispose ladder.
+ * files), credential-scrubbed environment, and tree-scoped signalling with
+ * SIGTERM→grace→SIGKILL escalation.
  */
 export class LocalSubprocessService extends SubprocessService {
   /** Live handles retained only so disposal can terminate and join them. */

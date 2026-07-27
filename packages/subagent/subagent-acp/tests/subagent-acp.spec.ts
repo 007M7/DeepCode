@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
-import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
+import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, disposeAcpChild, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
@@ -133,6 +133,71 @@ describe('child env layering (through the subprocess seam)', () => {
     const text = result.output.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')
     expect(text).toBe('managed')
     await ctx.fiber.dispose()
+  })
+})
+
+describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', () => {
+  const bash = (command: string, stdin: 'pipe' | 'ignore' = 'pipe') => spawnSubprocess({
+    argv: ['bash', '-c', command],
+    cwd: process.cwd(),
+    stdio: { stdin, stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+    graceMs: 200,
+  })
+
+  it('tier 1: a cooperative child exits on stdin EOF without any signal', async () => {
+    const child = bash('read -r line; exit 0')
+    await disposeAcpChild(child, 5_000, 200)
+    const outcome = await child.done
+    expect(outcome.exitCode).toBe(0)
+    expect(outcome.signal).toBeNull()
+  })
+
+  it('tier 2: an EOF-deaf child dies by the terminate escalation (SIGTERM)', async () => {
+    const child = bash('sleep 60')
+    await disposeAcpChild(child, 100, 5_000)
+    const outcome = await child.done
+    expect(outcome.signal).toBe('SIGTERM')
+  })
+
+  it('tier 3: a TERM-trapping child dies by the escalation SIGKILL', async () => {
+    const child = bash("trap '' TERM; echo armed; sleep 60", 'ignore')
+    // Wait for the trap to arm so SIGTERM cannot race the default handler.
+    while (!child.collected.stdout!.readFrom(0).text.includes('armed')) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    await disposeAcpChild(child, 50, 2_000)
+    const outcome = await child.done
+    expect(outcome.signal).toBe('SIGKILL')
+  })
+
+  it('throws when the tree survives even the escalation window', async () => {
+    // A handle whose tree never exits (waitForExit only ever aborts): the
+    // ladder must fail loud instead of resolving over survivors. Built as a
+    // stub because the ladder composes only public verbs.
+    const never: Parameters<typeof disposeAcpChild>[0] = {
+      pid: 1,
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+      collected: {},
+      done: new Promise(() => {}),
+      terminate: () => {},
+      waitForExit: (signal?: AbortSignal) => new Promise((resolve) => {
+        signal?.addEventListener('abort', () => { resolve(false) }, { once: true })
+      }),
+    }
+    await expect(disposeAcpChild(never, 20, 20)).rejects.toThrow(/did not exit within its dispose windows/)
+  })
+
+  it('observes a spawn-level rejection and returns without a process to reap', async () => {
+    const child = spawnSubprocess({
+      argv: ['bash', '-c', 'true'],
+      cwd: '/nonexistent-dir-dsh-acp-ladder-test',
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
+      graceMs: 200,
+    })
+    await expect(disposeAcpChild(child, 1_000, 1_000)).resolves.toBeUndefined()
+    await expect(child.done).rejects.toThrow()
   })
 })
 
