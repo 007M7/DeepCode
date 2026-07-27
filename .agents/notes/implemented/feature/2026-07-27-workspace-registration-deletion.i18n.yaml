@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md
+2026-07-27-workspace-registration-deletion.md: cae01d529bc6fd97da6fb61839bd5ec8e21557e2
+2026-07-27-workspace-registration-deletion.zh.md: 76377ebc5e93101e1e3efce1d29c3c654df032c2

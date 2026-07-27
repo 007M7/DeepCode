@@ -10,6 +10,7 @@ The entity/storage rationale lives in the [domain Agent Note](../../../.agents/n
 
 - `ctx.workspace.create(path, title?)` — canonicalizes `path` via `fs.realpath`, rejects a nonexistent or non-directory path, creates at most one record per canonical path, and prepends a new record to durable workspace order. Repeated calls for that path return the existing workspace without changing its title; a different path cannot create a duplicate title.
 - `ctx.workspace.get(id)` / `list()` / `resolveByPath(path)` — cache-served lookups. `list()` is synchronous and follows durable registry order; `resolveByPath` is async because it applies the same `realpath` canon and rejects a missing path rather than creating it.
+- `ctx.workspace.delete(id)` — removes only the Workspace registration, its durable order entry, and its session account. Unknown ids return `false`; a removed record returns `true`. The directory, user files, live Sessions, and persisted session logs are never touched, so those Sessions become Ungrouped. A table-write failure restores the prior order and published entity.
 - `Workspace.attachSession(id)` — validates a live or persisted session header cwd against the workspace path and prepends a new id. Unknown sessions, absent/unresolvable/non-directory cwd values, and mismatches reject without writing. `detachSession` removes only the candidate index entry.
 - `ctx.workspace.touchSession(id)` — moves only that validated, accounted session to the front. Ungrouped or filtered sessions are no-ops, and workspace order never changes.
 - `Workspace.sessionIds` — synchronous id-plus-canonical-cwd membership projection in durable candidate order. Missing headers, invalid cwd values, and mismatches are filtered; the next workspace mutation prunes them. A medium indexing one session under two workspaces, claiming one path from two records, or diverging from durable workspace order rejects at startup.
@@ -35,5 +36,5 @@ Independent of live requests: the package never touches a request prefix, so it 
 
 ## Known Limitations and Deferred Work
 
-- No delete entry point in this phase — workspace deletion ships as one complete semantic together with the session-delete primitive and cascade orchestration (future-work section of the Agent Note); a half "drop the record, keep the sessions" operation is deliberately not exposed.
+- Session deletion and destructive folder removal are separate, absent capabilities; Workspace registration deletion never substitutes for either ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
 - The header index refreshes at startup and when attach must resolve an uncached persisted id; deletion or cwd damage performed by another process is observed after the next refresh or restart.

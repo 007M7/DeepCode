@@ -21,10 +21,11 @@ Host 在 Workspace entity 上提供以下 GUI 接线：
 | `workspace.list` | 返回持久有序的 Workspace，并过滤未通过 header 校验的 Session id |
 | `workspace.create({ name })` | 在 `workspaceRoot/name` 创建目录和 Workspace；显示名冲突时失败 |
 | `workspace.create({ path })` | 收编已经存在的目录，不为任意路径创建目录 |
+| `workspace.delete({ workspaceId })` | 移除 Workspace 注册记录，同时保留目录和会话日志；相关 Session 进入 Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | 从 Workspace 解析 cwd，以可选预分配 id 幂等创建 Session 并 attach |
 | `session.create({ cwd })` | 保留给非 Workspace 调用方，创建 Ungrouped Session |
 
-`workspaceRoot` 是独立 Host 配置，未配置时回退到 Host cwd；它与保存 Workspace domain 数据的 `storageRoot` 无关。Host stream 推送 Workspace 与 Session 增量，Client 重连后分别刷新 `workspace.list` 与 `session.list` 基线。
+`workspaceRoot` 是独立 Host 配置，未配置时回退到 Host cwd；它与保存 Workspace domain 数据的 `storageRoot` 无关。Host stream 推送 Workspace 与 Session 增量，包括 `host/workspace-removed`；Client 重连后分别刷新 `workspace.list` 与 `session.list` 基线。删除注册记录的所有权与安全边界由 [Workspace 注册记录删除 Agent Note](2026-07-27-workspace-registration-deletion.md)定义。
 
 Workspace 的 `sessionIds` 是有序候选索引。成员投影同时要求 id 位于索引且对应 `SessionHeader.cwd` canonical 后等于 Workspace path；SessionHeader 不增加 `workspaceId`。cwd 匹配但未入索引的 Session 保持 Ungrouped，索引命中但 header 缺失、cwd 无效或 cwd 不匹配的 id 被过滤。同一 Session 被两个 Workspace 索引占用属于损坏状态并 fail loud。
 
@@ -51,7 +52,7 @@ Session 自己持有首条输入并驱动一条内部流水线：必要时以预
 
 顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的 Use an existing folder 与 Create a new workspace 会在用户确认时立即创建真实 Workspace，再把前端 Session 定位到该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
 
-Create a new workspace 暂时用同一个输入作为目录名和显示名。UI 根据当前 Workspace title 禁止重复确认，Host 继续拒绝绕过 UI 或并发产生的同名请求。Rename、Delete、跨 Workspace 移动、拖拽排序、Ungrouped 手动收编和显示名/目录名双输入不在本期范围。
+Create a new workspace 暂时用同一个输入作为目录名和显示名。UI 根据当前 Workspace title 禁止重复确认，Host 继续拒绝绕过 UI 或并发产生的同名请求。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
 
 ### 首次发送与恢复
 
@@ -74,6 +75,8 @@ Workspace 组严格使用 Host 返回的持久顺序。Bootstrap 一次性确定
 前端 Session Intent 只有在目标是真实 Workspace 时才作为 “New session” 行显示，并临时计入该组 Session 数量；目标是 Workspace Intent 时，Workspace 与 Session 都不进入 sidebar。Intent 发布后由同一预分配 id 对应的真实行接替，刷新后 Intent 行和临时计数一起消失。搜索模式不保存或筛选 Intent 行。
 
 无法归入任何 Workspace 的真实 Session 进入 Ungrouped。Host `session-added` 与 `workspace-changed` 可以任意顺序到达，列表合并不依赖 frame 顺序。
+
+删除 Workspace 注册记录会移除其分组，但不会删除或关闭任何 Session。已记账的 Session（包括当前 Session）会立即进入 Ungrouped；刷新后，独立的 Workspace 与 Session 基线会重建出相同结果。
 
 ### React 与 slot 边界
 
@@ -106,6 +109,7 @@ Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSe
 - 初始默认目标只在两份基线 ready 后确定一次；Workspace 组不因 hydration 或 Session 活跃整体重排，单个活跃 Session 只前移自身。
 - 真实 Workspace 下的前端 Session 临时计入 sidebar 数量，Workspace Intent 保持隐藏，发布与刷新都不会留下重复行或重复计数。
 - UI 与 Host 两层拒绝同名 Workspace；cwd-only Session、无效历史 cwd 和未 attach Session 保持 Ungrouped。
+- 经确认的 Workspace 删除只移除注册记录，保留当前 Session、目录、文件和会话日志，并在刷新后保持该状态；包级测试固定一元响应／帧／基线竞态和失败回滚行为。
 - keyless runnable snapshot 覆盖零态、显式创建和首次发送；包级测试覆盖 bootstrap、成员校验、排序、幂等、失败恢复及任意 frame 顺序。
 
 ## Consequences

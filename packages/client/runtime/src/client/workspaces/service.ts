@@ -175,6 +175,16 @@ export class WorkspacesService {
   }
 
   /**
+   * Delete one Workspace registration. Sessions, session logs, and the
+   * directory remain Host-owned outside this operation.
+   * @param workspaceId - target workspace.
+   */
+  async delete(workspaceId: WorkspaceId): Promise<void> {
+    const result = await this.manager.delete(workspaceId)
+    if (!result.ok) throw new Error(`workspace delete failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Move a session within its Workspace's manual order (DOM-insertBefore-like).
    * @param workspaceId - owning workspace.
    * @param sessionId - accounted session to move.

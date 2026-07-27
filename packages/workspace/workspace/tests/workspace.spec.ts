@@ -424,6 +424,40 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
   })
 
+  it('deletes only the registration and leaves its directory and session headers untouched', async () => {
+    const dir = await makeDir('delete-registration')
+    const result = await harness({ sessions: [header('kept-session', dir)] })
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('kept-session'))
+
+    await expect(result.registry.delete(workspace.id)).resolves.toBe(true)
+    await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
+    expect(result.registry.get(workspace.id)).toBeUndefined()
+    expect(result.registry.list()).toEqual([])
+    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
+    await expect(realpath(dir)).resolves.toBe(dir)
+    expect(result.list).toHaveBeenCalledTimes(1)
+    expect(result.load).not.toHaveBeenCalled()
+    expect(result.inspect).not.toHaveBeenCalled()
+  })
+
+  it('rolls registry order and cache back when record deletion fails', async () => {
+    const dir = await makeDir('delete-rollback')
+    const pool = new MemoryMediaPool()
+    const result = await harness({
+      pool,
+      backend: selectiveFailureBackend(pool, { deleteAt: 1 }),
+    })
+    const workspace = await result.registry.create(dir)
+
+    await expect(result.registry.delete(workspace.id)).rejects.toThrow(/selected rollback delete failure/)
+    expect(result.registry.get(workspace.id)).toBe(workspace)
+    expect(result.registry.list()).toEqual([workspace])
+    expect(storedState(pool).workspaceIds).toEqual([workspace.id])
+    expect(storedRecord(pool, workspace.id)).toMatchObject({ path: dir })
+  })
+
   it('rejects table access before the registry has started', async () => {
     const dir = await makeDir('unstarted')
     const registry = new WorkspaceRegistry(new Context())

@@ -169,6 +169,18 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Delete one workspace registration while retaining its directory and every
+   * session log. The durable order is updated before the table deletion; a
+   * failed table write restores the prior order and keeps the entity
+   * published. Unknown ids are an idempotent no-op for domain callers.
+   * @param id - Workspace registration to remove.
+   * @returns `true` when a record was deleted, `false` when it was unknown.
+   */
+  delete(id: WorkspaceId): Promise<boolean> {
+    return this.enqueueOperation(() => this.deleteKnown(id))
+  }
+
+  /**
    * Resolve by canonical directory path without creating or mutating a
    * workspace. A missing path rejects during `realpath`; an existing unowned
    * directory returns `undefined`.
@@ -229,6 +241,33 @@ export class WorkspaceRegistry extends Service {
       throw error
     }
     return entity
+  }
+
+  private async deleteKnown(id: WorkspaceId): Promise<boolean> {
+    const entity = this.entities.get(id)
+    if (entity === undefined) return false
+    const state = this.requireState()
+    const nextState = {
+      initialized: true,
+      workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
+    }
+    await this.setState(nextState)
+    this.entities.delete(id)
+    try {
+      await this.requireTable().delete(id)
+    } catch (error) {
+      this.entities.set(id, entity)
+      try {
+        await this.setState(state)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `workspace '${id}' record deletion and registry-order rollback both failed`,
+        )
+      }
+      throw error
+    }
+    return true
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {

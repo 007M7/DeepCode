@@ -5,12 +5,13 @@
 // calls: workspace.create/rename are host RPCs with no model involvement,
 // and the one session row the flat/hover scenarios need comes from a seeded
 // fixture (the seeded-history seed reused verbatim — no new recording).
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, launchWebScaffold, seedSession, watchConsole,
   webSnapshotMode, type WebScaffold,
@@ -105,6 +106,86 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('deletes only the Workspace registration and keeps its current Session, folder, and log', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-delete'))
+    // Register the scaffold's existing project directory through the real UI.
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
+    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
+    const useFolder = page.getByRole('dialog', { name: 'Use an existing folder' })
+    await useFolder.getByLabel('Existing folder path').fill(scaffold.workspaceCwd)
+    await useFolder.getByRole('button', { name: 'Use folder' }).click()
+    await expect.poll(() => useFolder.count(), { timeout: 10_000 }).toBe(0)
+
+    const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
+    if (workspace === undefined) throw new Error('GUI did not register the existing project directory')
+    await workspace.attachSession(SessionId(SEED_ID))
+    const header = (await scaffold.ctx.sessionPersistence.list())
+      .find(candidate => candidate.id === SEED_ID)
+    if (header === undefined) throw new Error('seeded Session log disappeared before deletion')
+    const logLocation = scaffold.ctx.sessionPersistence.locate(header)
+    if (logLocation === undefined) throw new Error('JSONL persistence did not expose the seeded log path')
+    expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')
+    await stat(logLocation.path)
+
+    // Open the seeded (first/accounted) Session so deletion must preserve the
+    // current selection while it moves into Ungrouped.
+    const groupRow = page.locator('[role="treeitem"]').filter({ hasText: workspace.title }).first()
+    await groupRow.waitFor({ timeout: 10_000 })
+    const groupSection = groupRow.locator('..')
+    if (await groupSection.locator('[role="treeitem"]').count() < 2) await groupRow.click()
+    await expect.poll(
+      () => groupSection.locator('[role="treeitem"]').count(),
+      { timeout: 10_000 },
+    ).toBeGreaterThanOrEqual(2)
+    const seededRow = groupSection.locator('[role="treeitem"]').nth(1)
+    await seededRow.click()
+    await expect.poll(() => seededRow.getAttribute('aria-selected'), { timeout: 10_000 }).toBe('true')
+
+    await groupRow.hover()
+    await page.getByRole('button', { name: `Workspace actions for ${workspace.title}` }).click()
+    await page.getByRole('menuitem', { name: 'Delete workspace' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete workspace' })
+    await dialog.waitFor({ timeout: 10_000 })
+    const copy = await dialog.textContent()
+    expect(copy).toContain('workspace list')
+    expect(copy).toContain('folder and session logs will be kept')
+    expect(copy).toContain('sessions will appear under Ungrouped')
+    await dialog.getByRole('button', { name: 'Delete workspace' }).click()
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+
+    expect(scaffold.ctx.workspace.get(workspace.id)).toBeUndefined()
+    await expect.poll(
+      () => page.getByRole('button', { name: `Workspace actions for ${workspace.title}` }).count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(1)
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')
+    await stat(logLocation.path)
+    expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
+
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(1)
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 15_000 },
+    ).toBe(1)
+    expect(scaffold.ctx.workspace.get(workspace.id)).toBeUndefined()
+    expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')
+    await stat(logLocation.path)
+    expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
   it('switches to the flat "In one list" view and persists the preference', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-flat'))
     // Grouped default: workspace group rows render (the seeded session sits
@@ -134,12 +215,20 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
     // Expand Ungrouped to reveal the seeded session row, then dwell on it
     // (the card opens after a 500ms hover delay, portaled to body).
-    await page.getByText('Ungrouped', { exact: true }).click()
-    // A cold summary carries no durable title, so the row falls back to a
-    // cwd-derived display title — anchored on the run-local workspace-root
-    // basename rather than a literal.
-    const wsBase = scaffold.workspaceCwd.split('/').pop()!
-    const sessionRow = page.locator('[role="treeitem"]').filter({ hasText: wsBase }).first()
+    const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
+    const ungroupedSection = ungroupedRow.locator('..')
+    // Initial-current auto-expansion can race this following test's gesture;
+    // converge on expanded rather than assuming which update wins first.
+    await expect.poll(async () => {
+      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
+        await page.getByText('Ungrouped', { exact: true }).click()
+        await page.waitForTimeout(50)
+      }
+      return await ungroupedRow.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
+    // The only visible child is the non-blank persisted Session; the blank
+    // Session created while adopting the Workspace remains hidden.
+    const sessionRow = ungroupedSection.locator('[role="treeitem"]').nth(1)
     await sessionRow.waitFor({ timeout: 10_000 })
     await sessionRow.hover()
     // Card content: the full title plus the Idle status line (display-only
