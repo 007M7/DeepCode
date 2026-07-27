@@ -16,7 +16,7 @@
     maxOldGenerationSizeMb: 512   # worker heap cap (resourceLimits)
 ```
 
-每个字段都会验证并提供默认值；`maxOutputBytes` 必须是至少 4 字节的安全整数，其余字段必须是有限正数，此外没有其他可调项。
+每个字段都会验证并提供默认值；`maxOutputBytes` 必须是至少 4 字节的安全整数，其余字段必须是有限正数，`maxWallMs` 还必须不超过 `2147483647`（Node 的 `setTimeout` 最大延迟），此外没有其他可调项。
 
 ## 设计
 

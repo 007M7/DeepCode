@@ -16,7 +16,7 @@ Worker-thread implementation of the [`@deepseek-ai/dsh-code-runtime`](../code-ru
     maxOldGenerationSizeMb: 512   # worker heap cap (resourceLimits)
 ```
 
-Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at least four bytes, the remaining fields are positive finite numbers, and there are no other tunables.
+Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at least four bytes, the remaining fields are positive finite numbers, `maxWallMs` is additionally at most `2147483647` (Node's maximum `setTimeout` delay), and there are no other tunables.
 
 ## Design
 
