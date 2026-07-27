@@ -53,6 +53,7 @@
     "@deepseek-ai/dsh-llm-retry": "workspace:^",
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-plan-mode": "workspace:^",
+    "@deepseek-ai/dsh-subprocess-local": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",

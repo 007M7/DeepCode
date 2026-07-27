@@ -30,13 +30,13 @@ Areas record semantic repository domains rather than temporary initiatives, owne
 
 ### Current areas
 
-The 45 current areas are listed below. The group names organize the list for readability; they are not labels or another taxonomy level.
+The 46 current areas are listed below. The group names organize the list for readability; they are not labels or another taxonomy level.
 
 | Group | Areas |
 |---|---|
 | Agent and model | `agent`, `agent-loop`, `session`, `llm`, `model-context`, `compaction`, `tools`, `persistence` |
 | Orchestration | `subagent`, `workflow`, `planning`, `tasks`, `schedule`, `telemetry`, `storage`, `workspace` |
-| Capabilities | `bash`, `pty`, `filesystem`, `lsp`, `skills`, `web-search`, `code-mode`, `artifact`, `attachment`, `sandbox`, `mcp`, `hooks`, `cordis` |
+| Capabilities | `bash`, `subprocess`, `pty`, `filesystem`, `lsp`, `skills`, `web-search`, `code-mode`, `artifact`, `attachment`, `sandbox`, `mcp`, `hooks`, `cordis` |
 | Interfaces | `ui`, `gui`, `tui`, `acp`, `json-rpc`, `cli`, `python-sdk`, `vscode`, `website` |
 | Repository and release | `dev-infra`, `ci`, `build`, `dependencies`, `platform`, `i18n`, `release` |
 
