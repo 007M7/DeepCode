@@ -7,7 +7,7 @@ import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 /**
- * Real-API e2e for the hand-rolled adapter: V4 Flash + V4 Pro across
+ * Real-API e2e for the direct-fetch adapter: V4 Flash + V4 Pro across
  * thinking modes and both official effort levels. Key-gated — skips
  * entirely without $DEEPSEEK_API_KEY (see vitest.e2e.config.ts).
  */
