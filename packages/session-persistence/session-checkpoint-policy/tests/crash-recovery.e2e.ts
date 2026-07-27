@@ -19,17 +19,21 @@ const roots: string[] = []
 const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
 async function waitForMarker(path: string, expected: string): Promise<string> {
-  return await vi.waitFor(async () => {
-    const content = await readFile(path, 'utf8').catch((error: unknown) => {
+  // vi.waitFor retries every callback throw, so terminal states RESOLVE out
+  // of the retry loop (complete marker, or content that can no longer become
+  // the expected marker) and only the still-in-progress states throw-to-retry.
+  const content = await vi.waitFor(async () => {
+    const current = await readFile(path, 'utf8').catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       throw new Error(`crash child did not publish failpoint ${JSON.stringify(expected)} at ${path}`, { cause: error })
     })
-    if (content === expected) return content
-    if (!expected.startsWith(content)) {
-      throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
-    }
+    if (current === expected || !expected.startsWith(current)) return current
     throw new Error(`crash child has not finished publishing failpoint ${JSON.stringify(expected)}`)
   }, { interval: 10, timeout: CHILD_FAILPOINT_TIMEOUT_MS })
+  if (content !== expected) {
+    throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
+  }
+  return content
 }
 
 async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; markerText: string }> {
