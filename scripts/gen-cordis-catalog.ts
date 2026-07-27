@@ -252,6 +252,7 @@ export const LINK_MAP: Record<string, string> = {
   Workspace: 'workspace.md',
   WorkspaceId: 'workspace.md',
   WebBootGraph: 'client-modules.md',
+  TelemetryRecord: 'telemetry.md',
 }
 
 /** TypeScript lib and pinned framework types that have no repository-owned data page. */
@@ -312,7 +313,6 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   SessionForkSource: 'service-local fork input is owned by packages/core/session/src/index.ts',
   SubagentRunEndInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',
   SubagentRunInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',
-  TelemetryRecord: 'seam-local record contract is owned by packages/session/session-telemetry/src/index.ts',
   WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',

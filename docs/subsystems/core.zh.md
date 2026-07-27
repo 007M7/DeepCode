@@ -54,6 +54,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [tui.md](tui.md) | 终端扩展 seam：`TuiOverlayRequest`/`Host`/`Session`、关闭原因与结果、模态队列 |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
+| [telemetry.md](telemetry.md) | 对外上报 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 契约、`telemetry/record` 脱敏 waterfall |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
 

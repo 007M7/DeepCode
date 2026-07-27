@@ -199,7 +199,7 @@
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
@@ -219,12 +219,12 @@
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
@@ -1477,11 +1477,6 @@
     },
     {
       "doc": "docs/subsystems/credentials.md",
-      "symbol": "CredentialRef",
-      "source": "packages/credentials/credentials/src/index.ts"
-    },
-    {
-      "doc": "docs/subsystems/credentials.md",
       "symbol": "ResolvedCredential",
       "source": "packages/credentials/credentials/src/index.ts"
     },
@@ -1504,69 +1499,6 @@
       "doc": "docs/subsystems/settings.md",
       "symbol": "SettingsPathOp",
       "source": "packages/settings/settings/src/index.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTLookupMap",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTContextMap",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTLookupDefinition",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTCodec",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "InvocationParameterDescriptor",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "InvocationDescriptor",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTService",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTRemoteNamespaceMap",
-      "source": "packages/typert/type-meta/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "InvokeRemoteRequest",
-      "source": "packages/api/gateway/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypertGatewayErrorCode",
-      "source": "packages/api/gateway/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypertGateway",
-      "source": "packages/api/gateway/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/typert.md",
-      "symbol": "TypeRTClientRemote",
-      "source": "packages/typert/type-meta/src/types.ts"
-      "doc": "docs/subsystems/permission.md",
-      "symbol": "PresetSpec",
-      "source": "packages/interaction/permission/src/index.ts"
     },
     {
       "doc": "docs/subsystems/permission.md",
@@ -1687,6 +1619,81 @@
       "doc": "docs/subsystems/client-modules.md",
       "symbol": "WebBootGraph",
       "source": "packages/client/modules/src/client/manifest.ts"
+    },
+    {
+      "doc": "docs/subsystems/telemetry.md",
+      "symbol": "TelemetrySeverity",
+      "source": "packages/telemetry/session-telemetry/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/telemetry.md",
+      "symbol": "TelemetryRecord",
+      "source": "packages/telemetry/session-telemetry/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/telemetry.md",
+      "symbol": "TelemetryBackend",
+      "source": "packages/telemetry/session-telemetry/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTLookupMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTContextMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTLookupDefinition",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTCodec",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "InvocationParameterDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "InvocationDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTService",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTRemoteNamespaceMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "InvokeRemoteRequest",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypertGatewayErrorCode",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypertGateway",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/typert.md",
+      "symbol": "TypeRTClientRemote",
+      "source": "packages/typert/type-meta/src/types.ts"
     }
   ]
 }

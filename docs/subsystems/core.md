@@ -54,6 +54,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [tui.md](tui.md) | the terminal-extension seam: `TuiOverlayRequest`/`Host`/`Session`, close reasons and outcomes, the modal queue |
 | [workspace.md](workspace.md) | the workspace registry: `Workspace`/`WorkspaceId`, registration and resolution, the session `cwd` relationship |
 | [client-modules.md](client-modules.md) | the web plugin table: `dshClient` declarations, `WebBootGraph` wire composition, the bundle route and index tap |
+| [telemetry.md](telemetry.md) | the outbound reporting seam: `TelemetryRecord`/`TelemetrySeverity`, the `TelemetryBackend` contract, the `telemetry/record` redact waterfall |
 
 > Type declarations and their JSDoc on these pages are source-equivalent and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Ordinary blocks preserve complete declarations; `public-api` blocks preserve body-stripped public class declarations. Cordis services use the generated [service catalog](../cordis-catalog/services.md).
 
