@@ -10,8 +10,8 @@ updates:
       - "native/landlock-run/**"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      day: "friday"
+      time: "00:01"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -23,8 +23,8 @@ updates:
     directory: "/native/landlock-run"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      day: "friday"
+      time: "00:01"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -36,8 +36,8 @@ updates:
     directory: "/python/sdk"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      day: "friday"
+      time: "00:01"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -49,8 +49,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      day: "friday"
+      time: "00:01"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
