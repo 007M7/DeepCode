@@ -81,7 +81,7 @@ export function sdkStopReason(reason: TurnEndReason | undefined): SubagentStopRe
       return 'max-tokens'
     case 'aborted':
       return 'aborted'
-    // error / rejected / interrupted / disposed / a future merged variant /
+    // error / interrupted / disposed / a future merged variant /
     // no turn at all: the task did NOT finish cleanly — surface a generic
     // failure so the consumer maps it to an isError result.
     default:

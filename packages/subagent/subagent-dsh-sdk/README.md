@@ -16,7 +16,7 @@ The returned run id is minted in the parent namespace; the child runtime's sessi
 
 ## Stop-reason mapping
 
-The child reports its turn outcome as a structured `TurnEndReason` on `session.finished`; the provider maps it into the seam vocabulary. `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `rejected`, `interrupted`, `disposed`, a future variant, or a turn that never ran — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
+The child reports its turn outcome as a structured `TurnEndReason` on `session.finished`; the provider maps it into the seam vocabulary. `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or a turn that never ran — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
 
 ## Capabilities and context
 

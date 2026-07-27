@@ -75,7 +75,8 @@ describe('sdkStopReason', () => {
     expect(sdkStopReason({ kind: 'max-tokens' })).toBe('max-tokens')
     expect(sdkStopReason({ kind: 'aborted' })).toBe('aborted')
     expect(sdkStopReason({ kind: 'error', step: 0, message: 'x' })).toBe('error')
-    expect(sdkStopReason({ kind: 'rejected', reason: 'policy' })).toBe('error')
+    expect(sdkStopReason({ kind: 'interrupted' })).toBe('error')
+    expect(sdkStopReason({ kind: 'disposed' })).toBe('error')
   })
 
   it('treats an absent or unknown reason as an error', () => {

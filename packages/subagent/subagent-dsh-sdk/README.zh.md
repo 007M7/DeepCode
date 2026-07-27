@@ -16,7 +16,7 @@ SDK provider 把每个子代理作为一个完整的 DeepSeek Harness 运行时�
 
 ## 停止原因映射
 
-子进程在 `session.finished` 上以结构化 `TurnEndReason` 报告回合结局；provider 把它映射进接缝词汇表。`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余一切——`error`、`rejected`、`interrupted`、`disposed`、未来变体、或根本没跑回合——映射为 `error`，不洁终止绝不报告为成功。发布后的传输层失败经 `onError` 诊断汇（接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；接缝契约禁止 `result` 拒绝。
+子进程在 `session.finished` 上以结构化 `TurnEndReason` 报告回合结局；provider 把它映射进接缝词汇表。`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余一切——`error`、`interrupted`、`disposed`、未来变体、或根本没跑回合——映射为 `error`，不洁终止绝不报告为成功。发布后的传输层失败经 `onError` 诊断汇（接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；接缝契约禁止 `result` 拒绝。
 
 ## 能力与上下文
 
