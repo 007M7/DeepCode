@@ -16,9 +16,13 @@ interface Harness {
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
 }
 
-/** Append one idle injection using the public Agent contract. */
+/** Append one idle injection using the public Agent contract (idle inject wraps in a one-shot injection turn, per turn enclosure). */
 function appendInjection(session: Session, input: UserMessageData): void {
+  const lastStart = session.events.findLast(event => event.type === 'turn/start')
+  const turn = (lastStart?.data.turn ?? 0) + 1
+  session.append('turn/start', { turn, trigger: { kind: 'injection', source: input.source } })
   session.append('user/message', input, { surfaceOp: 'append' })
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 /** Build a live idle agent accepted by the exact-identity goal service. */

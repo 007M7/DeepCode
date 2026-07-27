@@ -312,7 +312,11 @@ export class ReactLoopAgent implements Agent {
     this.abort = controller
     this.acceptsNextStep = true
     const signal = controller.signal
-    const turn = this.lastTurn + 1
+    // The log is the turn-number authority: out-of-band zero-step turns
+    // (command lifecycle on an idle log) advance it behind this cached
+    // counter, so re-derive the successor at open instead of trusting it.
+    const loggedLast = this.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
+    const turn = Math.max(this.lastTurn, loggedLast) + 1
     let step = 0
     let opened = false
     let reason: TurnEndReason = { kind: 'completed' }
