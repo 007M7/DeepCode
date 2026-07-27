@@ -428,15 +428,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
-  /** Shared session guard for sessionId-addressed catalog routes: the error response when the session is unknown, undefined when it exists. */
-  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined =>
-    summaryOf(request.payload.sessionId) === undefined
-      ? err<{ sessionId: SessionId }, never>(request, {
-          code: 'session-not-found',
-          message: `no session ${request.payload.sessionId}`,
-          details: { sessionId: request.payload.sessionId },
-        })
-      : undefined
+  /** Shared session guard for sessionId-addressed catalog routes: the error
+   *  response when the session is unknown, undefined when it exists. */
+  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
+    if (summaryOf(request.payload.sessionId) !== undefined) return undefined
+    return err<{ sessionId: SessionId }, never>(request, {
+      code: 'session-not-found',
+      message: `no session ${request.payload.sessionId}`,
+      details: { sessionId: request.payload.sessionId },
+    })
+  }
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
