@@ -146,7 +146,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('nocwd-sess') })).agent
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -174,7 +174,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent
     expect(sources1).toEqual(['startup'])
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -261,10 +261,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       resumeSessionId: sessionId,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    const transactionLabels = [
-      `agentLoop.owner(${sessionId})`,
-      `agentLoop.lifecycle(${sessionId})`,
-    ]
+    const transactionLabels = [`agentLoop.lifecycle(${sessionId})`]
 
     expect(ctx.fiber.getEffects().map(effect => effect.label)).toEqual(expect.arrayContaining(transactionLabels))
     await handle.dispose()
@@ -474,39 +471,14 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.fiber.dispose()
   })
 
-  it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
-    // Idle injection creates and flushes a one-shot turn. No explicit flush or
-    // clean disposal follows, so disk presence proves its own checkpoint ran.
+  it('an idle inject() survives persist + resume without a synthetic turn', async () => {
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
-    a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    // Let inject()'s fire-and-forget flush settle (NO explicit flush/dispose).
-    await new Promise(r => setTimeout(r, 30))
-
-    // A SEPARATE backend reads the on-disk log — proving the inject persisted
-    // itself, not a later dispose drain.
-    const probe = new Context()
-    await probe.plugin(SessionStore)
-    await probe.plugin(SessionPersistenceJsonl, { root })
-    const loaded = await probe.sessionPersistence.load(SessionId('inject-sess'))
-    expect(JSON.stringify(loaded.events)).toContain('background task 42 finished')
-    await probe.fiber.dispose()
-    await ctx1.fiber.dispose()
-  })
-
-  it('an idle inject() survives persist + resume (turn-enclosed, not dropped as crash tail)', async () => {
-    // Turn enclosure keeps idle context out of crash-tail repair, so it must
-    // survive persistence and resume.
-    const adapter1 = new MockAdapter([textResponse('answer')])
-    const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.followup([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
-    await waitForIdle(ctx1, a1)
-    a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    await ctx1.sessions.flush(a1.session)
+    a1.inject({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } })
+    await a1.whenIdle()
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume; the injected context is still in the derived history.
@@ -531,7 +503,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent
-    a1.followup([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
+    a1.followup({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
     const seqs1 = events1.map(e => e.seq)
@@ -558,7 +530,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 
     // …and a new turn continues numbering (turn 2) with contiguous seqs.
-    a2.followup([{ type: 'text', text: 'second question' }], { source: { kind: 'user' } })
+    a2.followup({ content: [{ type: 'text', text: 'second question' }], source: { kind: 'user' } })
     await waitForIdle(ctx2, a2)
     const allSeqs = a2.session.events.map(e => e.seq)
     expect(allSeqs).toEqual(allSeqs.map((_, i) => i)) // 0..N contiguous, no duplicates
@@ -580,6 +552,207 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     ctx.llm.registerAdapter(['mock'], adapter)
     await expect(ctx.agents.resume({ resumeSessionId: SessionId('nope') }))
       .rejects.toThrow(/session persistence is not configured/)
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('creation and resume cancellation edges', () => {
+  it('rejects create() with a pre-aborted signal, including a non-Error reason', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([]))
+
+    const errorReason = new AbortController()
+    errorReason.abort(new Error('caller gave up'))
+    await expect(promptly(ctx.agents.create({
+      sessionId: SessionId('pre-aborted-error'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: errorReason.signal,
+    }))).rejects.toThrow('caller gave up')
+
+    // A non-Error reason is wrapped into the creation-aborted error.
+    const stringReason = new AbortController()
+    stringReason.abort('operator string reason')
+    await expect(promptly(ctx.agents.create({
+      sessionId: SessionId('pre-aborted-string'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: stringReason.signal,
+    }))).rejects.toThrow(/creation aborted/)
+
+    expect(ctx.agents.get(SessionId('pre-aborted-error'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('pre-aborted-string'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('a non-Error abort reason arriving during setup is wrapped for the caller', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([]))
+    const controller = new AbortController()
+    const setupEntered = Promise.withResolvers<undefined>()
+    const setupGate = Promise.withResolvers<undefined>()
+
+    const creating = ctx.agents.create({
+      sessionId: SessionId('setup-string-abort'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+      async setup() {
+        setupEntered.resolve(undefined)
+        await setupGate.promise
+      },
+    })
+    await setupEntered.promise
+    controller.abort('mid-setup string reason')
+    setupGate.resolve(undefined)
+
+    await expect(promptly(creating)).rejects.toThrow(/creation aborted/)
+    expect(ctx.agents.get(SessionId('setup-string-abort'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('resume with a pre-aborted caller signal rejects out of the load race', async () => {
+    const sessionId = SessionId('resume-pre-aborted')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const controller = new AbortController()
+    controller.abort(new Error('resume abandoned'))
+
+    await expect(promptly(ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+    }))).rejects.toThrow('resume abandoned')
+
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('factory teardown during a hung resume load rejects with loop-inactive', async () => {
+    const sessionId = SessionId('resume-loop-teardown')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const snapshot = await ctx.sessionPersistence.load(sessionId)
+    const gate = Promise.withResolvers<typeof snapshot>()
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = () => {
+      loadStarted.resolve(undefined)
+      return gate.promise
+    }
+
+    const resuming = ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    await loadStarted.promise
+    // Resolve the load only after teardown began: the post-load ownership
+    // check, not the abort race, must reject the wrapper.
+    const rejection = expect(promptly(resuming)).rejects.toThrow()
+    const disposal = ctx.fiber.dispose()
+    gate.resolve(structuredClone(snapshot))
+    await rejection
+    await disposal
+  })
+})
+
+describe('configured-start failure edges', () => {
+  it('a non-Error mid-load abort reason is wrapped for the resume caller', async () => {
+    const sessionId = SessionId('resume-string-mid-abort')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const gate = Promise.withResolvers<never>()
+    gate.promise.catch(() => undefined)
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = () => {
+      loadStarted.resolve(undefined)
+      return gate.promise
+    }
+    const controller = new AbortController()
+
+    const resuming = ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+    })
+    await loadStarted.promise
+    controller.abort('operator string reason')
+
+    await expect(promptly(resuming)).rejects.toThrow(/creation aborted/)
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('a failing exact-id restore over an existing artifact stays loud', async () => {
+    const sessionId = SessionId('config-existing-corrupt')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    // The artifact exists (list reports it) but its load fails: this is
+    // corruption, not first creation — the failure must be reported, and no
+    // fresh same-id session may shadow the broken one.
+    ctx.sessionPersistence.load = () => Promise.reject(new Error('artifact corrupt'))
+
+    const configured = new Context()
+    await configured.plugin(LlmService)
+    await configured.plugin(SessionStore)
+    await configured.plugin(SystemPrompt)
+    await configured.plugin(ToolRegistry)
+    await configured.plugin(AgentRegistry)
+    await configured.plugin(SessionPersistenceJsonl, { root })
+    configured.llm.registerAdapter(['mock'], new MockAdapter([]))
+    configured.sessionPersistence.load = id => ctx.sessionPersistence.load(id)
+    const configFailures: unknown[] = []
+    configured.on('agent-loop/config-start-failed', (_id, error) => { configFailures.push(error) })
+    const configWarnings: string[] = []
+    const configWarn = configured.logger.warn.bind(configured.logger)
+    configured.logger.warn = ((...args: unknown[]) => {
+      if (typeof args[0] === 'string') configWarnings.push(args[0])
+      return (configWarn as (...a: unknown[]) => unknown)(...args)
+    }) as typeof configured.logger.warn
+    const loop = await configured.plugin(AgentLoop, {
+      agents: [{ id: 'main', sessionId, provider: 'mock', model: 'mock' }],
+    })
+    await expect.poll(() => configFailures.length).toBe(1)
+    expect(configFailures[0]).toBeInstanceOf(Error)
+    expect((configFailures[0] as Error).message).toBe('artifact corrupt')
+    expect(configWarnings.some(w => w.includes('config-driven restore'))).toBe(true)
+    expect(configured.agents.get(sessionId)).toBeUndefined()
+
+    await loop.dispose()
+    await configured.fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('suppresses a configured-resume failure that lands after teardown', async () => {
+    const sessionId = SessionId('config-late-resume-failure')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const gate = Promise.withResolvers<never>()
+    gate.promise.catch(() => undefined)
+    const loadStarted = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.load = () => {
+      loadStarted.resolve(undefined)
+      return gate.promise
+    }
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+
+    const configured = new Context()
+    await configured.plugin(LlmService)
+    await configured.plugin(SessionStore)
+    await configured.plugin(SystemPrompt)
+    await configured.plugin(ToolRegistry)
+    await configured.plugin(AgentRegistry)
+    await configured.plugin(SessionPersistenceJsonl, { root })
+    configured.llm.registerAdapter(['mock'], new MockAdapter([]))
+    configured.sessionPersistence.load = id => ctx.sessionPersistence.load(id)
+    configured.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    const loop = await configured.plugin(AgentLoop, {
+      agents: [{ id: 'main', resumeSessionId: sessionId, provider: 'mock', model: 'mock' }],
+    })
+    await loadStarted.promise
+    const disposal = loop.dispose()
+    gate.reject(new Error('late backend failure'))
+    await disposal
+    await new Promise(r => setTimeout(r, 20))
+
+    // Ownership deactivated before the failure landed: the report is dropped.
+    expect(failures).toEqual([])
+    await configured.fiber.dispose()
     await ctx.fiber.dispose()
   })
 })

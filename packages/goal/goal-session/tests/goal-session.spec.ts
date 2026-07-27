@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
+import GoalService, { foldGoal, GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -141,8 +141,6 @@ describe('goal-round outcome policy', () => {
       { kind: 'blocked', code: 'turn-error', message: 'broken' }],
     [{ kind: 'max-tokens' }, true,
       { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }],
-    [{ kind: 'rejected', reason: 'policy' }, true,
-      { kind: 'blocked', code: 'prompt-rejected', message: 'policy' }],
     [{ kind: 'disposed' }, true, { kind: 'disarm', reason: 'disposed' }],
     [{ kind: 'interrupted' }, true, { kind: 'disarm', reason: 'interrupted' }],
     [{ kind: 'completed' }, false, { kind: 'disarm', reason: 'durability-failed' }],
@@ -266,8 +264,7 @@ describe('same-session goal driving', () => {
     expect(goal?.roundsStarted).toBe(0)
     expect(goal?.blockedReason).toEqual({ code: 'prompt-rejected', message: 'deployment policy' })
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
-      && event.data.reason === 'deployment policy')).toBe(true)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
   })
 
   it('does not reserve again when a stopped-goal observer queues ordinary work', async () => {
@@ -276,7 +273,7 @@ describe('same-session goal driving', () => {
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
-      if (change.operation === 'block') agent.followup([{ type: 'text', text: 'inspect the blocker' }])
+      if (change.operation === 'block') agent.followup({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } })
     })
     test.ctx.goals.create(test.agent, { objective: 'stop and inspect' })
 
@@ -317,13 +314,17 @@ describe('same-session goal driving', () => {
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
 
     expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(foldGoal(test.agent.session.events)).toMatchObject({
+      goal: { phase: 'paused', revision: 2 },
+      roundsStarted: 1,
+    })
     expect(test.adapter.requests).toHaveLength(1)
   })
 
   it('lets already-queued human work finish before reserving the next round', async () => {
     const test = await harness([textResponse('human answer'), textResponse('goal answer')])
     test.ctx.goals.create(test.agent, { objective: 'continue after the human', maxGoalRounds: 1 })
-    test.agent.followup([{ type: 'text', text: 'human goes first' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'human goes first' }], source: { kind: 'user' } })
 
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
@@ -364,7 +365,7 @@ describe('same-session goal driving', () => {
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
       inserted = true
-      agent.followup([{ type: 'text', text: 'human joined the pending batch' }])
+      agent.followup({ content: [{ type: 'text', text: 'human joined the pending batch' }], source: { kind: 'user' } })
     })
     test.ctx.goals.create(test.agent, { objective: 'yield to nested human input', maxGoalRounds: 1 })
 
@@ -391,9 +392,6 @@ describe('same-session goal driving', () => {
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal).toMatchObject({ revision: 3, objective: 'new objective', roundsStarted: 1 })
-    const blocked = test.agent.session.events.find(event => event.type === 'prompt/blocked')
-    expect(blocked?.type === 'prompt/blocked' ? blocked.data.reason : undefined)
-      .toBe('stale goal-round reservation')
     const admitted = test.agent.session.events.find(event => event.type === 'user/message'
       && event.data.source.kind === 'goal' && event.data.source.round > 0)
     expect(admitted?.type === 'user/message' && admitted.data.source.kind === 'goal'
@@ -419,8 +417,6 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ objective: 'edited downstream', roundsStarted: 1 })
     expect(test.adapter.requests).toHaveLength(1)
-    expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
-      && event.data.reason === 'stale goal-round reservation')).toBe(true)
   })
 
   it('disarms without dispatch when a durability checkpoint fails', async () => {
@@ -432,6 +428,42 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ phase: 'active', roundsStarted: 0 })
     expect(test.adapter.requests).toHaveLength(0)
+  })
+
+  it('disarms instead of reserving another round when the round checkpoint fails', async () => {
+    const test = await harness([textResponse('round one ran')])
+    // The loop persists eagerly with no turn-end flush, so the driver owns
+    // the round durability barrier. Let goal creation's checkpoint pass, then
+    // fail the flush that settles round one: no second round may be reserved
+    // on state that was never persisted.
+    let flushes = 0
+    test.ctx.on('session/flush', () => {
+      flushes += 1
+      // Flush 1 is goal creation's checkpoint; flush 2 settles round one.
+      return flushes >= 2 ? Promise.reject(new Error('round checkpoint failed')) : undefined
+    })
+    test.ctx.goals.create(test.agent, { objective: 'no autonomous rounds without durability', maxGoalRounds: 5 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('reserves the next round only after the settled round checkpoint succeeds', async () => {
+    const test = await harness([textResponse('round one'), textResponse('round two')])
+    const flushes: number[] = []
+    test.ctx.on('session/flush', () => { flushes.push(test.adapter.requests.length) })
+    test.ctx.goals.create(test.agent, { objective: 'checkpoint between rounds', maxGoalRounds: 2 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(2)
+    expect(test.adapter.requests).toHaveLength(2)
+    // A flush was observed after round one settled and before round two
+    // dispatched (recorded request count 1 at flush time).
+    expect(flushes).toContain(1)
   })
 
   it('contains a checkpoint failure after a clear notification leaves no current goal', async () => {
@@ -447,36 +479,99 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('disarms an admitted round when a later injection hides its failed closing checkpoint', async () => {
-    const test = await harness([textResponse('not durable')])
-    let injected = false
-    test.ctx.on('session/flush', (session) => {
-      const lastStart = session.events.findLast(event => event.type === 'turn/start')
-      if (lastStart?.type === 'turn/start' && lastStart.data.trigger.kind === 'message'
-        && lastStart.data.trigger.source.kind === 'goal' && !injected) {
-        injected = true
-        test.agent.inject([{ type: 'text', text: 'concurrent completion notice' }], {
-          source: { kind: 'plugin', plugin: 'test' },
-        })
-        return Promise.reject(new Error('round flush failed'))
+  it('settles a goal round from its successful retry turn, not the failed original', async () => {
+    const test = await harness([
+      new LlmError('transient', 'SERVER'),
+      textResponse('retry succeeded'),
+    ])
+    // The llm-retry shape: schedule one retry for the failed goal-round request.
+    let retried = false
+    test.ctx.on('agent/request-error', async (_subject) => {
+      if (!retried) {
+        retried = true
+        return { kind: 'retry' }
       }
     })
-    test.ctx.goals.create(test.agent, { objective: 'checkpoint the result' })
+    test.ctx.goals.create(test.agent, { objective: 'survive a transient failure', maxGoalRounds: 1 })
 
-    const goal = await waitForGoal(
-      test.ctx,
-      test.agent,
-      current => current?.roundsStarted === 1 && current.activation === 'disarmed',
-    )
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
-    expect(goal?.phase).toBe('active')
+    // The retry turn's completed outcome settles the round: round-limit, not
+    // the failed original turn's turn-error.
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('does not double-clear when a throwing hook already cancelled the round', async () => {
+    const test = await harness([])
+    // The downstream hook cancels (pausing the goal and clearing the queued
+    // attempt through cancel-requested) and THEN throws: the catch finds no
+    // matching reservation and must not reschedule a paused goal.
+    let fired = false
+    test.ctx.on('agent/prompt-submit', async (agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !fired) {
+        fired = true
+        agent.cancel({ kind: 'user' })
+        throw new Error('hook cancelled then exploded')
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'cancel then throw' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setImmediate(resolve) })
+
+    expect(goal?.roundsStarted).toBe(0)
+    expect(test.adapter.requests).toHaveLength(0)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'paused' })
+  })
+
+  it('reschedules the round when a downstream admission hook throws', async () => {
+    const test = await harness([textResponse('second admission succeeded')])
+    // Registered after goal-session's own listener: the throw propagates back
+    // through goal-session's next() await, dropping the whole admission.
+    let threw = false
+    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !threw) {
+        threw = true
+        throw new Error('downstream admission hook exploded')
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a throwing hook', maxGoalRounds: 1 })
+
+    // The cleared reservation lets the driver reschedule; the second
+    // admission passes and the round completes to its limit.
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
     expect(test.adapter.requests).toHaveLength(1)
-    const turns = test.agent.session.events.filter(event => event.type === 'turn/start')
-    const goalTurn = turns.findIndex(event => event.data.trigger.kind === 'message'
-      && event.data.trigger.source.kind === 'goal')
-    const injectedTurn = turns.findIndex(event => event.data.trigger.kind === 'injection'
-      && event.data.trigger.source.kind === 'plugin')
-    expect(injectedTurn).toBeGreaterThan(goalTurn)
+  })
+
+  it('a retry turn on a non-goal failure leaves the goal reservation untouched', async () => {
+    const test = await harness([
+      new LlmError('transient on human turn', 'SERVER'),
+      textResponse('human retry succeeded'),
+      textResponse('goal round ran'),
+    ])
+    let retried = false
+    test.ctx.on('agent/request-error', async (_subject) => {
+      if (!retried) {
+        retried = true
+        return { kind: 'retry' }
+      }
+    })
+    // A human prompt fails and retries while a goal is armed but its round
+    // is not yet reserved: the retry trigger must not adopt or clear
+    // anything (the attempt is absent), and the goal proceeds normally.
+    test.ctx.goals.create(test.agent, { objective: 'ignore foreign retries', maxGoalRounds: 1 })
+    test.agent.followup({ content: [{ type: 'text', text: 'human work' }], source: { kind: 'user' } })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
   })
 
   it('blocks the goal when a custom agent rejects the otherwise valid follow-up', async () => {
@@ -484,11 +579,11 @@ describe('same-session goal driving', () => {
     // Reject only the goal-sourced round follow-up, not the state-change injection
     // that precedes it.
     const realFollowup = test.agent.followup.bind(test.agent)
-    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal') {
+    vi.spyOn(test.agent, 'followup').mockImplementation((input) => {
+      if (input.source.kind === 'goal') {
         throw new Error('queue rejected')
       }
-      return realFollowup(content, options)
+      return realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'handle queue failure' })
 
@@ -505,12 +600,12 @@ describe('same-session goal driving', () => {
   it('preserves a custom agent side effect when followup disarms before throwing', async () => {
     const test = await harness([])
     const realFollowup = test.agent.followup.bind(test.agent)
-    vi.spyOn(test.agent, 'followup').mockImplementation((content, options) => {
-      if (options?.source?.kind === 'goal') {
+    vi.spyOn(test.agent, 'followup').mockImplementation((input) => {
+      if (input.source.kind === 'goal') {
         test.ctx.goals.disarm(test.agent)
         throw new Error('queue rejected after disarm')
       }
-      return realFollowup(content, options)
+      return realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'preserve the newer activation state' })
 
@@ -520,23 +615,20 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('contains a driver read failure and removes continuation authority', async () => {
-    const test = await harness([])
-    let flushes = 0
-    test.ctx.on('session/flush', () => {
-      flushes += 1
-      if (flushes !== 2) return
-      vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
-        throw new Error('corrupt projection')
-      })
+  it('contains a mutation failure inside the scheduler loop and fails closed', async () => {
+    const test = await harness([textResponse('the only round')])
+    // The only ctx.goals.block call in a completing one-round run is the
+    // driver's round-limit stop, so the mock fails exactly that drive pass.
+    vi.spyOn(test.ctx.goals, 'block').mockImplementationOnce(() => {
+      throw new Error('round-limit block failed')
     })
-    test.ctx.goals.create(test.agent, { objective: 'fail the driver closed' })
-    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    test.ctx.goals.create(test.agent, { objective: 'contain a driver failure', maxGoalRounds: 1 })
 
-    const goal = test.ctx.goals.get(test.agent)
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
 
-    expect(goal?.phase).toBe('active')
-    expect(test.adapter.requests).toHaveLength(0)
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(goal?.blockedReason).toBeUndefined()
+    expect(test.adapter.requests).toHaveLength(1)
   })
 
   it('contains synchronous scheduler startup failure', async () => {
@@ -583,8 +675,6 @@ describe('same-session goal driving', () => {
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
     expect(test.adapter.requests).toHaveLength(1)
-    expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
-      && event.data.reason === 'stale goal-round reservation')).toBe(true)
   })
 
   it('fails a post-hook read closed before the prompt can enter history', async () => {
@@ -609,19 +699,16 @@ describe('same-session goal driving', () => {
 
   it('blocks forged goal attribution without touching an absent reservation', async () => {
     const test = await harness([])
-    test.agent.followup([{ type: 'text', text: 'forged automatic work' }], {
-      source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 },
-    })
+    test.agent.followup({ content: [{ type: 'text', text: 'forged automatic work' }], source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 } })
     await test.agent.whenIdle()
 
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
-      && event.data.reason === 'stale goal-round reservation')).toBe(true)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
   })
 
   it('does not invent goal state when ordinary queued work is cancelled', async () => {
     const test = await harness([])
-    test.agent.followup([{ type: 'text', text: 'cancel ordinary work' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'cancel ordinary work' }], source: { kind: 'user' } })
     test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
@@ -631,7 +718,7 @@ describe('same-session goal driving', () => {
 
   it('disarms without durably pausing when cancellation belongs to unrelated human work', async () => {
     const test = await harness(['hang'])
-    test.agent.followup([{ type: 'text', text: 'inspect something first' }])
+    test.agent.followup({ content: [{ type: 'text', text: 'inspect something first' }], source: { kind: 'user' } })
     await waitForRequests(test.adapter, 1)
     const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
 
@@ -715,9 +802,9 @@ describe('same-session goal driving', () => {
     expect(test.ctx.goals.get(test.agent)).toMatchObject({
       phase: 'active',
       activation: 'disarmed',
-      roundsStarted: 1,
+      roundsStarted: 0,
     })
-    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.adapter.requests).toHaveLength(0)
   })
 
   it('resets process-local scheduling state at a session-start edge', async () => {
@@ -732,6 +819,177 @@ describe('same-session goal driving', () => {
     test.ctx.goals.resume(test.agent, created)
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
     expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('leaves a queued reservation pending when the driver runs before its turn settles', async () => {
+    const test = await harness([textResponse('settled later')])
+    let woken = false
+    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !woken) {
+        woken = true
+        // A concurrent driver pass must observe the still-unsettled attempt
+        // and yield rather than double-book or clear the reservation.
+        agentEvents(test.ctx, test.agent).emit('agent/status', 'idle')
+        await new Promise<void>((resolve) => { setImmediate(resolve) })
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'wake early', maxGoalRounds: 1 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(goal?.roundsStarted).toBe(1)
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('yields to a round whose turn/end never committed instead of misreading it as settled', async () => {
+    const test = await harness([textResponse('round ran')])
+    // A persistent pre-commit turn/end rejection: the loop contains the close
+    // failure and reaches idle, but the round's attempt holds a turn with no
+    // terminal reason. The idle drive pass must yield to that unsettled
+    // attempt rather than classify an absent reason or crash into disarm.
+    test.ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'turn/end') throw new Error('turn close permanently rejected')
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a lost turn end' })
+    await waitForRequests(test.adapter, 1)
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setImmediate(resolve) })
+
+    // One request ran; the unsettled attempt parked the driver without a
+    // second reservation and without disarming the goal.
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      phase: 'active',
+      activation: 'armed',
+    })
+  })
+
+  it('disarms instead of continuing when a plugin reports a post-turn persistence failure', async () => {
+    const test = await harness([textResponse('round one')])
+    test.ctx.on('session/event', (session, event) => {
+      if (session === test.agent.session && event.type === 'turn/end') {
+        agentEvents(test.ctx, test.agent).emit('agent/error', event.data.turn, 1, new Error('post-turn flush failed'))
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'stop when durability is lost', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+    await test.agent.whenIdle()
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('ignores a post-turn failure reported for a retired agent', async () => {
+    const test = await harness([textResponse('ordinary work')])
+    const handle = await test.ctx.agents.create({
+      sessionId: SessionId('goal-session-retired'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup({ content: [{ type: 'text', text: 'one ordinary turn' }], source: { kind: 'user' } })
+    await handle.agent.whenIdle()
+    const closed = handle.agent.session.events.findLast(event => event.type === 'turn/end')
+    if (closed?.type !== 'turn/end') throw new Error('expected a closed turn')
+    await handle.dispose()
+    const warn = vi.spyOn(test.ctx.logger, 'warn')
+
+    agentEvents(test.ctx, handle.agent).emit('agent/error', closed.data.turn, 1, new Error('late flush failure'))
+
+    expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('goal-session'))
+  })
+
+  it('ignores the failed outcome of a round made stale by human work queued at turn start', async () => {
+    const test = await harness([new Error('round one broke'), textResponse('human answer')])
+    let queued = false
+    test.ctx.on('session/event', (session, event) => {
+      if (session !== test.agent.session || queued) return
+      if (event.type === 'turn/start' && event.data.trigger.kind === 'message'
+        && event.data.trigger.source.kind === 'goal') {
+        queued = true
+        test.agent.followup({ content: [{ type: 'text', text: 'human interleaved' }], source: { kind: 'user' } })
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'survive a stale failure', maxGoalRounds: 1 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    // The stale round's turn-error never blocks the goal; only the durable
+    // round budget does, after the interleaved human turn ran.
+    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(requestText(test.adapter.requests[1]!)).toContain('human interleaved')
+  })
+
+  it('waits for work queued by a pause observer before considering the next round', async () => {
+    const test = await harness(['hang', textResponse('inspection answer')])
+    test.ctx.on('goal/changed', (agent, change) => {
+      if (agent === test.agent && change.operation === 'pause') {
+        agent.followup({ content: [{ type: 'text', text: 'inspect the pause' }], source: { kind: 'user' } })
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'pause then inspect' })
+    await waitForRequests(test.adapter, 1)
+
+    test.agent.cancel({ kind: 'user' })
+    await waitForRequests(test.adapter, 2)
+    await test.agent.whenIdle()
+
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({
+      phase: 'paused',
+      roundsStarted: 1,
+      activation: 'disarmed',
+    })
+    expect(requestText(test.adapter.requests[1]!)).toContain('inspect the pause')
+  })
+
+  it('does not re-block a goal the downstream veto already saw cancelled', async () => {
+    const test = await harness([])
+    let vetoed = false
+    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && !vetoed) {
+        vetoed = true
+        agent.cancel({ kind: 'user' })
+        return Promise.resolve<PromptDecision>({ kind: 'block', reason: 'cancelled by policy' })
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'veto after cancellation' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
+    await test.agent.whenIdle()
+
+    // Cancellation already cleared the reservation and paused the goal, so the
+    // veto neither touches an absent attempt nor blocks the paused goal.
+    expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
+    expect(goal?.blockedReason).toBeUndefined()
+    expect(test.adapter.requests).toHaveLength(0)
+  })
+
+  it('awaits an unadmitted reservation stuck in admission during teardown without cancelling', async () => {
+    const test = await harness([])
+    let release: (() => void) | undefined
+    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
+      if (source.kind === 'goal' && release === undefined) {
+        await new Promise<void>((resolve) => { release = resolve })
+      }
+      return next()
+    })
+    test.ctx.goals.create(test.agent, { objective: 'unload during admission' })
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+
+    const disposal = Promise.resolve(test.driver.dispose())
+    await waitForGoal(test.ctx, test.agent, goal => goal?.activation === 'disarmed')
+    release?.()
+    await disposal
+
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'active', roundsStarted: 0 })
+    expect(test.adapter.requests).toHaveLength(0)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
   })
 
   it('ignores session events without an exact owning agent and retires disposed agent state', async () => {

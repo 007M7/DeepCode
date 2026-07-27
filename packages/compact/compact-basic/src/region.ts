@@ -177,10 +177,10 @@ export async function compactSurfaceRegion(
 
 /**
  * Reconstruct the last routed request's cacheable prefix for the shadowed
- * region: its system prompt and tool schemas, then the request-only message
- * prefix followed by the region's own derived messages in surface order. The
- * summarizer appends only the compaction instruction after this, so the call
- * is a genuine prefix of the conversation and reuses the provider's KV cache.
+ * region: its system prompt and tool schemas, then the region's own derived
+ * messages in surface order. The summarizer appends only the compaction
+ * instruction after this, so the call is a genuine prefix of the conversation
+ * and reuses the provider's KV cache.
  * @param session - session supplying the request header and per-node projection.
  * @param shadowedSeqs - the surface-node seqs, in order, being compacted.
  * @returns the replayed conversation prefix to condense.
@@ -199,7 +199,7 @@ function buildSummarizationInput(
   return {
     ...header?.system === undefined ? {} : { system: header.system },
     ...header?.tools === undefined ? {} : { tools: header.tools },
-    messages: [...header?.messagePrefix ?? [], ...regionMessages],
+    messages: regionMessages,
   }
 }
 

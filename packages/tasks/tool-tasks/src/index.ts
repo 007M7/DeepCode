@@ -218,21 +218,20 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // Use the exact lifecycle owner; reusable ids could resolve to a replacement.
+  // Delivery into a tearing-down owner is well-defined: the loop treats
+  // disposal like any cancel, so the notice appends as durable idle context
+  // (still attached and persisted during owner cleanup, presented on resume);
+  // after detach it lands in an unreferenced in-memory log and is dropped
+  // with it.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
-    try {
-      owner.inject(
-        [{
-          type: 'text',
-          text: fitCompletionNotice(snapshot),
-        }],
-        { source: { kind: 'plugin', plugin: 'tool-tasks' } },
-      )
-    } catch (error: unknown) {
-      // Disposal may win the race after settlement; other injection failures surface.
-      if (error instanceof Error && error.message.includes('is disposed')) return
-      throw error
-    }
+    owner.inject({
+      content: [{
+        type: 'text',
+        text: fitCompletionNotice(snapshot),
+      }],
+      source: { kind: 'plugin', plugin: 'tool-tasks' },
+    })
   })
 
   ctx.tools.register(defineTool({

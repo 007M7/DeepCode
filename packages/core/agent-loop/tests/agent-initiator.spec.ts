@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string): void {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 /** Adapter that holds both drivers at the same awaited continuation. */
@@ -153,6 +153,7 @@ describe('AgentLoop initiator scope', () => {
     const { ctx } = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('signal-owner'), { provider: 'mock', model: 'mock' })
     let signals: AbortSignal[] = []
+    let admissionSignals: AbortSignal[] = []
     const capture = (signal: AbortSignal | undefined): void => {
       if (signal === undefined) throw new Error('turn seam omitted its explicit signal')
       expect(ctx.agents.requireInitiator()).toBe(agent)
@@ -164,29 +165,20 @@ describe('AgentLoop initiator scope', () => {
       return next()
     })
     ctx.on('agent/prompt-submit', async (subject, _content, _source, signal, next) => {
+      if (subject === agent) {
+        expect(ctx.agents.requireInitiator()).toBe(agent)
+        admissionSignals.push(signal)
+      }
+      return next()
+    })
+    ctx.on('agent/step', (subject, _turn, _step, signal) => {
+      if (subject === agent) capture(signal)
+    })
+    ctx.on('agent/request', async (subject, _turn, _step, signal, next) => {
       if (subject === agent) capture(signal)
       return next()
     })
-    ctx.on('agent/session-prefix', async (subject, _prefix, signal, next) => {
-      if (subject === agent) capture(signal)
-      return next()
-    })
-    ctx.on('agent/pre-step', (subject, _turn, _step, signal) => {
-      if (subject === agent) capture(signal)
-    })
-    ctx.on('agent/request', async (subject, _turn, _step, _config, signal, next) => {
-      if (subject === agent) capture(signal)
-      return next()
-    })
-    ctx.on('agent/step-result', async (subject, _turn, _step, _message, signal, next) => {
-      if (subject === agent) capture(signal)
-      return next()
-    })
-    ctx.on('agent/turn-continuation', async (subject, _turn, _decision, signal, next) => {
-      if (subject === agent) capture(signal)
-      return next()
-    })
-    ctx.on('agent/turn-stop', (subject, _turn, signal) => {
+    ctx.on('agent/turn-stopping', (subject, _turn, signal) => {
       if (subject === agent) capture(signal)
     })
     ctx.tools.register(defineContentToolFixture({
@@ -205,14 +197,19 @@ describe('AgentLoop initiator scope', () => {
     const firstSignal = signals[0]
     expect(firstSignal).toBeDefined()
     expect(new Set([...signals, ...adapter.requests.slice(0, 2).map(request => request.signal!)])).toEqual(new Set([firstSignal]))
+    expect(admissionSignals).toHaveLength(1)
+    expect(admissionSignals[0]).not.toBe(firstSignal)
 
     signals = []
+    admissionSignals = []
     const secondIdle = waitForIdle(ctx, agent)
     send(agent, 'second')
     await secondIdle
     const secondSignal = signals[0]
     expect(secondSignal).toBeDefined()
     expect(new Set([...signals, adapter.requests[2]!.signal!])).toEqual(new Set([secondSignal]))
+    expect(admissionSignals).toHaveLength(1)
+    expect(admissionSignals[0]).not.toBe(secondSignal)
     expect(secondSignal).not.toBe(firstSignal)
     expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()
@@ -343,7 +340,6 @@ describe('AgentLoop initiator scope', () => {
     expect(captured).toBe(handle.agent)
 
     await handle.dispose()
-    expect(captured?.status).toBe('disposed')
     expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()
   })
@@ -365,7 +361,6 @@ describe('AgentLoop initiator scope', () => {
     await loopFiber.await()
     expect(adapter.firstAgentDuringAbort?.id).toBe(oldAgent.id)
     expect(adapter.firstAgentDuringAbort?.session).toBe(oldAgent.session)
-    expect(oldAgent.status).toBe('disposed')
     expect(() => oldService.currentInitiator()).toThrow('agent initiator scope is disposed')
     expect(ctx.agents).not.toBe(oldService)
     adapter.agents = ctx.agents
@@ -406,7 +401,6 @@ describe('AgentLoop initiator scope', () => {
     await ctx.fiber.dispose()
     expect(adapter.firstAgentDuringAbort?.id).toBe(agent.id)
     expect(adapter.firstAgentDuringAbort?.session).toBe(agent.session)
-    expect(agent.status).toBe('disposed')
     expect(() => service.currentInitiator()).toThrow('agent initiator scope is disposed')
   })
 })

@@ -200,7 +200,8 @@ function standardKit(
   scope: SlotScope,
   info: SessionMaybeProvideInfo | undefined,
 ): {
-  kit: InjectedProps; actions: object | undefined
+  kit: InjectedProps
+  actions: object | undefined
 } {
   const kit: InjectedProps = {
     useSessions: observableHook(host.sessions.list),
@@ -232,13 +233,13 @@ function standardKit(
     kit['renderSlot'] = boundRenderSlot(host, entry)
     // renderSlotChain rides the same declaration source: only entries whose
     // children include a chain-kind slot receive the chain dispatch seat.
-    if (Object.values(entry.children).some((spec) => spec.kind === 'chain')) {
+    if (Object.values(entry.children).some(spec => spec.kind === 'chain')) {
       kit['renderSlotChain'] = boundRenderSlotChain(host, entry)
     }
     // SessionProvider standard seat: entries declaring a session-scope child
     // render the session area, so the framework hands them the self-wired
     // provider (module-level component = stable reference; no value import).
-    if (Object.values(entry.children).some((spec) => spec.scope === 'session')) {
+    if (Object.values(entry.children).some(spec => spec.scope === 'session')) {
       kit['SessionProvider'] = SessionProvider
     }
   }
@@ -253,7 +254,9 @@ function standardKit(
  * composition point, one per scope branch).
  */
 function SessionEntry({ entry, ownerProps, info }: {
-  entry: StoredEntry; ownerProps: object; info: SessionProvideInfo
+  entry: StoredEntry
+  ownerProps: object
+  info: SessionProvideInfo
 }) {
   const host = useHost()
   const Comp = entry.component as FC<InjectedProps>
@@ -280,7 +283,9 @@ function RootEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: obje
 }
 
 function StrictSessionEntry({ slotKey, entry, ownerProps }: {
-  slotKey: string; entry: StoredEntry; ownerProps: object
+  slotKey: string
+  entry: StoredEntry
+  ownerProps: object
 }) {
   const info = useSessionMaybeProvideInfo()
   if (info.sessionId === undefined) return null
@@ -292,12 +297,14 @@ function StrictSessionEntry({ slotKey, entry, ownerProps }: {
 }
 
 function SlotOutlet({ slotKey, ownerProps, opts }: {
-  slotKey: string; ownerProps: object; opts?: (RenderOpts & ChainRenderOpts) | undefined
+  slotKey: string
+  ownerProps: object
+  opts?: (RenderOpts & ChainRenderOpts) | undefined
 }) {
   const host = useHost()
   // Version tick drives entries() re-read; the host batches per microtask.
   useSyncExternalStore(
-    (fn) => host.subscribe(slotKey, fn),
+    fn => host.subscribe(slotKey, fn),
     () => host.getVersion(slotKey),
   )
   const sessionInfo = useSessionMaybeProvideInfo()
@@ -321,12 +328,12 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     spec.scope === 'session'
       ? <StrictSessionEntry slotKey={slotKey} entry={entry} ownerProps={owner} key={key} />
       : (
-          <SlotErrorBoundary slotKey={slotKey} key={key}>
-            {spec.scope === 'session-maybe'
-              ? <SessionMaybeEntry entry={entry} ownerProps={owner} />
-              : <RootEntry entry={entry} ownerProps={owner} />}
-          </SlotErrorBoundary>
-        )
+        <SlotErrorBoundary slotKey={slotKey} key={key}>
+          {spec.scope === 'session-maybe'
+            ? <SessionMaybeEntry entry={entry} ownerProps={owner} />
+            : <RootEntry entry={entry} ownerProps={owner} />}
+        </SlotErrorBoundary>
+      )
   )
 
   if (spec.kind === 'single') {
@@ -335,7 +342,7 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     return guarded(entry)
   }
   if (spec.kind === 'keyed') {
-    const entry = entries.find((e) => e.options?.key === opts?.entryKey)
+    const entry = entries.find(e => e.options.key === opts?.entryKey)
     if (!entry) return <>{opts?.fallback ?? null}</>
     return guarded(entry)
   }
@@ -388,13 +395,13 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     return elected ?? <>{opts?.fallback ?? null}</>
   }
   // list: registration order refined by explicit order, optional id filter.
-  const withListOptions = entries.map((entry) => ({
+  const withListOptions = entries.map(entry => ({
     entry,
-    id: entry.options?.id,
-    order: entry.options?.order ?? 0,
+    id: entry.options.id,
+    order: entry.options.order ?? 0,
   }))
   let list = [...withListOptions].sort((a, b) => a.order - b.order)
-  if (opts?.only !== undefined) list = list.filter((item) => item.id === opts.only)
+  if (opts?.only !== undefined) list = list.filter(item => item.id === opts.only)
   if (list.length === 0) return <>{opts?.fallback ?? null}</>
   return <>{list.map((item, i) => guarded(item.entry, item.id ?? i))}</>
 }
@@ -403,7 +410,7 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
 function RootOutlet({ ownerProps }: { ownerProps: object }) {
   const host = useHost()
   useSyncExternalStore(
-    (fn) => host.subscribe('root', fn),
+    fn => host.subscribe('root', fn),
     () => host.getVersion('root'),
   )
   const entry = host.entriesOf('root')[0]

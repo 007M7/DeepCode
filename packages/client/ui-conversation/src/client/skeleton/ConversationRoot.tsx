@@ -78,12 +78,12 @@ export function ConversationRoot({
   const inputBar = sessionId === undefined
     ? <DisabledInputBar />
     : renderSlot('conversation.composer.bar', {
-        variant: hero ? 'hero' : 'composer',
-        ...(hero ? { placeholder: 'Describe what you want to build' } : {}),
-        overlay: renderSlot('conversation.input.overlay', {}),
-        leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
-        rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
-      })
+      variant: hero ? 'hero' : 'composer',
+      ...(hero ? { placeholder: 'Describe what you want to build' } : {}),
+      overlay: renderSlot('conversation.input.overlay', {}),
+      leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
+      rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
+    })
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>

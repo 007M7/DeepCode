@@ -58,7 +58,7 @@ async function runTurn(registrationOrder: string[], toolOrder?: SystemPromptConf
   const ctx = await harness(adapter, toolOrder)
   for (const name of registrationOrder) registerNamed(ctx, name)
   const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-  agent.followup([{ type: 'text', text: 'go' }])
+  agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
   await waitForIdle(ctx, agent)
   return { ctx, agent, adapter }
 }
@@ -98,9 +98,11 @@ describe('loop-level canonical tool order', () => {
     const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
     registerNamed(ctx, 'alpha')
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+      if (error instanceof Error) errors.push(error)
+    })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.followup([{ type: 'text', text: 'go' }])
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
     expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; known tools: alpha'])

@@ -11,8 +11,7 @@
 
 import type { Context } from 'cordis'
 import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import type { HookContext } from '@deepseek-ai/dsh-agent'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, UserMessageData } from '@deepseek-ai/dsh-session'
 import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -32,13 +31,16 @@ interface Slot {
 interface GroupOutcome {
   consumed: number
   aborted: boolean
+  /** Whether any committed result carried {@link ToolExecutionResult.concludesTurn}. */
+  concluded: boolean
 }
 
 /**
  * Schedule one assistant step's tool calls by their live concurrency mode.
  * Started calls receive ordered results. Abort drains them, records synthetic
  * results for unstarted calls, and returns with the signal still aborted after
- * accepting started-call context into the batch FIFO owned by the caller.
+ * accepting started-call context through the caller-supplied acceptor (the
+ * machine stages it on its outbox for the next step boundary).
  * The committed step's AgentLoop driver boundary supplies the initiating Agent
  * that becomes each explicit {@link ToolExecutionInput.agent}.
  *
@@ -47,8 +49,7 @@ interface GroupOutcome {
  * @param step - current step number.
  * @param toolCalls - assistant calls in model order.
  * @param signal - abort signal shared by the step.
- * @param maxParallel - validated in-flight cap.
- * @param acceptContext - accepts committed result context into the active batch.
+ * @param acceptContext - accepts committed result context for the next step boundary.
  */
 export async function executeToolCalls(
   ctx: Context,
@@ -56,9 +57,8 @@ export async function executeToolCalls(
   step: number,
   toolCalls: ToolCallBlock[],
   signal: AbortSignal,
-  maxParallel: number,
-  acceptContext: (context: HookContext) => void,
-): Promise<void> {
+  acceptContext: (context: UserMessageData) => void,
+): Promise<{ concluded: boolean }> {
   const agent = ctx.agents.requireInitiator()
   const { session } = agent
 
@@ -75,6 +75,7 @@ export async function executeToolCalls(
   }))
 
   let next = 0
+  let concluded = false
   while (next < planned.length) {
     // Commit before classifying again so registry changes affect unstarted calls.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
@@ -82,14 +83,16 @@ export async function executeToolCalls(
     const mode = ctx.tools.executionMode(first.exec).kind
     const group = mode === 'parallel' ? planned.slice(next) : [first]
     const outcome = await runGroup(
-      ctx, turn, step, group, mode, signal, maxParallel, acceptContext,
+      ctx, turn, step, group, mode, signal, acceptContext,
     )
     next += outcome.consumed
+    concluded ||= outcome.concluded
     if (outcome.aborted) {
       for (const call of planned.slice(next)) appendSkippedToolCall(session, turn, step, call.block)
-      return
+      return { concluded }
     }
   }
+  return { concluded }
 }
 
 /** Parse model arguments, preserving invalid JSON as text and mapping empty input to `{}`. */
@@ -116,10 +119,10 @@ async function runGroup(
   group: PlannedCall[],
   mode: ToolExecutionMode['kind'],
   signal: AbortSignal,
-  maxParallel: number,
-  acceptContext: (context: HookContext) => void,
+  acceptContext: (context: UserMessageData) => void,
 ): Promise<GroupOutcome> {
   const { session } = ctx.agents.requireInitiator()
+  const { maxParallelToolCalls } = ctx.agentLoop.config
   const slots: (Slot | undefined)[] = group.map(() => undefined)
   // Started slots retain their tool/call seq for result provenance.
   const callSeqs: number[] = group.map(() => -1)
@@ -127,6 +130,7 @@ async function runGroup(
   let committed = 0
   let started = 0
   let aborted: boolean = signal.aborted
+  let concluded = false
 
   // `committed` advances only across contiguous model-order slots.
   const commitReady = async (): Promise<void> => {
@@ -140,6 +144,7 @@ async function runGroup(
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded index
       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
       for (const context of result.additionalContexts ?? []) acceptContext(context)
+      concluded ||= result.concludesTurn === true
       committed++
     }
   }
@@ -174,7 +179,7 @@ async function runGroup(
   }
 
   const fillPool = async (): Promise<void> => {
-    while (!aborted && nextToStart < group.length && inFlight.size < maxParallel) {
+    while (!aborted && nextToStart < group.length && inFlight.size < maxParallelToolCalls) {
       // Re-read later modes after ordered commits so registry changes can create a barrier.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
       const nextCall = group[nextToStart]!
@@ -206,11 +211,11 @@ async function runGroup(
     // Started calls and accepted context settle first; every remaining model
     // call then receives an ordered synthetic result before the turn aborts.
     for (const call of group.slice(started)) appendSkippedToolCall(session, turn, step, call.block)
-    return { consumed: group.length, aborted: true }
+    return { consumed: group.length, aborted: true, concluded }
   }
   /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
   if (committed !== started) throw new Error('tool-call scheduler: uncommitted settled calls')
-  return { consumed: started, aborted: false }
+  return { consumed: started, aborted: false, concluded }
 }
 
 /** Append the durable call/result pair for a model call skipped after cancellation. */

@@ -42,7 +42,7 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
-  } as ConversationSnapshot
+  }
 }
 
 /** Test-owned AppFrame role: declares and renders the resident conversation area. */
@@ -108,6 +108,10 @@ async function bench(nodes: ToolResultNode[]) {
       return info
     },
     maybeProvideInfo(id: string | undefined) {
+      // `this` inside an object-literal method is any under strict lint; the
+      // fake resolves through its own provideInfo above.
+      /* eslint-disable-next-line @typescript-eslint/no-unsafe-return,
+         @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
       return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
     },
     provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
@@ -252,7 +256,7 @@ describe('registrant load-order seam', () => {
       children: {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        },
+      },
     }, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

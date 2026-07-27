@@ -86,27 +86,27 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
           : material === null
             ? <div className={css.empty}>该调用不在当前窗口内</div>
             : (
-                <>
-                  {material.argsRaw !== null && (
-                    <section className={css.section}>
-                      <div className={css.sectionLabel}>Input</div>
-                      <CodeBlock code={pretty(material.argsRaw)} lang="json" />
-                    </section>
-                  )}
+              <>
+                {material.argsRaw !== null && (
                   <section className={css.section}>
-                    <div className={css.sectionLabel}>Output</div>
-                    {/* materialFor invariant: result===null ⇔ running (a settled
-                        material always carries its result node). */}
-                    {material.result === null
-                      ? <div className={css.empty}>运行中…</div>
-                      : (
-                          <pre className={css.code} data-error={material.result.isError || undefined}>
-                            {renderResult(material.result)}
-                          </pre>
-                        )}
+                    <div className={css.sectionLabel}>Input</div>
+                    <CodeBlock code={pretty(material.argsRaw)} lang="json" />
                   </section>
-                </>
-              )}
+                )}
+                <section className={css.section}>
+                  <div className={css.sectionLabel}>Output</div>
+                  {/* materialFor invariant: result===null ⇔ running (a settled
+                        material always carries its result node). */}
+                  {material.result === null
+                    ? <div className={css.empty}>运行中…</div>
+                    : (
+                      <pre className={css.code} data-error={material.result.isError || undefined}>
+                        {renderResult(material.result)}
+                      </pre>
+                    )}
+                </section>
+              </>
+            )}
       </div>
     </div>
   )

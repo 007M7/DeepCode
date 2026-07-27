@@ -18,7 +18,7 @@ describe('ic_ds_ icon set', () => {
     expect(iconNames.length).toBe(55)
   })
 
-  it.each(iconNames)('%s renders an svg with currentColor fills and no hardcoded palette', name => {
+  it.each(iconNames)('%s renders an svg with currentColor fills and no hardcoded palette', (name) => {
     const Icon = icons[name]!
     const { container } = render(<Icon />)
     const svg = container.querySelector('svg')

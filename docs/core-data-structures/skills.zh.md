@@ -154,6 +154,6 @@ interface Config {
 
 ## 会话目录与工具契约
 
-`dsh-tool-skill` 通过 `agent/session-prefix` 贡献一条 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。Prefix 发现通过 `SkillLookupOptions` 转发调用方的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。其仅用于请求、记录在 header 中的生命周期由 [session-prefix Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md)定义。
+`dsh-tool-skill` 在存活会话的第一个 `agent/step` 注入一条持久的 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。发现通过 `SkillLookupOptions` 转发该步骤的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。
 
 面向模型的 `skill({ name })` 工具校验 kebab-case 名称，为调用方 agent 的 cwd 加载完整定义，将未解析的 skill 报告为 unknown 或 no longer available，拒绝 `disableModelInvocation` 的 skill，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。工具结果是模型获取完整指令的可见路径。

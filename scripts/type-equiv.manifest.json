@@ -88,17 +88,17 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "SendTarget",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxPlacement",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SendOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InjectOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "ResolvedAgentInput",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -128,32 +128,17 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "HookContext",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
       "symbol": "PromptDecision",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "ContinuationDecision",
+      "symbol": "RequestErrorAction",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "RequestError",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "RequestErrorDecision",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "ContinuationStop",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -335,7 +320,7 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "PromptMessageData",
+      "symbol": "UserMessageData",
       "source": "packages/core/session/src/types.ts"
     },
     {
