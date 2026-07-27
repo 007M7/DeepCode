@@ -1,5 +1,5 @@
 /**
- * Scope-addressed conversation send, cancel, history, and retained-prompt orchestration.
+ * Scope-addressed conversation send, cancel, and history orchestration.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -13,15 +13,23 @@ import type { Context } from 'cordis'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { InputHub } from './input/hub.ts'
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
+  /** The per-session input machine registry (InputService face, design §5.2). */
+  readonly input: InputHub
+
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
+   * @param config - the shared InputHub constructed by the plugin apply
+   * (shared with the slot inject factories); absent = own instance
+   * (object-layer tests that never touch slots).
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config?: { input?: InputHub }) {
     super(ctx, 'conversation')
+    this.input = config?.input ?? new InputHub(ctx)
   }
 
   /**
@@ -47,19 +55,6 @@ export class ConversationService extends Service {
   /** Pull one older history page for the scoped Session. */
   async loadOlder(): Promise<void> {
     await this.scopedSession('loadOlder').loadOlder()
-  }
-
-  /**
-   * Update the scoped Session's retained pending prompt.
-   * @param text - exact controlled-input value to retain.
-   */
-  updatePendingPrompt(text: string): void {
-    this.scopedSession('updatePendingPrompt').updatePendingPrompt(text)
-  }
-
-  /** Retry the scoped Session's retained pending prompt. */
-  retryPendingPrompt(): void {
-    this.scopedSession('retryPendingPrompt').retryPendingPrompt()
   }
 
   /** Resolve the caller scope's Session or throw on root contexts. */

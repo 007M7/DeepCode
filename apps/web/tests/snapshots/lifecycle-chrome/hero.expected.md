@@ -11,7 +11,11 @@
 - button "Search sessions":
   - img
 - textbox "Search name, keywords..."
-- tree "Sessions": No sessions yet
+- tree "Sessions":
+  - treeitem "workspace 1 session" [expanded]:
+    - img
+    - text: workspace 1 session
+  - treeitem "New Session now" [selected]
 - button "设置":
   - img
   - text: 设置
@@ -23,13 +27,10 @@
 - textbox "Describe what you want to build"
 - button "Add attachment":
   - img
-- combobox "Plan mode":
-  - option "Plan" [selected]
-  - option "Agent"
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
-- combobox "Model":
-  - option "DeepSeek-V4-Pro High" [selected]
-  - option "DeepSeek-V4-Pro"
 - button "Send message" [disabled]
+- text: 详情
+- button "关闭详情"
+- text: 点击消息流中的工具行查看详情

@@ -31,8 +31,14 @@ import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded } from '@deepseek-ai/dsh-app-boot'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  packChunkRuns,
+  SESSION_FORMAT_VERSION,
+  SessionId,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+} from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -263,14 +269,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
 }
 
 /**
- * Serialize a live session back to raw session-JSONL (header + events) — the
+ * Serialize a live session to the canonical raw session-JSONL layout — the
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
- * Mirrors the TUI suite's rawSessionLog.
  */
 function rawSessionLog(session: Session): string {
   return [
     JSON.stringify({ type: 'session', ...session.header }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(session.events).map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }

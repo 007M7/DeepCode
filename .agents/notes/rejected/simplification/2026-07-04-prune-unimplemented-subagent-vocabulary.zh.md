@@ -19,9 +19,9 @@ Status: rejected — 延后的能力词汇（`outputSchema`/`structured`、`tool
 
 **保留** `depthLimit`/`maxDepth` 与能力检查。进程内后端已强制执行该限制，尽管当前发布的工具尚未设置它。递归是已知的 seam 风险，因此恰当的后续工作是提供一个工具默认值，而非删除正在工作的强制逻辑。
 
-审视过但有意不动的相邻接口面：`SubagentService.getProvider()`/`list()` 仅有测试 harness 消费方，但 [prune-dead-seam-methods 实现说明](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md)恰好记录了这种形态从 bash 执行器中被移除后又被回退的经过——对于一个基于已跟踪 map 的单行访问器而言，测试 harness 就是消费方。`SubagentRunEndInfo.lastAssistantMessage` 是一个已记录的保留项（[subagent 观测/丰富化 Agent Note](../../implemented/feature/2026-06-30-subagent-observe-enrich.md)的评审删除了 `agentType` 但有意保留了它，因为它是进程外子 agent（智能体）唯一的最终消息通道）；它当前未接通的桥接转发是一个待补的缺口或待记录的消费方，不是本 Agent Note 要裁剪的接口面。
+审视过但有意不动的相邻接口面：`SubagentService.getProvider()`/`list()` 仅有测试 harness 消费方，但 [prune-dead-seam-methods 实现说明](../../archived/simplification/2026-06-20-prune-dead-seam-methods.md)恰好记录了这种形态从 bash 执行器中被移除后又被回退的经过——对于一个基于已跟踪 map 的单行访问器而言，测试 harness 就是消费方。`SubagentRunEndInfo.lastAssistantMessage` 是一个已记录的保留项（[subagent 观测/丰富化 Agent Note](../../archived/feature/2026-06-30-subagent-observe-enrich.md)的评审删除了 `agentType` 但有意保留了它，因为它是进程外子 agent（智能体）唯一的最终消息通道）；它当前未接通的桥接转发是一个待补的缺口或待记录的消费方，不是本 Agent Note 要裁剪的接口面。
 
-这是[从持久化 seam 裁剪死方法](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md)在 seam 词汇层面的回响：每个实现都必须为无人声明的成员，甚至更弱，因为这里连一个实现都没有。
+这是[从持久化 seam 裁剪死方法](../../archived/simplification/2026-06-20-prune-dead-seam-methods.md)在 seam 词汇层面的回响：每个实现都必须为无人声明的成员，甚至更弱，因为这里连一个实现都没有。
 
 ## 曾考虑的替代方案
 

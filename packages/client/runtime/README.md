@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state, and page-local Session Intent state; WorkspacesService depends on SessionsService and owns Workspace objects, list/actions, page-local Workspace Intent state, default-target derivation, and the cross-object New Session flow. The runtime fans the shared Host stream into both managers. Contract: api-contracts v3 §4.
+Client cordis boot and React-free object services: SlotsService wraps SlotCore and supplies renderer data sources; SessionsService owns Session objects, list/scope/history state; WorkspacesService depends on SessionsService and owns Workspace objects, list/actions, default-target derivation, and the New Session blank-reuse entry (`connectWorkspace`). The runtime fans the shared Host stream into both managers. Client sessions are always Host-born (Session+Agent+cwd in one `session.create`); the client holds no pre-entity session state — a session's Agent scope (the client mirror of host dsh-scope, keyed by the shared agent/session id) is born when its row enters the list mirror and dies with the prune. Contract: api-contracts v3 §4.
 
 ## Workspace and Session lists
 
@@ -10,9 +10,9 @@ Workspace and Session lists have independent monotone `pending` → `ready` base
 
 SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
 
-## Session creation failures
+## New Session and the blank mirror
 
-`SessionsService.create` accepts an optional caller-preallocated SessionId. It throws `SessionCreateError` on failure: `requestedSessionId` remains available after transport uncertainty, while `publishedSessionId` is set when `workspace-attach-failed` proves the Host published a real Session before attachment failed. For the New Session flow, the frontend Session object owns its retained prompt and advances it through attachment and send; a partially published Session keeps the same object and prompt while it appears as Ungrouped.
+`WorkspacesService.connectWorkspace(workspaceId)` resolves the session a New Session flow lands in: it reuses the workspace's existing blank session from the list mirror (`blank && cwd == workspace.path`) or calls `session.create({workspaceId})`, returning the session id for the caller to open. `SessionSummary.blank` mirrors the host's derived empty-log bit and only ever lowers on the client: seeded by `session.list` / the `host/session-added` frame, flipped false by the first ACCEPTED local `prompt()` (on the RPC success response — acceptance proves the user message is in the host log; a rejected first prompt keeps the session blank and reusable) and by any `running: true` status frame, re-aligned by every list re-pull. List surfaces hide blank rows; the store carries every row. `SessionsService.create` accepts an optional caller-preallocated SessionId and throws `SessionCreateError` (carrying `requestedSessionId`) on failure.
 
 ## Code Mode sub-dispatch index
 
@@ -33,5 +33,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **`loader.unload` is a stub (throws not-implemented)** — the full chain (fiber dispose → registration cascade → style removal) lands with the HMR project.
-- **Scope teardown is stage-driven, single-occupant today** — the staged session follows `list.current` exactly (staging is the open signal: the event window opens ⟺ the session is on stage); a removed-while-staged session's scope survives frozen until the stage moves on, not until true observer count reaches zero. Resolution (`cell()`/`binding()`/`scope()`) is pure addressing, render-safe. The staged state can widen to a multi-pane list when concurrent panes land.
+- **Scope teardown is stage-driven, single-occupant today** — the staged session follows `list.current` exactly (staging is the open signal: the event window opens ⟺ the session is on stage); a removed-while-staged session's scope survives frozen until the stage moves on, not until true observer count reaches zero. Resolution (`provideInfo()`/`binding()`/`scope()`) is pure addressing, render-safe. The staged state can widen to a multi-pane list when concurrent panes land.
 - **Value imports of this package from plugin bundles must use the `/client` subpath** — the bare package name is not in the loader externals table and inlines a second module instance, whose private scope-tag Symbol never matches (the empty-state P0 postmortem).

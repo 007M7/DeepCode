@@ -26,8 +26,8 @@ export interface SlotMap {}
 /** Slot cardinality: single occupant, ordered list, key-dispatched, or selector-routed chain. */
 export type SlotKind = 'single' | 'list' | 'keyed' | 'chain'
 
-/** Slot data context: root (no session) or session-bound. */
-export type SlotScope = 'root' | 'session'
+/** Slot data context: global, current-session-optional, or strict session-bound. */
+export type SlotScope = 'root' | 'session-maybe' | 'session'
 
 /**
  * One SlotMap entry: kind/scope axes plus the optional owner-supplied props
@@ -74,6 +74,13 @@ export type ScopeOf<K extends keyof SlotMap & string> = SlotMap[K]['scope']
 export interface SessionStandardProps {}
 
 /**
+ * Framework standard kit delivered to current-session-optional slots. Its
+ * hooks stay callable while no session is selected and return `undefined`
+ * until one becomes current; concrete members merge in at runtime packages.
+ */
+export interface SessionMaybeStandardProps {}
+
+/**
  * Framework standard kit delivered to EVERY slot component (the global seat).
  * Declared empty here; the runtime package merges the global object-layer
  * selector hooks that shared page composition consumes.
@@ -93,14 +100,27 @@ export type SessionIdOf = SessionStandardProps extends { sessionId: infer S } ? 
  */
 export type PropsRuntime<K extends keyof SlotMap & string> =
   OwnerOf<K> &
-  (ScopeOf<K> extends 'session' ? SessionStandardProps : object) &
+  (ScopeOf<K> extends 'session' ? SessionStandardProps
+    : ScopeOf<K> extends 'session-maybe' ? SessionMaybeStandardProps
+      : object) &
   GlobalStandardProps
 
 /** renderSlot dispatch options: keyed dispatch key, list filtering, empty fallback. */
 export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
 
-/** renderSlotChain dispatch options: the owner's fallback body, rendered when every entry's selector declines. */
-export interface ChainRenderOpts { fallback?: ReactNode }
+/** renderSlotChain dispatch options. */
+export interface ChainRenderOpts {
+  /** The owner's fallback body, rendered when every entry's selector declines. */
+  fallback?: ReactNode
+  /**
+   * Keep the fallback permanently mounted: an election hides it (wrapped,
+   * display:none) instead of unmounting it, and the all-decline case shows it
+   * as-is — fallback-held state (composer drafts, DOM state) survives a
+   * takeover. Chain kind only. Sole consumer today: the
+   * 'conversation.composer' chain.
+   */
+  overlay?: boolean
+}
 
 /**
  * Chain-entry selector: the routing decision of one chain contribution.
@@ -210,15 +230,20 @@ export type ComposedProps<
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
- * session slots receive the framework-resolved `sessionId`; a declared store
- * appends the baked `actions` (the same callbacks the component receives);
- * root slots without a store take no parameters. Business data access happens
- * through the apply closure's ctx — no binding object parameter exists.
+ * strict session slots receive a definite framework-resolved `sessionId`;
+ * session-maybe slots receive the current id or `undefined`; a declared store
+ * appends the baked `actions` (the same callbacks the component receives).
+ * Business data access happens through the apply closure's ctx — no binding
+ * object parameter exists.
  */
 export type InjectParams<K extends keyof SlotMap & string, H> =
   ScopeOf<K> extends 'session'
     ? ([H] extends [StoreDecl] ? [sessionId: SessionIdOf, actions: BoundActions<HandleOf<H>>] : [sessionId: SessionIdOf])
-    : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
+    : ScopeOf<K> extends 'session-maybe'
+      ? ([H] extends [StoreDecl]
+        ? [sessionId: SessionIdOf | undefined, actions: BoundActions<HandleOf<H>> | undefined]
+        : [sessionId: SessionIdOf | undefined])
+      : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
 export type KindOptions<E extends SlotEntryDef, M = never> =

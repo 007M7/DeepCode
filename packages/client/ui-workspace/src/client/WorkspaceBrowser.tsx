@@ -17,7 +17,7 @@ import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode } from './tree.ts'
 import { deriveFlat, deriveGroups, UNGROUPED_KEY } from './tree.ts'
-import { IntentRowItem, ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
+import { ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
 import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -97,17 +97,10 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
   const [expandedSessions, setExpandedSessions] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
-  // Re-expand when publication moves the selected intent into a real Workspace.
-  const intent = list.intent
-  const intentWorkspaceId = intent?.target.kind === 'workspace'
-    ? intent.target.workspaceId
-    : undefined
   const currentGroup = current === undefined
     ? undefined
-    : intent?.sessionId === current
-      ? intentWorkspaceId
-      : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
+    : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+      ?? UNGROUPED_KEY
   useEffect(() => {
     if (current === undefined || currentGroup === undefined) return
     setExpandedProjects((l) => (l.includes(currentGroup) ? l : [...l, currentGroup]))
@@ -142,7 +135,6 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
                     if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
                   }}
             />
-            {group.expanded && group.intentHere && <IntentRowItem />}
             {group.sessions.map((node, index) => {
               // Draggable: real-workspace group roots outside search. The drag
               // never leaves its group — rows of other groups show no markers
@@ -204,16 +196,12 @@ function FlatList({ useSessions, open, query }: Pick<SessionTreeProps, 'useSessi
   const list = useSessions((s) => s)
   const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
   const now = Date.now()
-  // The intent placeholder renders outside search only; it suppresses the
-  // empty state only while actually rendered (a query hides both).
-  const intentRow = query === '' && list.intent !== undefined
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={css.list} role="tree" aria-label="Sessions">
-        {rows.length === 0 && !intentRow && (
+        {rows.length === 0 && (
           <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
         )}
-        {intentRow && <IntentRowItem />}
         {rows.map(node => (
           <SessionNodeItem
             key={node.id}

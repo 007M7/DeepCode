@@ -20,7 +20,7 @@ Status: implemented
 
 每个场景的 `session.jsonl` 都从真实运行中采集。`assistant/chunk` 事件复现模型流；工具、消息和边界事件捕获 harness 行为。因此，一份普通会话产物同时充当重放来源和行为预期输出。
 
-当场景固定另一种物理存储布局时，其 fixture 会从真实的未打包对应项机械派生。场景测试要求包含每一种预期存储行类型，并在解码后逐事件精确相等；随后，普通重放与日志比较才会证明组合后的进程能够消费并复现该布局。
+每个签入仓库的会话格式 fixture 都使用规范的打包物理布局。覆盖所有行类型的场景从一份独立的真实录制机械派生；测试要求它包含每一种打包存储行类型，并在两份 fixture 解码后逐事件精确相等；随后，普通重放与日志比较会证明组装后的进程能够消费并复现该布局。
 
 ### 回放从日志推导模型脚本
 
@@ -44,16 +44,16 @@ Status: implemented
 
 ### 录制采集日志；无密钥回放需要无提供方的配置
 
-记录模式使用真实 `llm-deepseek` 适配器和配置为 `persistenceCompression: 'none'` 的 JSONL 持久化后端运行场景，再把生成的 `.jsonl` 复制到场景目录。显式 raw 模式让已提交重放 fixture 保持逐行可读，而普通部署使用后端的压缩默认值。逐事件追加具有持久性，但 harness 会在采集前优雅关闭子进程（关闭 stdin → `await ctx.dispose()`），以确保最终事件已刷出。`llm-replay` 本身不执行记录——它只负责重放。
+记录模式使用真实 `llm-deepseek` 适配器和配置为 `persistenceCompression: 'none'` 的 JSONL 持久化后端运行场景，再把生成的 `.jsonl` 复制到场景目录。显式 raw 模式让已提交重放 fixture 保持逐行可读，而普通部署使用后端的压缩默认值；符合条件的分片连续段仍使用默认的打包存储行。逐事件追加具有持久性，但 harness 会在采集前优雅关闭子进程（关闭 stdin → `await ctx.dispose()`），以确保最终事件已刷出。`llm-replay` 本身不执行记录——它只负责重放。
 
-重放使用 `cordis.snapshot.yml` overlay，以 `llm-replay` 替换真实适配器，同时保留实时组合。记录使用普通配置和由 harness 提供的持久化根目录。重放模式跳过 `.env` 加载，因此意外存在的 API 密钥不会触发实时调用。参见[单一来源配置 Agent Note](2026-07-04-single-source-acp-replay-config.md)。
+重放使用 `cordis.snapshot.yml` overlay，以 `llm-replay` 替换真实适配器，同时保留实时组合。记录使用普通配置和由 harness 提供的持久化根目录。重放模式跳过 `.env` 加载，因此意外存在的 API 密钥不会触发实时调用。参见[单一来源配置 Agent Note](../../archived/testing/2026-07-04-single-source-acp-replay-config.md)。
 
 ### 两个表面：归一化后比对
 
 快照运行断言**两个**归一化后的表面，因为 harness 的外部表面是不同的：
 
 1. **stdout transcript**——自动化客户端收到的、经过 framing 的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输契约的回归，与已提交的 `stdout.expected.jsonl` 比较。
-2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
+2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
 
 两个表面互补：stdout 覆盖精简的自动化线协议，JSONL 覆盖线协议有意省略的 loop、工具和 boundary 结构。
 
@@ -69,7 +69,7 @@ Status: implemented
 
 ### 两个子命令，回放在默认门禁中
 
-`pnpm run test:snapshot` 无需密钥即可重放已提交 fixture；`test:snapshot:record` 使用真实 API，并重写采集的会话日志与 stdout 预期输出。缺少 fixture 时会响亮失败。每个场景都包含 `input.json`、`stdout.expected.jsonl` 和 `session.jsonl`；不调用模型的情况使用仅有请求头的日志。只有标记为 `overridden` 的场景才需要 `replay.override.json`，因为它一旦存在就会取代派生重放。Fixture 守卫会拒绝缺失、不匹配和孤立文件。两个命令都接受场景过滤器。
+`pnpm run test:snapshot` 无需密钥即可重放已提交 fixture；`test:snapshot:record` 使用真实 API，并重写采集的会话日志与 stdout 预期输出。同一无密钥门禁会通过 `session` header 发现仓库中的 JSONL，并拒绝与共享编解码器的规范打包表示不同的任何 fixture。缺少 fixture 时会响亮失败。每个场景都包含 `input.json`、`stdout.expected.jsonl` 和 `session.jsonl`；不调用模型的情况使用仅有请求头的日志。只有标记为 `overridden` 的场景才需要 `replay.override.json`，因为它一旦存在就会取代派生重放。Fixture 守卫会拒绝缺失、不匹配和孤立文件。两个命令都接受场景过滤器。
 
 ## 曾考虑的替代方案
 

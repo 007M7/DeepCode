@@ -12,7 +12,7 @@ ACP（Agent Client Protocol）快照层（[快照 Agent Note（agent 决策记�
 
 ## 决策
 
-这些机制位于 [`packages/support/acp-snapshot`](../../../../packages/support/acp-snapshot/README.md)（`@deepseek-ai/dsh-acp-snapshot`）；示例的 `*.snapshot.ts` 只包含场景表、agent 路径和一次工厂调用，依赖自己的 `snapshots/` fixture 与 `cordis.snapshot.yml` overlay（[单源回放配置](2026-07-04-single-source-acp-replay-config.md)）。读取 `DSH_SNAPSHOT` 留在边缘层——库接收的是已解析的 `mode`。
+这些机制位于 [`packages/support/acp-snapshot`](../../../../packages/support/acp-snapshot/README.md)（`@deepseek-ai/dsh-acp-snapshot`）；示例的 `*.snapshot.ts` 只包含场景表、agent 路径和一次工厂调用，依赖自己的 `snapshots/` fixture 与 `cordis.snapshot.yml` overlay（[单源回放配置](../../archived/testing/2026-07-04-single-source-acp-replay-config.md)）。读取 `DSH_SNAPSHOT` 留在边缘层——库接收的是已解析的 `mode`。
 
 **`src/launcher.ts`**——`launchAcpTestAgent` 拥有通用的未构建进程边界：绝对 tsx loader 解析、`TSX_TSCONFIG_PATH`、隔离的 harness home、stdio 接线、原始字节 stdout tee、stderr 与更新捕获、失败关闭的权限后备、更新 waiter，以及优雅或信号式关闭。快照场景和普通 e2e 套件提供相同的 `AgentUnderTest`（`binScript`、`configPath`、`tsconfigPath`）；扮演用户的测试只提供其权限 handler。ACP 与钩子 e2e 套件以及沙箱/approval e2e 套件都使用该 launcher，而不再重新构建 SDK client 边界。
 
@@ -20,7 +20,7 @@ ACP（Agent Client Protocol）快照层（[快照 Agent Note（agent 决策记�
 
 **`src/normalize.ts`** 是纯规范化器，按策略不含钩子：当未来某个事件携带新的易变字段（例如审批耗时），共享规范化器在同一个变更中学会它，保持「规范化」的含义只有一个归属，而非各套件各自扩展清洗逻辑。
 
-**`src/suite.ts`**——包含 `Scenario` 类型和 `defineAcpSnapshotSuite(options)`，注册各场景比较、记录/刷新 fixture 写回、带实时一致性守卫的请求头固定项，以及 fixture 守卫块（没有孤立场景目录、必需文件存在、每种类别恰好一个固定项、每份 JSONL 都是 `scrubSystemPrompts` 固定点、非固定 fixture 同时也是 `scrubRequestHeaders` 固定点）。刷新会先展开打包的计时信封，再对齐现有易变事件时间，因此在打包与未打包布局之间切换不会移动后续记录；全新的分片片段数组仍为权威，因为其边界属于回放行为。场景目录中的 `session.jsonl` 加连续的 `session.<n>.jsonl` 同级文件构成有序主项/子项清单，因此场景表可以声明策略而不重复子项数量。固定请求头契约（[固定请求头 Agent Note](2026-07-06-pin-request-header-content-in-one-scenario.md)）按套件生效：每种请求头类别恰好标记一个 `pinsHeader` 场景，其 `system-prompt.expected.md` 和 JSONL 工具列表把组合请求头拆成可评审产物；一致性守卫会将两者与该类别的每个实时请求头比较。固定场景可以声明任何合法的变更请求头数量，其 Markdown 产物记录每个完整的已变提示词。纯辅助函数（`sessionFixtureNames`、`fixtureContext`、`normalizedHeaders`、`normalizedSystemPrompts`、`formatSystemPromptSnapshot`、`headerChangeCount`）从模块导出，以便直接进行单元覆盖。
+**`src/suite.ts`**——包含 `Scenario` 类型和 `defineAcpSnapshotSuite(options)`，注册各场景比较、记录/刷新 fixture 写回、带实时一致性守卫的请求头固定项，以及 fixture 守卫块（没有孤立场景目录、必需文件存在、每种类别恰好一个固定项、每份 JSONL 都是 `scrubSystemPrompts` 固定点、非固定 fixture 同时也是 `scrubRequestHeaders` 固定点）。刷新会先展开打包的计时信封，再对齐现有易变事件时间，因此在打包与未打包布局之间切换不会移动后续记录；全新的分片片段数组仍为权威，因为其边界属于回放行为。场景目录中的 `session.jsonl` 加连续的 `session.<n>.jsonl` 同级文件构成有序主项/子项清单，因此场景表可以声明策略而不重复子项数量。固定请求头契约（[固定请求头 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)）按套件生效：每种请求头类别恰好标记一个 `pinsHeader` 场景，其 `system-prompt.expected.md` 和 JSONL 工具列表把组合请求头拆成可评审产物；一致性守卫会将两者与该类别的每个实时请求头比较。固定场景可以声明任何合法的变更请求头数量，其 Markdown 产物记录每个完整的已变提示词。纯辅助函数（`sessionFixtureNames`、`fixtureContext`、`normalizedHeaders`、`normalizedSystemPrompts`、`formatSystemPromptSnapshot`、`headerChangeCount`）从模块导出，以便直接进行单元覆盖。
 
 ## 曾考虑的替代方案
 
