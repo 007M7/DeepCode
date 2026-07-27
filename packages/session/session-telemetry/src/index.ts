@@ -71,10 +71,10 @@ export interface TelemetryRecord {
   /**
    * Identity attributes, deliberately minimal: ledger records carry
    * `session.id`, `event.type`, `event.seq`, plus `session.cwd` /
-   * `session.parent_id` when the header has them; ops records carry
-   * `telemetry.op`, `session.id`, and (for `agent-error`) `agent.id`,
-   * `turn`, `step`, `error.name`. Anything recoverable from the body is
-   * intentionally NOT duplicated here.
+   * `session.parent_id` / `session.seed_length` when the header has them;
+   * ops records carry `telemetry.op`, `session.id`, and (for `agent-error`)
+   * `agent.id`, `turn`, `step`, `error.name`. Anything recoverable from the
+   * body is intentionally NOT duplicated here.
    */
   attributes: Record<string, string | number>
   /**

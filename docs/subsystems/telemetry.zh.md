@@ -38,10 +38,10 @@ interface TelemetryRecord {
   /**
    * Identity attributes, deliberately minimal: ledger records carry
    * `session.id`, `event.type`, `event.seq`, plus `session.cwd` /
-   * `session.parent_id` when the header has them; ops records carry
-   * `telemetry.op`, `session.id`, and (for `agent-error`) `agent.id`,
-   * `turn`, `step`, `error.name`. Anything recoverable from the body is
-   * intentionally NOT duplicated here.
+   * `session.parent_id` / `session.seed_length` when the header has them;
+   * ops records carry `telemetry.op`, `session.id`, and (for `agent-error`)
+   * `agent.id`, `turn`, `step`, `error.name`. Anything recoverable from the
+   * body is intentionally NOT duplicated here.
    */
   attributes: Record<string, string | number>
   /**
@@ -54,7 +54,7 @@ interface TelemetryRecord {
 }
 ```
 
-每个 `(turn, step)` 只发出第一条 `assistant/chunk`，即「流已开始」的信号；其余分片在捕获时丢弃，因此导出流中的 `seq` 缺口是常态，绝不是丢失信号。其他所有[会话事件](session.md)类型都会完整透传，包括该 seam 从未听说过、由插件合并进来的事件类型。交接下游的投递为至多一次（at-most-once）；接收端基于 `(session.id, event.seq)` 去重。
+每个 `(turn, step)` 只发出第一条 `assistant/chunk`，即「流已开始」的信号；其余分片在捕获时丢弃，因此导出流中的 `seq` 缺口是常态，绝不是丢失信号。其他所有[会话事件](session.md)类型都会完整透传，包括该 seam 从未听说过、由插件合并进来的事件类型。投递是尽力而为的：游标标记的是「已交接」而非「已送达」，记录可能丢失（崩溃、重载窗口）也可能重复（无游标的重新接管、SDK 重试），因此接收端基于 `(session.id, event.seq)` 去重。
 
 ## 后端契约
 

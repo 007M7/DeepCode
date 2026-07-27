@@ -38,10 +38,10 @@ interface TelemetryRecord {
   /**
    * Identity attributes, deliberately minimal: ledger records carry
    * `session.id`, `event.type`, `event.seq`, plus `session.cwd` /
-   * `session.parent_id` when the header has them; ops records carry
-   * `telemetry.op`, `session.id`, and (for `agent-error`) `agent.id`,
-   * `turn`, `step`, `error.name`. Anything recoverable from the body is
-   * intentionally NOT duplicated here.
+   * `session.parent_id` / `session.seed_length` when the header has them;
+   * ops records carry `telemetry.op`, `session.id`, and (for `agent-error`)
+   * `agent.id`, `turn`, `step`, `error.name`. Anything recoverable from the
+   * body is intentionally NOT duplicated here.
    */
   attributes: Record<string, string | number>
   /**
@@ -54,7 +54,7 @@ interface TelemetryRecord {
 }
 ```
 
-Only the first `assistant/chunk` of each `(turn, step)` ships — the stream-started signal; the rest drop at capture, so `seq` gaps are routine on the wire and never a loss signal. Every other [session event](session.md) type, including plugin-merged ones the seam never heard of, passes through whole. Delivery is at-most-once downstream of the handoff; receivers dedupe on `(session.id, event.seq)`.
+Only the first `assistant/chunk` of each `(turn, step)` ships — the stream-started signal; the rest drop at capture, so `seq` gaps are routine on the wire and never a loss signal. Every other [session event](session.md) type, including plugin-merged ones the seam never heard of, passes through whole. Delivery is best-effort: the cursor marks handed-off, not delivered, records can be lost (crash, reload window) and duplicated (cursor-less re-adoption, SDK retries), so receivers dedupe on `(session.id, event.seq)`.
 
 ## The backend contract
 
