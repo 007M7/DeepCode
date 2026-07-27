@@ -366,7 +366,7 @@
             "description": "The COMPLETE task list, replacing any previous list.",
             "items": {
               "type": "object",
-              "additionalProperties": true,
+              "additionalProperties": false,
               "properties": {
                 "content": {
                   "type": "string",
