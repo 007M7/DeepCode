@@ -42,7 +42,16 @@
       "path": "../../packages/client/ui-theme"
     },
     {
-      "path": "../../packages/client/i18n"
+      "path": "../../packages/client/ui-settings"
+    },
+    {
+      "path": "../../packages/client/ui-settings-general"
+    },
+    {
+      "path": "../../packages/client/ui-models"
+    },
+    {
+      "path": "../../packages/client/locale"
     },
     {
       "path": "../../packages/client/ui-layout"

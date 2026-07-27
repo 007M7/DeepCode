@@ -1,6 +1,6 @@
 /**
  * Browser model-selector plugin: registers one session-scoped occupant in the
- * conversation composer-control slot. The Session object owns all catalog and
+ * conversation model-control slot. The Session object owns all catalog and
  * selection state; the component receives only the standard snapshot hook and
  * injected callbacks.
  */
@@ -20,7 +20,7 @@ export const inject = ['slots', 'sessions', 'conversation']
 export function apply(ctx: ClientContext): void {
   const sessions = ctx.sessions
   ctx.slots.register({
-    name: 'conversation.composer.control',
+    name: 'conversation.input.model',
     inject: (sessionId: SessionId): ModelSelectorInjected => {
       const binding = sessions.binding(sessionId)
       if (binding === undefined) {

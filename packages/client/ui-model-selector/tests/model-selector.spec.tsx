@@ -7,9 +7,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type {
-  ConversationSnapshot, ModelSelectionSnapshot,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, ModelSelectionSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import type { ModelSelectorProps } from '../src/client/contract.ts'
 import { ModelSelector } from '../src/client/ModelSelector.tsx'
@@ -40,10 +38,9 @@ const ready: ModelSelectionSnapshot = {
 
 function setup(
   selection: ModelSelectionSnapshot = ready,
-  removed = false,
-  intent: ConversationSnapshot['intent'] = null,
+  locked = false,
 ) {
-  let current = { modelSelection: selection, removed, intent } as unknown as ConversationSnapshot
+  let current = { modelSelection: selection } as unknown as ConversationSnapshot
   const useSession = ((selector: (snapshot: ConversationSnapshot) => unknown) =>
     selector(current)) as ModelSelectorProps['useSession']
   const refreshModels = vi.fn()
@@ -51,11 +48,15 @@ function setup(
   const selectModel = vi.fn((_target: ModelTarget) => Promise.resolve(true))
   const props: ModelSelectorProps = {
     sessionId: 'selector-session' as never,
+    locked,
     useSession,
     useSessions: ((selector: (snapshot: never) => unknown) =>
       selector({} as never)) as ModelSelectorProps['useSessions'],
     useWorkspaces: ((selector: (snapshot: never) => unknown) =>
       selector({} as never)) as ModelSelectorProps['useWorkspaces'],
+    useInput: ((selector: (snapshot: never) => unknown) =>
+      selector({} as never)) as ModelSelectorProps['useInput'],
+    inputActions: {} as ModelSelectorProps['inputActions'],
     refreshModels,
     retryModelOperation,
     selectModel,
@@ -68,14 +69,8 @@ function setup(
     selectModel,
     update(
       next: ModelSelectionSnapshot,
-      nextRemoved = removed,
-      nextIntent: ConversationSnapshot['intent'] = intent,
     ) {
-      current = {
-        modelSelection: next,
-        removed: nextRemoved,
-        intent: nextIntent,
-      } as unknown as ConversationSnapshot
+      current = { modelSelection: next } as unknown as ConversationSnapshot
       view.rerender(<ModelSelector {...props} />)
     },
   }
@@ -200,21 +195,8 @@ describe('model selector', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('disables the trigger only when the session is removed', () => {
+  it('disables the trigger when the model-control seat is locked', () => {
     setup(ready, true)
     expect(trigger().disabled).toBe(true)
-  })
-
-  it('waits for a frontend Session Intent to publish before rendering or loading models', () => {
-    const b = setup(ready, false, {
-      target: { kind: 'workspace-intent' },
-      phase: 'connecting',
-    })
-    expect(screen.queryByRole('button', { name: /选择模型，当前/ })).toBeNull()
-    expect(b.refreshModels).not.toHaveBeenCalled()
-
-    b.update(ready, false, null)
-    expect(trigger().textContent).toBe('DeepSeek-V4-Flash')
-    expect(b.refreshModels).toHaveBeenCalledOnce()
   })
 })

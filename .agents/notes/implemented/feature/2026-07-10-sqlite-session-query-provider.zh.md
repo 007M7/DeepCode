@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`@deepseek-ai/dsh-session-query` 声明一个抽象的 `ctx.sessionQuery` 服务，其精确读取、过滤与追踪均有具体实现，仅有两项全文方法为抽象方法。`searchSessions(request, exec?)` 返回按游标分页的 `SessionSearchHit`，并按每个会话中匹配度最强的事件分组；`searchEvents(request, exec?)` 返回一个逻辑会话内的 `SessionEventSearchHit`。两种请求都必须提供 `query`，可以接受 `limit` 和由服务拥有的品牌化 `SessionSearchCursor`，并支持可选的中止信号。会话搜索接受 `sessionFilters` 与事件元数据过滤器，事件搜索接受事件元数据过滤器。结果会公开有界的纯文本摘要片段，但不公开提供方标识符或数值相关性分数。单一键拓扑由[统一服务决策](../architecture/2026-07-23-unified-session-query-service.md)定义。
+`@deepseek-ai/dsh-session-query` 声明一个抽象的 `ctx.sessionQuery` 服务，其精确读取、过滤与追踪均有具体实现，仅有两项全文方法为抽象方法。`searchSessions(request, exec?)` 返回按游标分页的 `SessionSearchHit`，并按每个会话中匹配度最强的事件分组；`searchEvents(request, exec?)` 返回一个逻辑会话内的 `SessionEventSearchHit`。两种请求都必须提供 `query`，可以接受 `limit` 和由服务拥有的品牌化 `SessionSearchCursor`，并支持可选的中止信号。会话搜索接受 `sessionFilters` 与事件元数据过滤器，事件搜索接受事件元数据过滤器。结果会公开有界的纯文本摘要片段，但不公开提供方标识符或数值相关性分数。单一键拓扑由[统一服务决策](../../archived/architecture/2026-07-23-unified-session-query-service.md)定义。
 
 `@deepseek-ai/dsh-session-query-sqlite` 扩展接口服务，并且是 `ctx.sessionQuery` 唯一的具体所有者。它依赖实时的 `ctx.sessions`，动态观察可选的 `ctx.sessionPersistence`，并拥有一个专用的派生 SQLite 数据库。系统没有搜索提供方注册表、协调器、持久化事件或 agent loop（智能体循环）集成。
 

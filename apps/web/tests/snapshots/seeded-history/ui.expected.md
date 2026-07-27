@@ -24,9 +24,6 @@
 - textbox "Message the agent"
 - button "Add attachment":
   - img
-- combobox "Plan mode":
-  - option "Plan" [selected]
-  - option "Agent"
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"

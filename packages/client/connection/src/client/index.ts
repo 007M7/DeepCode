@@ -15,6 +15,7 @@ export type {
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ModelCatalogFailure,
   ModelCatalogModel, ModelProviderGroup, ModelTarget, SessionModels, ToolEventView,
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
+  CommandsApi, CommandDescriptor, CommandExecuteResult, SkillsApi, SkillEntry,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,

@@ -23,6 +23,6 @@ export interface ModelSelectorInjected {
   selectModel(target: ModelTarget): Promise<boolean>
 }
 
-/** Full props of the conversation composer-control occupant. */
+/** Full props of the conversation model-control occupant. */
 export type ModelSelectorProps =
-  PropsRuntime<'conversation.composer.control'> & ModelSelectorInjected
+  PropsRuntime<'conversation.input.model'> & ModelSelectorInjected

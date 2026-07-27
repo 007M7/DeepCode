@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-04-tighten-hook-protocol-contract.md: a1972ee8ef486982268ba8886b2413f3557061b4
-2026-07-04-tighten-hook-protocol-contract.zh.md: 4917a8f551672f51b0ebc27b1267c7e8e8eb2178
+2026-07-04-tighten-hook-protocol-contract.md: a67d0e8447e36516006e57051581c03877c1ba12
+2026-07-04-tighten-hook-protocol-contract.zh.md: c0f97cf39adb0fd17caa3ad2c518d26736bfc7a6

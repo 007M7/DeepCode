@@ -5,14 +5,15 @@
  * mid-slide. At settle the wide-only content unmounts and the control rows
  * snap to the 56px rail (one icon each, same top-down order) fading in as the
  * slide ends. The workspace/session browsing region between the New Session
- * button and the foot is the `sidebar.workspaces` registrant's; the shell
- * hands it the wide flag and an expand request callback.
+ * button and the foot is the `sidebar.workspaces` registrant's, and the foot
+ * is the `sidebar.settings` registrant's; the shell hands them the wide flag
+ * (plus an expand request callback for the browser).
  */
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   BrandWordmark, FishLogo,
-  IconNewChatOutline16, IconPanelLeftOutline16, IconSettingsOutline14,
+  IconNewChatOutline16, IconPanelLeftOutline16,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
@@ -102,9 +103,9 @@ export function SidebarRoot({
         })}
       </div>
 
-      <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
-        <IconSettingsOutline14 size={wide ? 14 : 18} />
-        {wide && <span className={clsx(css.footLabel, css.wide)}>Settings</span>}
+      {/* Foot seat: ui-settings registers the trigger row + panel here. */}
+      <div className={css.footArea}>
+        {renderSlot('sidebar.settings', { wide })}
       </div>
     </div>
   )

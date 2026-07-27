@@ -14,11 +14,9 @@ type FocusPreference = 'current' | 'first' | 'last'
 
 /** Session-scoped provider-grouped model selector for the composer action row. */
 export function ModelSelector({
-  useSession, refreshModels, retryModelOperation, selectModel,
+  useSession, locked, refreshModels, retryModelOperation, selectModel,
 }: ModelSelectorProps) {
   const selection = useSession(snapshot => snapshot.modelSelection)
-  const removed = useSession(snapshot => snapshot.removed)
-  const intent = useSession(snapshot => snapshot.intent)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -49,8 +47,8 @@ export function ModelSelector({
   const busy = selection.status === 'selecting'
 
   useEffect(() => {
-    if (intent === null) refreshModels()
-  }, [intent, refreshModels])
+    refreshModels()
+  }, [refreshModels])
 
   useEffect(() => {
     if (!open) return
@@ -152,11 +150,6 @@ export function ModelSelector({
     || selection.failures.some(failure => failure.id === selection.current?.provider)
   const label = choices[selectedIndex]?.model.name ?? selection.current?.model ?? '选择模型'
 
-  // A frontend Session Intent has no Host session/model route yet. It shares
-  // the resident composer during attachment, so suppress both the control and
-  // its directory RPC until publication clears the intent.
-  if (intent !== null) return null
-
   return (
     <div
       ref={rootRef}
@@ -173,7 +166,7 @@ export function ModelSelector({
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
         title={label}
-        disabled={removed}
+        disabled={locked}
         onClick={() => { open ? close() : show() }}
         onKeyDown={onTriggerKeyDown}
       >

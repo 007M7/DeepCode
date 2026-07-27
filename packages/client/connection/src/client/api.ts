@@ -10,6 +10,7 @@ export type {
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ModelCatalogFailure,
   ModelCatalogModel, ModelProviderGroup, ModelTarget, SessionModels, ToolEventView,
   WorkspaceApi, WorkspaceId, WorkspaceView,
+  CommandsApi, CommandDescriptor, CommandExecuteResult, SkillsApi, SkillEntry,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {

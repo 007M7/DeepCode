@@ -1,6 +1,6 @@
 /**
  * Browser-plugin assembly: the selector occupies the conversation-declared
- * composer-control slot, injects only Session object actions, fails loud when
+ * model-control slot, injects only Session object actions, fails loud when
  * the slot is undeclared, and unregisters with its plugin fiber.
  */
 
@@ -20,7 +20,7 @@ async function bench(hasBinding = true) {
   slots.register({
     name: 'root',
     children: {
-      'conversation.composer.control': { kind: 'single', scope: 'session' },
+      'conversation.input.model': { kind: 'single', scope: 'session' },
     },
   } as never, (_props: { renderSlot?: unknown }) => null)
   const session = {
@@ -47,13 +47,13 @@ describe('model-selector browser plugin', () => {
     ctx.provide('sessions', { binding: vi.fn() })
     ctx.provide('conversation', {})
     await expect(ctx.plugin({ inject: [...inject], apply }))
-      .rejects.toThrow(/slot "conversation\.composer\.control" is not declared/)
+      .rejects.toThrow(/slot "conversation\.input\.model" is not declared/)
   })
 
   it('registers the singleton and injects Session-owned refresh/select actions', async () => {
     const { ctx, slots, session } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
-    const entries = slots.entries('conversation.composer.control')
+    const entries = slots.entries('conversation.input.model')
     expect(entries).toHaveLength(1)
     expect(entries[0]?.component).toBe(ModelSelector)
     const injected = (entries[0]?.inject as (sessionId: SessionId) => {
@@ -75,7 +75,7 @@ describe('model-selector browser plugin', () => {
   it('fails loud when slot injection resolves no Session binding', async () => {
     const { ctx, slots } = await bench(false)
     await ctx.plugin({ inject: [...inject], apply }).await()
-    const entry = slots.entries('conversation.composer.control')[0]
+    const entry = slots.entries('conversation.input.model')[0]
     expect(() => (entry?.inject as (sessionId: SessionId) => unknown)(SID))
       .toThrow(`ui-model-selector: session "${SID}" resolved no binding`)
   })
@@ -84,8 +84,8 @@ describe('model-selector browser plugin', () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(slots.entries('conversation.composer.control')).toHaveLength(1)
+    expect(slots.entries('conversation.input.model')).toHaveLength(1)
     await fiber.dispose()
-    expect(slots.entries('conversation.composer.control')).toHaveLength(0)
+    expect(slots.entries('conversation.input.model')).toHaveLength(0)
   })
 })

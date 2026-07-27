@@ -2,8 +2,9 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  ClientResponse, HostFrame, IApiClient, ModelTarget, MuxFrame, RpcError, RpcReceipt,
-  RpcRequest, RpcResponse, SessionId, SessionModels, WorkspaceId, WorkspaceView,
+  ClientResponse, CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, MuxFrame,
+  ModelTarget, RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
+  WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 
@@ -120,6 +121,25 @@ export class FakeApiClient implements IApiClient {
     rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
     insertSessionBefore: (payload: unknown) =>
       this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
+  }
+
+  // Payloads stay `unknown` (lint-lane note above); response rows are the real
+  // wire shapes so cases can program requires-bearing catalogs and dual-address
+  // skill lists without casts.
+  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
+    = () => Promise.resolve(ok({ commands: [] }))
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>>
+    = () => Promise.resolve(ok({ matched: false }))
+  onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
+    = () => Promise.resolve(ok({ skills: [] }))
+
+  readonly commands: IApiClient['commands'] = {
+    list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
+    execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
+  }
+
+  readonly skills: IApiClient['skills'] = {
+    list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

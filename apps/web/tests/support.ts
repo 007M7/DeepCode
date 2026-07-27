@@ -32,6 +32,31 @@ export function probeFreePort(): Promise<number> {
   })
 }
 
+/**
+ * Drive the hero's workspace picker through its create-by-name dialog until
+ * the live composer unlocks. A fresh world has no Workspace, so the boot
+ * lands in the locked view state (startup auto-selection has nothing to
+ * select); every scenario that types into the composer must connect one
+ * first. The default name 'workspace' keeps the session header cwd at
+ * <workspaceRoot>/workspace — the materialization proof several scenarios
+ * assert.
+ * @param page - the page under test.
+ * @param name - workspace name typed into the create dialog.
+ */
+export async function connectFreshWorkspace(page: Page, name = 'workspace'): Promise<void> {
+  await page.getByRole('button', { name: 'Choose workspace' }).click()
+  await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
+  await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByLabel('New workspace name').fill(name)
+  await dialog.getByRole('button', { name: 'Create workspace' }).click()
+  // The pick connected the workspace: the blank session's live composer
+  // replaces the locked placeholder and enables.
+  await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+    .waitFor({ timeout: 15_000 })
+}
+
 /** Failure evidence goes to the gitignored .artifacts/ (repo convention). */
 export async function saveFailureShot(page: Page, name: string): Promise<void> {
   const dir = fileURLToPath(new URL('../../../.artifacts', import.meta.url))
