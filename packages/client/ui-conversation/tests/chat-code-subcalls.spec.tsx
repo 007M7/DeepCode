@@ -56,7 +56,7 @@ function snapshotWith(
 ): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls, codeDispatches,
-    pending: [], queue: [], todos: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }

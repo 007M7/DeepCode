@@ -9,6 +9,17 @@ import { useId, useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
+
+// Client-side view of the todos projection key. The authoritative merge lives
+// with the domain host unit (tool-todo), whose program never overlaps the
+// client's, so this consumer restates the identical member through the same
+// pure-type outlet (any program holding both merges rejects drift).
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /** The agent's current whole todo list (latest `todo/write` snapshot), or `null` before the first write. */
+    todos: TodoItem[] | null
+  }
+}
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TodoPanel.module.css'
 
@@ -115,10 +126,10 @@ export function TodoPanel({ todos }: TodoPanelProps) {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type TodoDockProps = PropsRuntime<'conversation.input.dock'>
 
-/** Dock adapter: selects the plan off the session snapshot and hands the strip a plain list. */
-export function TodoDock({ useSession }: TodoDockProps) {
-  const todos = useSession(s => s.todos)
-  return <TodoPanel todos={todos} />
+/** Dock adapter: reads the host-computed 'todos' projection (whole list; absent or null renders nothing). */
+export function TodoDock({ useProjection }: TodoDockProps) {
+  const todos = useProjection('todos')
+  return <TodoPanel todos={todos ?? []} />
 }
 
 /**

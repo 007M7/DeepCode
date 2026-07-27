@@ -24,6 +24,9 @@
       "path": "../runtime"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
       "path": "../ui-slash"
     },
     {
