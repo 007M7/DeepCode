@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import { sessionIdSchema } from './sessions.schema.ts'
@@ -32,8 +33,11 @@ export const commandExecuteRequestSchema = z.object({
   line: z.string(),
 }) satisfies z.ZodType<Wire<RequestPayload<'command.execute'>>>
 
+/** CommandId: one brand cast after shape validation (the only cast point in this domain). */
+export const commandIdSchema = z.string().min(1) as unknown as z.ZodType<CommandId>
+
 /** command.execute response value: pure admission — outcomes ride the logged lifecycle events; commandId (present exactly when matched) correlates with them. */
 export const commandExecuteValueSchema = z.object({
   matched: z.boolean(),
-  commandId: z.string().min(1).optional(),
+  commandId: commandIdSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'command.execute'>>>

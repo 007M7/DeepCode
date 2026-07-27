@@ -3,6 +3,7 @@
 // substructures keep their references (the React.memo premise). callId/approvalId stay plain
 // string here (narrow to real brands when convenient).
 
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -136,7 +137,7 @@ export interface CommandNode {
   /** Unix epoch ms of the anchoring event. */
   time: number
   /** Pairing id minted by the host executor. */
-  commandId: string
+  commandId: CommandId
   /** Command name (run payload's structured field); null when the run fell outside the window. */
   name: string | null
   /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */

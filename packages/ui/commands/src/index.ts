@@ -8,6 +8,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import { CommandId } from './brand.ts'
+
+export { CommandId } from './brand.ts'
 
 export const name = 'commands'
 
@@ -55,7 +58,7 @@ export type CommandResult =
  */
 export interface CommandExecution {
   /** Pairing id carried by this execution's lifecycle events. */
-  readonly commandId: string
+  readonly commandId: CommandId
   /** The handler's normalized outcome. */
   readonly result: CommandResult
 }
@@ -131,13 +134,13 @@ declare module '@deepseek-ai/dsh-session' {
      * folding its own command records, a rich command card) never re-parses
      * a line.
      */
-    'command/run': { commandId: string; name: string; args: string; source: CommandSource }
+    'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
     /**
      * The paired command settled. `kind`/`text` carry the handler's verbatim
      * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
      * rendered failure); presentation stays client-computed at render time.
      */
-    'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
+    'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
   }
 
   interface OutOfBandSessionEventMap {
@@ -397,9 +400,9 @@ export class CommandService extends Service {
   }
 
   /** Mint the next pairing id (monotonic; instance-token-prefixed so a resumed log never repeats one). */
-  private mintCommandId(): string {
+  private mintCommandId(): CommandId {
     this.commandSeq += 1
-    return `cmd-${this.instanceToken}-${this.commandSeq}`
+    return CommandId(`cmd-${this.instanceToken}-${this.commandSeq}`)
   }
 
   /**

@@ -366,7 +366,7 @@ describe('ChatView', () => {
 
   it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {
     const command = (over: Partial<CommandNode>): CommandNode => ({
-      kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1',
+      kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1' as CommandNode['commandId'],
       name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
       ...over,
     })
@@ -378,7 +378,7 @@ describe('ChatView', () => {
 
     // Error outcome flips the row state; a text-less error gets the default copy.
     const failed = makeHarness({
-      nodes: [command({ seq: 6, commandId: 'cmd-2', outcome: { kind: 'error' } })],
+      nodes: [command({ seq: 6, commandId: 'cmd-2' as CommandNode['commandId'], outcome: { kind: 'error' } })],
     })
     const fv = render(<failed.ChatView {...failed.props} />)
     expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
@@ -386,7 +386,7 @@ describe('ChatView', () => {
 
     // Still executing: running state with the executing copy.
     const executing = makeHarness({
-      nodes: [command({ seq: 7, commandId: 'cmd-3', outcome: null })],
+      nodes: [command({ seq: 7, commandId: 'cmd-3' as CommandNode['commandId'], outcome: null })],
     })
     const xv = render(<executing.ChatView {...executing.props} />)
     expect(xv.container.querySelector('[data-state="running"]')).not.toBeNull()
@@ -394,7 +394,7 @@ describe('ChatView', () => {
 
     // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
     const orphan = makeHarness({
-      nodes: [command({ seq: 8, commandId: 'cmd-4', name: null, args: null, outcome: { kind: 'success' } })],
+      nodes: [command({ seq: 8, commandId: 'cmd-4' as CommandNode['commandId'], name: null, args: null, outcome: { kind: 'success' } })],
     })
     const ov = render(<orphan.ChatView {...orphan.props} />)
     expect(ov.getByText('命令')).toBeTruthy()

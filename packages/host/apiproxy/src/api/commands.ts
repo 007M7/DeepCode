@@ -5,6 +5,7 @@
  * together), so there is no agent-less surface on this wire.
  */
 
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
@@ -43,5 +44,5 @@ export interface CommandsApi {
    * wire: the fetch carrier's request signal cancels the running handler.
    */
   execute(request: RpcRequest<{ sessionId: SessionId; line: string }>, signal: AbortSignal):
-  Promise<RpcResponse<{ matched: boolean; commandId?: string }>>
+  Promise<RpcResponse<{ matched: boolean; commandId?: CommandId }>>
 }

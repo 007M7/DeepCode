@@ -8,6 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
@@ -229,7 +230,7 @@ export class FoldAdapter {
     // enter the client program, so this wire consumer narrows structurally
     // (the same posture as tool/code-dispatch in session.ts).
     if ((event.type as string) === 'command/run') {
-      const data = event.data as unknown as { commandId: string; name: string; args: string }
+      const data = event.data as unknown as { commandId: CommandId; name: string; args: string }
       this.commandIdx.set(data.commandId, {
         kind: 'command', seq: event.seq, time: event.time,
         commandId: data.commandId, name: data.name, args: data.args, outcome: null,
@@ -237,7 +238,7 @@ export class FoldAdapter {
       return
     }
     if ((event.type as string) !== 'command/done') return
-    const data = event.data as unknown as { commandId: string; kind: 'success' | 'error'; text?: string }
+    const data = event.data as unknown as { commandId: CommandId; kind: 'success' | 'error'; text?: string }
     const run = this.commandIdx.get(data.commandId)
     const outcome = { kind: data.kind, ...data.text === undefined ? {} : { text: data.text } }
     if (run === undefined) {

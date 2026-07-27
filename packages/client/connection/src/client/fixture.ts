@@ -7,6 +7,9 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+// Type-only: the brand constructor is host-side; the fixture casts at its
+// wire-fabrication boundary (the schema layer's one-cast-point posture).
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -838,7 +841,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
-        const commandId = `fx-cmd-${logOf(id).length}`
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const, commandId })

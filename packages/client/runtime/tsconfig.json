@@ -24,6 +24,9 @@
       "path": "../../host/apiproxy"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
       "path": "../../session-projection/session-projection"
     },
     {
