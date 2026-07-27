@@ -37,15 +37,15 @@ function resultText(result: { content: { type: string; text?: string }[] }): str
 }
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modifies its own runtime', () => {
-  it('mounts a status listener whose tagged output actually fires, then unmounts it', async () => {
+  it('mounts a temporary status listener whose tagged output actually fires, then unmounts it', async () => {
     ctx = await cordisHarness()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.followup({ content: [{
       type: 'text',
-      text: 'Use cordis_mount to mount a plugin that listens to the \'agent/status\' '
-        + 'cordis event and logs every change with console.log. Reply "mounted" once done.',
+      text: 'Use cordis_mount to create a temporary Plugin that listens to the \'agent/status\' '
+        + 'Cordis event and logs every change with console.log. Reply "running" once done.',
     }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
@@ -54,18 +54,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(taggedCalls(log).length).toBeGreaterThan(0)
     const mid = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('verify-mounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
+      callId: CallId('verify-mounted'), name: 'cordis_inspect', arguments: { what: 'temporary' },
     })
     expect(resultText(mid)).toContain('dyn-')
 
-    agent.followup({ content: [{ type: 'text', text: 'Now unmount the plugin you just mounted.' }], source: { kind: 'user' } })
+    agent.followup({ content: [{ type: 'text', text: 'Now unmount the temporary Plugin you just mounted.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('verify-unmounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
+      callId: CallId('verify-unmounted'), name: 'cordis_inspect', arguments: { what: 'temporary' },
     })
-    expect(resultText(after)).toContain('(no dynamic plugins mounted)')
+    expect(resultText(after)).toContain('No temporary Plugins are running.')
   }, 120_000)
 
   it('builds itself a reverse_text tool and actually calls it', async () => {
@@ -74,7 +74,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
     agent.followup({ content: [{
       type: 'text',
-      text: 'Give yourself a new tool: use cordis_mount to mount a plugin with '
+      text: 'Give yourself a new tool: use cordis_mount to create a temporary Plugin with '
         + 'inject ["tools"] that calls harness.registerTool(ctx, harness.defineTool({...})) '
         + 'to register a tool named reverse_text with one required string parameter '
         + '"text", returning the text reversed. Then CALL reverse_text with the '
@@ -115,13 +115,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ).toBe(true)
   }, 120_000)
 
-  it('composes two mounts through provide/inject, and unmounting the provider parks the consumer', async () => {
+  it('composes two temporary Plugins through provide/inject, and unmounting the provider parks the consumer', async () => {
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.followup({ content: [{
       type: 'text',
-      text: 'Mount TWO separate plugins with cordis_mount. First a provider: apply calls '
+      text: 'Mount TWO separate temporary Plugins with cordis_mount. First a provider: apply calls '
         + 'ctx.provide(\'shouter\', { shout: (s) => s.toUpperCase() }). Second a consumer with '
         + 'inject ["shouter", "tools"] that registers (via harness.registerTool + harness.defineTool) '
         + 'a tool named shout_text with one required string parameter "text" whose execute returns '
@@ -144,16 +144,16 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
       .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
     expect(shoutResults.some(text => text.includes('QUIET'))).toBe(true)
 
-    agent.followup({ content: [{ type: 'text', text: 'Now unmount ONLY the provider plugin (the one that provided shouter).' }], source: { kind: 'user' } })
+    agent.followup({ content: [{ type: 'text', text: 'Now unmount ONLY the provider temporary Plugin (the one that provided shouter).' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // The consumer must have been parked by cordis itself: service gone,
-    // dependent tool unregistered, dynamic table naming the missing service.
+    // dependent tool unregistered, temporary section naming the missing service.
     expect(ctx.get('shouter')).toBeUndefined()
     expect(ctx.tools.get('shout_text')).toBeUndefined()
     const after = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('verify-parked'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
+      callId: CallId('verify-parked'), name: 'cordis_inspect', arguments: { what: 'temporary' },
     })
     expect(resultText(after)).toContain('waiting for: shouter')
   }, 120_000)

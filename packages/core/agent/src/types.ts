@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, LlmFailure, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, LlmFailure, MessageSource, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -370,11 +370,15 @@ declare module 'cordis' {
      * @param step - the failed step number.
      * @param error - the original model-request failure.
      * @param failure - serializable facts normalized at the final adapter boundary.
+     * @param priorFailures - immutable failures that already authorized another
+     * retry turn in this consecutive sequence.
+     * @param retryPolicy - immutable policy of the adapter registration that served
+     * the failed request, or `undefined` if no final adapter served it.
      * @param signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
     /**
      * The turn is about to close: the model owes no response (no live tool
      * calls, no fresh steering). Awaited before the boundary commits — a

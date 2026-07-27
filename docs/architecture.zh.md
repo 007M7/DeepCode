@@ -117,11 +117,11 @@ idle inject:
 
 接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
-裁剪先于摘要；溢出重试必须取得持久进展。恢复会在失败步骤关闭后、轮次关闭前使用 `agent/request-error`。其策略返回重试动作以安排一个重试轮次；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
 ### 失败边界
 
-适配器故障会先关闭步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和轮次信号。负责处理的监听器返回 `{ kind: 'retry' }`；循环关闭失败轮次，并从持久历史开启另一个轮次，不发出空闲通知。重试耗尽后，失败的 `turn/end` 即为终态记录；失败分片不会提交消息或工具调用。
+适配器故障会先关闭自身步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和信号。已处理的失败会关闭所在轮次，并从持久历史开启重试轮次，不发出空闲通知；重试耗尽则留下终态 `turn/end`。失败分片既不提交消息，也不提交工具调用。
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -143,7 +143,7 @@ idle inject:
 
 **模型可见 ⟺ 已记录**：`step/start` 时的消息与折叠后的 `request/header` 可以重建每个请求；该包的 `dsh-agent-loop/invariant` 可通过 `ctx.invariants` 断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 屏障位于适配器分发前、顶层工具分发前，以及下一次请求的 `agent/step`。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
+持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 屏障位于每次请求与顶层工具分发之前，并在 `turn/end` 之后、处理另一个已排队轮次或观察到空闲状态之前执行。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
 `ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 

@@ -13,7 +13,7 @@ const PLAN_CONFIG = { section: 'Test plan mode instructions.' }
 
 /**
  * Full-loop integration: a scripted mock model drives the REAL plan-mode plugin
- * through the agent loop — the pending-intent flush at the turn boundary, the
+ * through the agent loop — the pending-intent flush at the request boundary, the
  * assembly the soft layer shapes (the exit tool + mode section), and the
  * `request/header` snapshots every transition leaves.
  * Only the model is mocked; the loop, the session log, and the plugin are
@@ -72,7 +72,7 @@ describe('plan mode through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock' })
     // Selected while idle: the pending intent flushes at the first
-    // prompt-submit, BEFORE the first assembly.
+    // in-turn agent/step seam, before the first assembly.
     ctx.planMode.set(agent, true)
 
     agent.followup({ content: [{ type: 'text', text: 'explore the repo' }], source: { kind: 'user' } })
@@ -136,7 +136,9 @@ describe('plan mode through the agent loop', () => {
     const adapter = new MockAdapter([failedRequest, textResponse('Recovered in plan mode.')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _signal, next) => {
+    ctx.on('agent/request-error', async (
+      subject, _turn, _step, _error, _failure, _priorFailures, _retryPolicy, _signal, next,
+    ) => {
       if (subject !== agent) return next()
       ctx.planMode.set(agent, true)
       return { kind: 'retry' }

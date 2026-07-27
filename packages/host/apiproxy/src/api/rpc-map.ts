@@ -20,6 +20,8 @@ export interface RpcMethodMap {
   'session.list': SessionsApi['list']
   'session.create': SessionsApi['create']
   'session.history': SessionsApi['history']
+  'session.models': SessionsApi['models']
+  'session.selectModel': SessionsApi['selectModel']
   'session.prompt': SessionsApi['prompt']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']

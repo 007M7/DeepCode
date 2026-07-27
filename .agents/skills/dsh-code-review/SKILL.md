@@ -5,7 +5,7 @@ description: Use when reviewing a pull request in the deepseek-harness repo — 
 
 # Reviewing a DeepSeek-Harness PR
 
-**This skill is guidance, not a complete checklist.** Read the diff against the PR's current base and enough surrounding code to understand the design, then verify suspected defects before reporting them. Re-establish that base after a retarget or merge. Prioritize correctness, lifecycle, security, and contract failures over style; a short review with one substantiated blocker is better than a list of nits.
+**This skill is guidance, not a complete checklist.** Verify and fetch the PR's live base and exact head, then run `pnpm run change-scope --base <verified-base-ref> --head <verified-head-ref>` before reading the diff and enough surrounding code to understand the design. The report identifies paths and dirty layers but does not replace semantic review. Re-establish the base and rerun it after a retarget or merge. Prioritize correctness, lifecycle, security, and contract failures over style; a short review with one substantiated blocker is better than a list of nits.
 
 ## Sources of truth
 

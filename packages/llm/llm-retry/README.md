@@ -2,42 +2,52 @@
 
 English | [中文](README.zh.md)
 
-Function plugin that retries selected transient model-request failures through the `agent/request-error` waterfall. It does not wrap `ctx.llm.stream()`: every adapter call remains one provider attempt, and every retry opens a fresh numbered turn.
+Function plugin that applies exact-provider retry policy through the agent loop's closed-step `agent/request-error` waterfall. It does not wrap `ctx.llm.stream()`: every adapter call remains one provider attempt, and every retry opens a fresh numbered turn.
 
-The default policy permits two retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. `EMPTY_RESPONSE` is the adapters' classification of a degenerate provider completion (a terminal stop with zero content blocks); the attempt produced nothing durable, so repeating it is safe. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
+Each provider adapter owns an optional nested `retryPolicy`, captured when its route registers on `ctx.llm` and carried with each call that reaches that registration's final adapter boundary. An in-flight failure retains that serving policy if the route is later disposed or replaced; a failure before any final adapter is selected has no provider policy and delegates. Omission uses normal mode: two retries for `EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, with bounded exponential backoff from 500 ms to 10 seconds and 10 percent jitter. `EMPTY_RESPONSE` is the adapters' classification of a degenerate provider completion that produced no durable content, so repeating it is safe. A normal policy can change its finite budget, eligible codes, and backoff. Always mode asks downstream recovery first, then retries every model-request failure without an attempt limit; success, cancellation, or plugin disposal stops it after active delegated recovery reaches quiescence.
 
-The recovery listener appends a non-surface `llm/retry` event after the failed step, waits for the backoff while the failed turn's signal remains live, then returns `{ kind: 'retry' }`. The loop closes that failed turn and opens a retry turn over the same durable history. The policy keeps its own retry count across that uninterrupted recovery chain and clears it at terminal `agent/settled`. Turn cancellation and plugin disposal abort the wait.
+Both modes use bounded exponential backoff with symmetric jitter. A valid `providerRetryAfterMs` at or below `maxDelayMs` replaces local backoff without jitter. An over-cap provider delay makes normal mode delegate, while always mode uses its configured local backoff so it cannot terminate on that instruction.
 
-The separately published `./invariant` companion checks that every retry record appears inside an open turn after its failed step, matches its position in the current retry chain, and carries a positive bounded retry budget and non-negative bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
+Before waiting, the plugin appends a non-surface `llm/retry` event with the provider, mode, canonical resolved-policy key, failure, and scheduled delay. The key includes every behavior-affecting field and sorts normal-mode codes because eligibility uses set membership. Retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different limits, code membership, or backoff starts its own history. Normal events include the finite maximum; always events omit it, and UIs render `∞`. After the wait, the listener returns `{ kind: 'retry' }`, and the loop closes the failed turn and opens a retry turn over the same durable history. Cancellation and plugin disposal abort active backoff, drain active delegated recovery before applying the abort, and make a callback captured before disposal fail closed.
+
+The separately published `./invariant` companion checks that every retry record names the current open turn and latest closed step, matches the failed request's durable provider, carries non-empty provider and policy identities, has mode-specific bounds, a unique step record, the correct provider-policy retry number, and a bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
 
 ```yaml
-- name: '@deepseek-ai/dsh-llm-retry'
+- name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    maxTransientRetries: 2
-    initialDelayMs: 500
-    maxDelayMs: 10000
-    jitterRatio: 0.1
-    retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    retryPolicy:
+      mode: always
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+        jitterRatio: 0.2
+
+- name: '@deepseek-ai/dsh-llm-retry'
 ```
+
+The executor has no policy config. Multi-provider adapters such as `dsh-llm-pi-ai` place `retryPolicy` inside each provider profile, avoiding a second provider-name list.
 
 ## Model Experience
 
-### Transient request recovery
+### Model-request recovery
 
 #### What the model sees
 
-No retry event, delay, or failure prose is model-visible. The retry turn reconstructs the same explicit provider/model request from durable session history; failed chunks never enter derived messages.
+No retry event, delay, provider error, or failed partial output is model-visible. The retry turn reconstructs the same explicit provider/model request from durable surface history unless a downstream recovery policy deliberately changes that surface; failed chunks never enter derived messages.
 
 #### Token effect
 
-Each retry is a new provider request and may repeat input-token billing. The finite budget caps attempts; `llm/retry` itself contributes no tokens.
+Each retry is a new provider request and may repeat input-token billing. Normal mode has a finite budget; always mode can consume unbounded requests until success or cancellation. `llm/retry` itself contributes no tokens.
 
 #### KV Cache effect
 
-The reconstructed request preserves the prior prefix and is eligible for provider cache reuse under that provider's rules. The non-surface status event does not change cache identity.
+The reconstructed request preserves the prior prefix and is eligible for provider cache reuse under that provider's rules. The non-surface retry event does not change cache identity.
 
 ## Known Limitations and Deferred Work
 
 - **Agent turns are the only retry boundary** — direct `ctx.llm.stream()` consumers remain single-attempt because a raw stream cannot separate already-emitted chunks durably.
-- **Finite plugin budgets add** — this policy counts only configured transient codes; context-overflow compaction counts only its own code. A future policy with overlapping codes must document and test registration-order behavior.
-- **`llm/retry` records completed backoff, not request completion** — later step and turn events establish success, exhaustion, or cancellation.
+- **Always mode retries permanent failures** — authentication, quota, invalid-request, protocol, and unrecoverable context errors continue until success, cancellation, or disposal; deployments own provider-specific cost and latency controls.
+- **Finite plugin budgets add** — normal mode counts only its configured codes and exact provider policy, while context-overflow compaction owns a separate budget. A future overlapping policy must document and test registration-order behavior.
+- **Recovery policies compose by waterfall order** — always mode accepts a downstream retry before applying its fallback. A later policy that ignores cancellation and never settles also prevents fallback, turn quiescence, and plugin disposal from completing.
+- **`llm/retry` records scheduling, not completion** — later step and turn events establish success, exhaustion, or cancellation.

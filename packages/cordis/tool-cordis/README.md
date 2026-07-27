@@ -2,17 +2,19 @@
 
 English | [中文](README.zh.md)
 
-The self-referential cordis toolset: three model-facing tools over the live runtime the agent runs inside. Design home — sandbox semantics, mount lifecycle, cross-mount composition, the generated API catalog, standing decisions: [the toolset Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
+The self-referential Cordis toolset: three model-facing tools over the live runtime in the current DSH process. Design home — sandbox semantics, temporary-plugin lifecycle and composition, the generated API catalog, standing decisions: [the toolset Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md).
 
 ## What it does
 
-- `cordis_inspect` — read-only report over the runtime: services, the loaded-plugin list, registered tools, the dynamic-mount table, and the catalog-backed `api` / `events` references. An exact `name` with `what: "api"` or `what: "events"` narrows the report and adds the original source JSDoc.
-- `cordis_mount` — evaluates model-written JavaScript (the body of an async function) in a `node:vm` sandbox; the code must `return` a cordis plugin, which is mounted under the `cordis-dynamic` group fiber and tracked as `dyn-<n>`.
-- `cordis_unmount` — disposes one mount by id, returning only after quiescence.
+- `cordis_inspect` — read-only report over the current process: services, all live plugin fibers, registered tools, the `cordis_mount` temporary-Plugin subset, and the catalog-backed `api` / `events` references. An exact `name` with `what: "api"` or `what: "events"` narrows the report and adds the original source JSDoc.
+- `cordis_mount` — evaluates model-written JavaScript now and saves it nowhere; the code must return an in-memory temporary Plugin tracked as `dyn-<n>`.
+- `cordis_unmount` — unmounts one `dyn-<n>` temporary Plugin and returns only after its owned effects reach quiescence. It cannot remove Loader, configured, or installed Plugins.
 
 Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-catalog.md).
 
-Canonical successes are the inspection string, mount `{ id, pluginName, state, provides, waitingFor }`, and unmount `{ id, pluginName }`. Native renderers preserve the existing prose, so programs can use `mounted.id` while ordinary function calling still sees `mounted dyn-1 (...)`.
+Canonical successes are the inspection string, mount `{ id, pluginName, state, provides, waitingFor }`, and unmount `{ id, pluginName }`. Native rendering says whether the temporary Plugin is running or pending and that it remains available until unmounted or DSH restarts; unmount confirms that it was removed.
+
+Temporary Plugins live only in the shared DSH process memory. They remain active across later turns and may affect other sessions in that process, but disappear after `cordis_unmount`, toolset unload, or DSH restart. They create no Plugin file, install no package, change no `cordis.yml` or personal/project configuration, do not survive restart, and cannot be promoted automatically. To keep an experiment, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow.
 
 ## Trust stance
 
@@ -22,7 +24,7 @@ The sandbox isolates globals but is not a security boundary. Node globals are ab
 
 | Field | Default | Meaning |
 |---|---|---|
-| `vmTimeoutMs` | `5000` | Bound on the SYNCHRONOUS portion of mount-code evaluation; an async body escapes it |
+| `vmTimeoutMs` | `5000` | Bound on the SYNCHRONOUS portion of temporary-Plugin code evaluation; an async body escapes it |
 
 ## The generated API catalog
 
@@ -30,7 +32,7 @@ The sandbox isolates globals but is not a security boundary. Node globals are ab
 
 ## Rendering
 
-All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_mount` carries the mount code as `rawInput`. Presenters are pure functions of the args; results keep the default text rendering.
+All three tools render `generic` cards (`read` / `execute` / `delete`); `cordis_mount` carries the temporary-Plugin code as `rawInput`. Presenters are pure functions of the args; results keep the default text rendering.
 
 ## Export shape
 
@@ -56,7 +58,7 @@ Prefix-stable while this tool view is unchanged. Scoping or plugin lifecycle cha
 
 #### What the model sees
 
-Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections. Its broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Mount returns `mounted <id> (plugin "<name>", state: <state>)`, optionally inserting ` — waiting for service(s): <names> (activates when provided)` before the closing parenthesis. Unmount returns `unmounted <id> (plugin "<name>")`; an unknown id becomes `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`. The submitted mount program remains in the assistant tool-call history.
+Inspect joins selected sections exactly as `## <section>` then a newline and the data-dependent body, with one blank line between sections; `what: "temporary"` uses the `## Temporary Plugins` heading. Each temporary-Plugin row reports running/pending state, provided and awaited services, and its lifetime until unmounted or DSH restart. The empty state explains that `cordis_mount` Plugins disappear on restart. Broad API/event reports omit JSDoc; `name` with `what: "api"` or `what: "events"` returns one exact target with its original JSDoc. Mount returns `Temporary Plugin <id> is running (...)` or `Temporary Plugin <id> is pending (...)`; unmount returns `Temporary Plugin <id> was unmounted and removed.` The submitted program remains in assistant tool-call history.
 
 #### Token effect
 
@@ -66,19 +68,19 @@ Inspect output and mount code are data-dependent and resent until compaction; li
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
-### Later requests after a mount
+### Later requests after cordis_mount
 
 #### What the model sees
 
-A mounted plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; unmount removes those contributions after quiescence.
+A temporary Plugin may register tools, prompt contributions, or listeners that change later requests for the scopes it targets; `cordis_unmount` removes those contributions after quiescence.
 
 #### Token effect
 
-Indirect token impact equals the mounted plugin's contributions and lasts only for the mount lifetime.
+Indirect token impact equals the temporary Plugin's contributions and lasts only for its process-local lifetime.
 
 #### KV Cache effect
 
-Mounting or unmounting a prompt or tool contribution changes later request prefixes and may invalidate reuse from the first changed contribution; an unchanged mount set remains prefix-stable.
+Mounting or unmounting a prompt or tool contribution changes later request prefixes and may invalidate reuse from the first changed contribution; an unchanged temporary-Plugin set remains prefix-stable.
 
 ## Known Limitations and Deferred Work
 

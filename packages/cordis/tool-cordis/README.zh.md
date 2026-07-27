@@ -2,17 +2,19 @@
 
 [English](README.md) | 中文
 
-自引用 cordis 工具集：三个面向模型的工具，操作 agent 所处的存活运行时。设计归属（沙箱语义、挂载生命周期、跨挂载组合、生成的 API 目录、既定决策）见[工具集 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
+自引用 Cordis 工具集：三个面向模型的工具，操作当前 DSH 进程中的存活运行时。设计归属（沙箱语义、临时 Plugin 生命周期与组合、生成的 API 目录、既定决策）见[工具集 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
 
 ## 功能
 
-- `cordis_inspect`：运行时的只读报告，包括服务、已加载插件列表、已注册工具、动态挂载表，以及目录支持的 `api`／`events` 参考。精确的 `name` 配合 `what: "api"` 或 `what: "events"` 可缩窄报告，并附上原始源代码 JSDoc。
-- `cordis_mount`：在 `node:vm` 沙箱中求值模型编写的 JavaScript（一个 async 函数的主体）；代码必须 `return` 一个 cordis 插件，系统将其挂载在 `cordis-dynamic` 分组 fiber 下，并以 `dyn-<n>` 跟踪。
-- `cordis_unmount`：按 id 释放一项挂载，只在完全停稳后返回。
+- `cordis_inspect`：当前进程运行时的只读报告，包括服务、全部存活 Plugin fiber、已注册工具、`cordis_mount` 临时 Plugin 子集，以及目录支持的 `api`／`events` 参考。精确的 `name` 配合 `what: "api"` 或 `what: "events"` 可缩窄报告，并附上原始源代码 JSDoc。
+- `cordis_mount`：立即求值模型编写的 JavaScript 且不保存到任何位置；代码必须返回一个以 `dyn-<n>` 跟踪、仅存于内存的临时 Plugin。
+- `cordis_unmount`：卸载一个 `dyn-<n>` 临时 Plugin，并只在其自有效果完全停稳后返回；它不能删除 Loader、配置或已安装的 Plugin。
 
 精确的面向模型 schema 见[生成的工具目录](../../../docs/tool-catalog.md)。
 
-规范成功值分别为检查字符串、挂载 `{ id, pluginName, state, provides, waitingFor }`，以及卸载 `{ id, pluginName }`。原生 renderer 保留现有文本，因此程序可以使用 `mounted.id`，普通 Function Calling 仍会看到 `mounted dyn-1 (...)`。
+规范成功值分别为检查字符串、挂载 `{ id, pluginName, state, provides, waitingFor }`，以及卸载 `{ id, pluginName }`。原生 renderer 会说明临时 Plugin 正在运行还是等待中，并说明它可用至被卸载或 DSH 重启；卸载结果确认它已移除。
+
+临时 Plugin 只存在于共享 DSH 进程内存中。它可跨后续 turn 保持活跃，也可能影响同一进程中的其他 session，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建 Plugin 文件、安装 package、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式 Plugin。若要保留实验结果，应让 Agent 通过常规开发流程实现普通的本地、项目或仓库 Plugin。
 
 ## 信任立场
 
@@ -22,7 +24,7 @@
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `vmTimeoutMs` | `5000` | 挂载代码求值中同步部分的边界；async 主体可逃出该边界 |
+| `vmTimeoutMs` | `5000` | 临时 Plugin 代码求值中同步部分的边界；async 主体可逃出该边界 |
 
 ## 生成的 API 目录
 
@@ -30,7 +32,7 @@
 
 ## 渲染
 
-三个工具都渲染 `generic` 卡片（`read`／`execute`／`delete`）；`cordis_mount` 以 `rawInput` 携带挂载代码。presenter 是 args 的纯函数；结果保留默认文本渲染。
+三个工具都渲染 `generic` 卡片（`read`／`execute`／`delete`）；`cordis_mount` 以 `rawInput` 携带临时 Plugin 代码。presenter 是 args 的纯函数；结果保留默认文本渲染。
 
 ## 导出形状
 
@@ -56,7 +58,7 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 
 #### 模型看到的内容
 
-检查会精确地用 `## <section>` 加换行及数据相关主体来拼接选中区段，各区段之间留一个空行。宽泛的 API／事件报告省略 JSDoc；`name` 配合 `what: "api"` 或 `what: "events"` 返回一个精确目标及其原始 JSDoc。挂载返回 `mounted <id> (plugin "<name>", state: <state>)`，并可在右括号前插入 ` — waiting for service(s): <names> (activates when provided)`。卸载返回 `unmounted <id> (plugin "<name>")`；未知 id 会变成 `Error: no dynamic plugin with id "<id>" (list mounts with cordis_inspect what:"dynamic")`。提交的挂载程序保留在 assistant 工具调用历史中。
+检查会精确地用 `## <section>` 加换行及数据相关主体来拼接选中区段，各区段之间留一个空行；`what: "temporary"` 使用 `## Temporary Plugins` 标题。每个临时 Plugin 行都会报告 running／pending 状态、提供与等待的服务，以及持续至卸载或 DSH 重启的生命周期；空状态说明 `cordis_mount` Plugin 会在重启时消失。宽泛的 API／事件报告省略 JSDoc；`name` 配合 `what: "api"` 或 `what: "events"` 返回一个精确目标及其原始 JSDoc。挂载返回 `Temporary Plugin <id> is running (...)` 或 `Temporary Plugin <id> is pending (...)`；卸载返回 `Temporary Plugin <id> was unmounted and removed.`。提交的程序保留在 assistant 工具调用历史中。
 
 #### Token 影响
 
@@ -66,19 +68,19 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 
 仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
 
-### 挂载后的后续请求
+### cordis_mount 后的后续请求
 
 #### 模型看到的内容
 
-已挂载插件可以注册工具、提示词贡献或监听器，改变其目标 scope 的后续请求；卸载会在完全停稳后移除这些贡献。
+临时 Plugin 可以注册工具、提示词贡献或监听器，改变其目标 scope 的后续请求；`cordis_unmount` 会在完全停稳后移除这些贡献。
 
 #### Token 影响
 
-间接 token 影响等于已挂载插件的贡献，且只在挂载生命周期内持续。
+间接 token 影响等于临时 Plugin 的贡献，且只在其进程内生命周期内持续。
 
 #### KV Cache 影响
 
-挂载或卸载提示词／工具贡献会改变后续请求前缀，并可能使从第一个变化的贡献起的复用失效；挂载集合不变时，前缀保持稳定。
+挂载或卸载提示词／工具贡献会改变后续请求前缀，并可能使从第一个变化的贡献起的复用失效；临时 Plugin 集合不变时，前缀保持稳定。
 
 ## 已知限制与暂缓事项
 
