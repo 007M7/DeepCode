@@ -1694,6 +1694,16 @@
       "doc": "docs/subsystems/typert.md",
       "symbol": "TypeRTClientRemote",
       "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/credentials.md",
+      "symbol": "CredentialRef",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/permission.md",
+      "symbol": "PresetSpec",
+      "source": "packages/interaction/permission/src/index.ts"
     }
   ]
 }
