@@ -3,12 +3,12 @@
  *
  * The manager serializes modal ownership, guards extension callbacks, and
  * settles every queued or active operation before terminal teardown.
- * @module @deepseek-ai/dsh-tui/overlay-manager
+ * @module @deepseek-ai/dsh-tui/extension/overlay-manager
  */
 
 import { Service, type Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TuiExtensionService } from './index.ts'
+import type { TuiExtensionService } from '../index.ts'
 import type {
   Component,
   Focusable,
@@ -26,7 +26,7 @@ import type {
   TuiOverlayState,
   TuiTheme,
   TuiViewport,
-} from './extension.ts'
+} from './types.ts'
 
 /** pi-tui operations retained by the front door instead of exposed to plugins. */
 export interface TuiOverlayDriver {

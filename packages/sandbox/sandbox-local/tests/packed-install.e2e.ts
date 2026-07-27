@@ -26,6 +26,7 @@ const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox',
   'packages/llm/llm',
   'packages/util/brand',
+  'packages/util/timeout',
   'packages/support/invariants',
 ]
 

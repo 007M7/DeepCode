@@ -64,7 +64,7 @@ interface Config {
 
 在 `agent/request` 返回提供方／模型调用配置后，循环会调用 `ctx.llm.prepareCall()`，在活跃轮次信号的控制下校验由适配器持有的推理（reasoning）强度，并填入其配置默认值。准备完成的调用会在这次异步解析、`request/header` 日志记录和最终分派期间保留同一项确切的适配器注册，因此 HMR（热模块替换）不会把某个适配器的能力解析结果与另一适配器的请求混用。生效配置会在分派前写入日志，因此监听器可以在步骤之间更改推理强度，而不会产生未记录的请求变化。没有已注册适配器的路由会保留原定配置，使 `llm/stream` 监听器可以接管并短路该请求；最终分派仍会以 `NO_ADAPTER` 拒绝未得到处理的路由。新循环实例仅在初始提供方／模型路由与日志路由完全一致时恢复上次的推理强度；路由变化会丢弃由前一模型持有的不透明 ID，并单独解析新模型。
 
-插件失败会结束当前轮次，而不是结束循环。模型请求失败会先关闭其步骤，再带着确切的实时错误、规范化的提供方事实和轮次信号进入 `agent/request-error`。处理失败的监听器返回 `{ kind: 'retry' }`；循环用其错误关闭失败轮次，并在不插入空闲通知的情况下开启一个编号重试轮次。未被处理的失败是终态。其他失败直接关闭轮次。AgentLoop 为当前接纳或轮次拥有一个取消信号。有效的 `cancel(cause)` 在未设置 `keepInbox` 时清除待处理工作，并以协作方式中止该信号；空闲取消是空操作。持久 `turn/end` 为 `user` 和 `parent` 记录 `aborted`，dispose 则记录 `disposed`；未分发的模型工具调用会收到合成的 `tool/call` 与 `ABORTED_BEFORE_DISPATCH` 结果对。取消原因只改变报告方式，不改变对取消后已定案结果上下文的处理。Dispose 会等待忽略信号的工作完成，然后才从注册表移除。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)规定生命周期与竞态契约。
+插件失败会结束当前轮次，而不是结束循环。只有最终适配器分发／迭代失败以及带内的终止错误或中止结束才进入 `agent/request-error`；中间件、结果处理、工具及其他扩展失败会直接关闭轮次。失败步骤关闭后，恢复逻辑会接收确切的实时错误、不可变的提供方事实、不可变的先前失败、为请求提供服务的适配器注册所对应的不可变重试策略，以及轮次信号；如果没有最终适配器为其提供服务，则该策略缺失。处理失败的监听器返回 `{ kind: 'retry' }`；循环用其错误关闭失败轮次，并在不插入空闲通知的情况下开启一个编号重试轮次。成功会清除连续失败历史；未被处理的失败是终态。AgentLoop 为当前接纳或轮次拥有一个取消信号。有效的 `cancel(cause)` 在未设置 `keepInbox` 时清除待处理工作，并以协作方式中止该信号；空闲取消是空操作。持久 `turn/end` 为 `user` 和 `parent` 记录 `aborted`，dispose（资源释放）则记录 `disposed`；未分发的模型工具调用会收到合成的 `tool/call` 与 `ABORTED_BEFORE_DISPATCH` 结果对。取消原因只改变报告方式，不改变对取消后已定案结果上下文的处理。dispose 会等待忽略信号的工作完成，然后才从注册表移除。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)规定生命周期与竞态契约。
 
 在步骤内，独占调用形成屏障；并行安全调用使用有界滚动池，并在启动前重新分类。只有分发／主体会重叠。策略、持久结果和结果上下文仍保持模型顺序。中止会停止新调用，drain 已启动的结果，并保留其已定案的结果上下文，不区分取消原因。
 
@@ -73,7 +73,7 @@ interface Config {
 超出「调用模型、运行工具、重复」的所有内容，都属于监听事件分类体系的插件：
 - 钩子与策略：相关的 `agent/*` 检查点，加上受守卫保护的 `tools/pre-execute` → `tools/execute` → `tools/post-execute` → 定义拥有的 `finalizeContent` → `tools/result` 流水线；确切事件签名与 mode 位于生成的[事件目录](../../../docs/cordis-catalog/events.md)
 - 压缩（compaction）：在 `agent/step` 上观测压力；在 `agent/request-error` 上修复规范溢出
-- 瞬时模型恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待其有限退避，然后返回重试动作
+- 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待按确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
 - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
 - subagent：在循环外部实现为 `ctx.subagents` 提供方；进程内提供方使用 `ctx.agents.create()` 和拥有的 `AgentHandle` 进行 teardown，而通用的 [`ctx.tasks`](../../tasks/tasks/) 与 [`dsh-tool-subagent`](../../subagent/tool-subagent/) 负责后台收集。
 - 持久化：从 `session/event` 立即后写；`session/flush` 是显式观测屏障

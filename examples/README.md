@@ -22,9 +22,9 @@ An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foregr
 
 ## cordis-agent
 
-The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the live cordis runtime it runs inside, mount model-written plugins into it (an event listener, a brand-new tool for itself, or a service another mount injects), and dispose them again — all dynamic mounts grouped under one `cordis-dynamic` fiber subtree. The `ctx.fs`/`ctx.web` services ride along provider-only, as the capabilities those plugins build on.
+The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the current DSH process, mount model-written temporary Plugins (an event listener, a brand-new tool, or a service another temporary Plugin injects), and unmount them again. These Plugins exist only in memory and share one internal `cordis-dynamic` fiber subtree; `ctx.fs`/`ctx.web` ride along provider-only as capabilities they can use.
 
-Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/README.md](cordis-agent/README.md) for the staged demo script and [the toolset Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md) for the design and sandbox caveats.
+Run the TUI with `pnpm run demo:cordis`, the browser UI at `http://127.0.0.1:3081` with `pnpm run demo:cordis web`, or the ACP server with `pnpm run demo:cordis acp` (all need `DEEPSEEK_API_KEY`). See [cordis-agent/README.md](cordis-agent/README.md) for the staged demo script and [the toolset Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md) for the design and sandbox caveats.
 
 ## acp-agent
 
