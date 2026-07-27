@@ -64,7 +64,7 @@
 
 ### 真实适配器
 
-两个适配器使用不同内部机制实现 `LlmAdapter`：[`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) 针对 `deepseek` 路由使用手写 fetch/SSE，[`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) 则通过 `@earendil-works/pi-ai` 动态解析已配置提供方／模型对。两者都遵循 `StreamChunk` 约定，定义见 `types.ts`：usage 先于 finish，工具参数保持原始字符串，错误使用两种已批准路径之一。设计理由见 [双 LLM 适配器](../../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md)。
+两个适配器使用不同内部机制实现 `LlmAdapter`：[`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) 针对 `deepseek` 路由使用直接 fetch 加 `eventsource-parser` SSE 分帧，[`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) 则通过 `@earendil-works/pi-ai` 动态解析已配置提供方／模型对。两者都遵循 `StreamChunk` 约定，定义见 `types.ts`：usage 先于 finish，工具参数保持原始字符串，错误使用两种已批准路径之一。设计理由见 [双 LLM 适配器](../../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md)。
 
 ## 模型体验
 
