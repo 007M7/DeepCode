@@ -33,3 +33,4 @@ None; this package neither assembles nor sends a provider request.
 - **Assistant footer extensions (IconActions row, per-message paging) are reserved slots** — drawn in the design, not implemented.
 - **The sparkle icon for the others tool row is a hand-drawn approximation** — the design glyph's vector geometry is not exportable locally; promotion into ui-primitives waits on an exact export.
 - **Approval cards are display-only placeholders** — question requests answer through the composer chain (ui-question), while web-side approval answering is the P-II approvals project.
+- **TodoPanel truncates long item text to one ellipsized line** — the figma strip has no wrap or expand affordance; full text is not readable inline.

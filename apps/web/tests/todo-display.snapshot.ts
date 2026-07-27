@@ -133,6 +133,8 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   const panel = document.querySelector('[data-testid="todo-panel"]')
   if (panel === null) throw new Error('todo panel missing from the input dock')
 
+  // Header spans are adjacent inline nodes; textContent joins "To-dos" +
+  // "1/3…" with no space (visual gap is CSS gap: 10px, not a text node).
   expect({
     row: visibleText(row),
     rowState: row.getAttribute('data-state'),
