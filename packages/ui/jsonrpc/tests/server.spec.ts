@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { AgentMessageId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
@@ -152,7 +152,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.followup([{ type: 'text', text: 'outside the sdk session map' }])
+      orphanHandle.agent.followup({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } })
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -172,21 +172,24 @@ describe('HarnessSdkServer', () => {
       .mockResolvedValue(undefined)
     const mainFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('main-followup'))
     const mainAgent = ({
+      id: SessionId('main'),
       followup: mainFollowup,
       whenIdle: mainWhenIdle,
-    } satisfies Pick<Agent, 'followup' | 'whenIdle'>) as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
     const otherFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('other-followup'))
     const otherAgent = ({
+      id: SessionId('other'),
       followup: otherFollowup,
       whenIdle: vi.fn(() => Promise.resolve()),
-    } satisfies Pick<Agent, 'followup' | 'whenIdle'>) as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
     const create = vi.fn(async (options: { sessionId: SessionId }) =>
       String(options.sessionId) === 'main' ? mainHandle : otherHandle)
+    const liveAgents = new Map<string, Agent>([['main', mainAgent], ['other', otherAgent]])
     const ctx = {
       on: vi.fn(() => () => undefined),
-      agents: { create, get: () => undefined },
+      agents: { create, get: (id: SessionId) => liveAgents.get(String(id)) },
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport())
@@ -215,9 +218,43 @@ describe('HarnessSdkServer', () => {
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
   })
 
+  it('rejects a prompt for a session whose agent was disposed outside the server', async () => {
+    const followup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('stub'))
+    const agent = ({
+      id: SessionId('zombie'),
+      followup,
+      whenIdle: vi.fn(() => Promise.resolve()),
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    // The registry drops the agent after creation, modelling an agent-loop-only
+    // reload that leaves the server's SessionRecord pointing at a detached agent.
+    let live = true
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        get: (id: SessionId) => (live && String(id) === 'zombie' ? agent : undefined),
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const prompt = (text: string) => server.prompt({
+      sessionId: 'zombie',
+      contentBlocks: [{ type: 'text', text }],
+    })
+
+    await expect(prompt('while live')).resolves.toEqual({ accepted: true })
+    live = false
+    await expect(prompt('after detach')).rejects.toThrow('session agent was disposed outside the server: zombie')
+    // The detached agent was never driven by the rejected prompt.
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
   it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
     const transport = new FakeTransport()
     const server = new HarnessSdkServer(ctx, transport) as unknown as {
       prompt(params: { sessionId: string; contentBlocks: { type: 'text'; text: string }[] }): Promise<unknown>
@@ -226,16 +263,14 @@ describe('HarnessSdkServer', () => {
     }
     const session = ctx.sessions.create(SessionId('message-outcome'))
     const agent = ({
+      id: SessionId('message-outcome'),
       session,
-      followup(content: { type: 'text'; text: string }[]) {
+      followup(input: { content: { type: 'text'; text: string }[]; source: { kind: 'user' } }) {
         session.append('turn/start', {
           turn: 1,
-          trigger: { kind: 'message', source: { kind: 'user' } },
+          trigger: { kind: 'message', source: input.source },
         })
-        session.append('user/message', {
-          content,
-          source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        session.append('user/message', input, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
         session.append('turn/start', {
           turn: 2,
@@ -249,7 +284,8 @@ describe('HarnessSdkServer', () => {
         return AgentMessageId('message-outcome')
       },
       whenIdle: () => Promise.resolve(),
-    } satisfies Pick<Agent, 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
+    ctx.agents.register(agent)
     server.sessions.set('message-outcome', {
       handle: { agent, dispose: () => Promise.resolve() },
       lastTurnEnd: undefined,

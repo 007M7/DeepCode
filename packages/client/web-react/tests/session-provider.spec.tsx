@@ -43,15 +43,15 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
   const host: SlotRendererHost = {
     subscribe: () => () => {},
     getVersion: () => 0,
-    entriesOf: (key) => key === 'root' ? [rootEntry] : sessionEntries,
-    specOf: (key) => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
+    entriesOf: key => key === 'root' ? [rootEntry] : sessionEntries,
+    specOf: key => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
     isLive: () => true,
     storeOf: () => undefined,
     sessions: {
       list: observable<unknown>({ ids: [] }),
       current,
-      provideInfo: (id) => infos.get(id),
-      maybeProvideInfo: (id) => (id === undefined ? undefined : infos.get(id))
+      provideInfo: id => infos.get(id),
+      maybeProvideInfo: id => (id === undefined ? undefined : infos.get(id))
         ?? { sessionId: undefined, hooks: { session: undefined }, props: {} },
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
@@ -78,7 +78,7 @@ describe('SessionProvider', () => {
     const h = makeHost({
       root: () => (
         <SessionProvider empty={() => <span>empty</span>}>
-          {(id) => <div data-testid="body">{id}</div>}
+          {id => <div data-testid="body">{id}</div>}
         </SessionProvider>
       ),
     })
@@ -93,7 +93,7 @@ describe('SessionProvider', () => {
 
   it('renders null empty state when the empty prop is omitted', () => {
     const h = makeHost({
-      root: () => <SessionProvider>{(id) => <b>{id}</b>}</SessionProvider>,
+      root: () => <SessionProvider>{id => <b>{id}</b>}</SessionProvider>,
     })
     const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
     expect(view.container.textContent).toBe('')
@@ -110,7 +110,7 @@ describe('SessionProvider', () => {
       return <div>{id}</div>
     }
     const h = makeHost({
-      root: () => <SessionProvider>{(id) => <Body id={id} />}</SessionProvider>,
+      root: () => <SessionProvider>{id => <Body id={id} />}</SessionProvider>,
     })
     h.addSession('s1')
     h.addSession('s2')
@@ -127,7 +127,7 @@ describe('SessionProvider', () => {
   it('delivers the resolved cell to session slots under it (observable behavior, not context internals)', () => {
     const seen: Record<string, unknown>[] = []
     const h = makeHost({
-      root: (renderSlot) => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>,
+      root: renderSlot => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>,
     })
     h.addSession('s1')
     h.addSession('s2')
@@ -135,7 +135,7 @@ describe('SessionProvider', () => {
       component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
         // The bound hook reads the cell's bare source — asserting through it
         // proves the machinery wired THIS session's source, not another's.
-        seen.push({ sessionId: props.sessionId, read: props.useSession!((s) => s.sid) })
+        seen.push({ sessionId: props.sessionId, read: props.useSession!(s => s.sid) })
         return null
       },
       options: {},
@@ -152,7 +152,7 @@ describe('SessionProvider', () => {
   it('fails loud when mounted outside the renderer tree (no host channel)', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(
-      <SessionProvider>{(id) => <b>{id}</b>}</SessionProvider>,
+      <SessionProvider>{id => <b>{id}</b>}</SessionProvider>,
     )).toThrow(/outside the installed renderer tree/)
     spy.mockRestore()
   })

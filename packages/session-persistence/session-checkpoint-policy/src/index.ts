@@ -52,8 +52,8 @@ function abortedBeforeDispatchResult(): ToolExecutionResult {
 /**
  * Install semantic checkpoint listeners. Loop-built model calls checkpoint the
  * logged request before adapter dispatch; top-level tool calls checkpoint their
- * recorded call before the tool body; post-step checkpoints retain the complete
- * response/result batch. Nested tool dispatches reuse the durable outer call.
+ * recorded call before the tool body; the next request boundary checkpoints
+ * the preceding response/result batch. Nested tool dispatches reuse the durable outer call.
  *
  * Checkpoint failures are fail-closed at the model and tool side-effect
  * boundaries: the downstream adapter or tool body is not invoked.
@@ -74,5 +74,7 @@ export function apply(ctx: Context): void {
     return next()
   })
 
-  ctx.on('agent/post-step', (agent): Promise<void> => ctx.sessions.flush(agent.session))
+  // Before each request, persist everything committed by the preceding step;
+  // the first step's call is an intentional no-op beyond any prompt intake.
+  ctx.on('agent/step', (agent): Promise<void> => ctx.sessions.flush(agent.session))
 }

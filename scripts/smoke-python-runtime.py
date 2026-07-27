@@ -736,8 +736,6 @@ def scrub_snapshot_header(value: dict[object, object]) -> None:
                 tool.get("name") if isinstance(tool, dict) else "{{tools}}"
                 for tool in tools
             ]
-        if isinstance(header.get("messagePrefix"), list):
-            header["messagePrefix"] = ["{{messagePrefix}}" for _ in header["messagePrefix"]]
 
 
 def render_jsonl(records: list[object]) -> str:

@@ -34,7 +34,7 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
   // Local selection; entries can unmount underneath it, so the render-time
   // projection falls back to the first row when the id is gone.
   const [activeId, setActiveId] = useState<string | undefined>(undefined)
-  const active = rows.find((r) => r.id === activeId)?.id ?? rows[0]?.id
+  const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
 
   useEffect(() => {
@@ -56,7 +56,7 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
         <nav className={css.nav}>
           <div className={css.navTitle} id={titleId}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
-            {rows.map((row) => (
+            {rows.map(row => (
               <button
                 key={row.id}
                 type="button"

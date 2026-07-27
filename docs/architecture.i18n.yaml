@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/architecture.md
-architecture.md: d80eb14c4c703f99d3401e4f69958e78998b8bfa
-architecture.zh.md: b392b519310389a1c623b81b797d4c32453a940c
+architecture.md: 3b0f72400ab1e6a9157aed2966b4a17c36e0c3ac
+architecture.zh.md: fa21c82a686d88a9bbec02180feae1dd0dbf4e47

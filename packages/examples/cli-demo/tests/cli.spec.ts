@@ -319,7 +319,7 @@ describe('runOneShot and executeCli', () => {
     const { ctx, agent, persistenceRoot } = await harness([textResponse('final answer')])
     const output = await invoke(ctx, ['task'])
     expect(output).toEqual({ code: 0, stdout: 'final answer\n', stderr: '' })
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
     const files = await readdir(persistenceRoot, { recursive: true })
     expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
@@ -372,18 +372,20 @@ describe('runOneShot and executeCli', () => {
     ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || injected) return
       injected = true
-      agent.inject([{ type: 'text', text: 'startup injection' }], { source: { kind: 'plugin', plugin: 'test' } })
+      agent.inject({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } })
       other.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
     const lines = output.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     const events = lines.slice(0, -1).map(line => line['event'] as SessionEvent)
-    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 2, result: 'streamed' })
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } })
-    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 2 } })
+    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 1, result: 'streamed' })
+    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } })
+    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 1 } })
     expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
-    expect(events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
+    expect(events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'test')).toBe(false)
   })
 
   it('emits partial data and a diagnostic for non-completed turns', async () => {
@@ -409,7 +411,7 @@ describe('runOneShot and executeCli', () => {
     expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
     expect(output.code).toBe(1)
     expect(output.stderr).toContain('turn 1 was aborted')
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
   })
 
   it('contains stream-writer failures, cancels, flushes, and returns the output error', async () => {
@@ -444,7 +446,7 @@ describe('runOneShot and executeCli', () => {
     expect(output.code).toBe(1)
     expect(output.stdout).toBe('')
     expect(output.stderr).toContain('stdout closed')
-    expect(final.agent.status).toBe('disposed')
+    expect(final.agent.status).toBe('idle')
 
     const disposal = await harness([textResponse('answer')])
     const disposalOutput = await invoke(disposal.ctx, ['task'], { failDispose: true })
@@ -471,7 +473,7 @@ describe('runOneShot and executeCli', () => {
     startup.ctx.on('session/event', (session, event) => {
       if (session === startup.agent.session && event.type === 'assistant/chunk') started()
     })
-    startup.agent.followup([{ type: 'text', text: 'first' }])
+    startup.agent.followup({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } })
     await running
     const startupAbort = new AbortController()
     const waiting = runOneShot(startup.ctx, { task: 'second', signal: startupAbort.signal })
@@ -499,7 +501,6 @@ describe('formatTurnFailure', () => {
       [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],
       [{ kind: 'max-tokens' }, 'output-token limit'],
-      [{ kind: 'rejected', reason: 'policy' }, 'was rejected: policy'],
       [{ kind: 'interrupted' }, 'persistence recovery'],
     ]
     for (const [reason, expected] of cases) expect(formatTurnFailure(reason)).toContain(expected)
