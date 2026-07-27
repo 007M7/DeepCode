@@ -18,10 +18,10 @@ buffer
 5| <blank>
 6| "▌ "
   style 0-0 fg=yellow
-7| "▌ ◌ Mount plugin into live cordis runtime                                                       "
+7| "▌ ◌ Try temporary Cordis Plugin                                                                 "
   style 0-0 fg=yellow
   style 2-2 fg=yellow bold
-  style 3-40 bold
+  style 3-30 bold
 8| "▌ {                                                                                             "
   style 0-0 fg=yellow
 9| "▌   \"code\": \"return { name: 'snapshot-marker', apply(ctx) { ctx.provide('snapshotMarker', {     "
@@ -33,10 +33,10 @@ buffer
 12| "▌ "
   style 0-0 fg=yellow
 13| <blank>
-14| "▌ ◌ Unmount dyn-1                                                                               "
+14| "▌ ◌ Stop temporary Cordis Plugin dyn-1                                                          "
   style 0-0 fg=yellow
   style 2-2 fg=yellow bold
-  style 3-16 bold
+  style 3-37 bold
 15| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
 16| "                                                                                                "

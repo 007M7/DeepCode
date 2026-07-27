@@ -10,7 +10,7 @@ import { call, CONTENT_OUTPUT_CODE, setup, text } from './helpers.ts'
 
 /** Mount a plugin whose `apply` touches one framework member, and report the error text. */
 async function mountTouching(ctx: Awaited<ReturnType<typeof setup>>, expr: string): Promise<string> {
-  const result = await call(ctx, 'cordis_mount', {
+  const result = await call(ctx, 'cordis_try', {
     code: `return { name: 'probe', inject: ['tools'], apply(ctx) { ${expr} } }`,
   })
   expect(result.isError).toBe(true)
@@ -41,7 +41,7 @@ describe('sandbox context façade — escape surface is closed', () => {
 
   it('the classic ctx.root.tools.register bypass registers nothing and fails loud', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'root-bypass',
@@ -66,7 +66,7 @@ describe('sandbox context façade — escape surface is closed', () => {
 
   it('rejects assignment to the façade rather than silently dropping it', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: 'return { name: \'writer\', apply(ctx) { ctx.stash = 1 } }',
     })
     expect(result.isError).toBe(true)
@@ -78,7 +78,7 @@ describe('sandbox context façade — escape surface is closed', () => {
     // `ctx.systemPrompt.ctx.root.tools.register(…)` would escape the façade; service-return
     // guards reject that Context before the registration lands.
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'svc-ctx-escape',
@@ -108,7 +108,7 @@ describe('sandbox context façade — escape surface is closed', () => {
       name: 'host-async-svc',
       apply(c) { c.provide('hostAsync', { grab: async () => 'host-fetched' }) },
     })
-    await call(ctx, 'cordis_mount', {
+    await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'async-consumer',
@@ -135,7 +135,7 @@ describe('sandbox context façade — escape surface is closed', () => {
 
   it('reads a symbol property as undefined and answers the `in` operator without throwing', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'introspector',
@@ -157,7 +157,7 @@ describe('sandbox context façade — inject gate on services', () => {
     // mount does not declare it — reaching it would let the mount depend on a
     // provider cordis does not know about, so it is refused.
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: 'return { name: \'undeclared\', inject: [\'tools\'], apply(ctx) { const s = ctx.systemPrompt } }',
     })
     expect(result.isError).toBe(true)
@@ -167,7 +167,7 @@ describe('sandbox context façade — inject gate on services', () => {
 
   it('denies an undeclared live service reached through ctx.get too', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: 'return { name: \'undeclared-get\', inject: [\'tools\'], apply(ctx) { ctx.get(\'systemPrompt\') } }',
     })
     expect(result.isError).toBe(true)
@@ -176,7 +176,7 @@ describe('sandbox context façade — inject gate on services', () => {
 
   it('allows a service the mount DID declare in inject', async () => {
     const ctx = await setup()
-    const result = await call(ctx, 'cordis_mount', {
+    const result = await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'declared',
@@ -186,17 +186,17 @@ describe('sandbox context façade — inject gate on services', () => {
       `,
     })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('state: active')
+    expect(text(result)).toContain('is running')
   })
 
   it('a cross-mount consumer must declare the provider — the undeclared path is refused, not left as a zombie tool', async () => {
     // Without declared inject, Cordis cannot park the consumer when its provider unmounts. The
     // façade refuses access up front instead of leaving a zombie tool.
     const ctx = await setup()
-    await call(ctx, 'cordis_mount', {
+    await call(ctx, 'cordis_try', {
       code: 'return { name: \'greeter-provider\', apply(ctx) { ctx.provide(\'greeter\', { greet: (n) => \'hi \' + n }) } }',
     })
-    const undeclared = await call(ctx, 'cordis_mount', {
+    const undeclared = await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'sloppy-consumer',
@@ -229,7 +229,7 @@ describe('sandbox tools façade — get is a read-only schema view', () => {
     // function, letting it bypass ToolRegistry.execute (and its pre/post hooks). get now
     // returns the same name/description/parameters view as schemas(), with no execute.
     const ctx = await setup()
-    await call(ctx, 'cordis_mount', {
+    await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'reporter',
@@ -241,7 +241,7 @@ describe('sandbox tools façade — get is a read-only schema view', () => {
               parameters: {},
               ${CONTENT_OUTPUT_CODE}
               async execute() {
-                const view = ctx.tools.get('cordis_mount')
+                const view = ctx.tools.get('cordis_try')
                 return [{ type: 'text', text: JSON.stringify({
                   hasExecute: 'execute' in view,
                   hasPresentCall: 'presentCall' in view,
@@ -259,13 +259,13 @@ describe('sandbox tools façade — get is a read-only schema view', () => {
     const shape = JSON.parse(text(reported)) as { hasExecute: boolean; hasPresentCall: boolean; name: string; keys: string[] }
     expect(shape.hasExecute).toBe(false)
     expect(shape.hasPresentCall).toBe(false)
-    expect(shape.name).toBe('cordis_mount')
+    expect(shape.name).toBe('cordis_try')
     expect(shape.keys).toEqual(['description', 'name', 'parameters'])
   })
 
   it('ctx.tools.get returns undefined for an unknown tool', async () => {
     const ctx = await setup()
-    await call(ctx, 'cordis_mount', {
+    await call(ctx, 'cordis_try', {
       code: `
         return {
           name: 'unknown-probe',

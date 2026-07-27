@@ -16,16 +16,16 @@ pnpm run demo:cordis
 预期演示分阶段进行：先验证监听器链接，再让 agent 扩展自身：
 
 ```
-> Mount a plugin that listens to the 'agent/status' event and logs every status change, then run `echo hi` with bash.
-  [tool call] cordis_mount({"code": "return { name: 'status-logger', apply(ctx) { ctx.on('agent/status', (agent, status) => console.log('status →', status)) } }"})
-  [tool result] mounted dyn-1 (plugin "status-logger", state: active)
+> Try a temporary Plugin that listens to the 'agent/status' event and logs every status change, then run `echo hi` with bash.
+  [tool call] cordis_try({"code": "return { name: 'status-logger', apply(ctx) { ctx.on('agent/status', (agent, status) => console.log('status →', status)) } }"})
+  [tool result] Temporary Plugin dyn-1 is running (plugin "status-logger"; available until stopped or DSH restarts).
   [tool call] bash({"command": "echo hi"})
 [cordis:dyn-1] status → …            ← the mounted listener firing, live
 > Now give yourself a reverse_text tool and use it on "harness".
-  [tool call] cordis_mount({"code": "return { name: 'reverse-text', inject: ['tools'], apply(ctx) { ctx.tools.register(harness.defineTool({ name: 'reverse_text', … })) } }"})
+  [tool call] cordis_try({"code": "return { name: 'reverse-text', inject: ['tools'], apply(ctx) { ctx.tools.register(harness.defineTool({ name: 'reverse_text', … })) } }"})
   [tool call] reverse_text({"text": "harness"})   ← a tool the agent built for itself, one step earlier
-> Unmount both.
-  [tool call] cordis_unmount({"id": "dyn-1"})
+> Stop both temporary Plugins.
+  [tool call] cordis_stop({"id": "dyn-1"})
 ```
 
 请求 `cordis_inspect` 并使用 `what: "api"` 或 `what: "events"`，即可查看为 agent 生成、供其编写插件时参考的服务／事件资料。还可尝试两个协作挂载（一个中调用 `ctx.provide`，另一个中使用 `inject`），观察 cordis 如何暂停并恢复消费方。

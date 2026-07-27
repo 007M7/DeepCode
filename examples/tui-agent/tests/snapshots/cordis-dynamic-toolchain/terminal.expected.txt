@@ -1,7 +1,7 @@
-terminal 100x36 buffer=normal length=48 base=12 viewport=12
+terminal 100x36 buffer=normal length=50 base=14 viewport=14
 lifecycle started=1 stopped=0 progress=inactive
 title "Run this advanced flow exactly — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=33 bufferRow=45
+cursor hidden column=1 viewportRow=33 bufferRow=47
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -16,11 +16,11 @@ buffer
 5| "▌ You                                                                                               "
   style 0-0 fg=bright-blue
   style 2-4 fg=bright-blue bold
-6| "▌ Run this advanced flow exactly once: mount a no-op Cordis plugin named snapshot-marker; use       "
+6| "▌ Run this advanced flow exactly once: try a no-op temporary Cordis Plugin named snapshot-marker;   "
   style 0-0 fg=bright-blue
-7| "▌ run_code to inspect the live dynamic mounts through tools.cordis_inspect; delegate once to a      "
+7| "▌ use run_code to inspect the live temporary Plugins through tools.cordis_inspect; delegate once to "
   style 0-0 fg=bright-blue
-8| "▌ direct spawn child; run one workflow that delegates to another spawn child; unmount dyn-1; then   "
+8| "▌ a direct spawn child; run one workflow that delegates to another spawn child; stop dyn-1; then    "
   style 0-0 fg=bright-blue
 9| "▌ reply with exactly ADVANCED_ACP_OK.                                                               "
   style 0-0 fg=bright-blue
@@ -29,78 +29,82 @@ buffer
 11| <blank>
 12| "▌ "
   style 0-0 fg=green
-13| "▌ ✓ Mount plugin into live cordis runtime                                                           "
+13| "▌ ✓ Try temporary Cordis Plugin                                                                     "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-40 bold
-14| "▌ mounted dyn-1 (plugin \"snapshot-marker\", state: active)                                           "
+  style 3-30 bold
+14| "▌ Temporary Plugin dyn-1 is running (plugin \"snapshot-marker\"; available until stopped or DSH       "
   style 0-0 fg=green
-15| "▌ "
+15| "▌ restarts).                                                                                        "
   style 0-0 fg=green
-16| <blank>
-17| "▌ "
+16| "▌ "
   style 0-0 fg=green
-18| "▌ ✓ Verify the dynamically mounted marker service                                                   "
+17| <blank>
+18| "▌ "
+  style 0-0 fg=green
+19| "▌ ✓ Verify the temporary marker Plugin                                                              "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-48 bold
-19| "▌ ## dynamic                                                                                        "
+  style 3-37 bold
+20| "▌ ## Temporary Plugins                                                                              "
   style 0-0 fg=green
-20| "▌ - dyn-1: snapshot-marker [active]                                                                 "
+21| "▌ - Temporary Plugin dyn-1: snapshot-marker [running] — provides: none; waiting for: none; lifetime:"
   style 0-0 fg=green
-21| "▌ "
+22| "▌ until stopped or DSH restarts                                                                     "
   style 0-0 fg=green
-22| <blank>
 23| "▌ "
   style 0-0 fg=green
-24| "▌ ✓ subagent                                                                                        "
+24| <blank>
+25| "▌ "
+  style 0-0 fg=green
+26| "▌ ✓ subagent                                                                                        "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-11 bold
-25| "▌ DIRECT_CHILD_OK                                                                                   "
+27| "▌ DIRECT_CHILD_OK                                                                                   "
   style 0-0 fg=green
-26| "▌ "
-  style 0-0 fg=green
-27| <blank>
 28| "▌ "
   style 0-0 fg=green
-29| "▌ ✓ workflow: advanced-acp-snapshot                                                                 "
+29| <blank>
+30| "▌ "
+  style 0-0 fg=green
+31| "▌ ✓ workflow: advanced-acp-snapshot                                                                 "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-34 bold
-30| "▌ workflow \"advanced-acp-snapshot\" completed (1 agent).                                             "
+32| "▌ workflow \"advanced-acp-snapshot\" completed (1 agent).                                             "
   style 0-0 fg=green
-31| "▌ Return value:                                                                                     "
+33| "▌ Return value:                                                                                     "
   style 0-0 fg=green
-32| "▌ {                                                                                                 "
+34| "▌ {                                                                                                 "
   style 0-0 fg=green
-33| "▌   \"reply\": \"WORKFLOW_CHILD_OK\"                                                                    "
+35| "▌   \"reply\": \"WORKFLOW_CHILD_OK\"                                                                    "
   style 0-0 fg=green
-34| "▌ }                                                                                                 "
+36| "▌ }                                                                                                 "
   style 0-0 fg=green
-35| "▌ "
-  style 0-0 fg=green
-36| <blank>
 37| "▌ "
   style 0-0 fg=green
-38| "▌ ✓ Unmount dyn-1                                                                                   "
+38| <blank>
+39| "▌ "
+  style 0-0 fg=green
+40| "▌ ✓ Stop temporary Cordis Plugin dyn-1                                                              "
   style 0-0 fg=green
   style 2-2 fg=green bold
-  style 3-16 bold
-39| "▌ unmounted dyn-1 (plugin \"snapshot-marker\")                                                        "
+  style 3-37 bold
+41| "▌ Temporary Plugin dyn-1 was stopped and removed.                                                   "
   style 0-0 fg=green
-40| "▌ "
+42| "▌ "
   style 0-0 fg=green
-41| <blank>
-42| " Assistant                                                                                          "
+43| <blank>
+44| " Assistant                                                                                          "
   style 1-9 fg=bright-magenta bold
-43| " ADVANCED_ACP_OK                                                                                    "
-44| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-45| "                                                                                                    "
-  style 1-1 inverse
+45| " ADVANCED_ACP_OK                                                                                    "
 46| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  8% cont"
+47| "                                                                                                    "
+  style 1-1 inverse
+48| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+49| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  8% cont"
   style 0-90 dim
   style 93-99 dim

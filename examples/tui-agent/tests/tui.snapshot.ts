@@ -122,7 +122,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'cordis-dynamic-toolchain',
     composition: 'advanced',
-    expectedTools: ['cordis_mount', 'run_code', 'subagent', 'workflow', 'cordis_unmount'],
+    expectedTools: ['cordis_try', 'run_code', 'subagent', 'workflow', 'cordis_stop'],
     expectedEventCounts: { 'tool/code-dispatch': 1 },
     childSessions: 2,
     recorded: false,
