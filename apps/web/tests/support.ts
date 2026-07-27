@@ -45,7 +45,6 @@ export function probeFreePort(): Promise<number> {
  */
 export async function connectFreshWorkspace(page: Page, name = 'workspace'): Promise<void> {
   await page.getByRole('button', { name: 'Choose workspace' }).click()
-  await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
   await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
   const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
   await dialog.waitFor({ timeout: 10_000 })
