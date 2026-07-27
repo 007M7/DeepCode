@@ -1,5 +1,5 @@
 /**
- * The `telemetry/redact` waterfall contract: pass-through when no listener is
+ * The `telemetry/record` waterfall contract: pass-through when no listener is
  * mounted, listener stacking and replacement, ops-record coverage, the
  * untouched canonical log, and the fail-closed containment of a throwing rule.
  */
@@ -35,7 +35,7 @@ async function setup() {
   return { ctx, backend, fiber }
 }
 
-describe('telemetry/redact waterfall', () => {
+describe('telemetry/record waterfall', () => {
   it('passes records through unchanged when no listener is mounted', async () => {
     const { ctx, backend } = await setup()
     const session = ctx.sessions.create(SessionId('w'))
@@ -46,7 +46,7 @@ describe('telemetry/redact waterfall', () => {
 
   it('applies a mounted rule to every outbound record, ops records included', async () => {
     const { ctx, backend, fiber } = await setup()
-    ctx.on('telemetry/redact', (_record, next) => {
+    ctx.on('telemetry/record', (_record, next) => {
       const record = next()
       return { ...record, body: { scrubbed: true } }
     })
@@ -62,7 +62,7 @@ describe('telemetry/redact waterfall', () => {
 
   it('keeps the canonical log untouched by a mounted rule', async () => {
     const { ctx } = await setup()
-    ctx.on('telemetry/redact', (_record, next) => ({ ...next(), body: null }))
+    ctx.on('telemetry/record', (_record, next) => ({ ...next(), body: null }))
     const session = ctx.sessions.create(SessionId('log'))
     session.append('user/message', { content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const logged = session.events[0]!.data as { content: { text: string }[] }
@@ -72,13 +72,13 @@ describe('telemetry/redact waterfall', () => {
   it('stacks listeners outermost-first around next()', async () => {
     const { ctx, backend } = await setup()
     const order: string[] = []
-    ctx.on('telemetry/redact', (_record, next) => {
+    ctx.on('telemetry/record', (_record, next) => {
       order.push('outer-before')
       const record = next()
       order.push('outer-after')
       return { ...record, attributes: { ...record.attributes, outer: 1 } }
     })
-    ctx.on('telemetry/redact', (_record, next) => {
+    ctx.on('telemetry/record', (_record, next) => {
       order.push('inner')
       const record = next()
       return { ...record, attributes: { ...record.attributes, inner: 1 } }
@@ -92,8 +92,8 @@ describe('telemetry/redact waterfall', () => {
   it('a listener that skips next() replaces everything beneath it', async () => {
     const { ctx, backend } = await setup()
     const inner = { called: false }
-    ctx.on('telemetry/redact', () => ({ channel: 'ops', time: 0, severity: 'info', attributes: {}, body: 'replaced' } satisfies TelemetryRecord))
-    ctx.on('telemetry/redact', (_record, next) => {
+    ctx.on('telemetry/record', () => ({ channel: 'ops', time: 0, severity: 'info', attributes: {}, body: 'replaced' } satisfies TelemetryRecord))
+    ctx.on('telemetry/record', (_record, next) => {
       inner.called = true
       return next()
     })
@@ -105,7 +105,7 @@ describe('telemetry/redact waterfall', () => {
 
   it('a throwing rule withholds the record fail-closed without disturbing the log', async () => {
     const { ctx, backend } = await setup()
-    ctx.on('telemetry/redact', () => {
+    ctx.on('telemetry/record', () => {
       throw new Error('rule exploded')
     })
     const session = ctx.sessions.create(SessionId('closed'))

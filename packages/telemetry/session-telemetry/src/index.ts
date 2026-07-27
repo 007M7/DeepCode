@@ -22,8 +22,9 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Redact one outbound record before it reaches the backend — the seam's
-     * scrubbing extension point. The seam ships NO rules of its own: the
+     * Transform one outbound record before it reaches the backend. This
+     * waterfall is the seam's redaction extension point. It ships NO rules
+     * of its own: the
      * innermost `next()` passes the record through unchanged, and with no
      * listener mounted records reach the backend as captured, so exported
      * data is exactly as clean as the rules a deployment mounts. Listeners
@@ -37,7 +38,7 @@ declare module 'cordis' {
      *   copy; listeners return a (possibly new) record and must not mutate it.
      * @mode waterfall
      */
-    'telemetry/redact'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
+    'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
   }
 }
 

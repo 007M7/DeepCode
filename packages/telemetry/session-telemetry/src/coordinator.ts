@@ -2,8 +2,8 @@
  * Capture coordinator: the seam's upstream half. Subscribes to the session
  * firehose plus the one live-bus relay (`agent/error`), applies the fixed
  * chunk projection, builds logical records, runs each through the
- * `telemetry/redact` waterfall (deployment-mounted rules; pass-through when
- * none), and hands the result to the backend — synchronously, with every
+ * `telemetry/record` waterfall (deployment-mounted redaction rules;
+ * pass-through when none), and hands the result to the backend — synchronously, with every
  * handler self-contained so a failing backend can never starve other
  * subscribers (cordis `emit` is stop-on-throw) or touch the agent loop.
  * Composed by a backend in its constructor.
@@ -178,14 +178,14 @@ export class TelemetryCoordinator {
   }
 
   /**
-   * Run the `telemetry/redact` waterfall over one record and hand the result
+   * Run the `telemetry/record` waterfall over one record and hand the result
    * to the backend. The innermost `next` passes the record through unchanged
    * — the seam ships no rules; exported data is as clean as the listeners a
    * deployment mounts. Callers run inside {@link contain}, so a throwing
    * rule withholds the record instead of reaching the loop (fail-closed).
    */
   private handOff(record: TelemetryRecord): void {
-    this.backend.emit(this.ctx.waterfall('telemetry/redact', record, () => record))
+    this.backend.emit(this.ctx.waterfall('telemetry/record', record, () => record))
   }
 
   /** Forward the turn-end boundary to the backend's optional flush hint. */

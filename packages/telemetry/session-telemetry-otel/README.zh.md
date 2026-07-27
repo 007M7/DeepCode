@@ -21,7 +21,7 @@
 
 ## 哪些数据会离开本机
 
-记录携带完整的 `event.data`，内容以 seam 的 `telemetry/redact` waterfall（瀑布式事件）返回的结果为准：用户与 assistant 消息内容、工具参数与工具结果（命令输出、文件内容）、完整的系统提示词与工具 schema（`request/header`）、todo 文本、压缩（compaction）摘要、钩子的 `stderrSummary`，以及会话 `cwd`（一个本地路径）。seam 不带任何脱敏规则：未挂载 `telemetry/redact` 监听器时，导出的就是捕获原样的副本，因此向可信边界之外导出的部署方要挂载自己的规则（见 [seam README](../session-telemetry/README.md#the-redact-waterfall)）。无论如何，提供方凭据都不会出现：适配器的 API key 是构造函数参数而非会话事件，因此它们在结构上就不存在于日志中，也就不存在于遥测中。
+记录携带完整的 `event.data`，内容以 seam 的 `telemetry/record` waterfall（瀑布式事件）返回的结果为准：用户与 assistant 消息内容、工具参数与工具结果（命令输出、文件内容）、完整的系统提示词与工具 schema（`request/header`）、todo 文本、压缩（compaction）摘要、钩子的 `stderrSummary`，以及会话 `cwd`（一个本地路径）。seam 不带任何脱敏规则：未挂载 `telemetry/record` 监听器时，导出的就是捕获原样的副本，因此向可信边界之外导出的部署方要挂载自己的规则（见 [seam README](../session-telemetry/README.md#the-redact-waterfall)）。无论如何，提供方凭据都不会出现：适配器的 API key 是构造函数参数而非会话事件，因此它们在结构上就不存在于日志中，也就不存在于遥测中。
 
 ## 字段映射
 

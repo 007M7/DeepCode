@@ -3,7 +3,7 @@ import type { Context } from 'cordis'
 /**
  * Deployment-style redaction rule for the telemetry e2e: scrubs the fixture
  * credential from body strings, exactly as a real deployment would mount its
- * own rules on the `telemetry/redact` waterfall.
+ * own rules on the `telemetry/record` waterfall.
  */
 
 const SECRET = /sk-e2efixture[0-9]+/g
@@ -22,7 +22,7 @@ export const name = 'telemetry-redact-rule'
 
 /** Mount the fixture scrub rule onto the redact waterfall. */
 export function apply(ctx: Context): void {
-  ctx.on('telemetry/redact', (_record, next) => {
+  ctx.on('telemetry/record', (_record, next) => {
     const record = next()
     return { ...record, body: scrub(record.body) }
   })

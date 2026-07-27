@@ -1280,11 +1280,11 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Emitted when any prompt provider changes.',
   },
   {
-    name: 'telemetry/redact',
+    name: 'telemetry/record',
     mode: 'waterfall',
-    signature: '\'telemetry/redact\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
-    jsDoc: '/**\n * Redact one outbound record before it reaches the backend — the seam\'s\n * scrubbing extension point. The seam ships NO rules of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Redaction applies to the exported copy only; the canonical\n * session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
-    summary: 'Redact one outbound record before it reaches the backend — the seam\'s scrubbing extension point.',
+    signature: '\'telemetry/record\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
+    jsDoc: '/**\n * Transform one outbound record before it reaches the backend. This\n * waterfall is the seam\'s redaction extension point. It ships NO rules\n * of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Redaction applies to the exported copy only; the canonical\n * session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
+    summary: 'Transform one outbound record before it reaches the backend.',
   },
   {
     name: 'tools/change',
