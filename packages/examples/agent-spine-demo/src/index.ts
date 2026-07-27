@@ -74,8 +74,9 @@ export interface GoalConfig {
  * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
- * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
+ * plugins this bundle owns. Provider adapters own their `retryPolicy`; this
+ * bundle always mounts its executor.
  * `goals` opts into and configures the persisted goal domain plus its model tool
  * and same-session driver; `invariants` configures global and package-filtered
  * relational checks. Owner schemas supply defaults for optional input;
@@ -111,8 +112,6 @@ export interface Config {
   invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
-  /** Bounded transient model-request retry policy. */
-  llmRetry?: llmRetry.Config
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -139,9 +138,6 @@ export const GoalConfigSchema: z<GoalConfig> = z.object({
   tool: toolGoal.Config,
 })
 
-/** The bounded LLM retry schema exported for app packages that forward `llmRetry`. */
-export const LlmRetryConfigSchema: z<llmRetry.Config> = llmRetry.Config
-
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
@@ -156,8 +152,7 @@ export const Config = z.intersect([
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     invariants: InvariantService.Config,
     goals: z.union([z.const(false), GoalConfigSchema]),
-    llmRetry: LlmRetryConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals' | 'llmRetry'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -179,7 +174,6 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
     ...config.invariants !== undefined ? { invariants: config.invariants } : {},
     ...config.goals !== undefined ? { goals: config.goals } : {},
-    ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
 }
 
@@ -217,7 +211,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   }
   ctx.plugin(AgentRegistry)
-  ctx.plugin(llmRetry, config.llmRetry ?? {})
+  ctx.plugin(llmRetry)
   if (config.goals !== undefined && config.goals !== false) {
     ctx.plugin(GoalService, config.goals.domain ?? {})
     ctx.plugin(toolGoal, config.goals.tool ?? {})
