@@ -1,55 +1,53 @@
-/* Plan strip pinned above the composer: bordered card on the composer card's
-   axis (776px column inside 32px side padding). Colors resolve through
-   --dsw-alias-* tokens only; the active row rides the business blue, done
-   rows fade to tertiary. */
+/* Todo strip above the composer (figma 772:51905 / 772:52972 / 772:53419):
+   tip surface, 14px radius, status icons + secondary item labels. Column is
+   calc(100% - 88px) / max 776, centered; InputBar top pad supplies the gap. */
 
 .root {
   flex: none;
   overflow: hidden;
-  margin: 8px auto 0;
-  width: calc(100% - 64px);
+  margin: 0 auto;
+  width: calc(100% - 88px);
   max-width: 776px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 14px;
+  background: var(--dsw-specific-tip);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px;
 }
 
 .header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 0;
   border: none;
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
-.header:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .title {
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 510;
+  flex: none;
+  font-size: 14px;
+  line-height: 24px;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
 .progress {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.activeHint {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -58,13 +56,15 @@
   display: grid;
   flex: none;
   place-items: center;
-  margin-left: auto;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 0;
-  padding: 0 12px 8px;
+  padding: 0;
   list-style: none;
   max-height: 180px;
   overflow-y: auto;
@@ -72,40 +72,45 @@
 
 .item {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 2px 0;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
 }
 
 .glyph {
+  display: grid;
   flex: none;
-  width: 14px;
-  text-align: center;
-  color: var(--dsw-alias-label-tertiary);
+  place-items: center;
+  width: 16px;
+  height: 16px;
 }
 
-.item[data-status='completed'] .content {
-  color: var(--dsw-alias-label-tertiary);
-  text-decoration: line-through;
-}
-
-.item[data-status='completed'] .glyph {
+.glyphCompleted {
   color: var(--dsw-alias-state-success-primary);
 }
 
-.item[data-status='in_progress'] .content {
-  font-weight: 510;
-  color: var(--dsw-alias-label-primary);
-}
-
-.item[data-status='in_progress'] .glyph {
+.glyphProgress {
   color: var(--dsw-alias-state-business-primary);
+  animation: todo-progress-spin 1s linear infinite;
 }
 
+.glyphPending {
+  color: var(--dsw-alias-label-caption);
+}
+
+@keyframes todo-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Figma strip is single-line; long items ellipsize with no inline expand. */
 .content {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-主题插件：基于 --dsw-* token 基础样式表（静态尺度 + 别名语义层）的 ThemeService。该服务拥有主题偏好（`light`／`dark`／`system`，以 `dsh.theme` 为键持久化），将 `system` 通过 `prefers-color-scheme` 解析为实际主题，并发布不可变的 `ThemeSnapshot`，通过 `theme/change` 事件通知变化；它绝不接触 DOM：ui-layout 的呈现器会应用解析后的快照（依据当前配色方案设置 `body[data-ds-dark-theme]`，并将主题的别名 token 设为内联变量）。契约：api-contracts v3 §8。
+主题插件：基于 --dsw-* token 基础样式表（静态尺度 + 别名语义层）的 ThemeService。该服务拥有主题偏好（`light`／`dark`／`system`，以 `dsh.theme` 为键持久化），将 `system` 通过 `prefers-color-scheme` 解析为实际主题，并发布不可变的 `ThemeSnapshot`，通过 `theme/change` 事件通知变化；它绝不接触 DOM：ui-layout 的呈现器会应用解析后的快照（`html { color-scheme }`、`body[data-ds-dark-theme]`，以及主题的别名 token 内联变量）。契约：api-contracts v3 §8。
 
 ## 模型体验
 
