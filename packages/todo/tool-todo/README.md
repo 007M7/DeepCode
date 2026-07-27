@@ -16,11 +16,11 @@ The list belongs to the ONE agent session that called the tool. There is no suba
 
 ## Validation
 
-Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content` and more than one `in_progress` task (a coherent plan has at most one task active). Ordering and the discipline of keeping the list current are left to the model via the tool description.
+Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`, more than one `in_progress` task (a coherent plan has at most one task active), and any item key beyond `content`/`status` — an extended item shape (ids, nesting) fails loud instead of silently flattening, keeping the logged snapshot equal to what the model believes it wrote. Ordering and the discipline of keeping the list current are left to the model via the tool description.
 
 ## Rendering
 
-The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves; the [TUI app](../../examples/tui-demo) shows it as a persistent plan.
+The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves: the [TUI app](../../examples/tui-demo) shows it as a persistent plan, and the [web client](../../client/ui-conversation) renders a plan strip plus a dedicated tool row off `ConversationSnapshot.todos` ([Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)).
 
 ## Export shape
 

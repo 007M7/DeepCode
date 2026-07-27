@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample error pill, the node-half empty
+// PendingCard question arm, bash sample state dots, the node-half empty
 // apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { RunningToolCall, SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -76,14 +76,7 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows the failed pill on error results (root session arm)', () => {
-    const errorResult: ToolResultNode = {
-      kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
-      call: { name: 'bash', argsRaw: '{"command":"boom"}' },
-      callTime: 500,
-      content: [], isError: true, callView: null, resultView: null,
-    }
-    // Root session (no parentId): the global arm renders, error pill visible.
+  it('BashRow shows StateDot chrome for running/error/stopped (root session arm)', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
@@ -91,12 +84,40 @@ describe('tails', () => {
       current: undefined,
       phase: 'ready',
     } as SessionListState)
-    const props = {
-      callId: 'c1', toolName: 'bash', block: errorResult, openDetails: vi.fn(),
+    const props = (block: RunningToolCall | ToolResultNode) => ({
+      callId: 'c1', toolName: 'bash', block, openDetails: vi.fn(),
       sessionId: sid, useSessions: bindSnapshotSelector(list),
-    } as unknown as ToolRowProps
-    const view = render(<BashRow {...props} />)
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
-    expect(view.getByText('failed')).toBeTruthy()
+    } as unknown as ToolRowProps)
+
+    const running: RunningToolCall = {
+      callId: 'c1', name: 'bash', argsRaw: '{"command":"ls","description":"List"}',
+      turn: 1, step: 1, time: 1_000, callView: null,
+    }
+    const errorResult: ToolResultNode = {
+      kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
+      call: { name: 'bash', argsRaw: '{"command":"boom"}' },
+      callTime: 500,
+      content: [], isError: true, callView: null, resultView: null,
+    }
+    const stoppedResult: ToolResultNode = {
+      ...errorResult,
+      error: { name: 'E', code: 'interrupted' },
+    }
+
+    const runningView = render(<BashRow {...props(running)} />)
+    expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(runningView.getByText('Bash')).toBeTruthy()
+    expect(runningView.getByText('List')).toBeTruthy()
+    runningView.unmount()
+
+    const errorView = render(<BashRow {...props(errorResult)} />)
+    expect(errorView.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(errorView.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(errorView.getByText('失败')).toBeTruthy()
+    errorView.unmount()
+
+    const stoppedView = render(<BashRow {...props(stoppedResult)} />)
+    expect(stoppedView.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    expect(stoppedView.getByText('已停止')).toBeTruthy()
   })
 })
