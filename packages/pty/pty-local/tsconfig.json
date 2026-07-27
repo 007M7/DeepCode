@@ -33,6 +33,9 @@
       "path": "../../sandbox/sandbox-policy"
     },
     {
+      "path": "../../subprocess/subprocess"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -10,6 +10,8 @@ flowchart LR
   cfg["examples/headless-agent<br/>cordis.yml"]
   plugin_headless_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_headless_llm_deepseek
+  plugin_headless_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
+  cfg --> plugin_headless_subprocess
   plugin_headless_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_headless_bash
   plugin_headless_cli_agent["cli-agent<br/>@deepseek-ai/dsh-cli-demo"]
@@ -54,6 +56,7 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
+| `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `cli-agent` | `@deepseek-ai/dsh-cli-demo` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |

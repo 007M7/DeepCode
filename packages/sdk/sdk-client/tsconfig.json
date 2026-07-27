@@ -24,9 +24,6 @@
       "path": "../sdk-protocol"
     },
     {
-      "path": "../../subagent/subagent-subprocess"
-    },
-    {
       "path": "../../support/invariants"
     }
   ]

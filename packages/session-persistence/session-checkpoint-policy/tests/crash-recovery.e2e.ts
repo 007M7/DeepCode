@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execa } from 'execa'
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import SessionStore, {
   SessionId, TOOL_OUTCOME_UNKNOWN,
   type SessionEvent,
@@ -19,22 +19,21 @@ const roots: string[] = []
 const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
 async function waitForMarker(path: string, expected: string): Promise<string> {
-  const deadline = Date.now() + CHILD_FAILPOINT_TIMEOUT_MS
-  for (;;) {
-    try {
-      const content = await readFile(path, 'utf8')
-      if (content === expected) return content
-      if (!expected.startsWith(content)) {
-        throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
-      }
-    } catch (error: unknown) {
+  // vi.waitFor retries every callback throw, so terminal states RESOLVE out
+  // of the retry loop (complete marker, or content that can no longer become
+  // the expected marker) and only the still-in-progress states throw-to-retry.
+  const content = await vi.waitFor(async () => {
+    const current = await readFile(path, 'utf8').catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`crash child did not publish failpoint ${JSON.stringify(expected)} at ${path}`)
-    }
-    await new Promise(resolve => setTimeout(resolve, 10))
+      throw new Error(`crash child did not publish failpoint ${JSON.stringify(expected)} at ${path}`, { cause: error })
+    })
+    if (current === expected || !expected.startsWith(current)) return current
+    throw new Error(`crash child has not finished publishing failpoint ${JSON.stringify(expected)}`)
+  }, { interval: 10, timeout: CHILD_FAILPOINT_TIMEOUT_MS })
+  if (content !== expected) {
+    throw new Error(`crash child wrote unexpected failpoint ${JSON.stringify(content)}`)
   }
+  return content
 }
 
 async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; markerText: string }> {
@@ -44,26 +43,24 @@ async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; marker
   // Keep the open-before-write window deterministic: readiness is marker content, not path existence.
   await writeFile(marker, '')
   const expectedMarker = mode === 'request' ? 'request-dispatched' : 'tool-side-effect'
-  const child = spawn(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
+  // The SIGKILL-at-failpoint choreography stays custom: the child must die
+  // mid-write, so no timeout or graceful termination may reach it first.
+  const child = execa(process.execPath, ['--import', tsxLoader, childScript, mode, root, marker], {
     cwd: repoRoot,
-    env: { ...process.env, TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    env: { TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
+    stdin: 'ignore',
+    stdout: 'ignore',
+    reject: false,
   })
-  let stderr = ''
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk: string) => { stderr += chunk })
   try {
     const markerText = await waitForMarker(marker, expectedMarker)
-    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.once('close', (code, signal) => { resolve({ code, signal }) })
-    })
     child.kill('SIGKILL')
-    const exit = await closed
-    expect(exit).toEqual({ code: null, signal: 'SIGKILL' })
+    const exit = await child
+    expect({ code: exit.exitCode ?? null, signal: exit.signal ?? null }).toEqual({ code: null, signal: 'SIGKILL' })
     return { root, markerText }
   } catch (error: unknown) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-    throw new Error(`crash child failed: ${stderr}`, { cause: error })
+    child.kill('SIGKILL')
+    throw new Error(`crash child failed: ${(await child).stderr}`, { cause: error })
   }
 }
 

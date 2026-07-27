@@ -6,13 +6,15 @@
   "ignoreBinaries": [
     "bwrap",
     "python3",
-    "sandbox-exec"
+    "sandbox-exec",
+    "taskkill"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
     "python/sdk-runtime"
   ],
   "ignoreDependencies": [
+    "@yarnpkg/cli-dist",
     "lightningcss"
   ],
   "workspaces": {
@@ -497,15 +499,6 @@
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/mock-acp-server.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
-    "packages/subagent/subagent-subprocess": {
-      "entry": [
-        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",

@@ -3,8 +3,10 @@
  * runtime over stdio JSON-RPC through `@deepseek-ai/dsh-sdk-client` and owns
  * cancellation and quiescent disposal. Structure mirrors the ACP backend
  * (`@deepseek-ai/dsh-subagent-acp`): publish after the child handshake,
- * flatten child failures into stop reasons, tear down through the shared
- * subprocess dispose ladder.
+ * flatten child failures into stop reasons, tear down to quiescence. The
+ * child is spawned BY the SDK client rather than through `ctx.subprocess` —
+ * the subprocess seam's documented exception for SDK-managed transports —
+ * so this driver applies the seam's shared env scrub itself.
  *
  * @module @deepseek-ai/dsh-subagent-sdk/run
  */
@@ -14,7 +16,8 @@ import { DeepSeekHarness, type HarnessNotification } from '@deepseek-ai/dsh-sdk-
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { buildChildEnv, settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent-subprocess'
+import { settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Resolved spawn spec for an SDK runtime child process (no defaults — see Config). */
 export interface SdkRunSpec {
@@ -34,8 +37,9 @@ export interface SdkRunSpec {
   model: string
   /**
    * Extra environment variables to ADD for the child (e.g. the child
-   * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). Merged on top
-   * of the credential-scrubbed ambient env — see `buildChildEnv`.
+   * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). Merged after
+   * the seam's `scrubbedParentEnv()` base, so an explicit credential or
+   * current `DSH_*` fact survives while ambient namesakes never leak.
    */
   env: Record<string, string>
   /** Bound (ms) on the protocol `shutdown` exchange during dispose. */
@@ -114,7 +118,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
       command: spec.command,
       args: spec.args,
       cwd: spec.cwd,
-      env: buildChildEnv(spec.env),
+      env: { ...scrubbedParentEnv(), ...spec.env },
       shutdownTimeoutMs: spec.shutdownTimeoutMs,
       disposeEofGraceMs: spec.disposeEofGraceMs,
       disposeGraceMs: spec.disposeGraceMs,
