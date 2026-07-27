@@ -1394,6 +1394,14 @@ Registry of skill providers. It merges provider catalogs with stable first-wins 
 registerProvider(provider: SkillProvider): () => void
 
 /**
+ * Invalidate catalogs contributed by one currently registered provider. Exact object identity
+ * prevents a late callback from an old provider instance from invalidating its replacement.
+ * Calls for an already-unregistered provider are harmless.
+ * @param provider - exact provider instance whose external source changed.
+ */
+invalidateProvider(provider: SkillProvider): void
+
+/**
  * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
  * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
  * receives a no-op disposer so it cannot remove the winner.
@@ -1412,6 +1420,15 @@ register(skill: SkillRegistration): () => void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 
 /**
+ * Observe the current model-invocable catalog and whether all providers completed discovery.
+ * Incomplete observations are never cached, allowing consumers to retain last-good state and
+ * retry on their next request boundary.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns sorted summaries plus provider-completeness state.
+ */
+async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
+
+/**
  * Load and validate the winning candidate, passing its opaque discovery locator back to the
  * provider. Cancellation is rechecked after selection, including cache hits, and raced against
  * loading so an uncooperative provider cannot hang the caller.
@@ -1422,9 +1439,9 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Types: [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
+Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:160`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 

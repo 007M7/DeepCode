@@ -555,7 +555,9 @@ describe('SkillService registry', () => {
         return undefined
       },
     })
-    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['second-skill'])
+    const incomplete = await ctx.skills.snapshot()
+    expect(incomplete.skills.map(skill => skill.name)).toEqual(['second-skill'])
+    expect(incomplete.complete).toBe(false)
     expect(flakyCalls).toBe(1)
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['second-skill'])
     expect(flakyCalls).toBe(2)
@@ -564,6 +566,156 @@ describe('SkillService registry', () => {
     expect(flakyCalls).toBe(3)
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['flaky-skill', 'second-skill'])
     expect(flakyCalls).toBe(3)
+  })
+
+  it('invalidates only the exact registered provider and ignores its late callbacks', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const provider = new MemoryProvider([memorySkill('first-skill', 'First', 10)])
+    const dispose = ctx.skills.registerProvider(provider)
+
+    expect((await ctx.skills.snapshot()).complete).toBe(true)
+    provider.replace([memorySkill('second-skill', 'Second', 10)])
+    ctx.skills.invalidateProvider(new MemoryProvider([]))
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['first-skill'])
+
+    ctx.skills.invalidateProvider(provider)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['second-skill'])
+    dispose()
+
+    const replacement = new MemoryProvider([memorySkill('replacement-skill', 'Replacement', 10)])
+    ctx.skills.registerProvider(replacement)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['replacement-skill'])
+    ctx.skills.invalidateProvider(provider)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['replacement-skill'])
+    expect(replacement.listCalls).toBe(1)
+  })
+
+  it('emits catalog invalidations for live provider and runtime mutations', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const provider = new MemoryProvider([memorySkill('provider-skill', 'Provider', 10)])
+    let changes = 0
+    ctx.on('skills/change', () => { changes += 1 })
+
+    const disposeProvider = ctx.skills.registerProvider(provider)
+    expect(changes).toBe(1)
+    ctx.skills.invalidateProvider(new MemoryProvider([]))
+    expect(changes).toBe(1)
+    ctx.skills.invalidateProvider(provider)
+    expect(changes).toBe(2)
+
+    const disposeRuntime = ctx.skills.register({
+      name: 'runtime-skill',
+      description: 'Runtime',
+      source: 'runtime',
+      content: 'Runtime body.',
+    })
+    expect(changes).toBe(3)
+    disposeRuntime()
+    expect(changes).toBe(4)
+    disposeProvider()
+    expect(changes).toBe(5)
+    ctx.skills.invalidateProvider(provider)
+    expect(changes).toBe(5)
+  })
+
+  it('contains synchronous and asynchronous catalog observer failures', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const disposeThrowing = ctx.on('skills/change', () => { throw new Error('observer threw') })
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- deliberate rejection proves notification containment
+    const disposeRejecting = ctx.on('skills/change', () => Promise.reject(new Error('observer rejected')))
+    let observed = 0
+    const disposeObserver = ctx.on('skills/change', () => { observed += 1 })
+
+    const provider = new MemoryProvider([])
+    expect(() => ctx.skills.registerProvider(provider)).not.toThrow()
+    await Promise.resolve()
+    expect(observed).toBe(1)
+    expect(warnings).toEqual([
+      'skills/change listener threw: Error: observer threw',
+      'skills/change listener rejected: Error: observer rejected',
+    ])
+
+    disposeThrowing()
+    disposeRejecting()
+    disposeObserver()
+  })
+
+  it('retries an in-flight catalog invalidated by its provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let release: (() => void) | undefined
+    const started = Promise.withResolvers<undefined>()
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const provider = new MemoryProvider([memorySkill('stale-skill', 'Stale', 10)])
+    const originalList = provider.list.bind(provider)
+    provider.list = async (options) => {
+      if (provider.listCalls === 0) {
+        provider.listCalls += 1
+        started.resolve(undefined)
+        await gate
+        return [memorySkill('stale-skill', 'Stale', 10)]
+      }
+      return await originalList(options)
+    }
+    ctx.skills.registerProvider(provider)
+
+    const pending = ctx.skills.list()
+    await started.promise
+    provider.replace([memorySkill('fresh-skill', 'Fresh', 10)])
+    ctx.skills.invalidateProvider(provider)
+    release?.()
+
+    expect((await pending).map(skill => skill.name)).toEqual(['fresh-skill'])
+    expect(provider.listCalls).toBe(2)
+  })
+
+  it('invalidates a provider whose loaded definition changed identity', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let listCalls = 0
+    const provider: SkillProvider = {
+      name: 'renamed',
+      async list() {
+        listCalls += 1
+        return [{
+          name: 'old-name',
+          description: 'Old name',
+          provider: 'renamed',
+          source: 'test',
+          rank: 1,
+          locator: 'old-name',
+        }]
+      },
+      async get(candidate) {
+        return { ...candidate, name: 'new-name', content: 'Fresh body.' }
+      },
+    }
+    ctx.skills.registerProvider(provider)
+
+    expect(await ctx.skills.get('old-name')).toBeUndefined()
+    await ctx.skills.list()
+    expect(listCalls).toBe(2)
+  })
+
+  it('returns undefined when a discovered candidate disappears before loading', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    ctx.skills.registerProvider({
+      name: 'vanished-body',
+      async list() {
+        return [{ ...memorySkill('vanished-skill', 'Vanished', 10), provider: 'vanished-body' }]
+      },
+      async get() {
+        return undefined
+      },
+    })
+
+    await expect(ctx.skills.get('vanished-skill')).resolves.toBeUndefined()
   })
 
   it('contains a provider rejection whose string coercion throws', async () => {

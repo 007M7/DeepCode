@@ -11,9 +11,15 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 ### Public API
 
 - `ctx.skills.registerProvider(provider): () => void` Registers a readonly provider by unique `provider.name`. Duplicate provider names throw, and `runtime` is reserved for `ctx.skills.register(...)`. The registry borrows the provider object and invokes its methods directly. The registration is effect-scoped and HMR-safe, and the exact Cordis disposer supports ordered composite teardown.
+- `ctx.skills.invalidateProvider(provider): void` Marks one exact live provider dirty and clears completed catalog caches. Calls from a disposed or replaced provider instance are no-ops, so late watcher callbacks cannot invalidate its replacement.
+- `ctx.skills.snapshot({ cwd?, signal? })` Returns `{ skills, complete }`. `complete` is false when any provider failed transiently; incomplete observations are never cached, so a model-facing consumer can retain its last-good catalog and retry at the next request boundary.
 - `ctx.skills.list({ cwd?, signal? })` Borrows the readonly lookup options, then returns model-invocable summaries for the current workspace, merged across providers and sorted by name.
 - `ctx.skills.get(name, { cwd?, signal? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it, including disabled-for-model skills.
 - `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill, adding `provider: "runtime"` when omitted. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
+
+### Events
+
+- `skills/change` is an unfiltered invalidation notification emitted after a provider or runtime contribution is registered or disposed and after `invalidateProvider()` accepts an exact live provider. It carries no catalog or diff: each consumer refetches `snapshot()` with its own lookup options. Listener throws and rejected promises are logged and cannot veto the registry mutation or starve later listeners.
 
 ### Config
 
@@ -27,7 +33,9 @@ A provider registers synchronously and performs remote setup, authentication, an
 
 The registry validates candidates before caching and definitions before returning them. The winning provider receives the same candidate and opaque `locator` it returned from `list()`, allowing backend-specific file, URL, id, or version handles. Callers and providers must preserve the readonly contract.
 
-Contract violations fail fast. A rejected `list()` is treated as a transient source failure: it is logged, skipped, and not cached. Only completed catalogs are cached; a provider or runtime revision change discards an in-flight result and retries. Duplicate names resolve by rank, provider registration order, then provider-local order. Summaries are sorted by skill name.
+Contract violations fail fast. A rejected provider `list()` is treated as a transient source failure: its entries are omitted from that observation, `complete` is false, and the result is not cached. A provider or runtime revision change discards an in-flight result and retries before returning. Duplicate names resolve by rank, provider registration order, then provider-local order. Summaries are sorted by skill name.
+
+Definitions remain progressively loaded. `get()` asks the winning provider for the body on every call rather than caching it in this registry. If the returned definition has a different name from the selected candidate, the stale selection is rejected and that exact provider is invalidated so the next snapshot rediscovers its catalog.
 
 ## Runtime Skills
 
@@ -39,15 +47,15 @@ The registry does not render model guidance or register model-facing tools. [`@d
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-skill`, which renders provider summaries into the session prefix and loaded instructions into retained tool results.
+Indirectly, through `dsh-tool-skill`, which renders provider summaries into the initial session prefix or durable replacement catalog messages and loaded instructions into retained tool results.
 
 #### KV Cache effect
 
-No direct invalidation; the named consumer owns any request-prefix changes.
+No direct prompt effect. The named consumer owns initial prefix composition and append-only catalog replacements after invalidation.
 
 ## Known Limitations and Deferred Work
 
-- **Completed catalogs have no TTL or watcher invalidation** — a provider's underlying files or remote data can change without a registration revision, so a cached cwd stays stale until eviction or provider/runtime reload.
+- **Invalidation is provider-driven** — the registry has no TTL and cannot infer that an arbitrary remote source changed; each mutable provider must call `invalidateProvider()` from its own observation mechanism.
 - **Providers are queried sequentially** — one slow cooperative provider delays every provider registered after it; cancellation stops the caller's wait but cannot terminate work an uncooperative provider keeps running.
-- **A provider-list failure removes that whole source for the request** — the registry logs and skips it, with no model-visible diagnostic or partial-catalog recovery contract.
+- **An incomplete snapshot omits the failing provider in that observation** — the registry reports `complete: false`, but it does not own a last-good catalog or a per-provider diagnostic; consumers choose whether to retain earlier state.
 - **Duplicate resolution is first-wins** — later lower-priority candidates are logged and hidden; there is no API to inspect all shadowed definitions.

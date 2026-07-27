@@ -4,16 +4,21 @@
  * @module @deepseek-ai/dsh-tool-skill
  */
 
+import { createHash } from 'node:crypto'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
-export const inject = ['tools', 'skills']
+export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
+const CATALOG_META_KIND = 'skill-catalog'
+const CATALOG_META_VERSION = 1
+const PLUGIN_SOURCE = { kind: 'plugin', plugin: name } as const
 
 /** Model-facing skill catalog configuration. */
 export interface Config {
@@ -35,6 +40,7 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
+  const baselineBySession = new WeakMap<object, string>()
 
   const skillTool = defineTool({
     name: 'skill',
@@ -116,11 +122,40 @@ export function apply(ctx: Context, config: Config = {}): void {
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
   ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
-    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) return await next()
-    const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
+    const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
+    const snapshot = toolVisible
+      ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
+      : { skills: [], complete: true }
     const rest = await next()
-    if (skills.length === 0) return rest
-    return [renderCatalogMessage(skills, catalogDescriptionMaxLength), ...rest]
+    signal.throwIfAborted()
+    if (!snapshot.complete) return rest
+    const digest = catalogDigest(toolVisible, snapshot.skills, catalogDescriptionMaxLength)
+    baselineBySession.set(agent.session, digest)
+    if (!toolVisible || snapshot.skills.length === 0) return rest
+    return [renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength), ...rest]
+  })
+
+  ctx.on('agent/pre-step', async (agent, _turn, _step, signal) => {
+    const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
+    const snapshot = toolVisible
+      ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
+      : { skills: [], complete: true }
+    signal.throwIfAborted()
+    if (!snapshot.complete) return
+    const digest = catalogDigest(toolVisible, snapshot.skills, catalogDescriptionMaxLength)
+    const effective = latestVisibleCatalogDigest(agent) ?? baselineBySession.get(agent.session)
+    if (effective === digest) return
+    if (effective === undefined && snapshot.skills.length === 0) {
+      baselineBySession.set(agent.session, digest)
+      return
+    }
+    agent.inject(
+      renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength).content,
+      {
+        source: PLUGIN_SOURCE,
+        meta: { kind: CATALOG_META_KIND, version: CATALOG_META_VERSION, digest },
+      },
+    )
   })
 }
 
@@ -171,7 +206,7 @@ function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceB
 }
 
 function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): Message {
-  const entries = skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
+  const entries = renderCatalogEntries(skills, descriptionMaxLength)
   return {
     role: 'user',
     content: [{
@@ -189,6 +224,68 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
       ].join('\n'),
     }],
   }
+}
+
+function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: number): Message {
+  const entries = renderCatalogEntries(skills, descriptionMaxLength)
+  const availability = skills.length === 0
+    ? [
+      'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
+    ]
+    : [
+      'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
+    ]
+  return {
+    role: 'user',
+    content: [{
+      type: 'text',
+      text: [
+        '<system-reminder>',
+        'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
+        '',
+        '<available_skills>',
+        ...entries,
+        '</available_skills>',
+        '',
+        ...availability,
+        '</system-reminder>',
+      ].join('\n'),
+    }],
+  }
+}
+
+function renderCatalogEntries(skills: SkillSummary[], descriptionMaxLength: number): string[] {
+  return skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
+}
+
+function catalogDigest(toolVisible: boolean, skills: SkillSummary[], descriptionMaxLength: number): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      toolVisible,
+      entries: renderCatalogEntries(skills, descriptionMaxLength),
+    }))
+    .digest('hex')
+}
+
+function latestVisibleCatalogDigest(agent: Agent): string | undefined {
+  const visible = new Set(agent.session.surface.nodes)
+  for (const event of [...agent.session.events].reverse()) {
+    if (!visible.has(event.seq)
+      || event.type !== 'user/message'
+      || event.data.source.kind !== 'plugin'
+      || event.data.source.plugin !== name) continue
+    const meta = event.data.meta
+    if (!isRecord(meta)
+      || meta.kind !== CATALOG_META_KIND
+      || meta.version !== CATALOG_META_VERSION
+      || typeof meta.digest !== 'string') continue
+    return meta.digest
+  }
+  return undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function catalogDescription(value: string, maxLength: number): string {

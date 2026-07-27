@@ -991,6 +991,11 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCatalogSnapshot",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillCandidate",
       "source": "packages/skill/skill/src/index.ts"
     },

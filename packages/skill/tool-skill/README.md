@@ -4,13 +4,17 @@ English | [中文](README.zh.md)
 
 The model-facing skill catalog and `skill` tool.
 
-Requires `ctx.tools` and `ctx.skills` (`inject: ['tools', 'skills']`).
+Requires `ctx.agents`, `ctx.tools`, and `ctx.skills` (`inject: ['agents', 'tools', 'skills']`).
 
-## Session-prefix catalog
+## Catalog lifecycle
 
-The plugin contributes one user-role `<system-reminder>` catalog through `agent/session-prefix`. It resolves skills for the calling session's cwd, forwards the prefix abort signal to discovery, and lists only sorted `name` and `description` entries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog. The catalog is omitted when no model-invocable skills are available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. This exact-definition check keeps prompt guidance, the model-visible schema, and executable dispatch aligned.
+The plugin contributes the initial user-role `<system-reminder>` catalog through `agent/session-prefix`. Before every later model step it observes `ctx.skills.snapshot()` and computes a digest over exact `skill` tool visibility plus the ordered rendered `name` and `description` entries. It resolves skills for the calling session's cwd and lists only those summaries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog.
 
-`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [session-prefix Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) defines the request-only, header-logged lifecycle of this message.
+When that digest changes, `agent.inject()` records a durable user-role message containing the complete replacement catalog and metadata `{ kind: 'skill-catalog', version: 1, digest }`. An empty replacement explicitly retires names from earlier catalogs. The latest still-visible metadata supplies the comparison baseline across replay or plugin reload. If compaction shadows that replacement, the next pre-step falls back to the loop's initial-prefix baseline and re-establishes the current catalog when needed. An incomplete provider snapshot emits nothing and preserves the last-good model view for retry on the next step. If no prior catalog exists and the current view is empty, no tombstone is necessary.
+
+The catalog is omitted when no model-invocable skills are initially available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. Visibility changes participate in the digest, keeping prompt guidance, model-visible schema, and executable dispatch aligned.
+
+`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [session-prefix Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) defines the request-only, header-logged lifecycle of the initial message; the [skill catalog hot-refresh Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) owns durable replacements.
 
 ## Tool: `skill`
 
@@ -24,7 +28,7 @@ Resource guidance resolves only paths or URLs explicitly referenced by the instr
 
 An unresolved name reports that the skill is unknown or no longer available. Invalid names and `disableModelInvocation: true` skills produce distinct error results.
 
-The tool does not call `agent.inject()` in v1. Its result is already recorded as the tool result and becomes available to the next model step without duplicating the content as synthetic context.
+Tool execution does not call `agent.inject()`. Its freshly loaded result is already recorded as the tool result and becomes available to the next model step without duplicating the body as synthetic context. Only the catalog projection injects replacement summaries.
 
 ## Model Experience
 
@@ -32,7 +36,7 @@ The tool does not call `agent.inject()` in v1. Its result is already recorded as
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below, with one data-dependent entry per sorted skill. The catalog is a frozen user-role session prefix.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below, with one data-dependent entry per sorted skill. The initial catalog is a user-role session prefix. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names.
 
 ##### Skill catalog template
 
@@ -50,11 +54,11 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### Token effect
 
-Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no catalog tokens are sent when the list is empty or the tool is hidden or shadowed.
+Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when the list is empty or the tool is hidden or shadowed. Each actual catalog change adds one retained complete replacement message.
 
 #### KV Cache effect
 
-Prefix-stable within a loop instance once the session prefix is composed. A new or resumed instance with different providers, skills, descriptions, visibility, or catalog limits may invalidate reuse from the first changed catalog token.
+The initial catalog remains prefix-stable. Dynamic changes are append-only history after that prefix, so existing reusable tokens stay intact while the replacement and later turns form a new suffix.
 
 ### Tool schema
 
@@ -146,3 +150,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Loaded instruction bodies have no size cap** — a provider can return a skill large enough to consume substantial next-step context; only catalog descriptions are truncated.
 - **Resources are guidance, not attachments** — the tool reports a base directory/URL/opaque hint but neither enumerates nor fetches referenced files for the model.
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
+- **Catalog replacement is whole-list** — one changed name or description appends every currently visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
+- **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.

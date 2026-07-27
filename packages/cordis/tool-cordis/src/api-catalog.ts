@@ -667,12 +667,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param provider - the provider to register by `provider.name`.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
+        signature: 'invalidateProvider(provider: SkillProvider): void',
+        jsDoc: '/**\n * Invalidate catalogs contributed by one currently registered provider. Exact object identity\n * prevents a late callback from an old provider instance from invalidating its replacement.\n * Calls for an already-unregistered provider are harmless.\n * @param provider - exact provider instance whose external source changed.\n */',
+      },
+      {
         signature: 'register(skill: SkillRegistration): () => void',
         jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the complete skill definition to expose for discovery.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
         signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
         jsDoc: '/**\n * List model-invocable skill summaries for a workspace. Lookup options and\n * provider candidates are readonly same-process values borrowed throughout\n * discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries, excluding skills disabled for model invocation.\n */',
+      },
+      {
+        signature: 'async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>',
+        jsDoc: '/**\n * Observe the current model-invocable catalog and whether all providers completed discovery.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries plus provider-completeness state.\n */',
       },
       {
         signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
@@ -1168,6 +1176,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
     jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
+  },
+  {
+    name: 'skills/change',
+    mode: 'emit',
+    signature: '\'skills/change\'(): void',
+    jsDoc: '/**\n * A skill provider, runtime contribution, or provider-backed catalog may\n * have changed. This is an unfiltered invalidation notification; consumers\n * refetch the catalog for their own lookup options. Listener failures are\n * contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
   },
   {
     name: 'slash/input-begin-command',
@@ -2150,6 +2165,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillCandidate',
     declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'SkillCatalogSnapshot',
+    declaration: 'export interface SkillCatalogSnapshot {\n    readonly skills: SkillSummary[];\n    readonly complete: boolean;\n}',
   },
   {
     name: 'SkillDefinition',

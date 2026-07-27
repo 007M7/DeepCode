@@ -2,7 +2,7 @@
 
 [English](skills.md) | 中文
 
-[skill（技能）能力族](../../packages/skill)拆分为三个包（package）：注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）合并各提供方的目录；本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）扫描项目/自定义/用户目录；消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）拥有会话前缀目录和面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
+[skill（技能）能力族](../../packages/skill)拆分为三个包（package）：注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）合并各提供方的目录；本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）扫描并监视项目/自定义/用户目录；消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）拥有初始目录和替换目录，以及面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
 
 源码：[`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)、[`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts) 与 [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts)。
 
@@ -10,7 +10,7 @@
 
 `ctx.skills` 组合本地、内嵌、远程或其他提供方。注册是同步的；远程初始化与发现属于 `list()` 的 await 阶段。提供方对象、选项与候选项以只读方式借用，语义字段会被校验。
 
-重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时记录日志并跳过，不缓存降级后的目录；格式错误的候选项快速失败。
+重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略，且该观测不会缓存；格式错误的候选项快速失败。`invalidateProvider()` 只针对传入的活动提供方对象清除已完成目录；若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时的成员关系变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
 
 ```ts type-equiv
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -50,6 +50,8 @@ interface SkillProvider {
 
 项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 DSH 根目录会跳过其 `.system` 子目录。本地提供方不附带内置系统 skill；部署方通过另一个提供方提供内置 skill。
 
+Chokidar 会监视现有根目录中直属 bundle 和平铺条目的添加与移除，以及直属 skill 条目的变更。缺失的根目录会从最近的现有祖先开始，逐个跟踪缺失路径段，直至 Chokidar 可以附加。bundle 下的资源文件变更不属于目录变更。面向模型的 `write` 和 `edit` 观测会在目标路径相关时同步使提供方目录失效，而宿主 watcher 覆盖 IDE、Git、shell 和外部进程产生的变更。watcher 失败会使当前观测不完整；项目作用域 watcher 使用按配置设限的 LRU。
+
 ## Skill 身份
 
 skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（`<name>/SKILL.md`）和扁平 Markdown 文件（`<name>.md`）。嵌套递归的 `**/SKILL.md` 发现有意不在 v1 范围内。
@@ -80,6 +82,18 @@ interface SkillSummary {
   readonly provider: string
   /** Provider-specific base for relative resources. */
   readonly resourceBase?: SkillResourceBase
+}
+```
+
+`SkillCatalogSnapshot` 用于区分已确定的不存在和提供方的瞬时失败。`skills` 包含该次观测中收集并排序的摘要；只有每个已注册提供方都已完成发现，`complete` 才为 true。不完整快照不会缓存，因此消费方可以保留上一份可用模型目录并重试。
+
+```ts type-equiv
+/** One catalog observation plus whether every registered provider completed discovery. */
+interface SkillCatalogSnapshot {
+  /** Sorted model-invocable summaries from providers that completed. */
+  readonly skills: SkillSummary[]
+  /** Whether every registered provider completed discovery for this observation. */
+  readonly complete: boolean
 }
 ```
 
@@ -132,6 +146,8 @@ type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider
 
 skill 查找对 cwd 敏感，因为提供方可能暴露工作区本地的 skill；可选的 signal 为调用方取消提供方的工作。提供方接收与缓存标识和加载相同的只读选项对象。取消在目录选择前后（包括缓存命中时）都会检查，并与发现和完整定义加载竞争。如果找不到 git root，本地提供方将所提供的 cwd 本身视为项目根目录。
 
+注册表不缓存完整定义。每次调用 `get()` 都会携所选候选项调用胜出提供方，因此本地提供方会重新读取当前正文。名称与该候选项不再匹配的定义会被拒绝，并使该提供方实例失效以便重新发现。
+
 ```ts type-equiv
 /** Caller context used for cwd-sensitive and abortable provider work. */
 interface SkillLookupOptions {
@@ -142,7 +158,7 @@ interface SkillLookupOptions {
 }
 ```
 
-注册表只拥有其发现缓存上限。本地提供方拥有文件系统根目录（`dshHome`、`agentsHome` 与 `customSkillDirs`）。消费方拥有其目录描述上限。
+注册表只拥有其发现缓存上限。本地提供方拥有文件系统根目录（`dshHome`、`agentsHome` 与 `customSkillDirs`），以及 watcher 启用、轮询、稳定性、符号链接和项目容量控制。消费方拥有其目录描述上限。确切的默认值和校验规则见自动生成的[插件配置目录](../config-catalog.md)。
 
 ```ts type-equiv
 /** Skill registry configuration. */
@@ -154,6 +170,8 @@ interface Config {
 
 ## 会话目录与工具契约
 
-`dsh-tool-skill` 通过 `agent/session-prefix` 贡献一条 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。Prefix 发现通过 `SkillLookupOptions` 转发调用方的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。其仅用于请求、记录在 header 中的生命周期由 [session-prefix Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md)定义。
+`dsh-tool-skill` 通过 `agent/session-prefix` 贡献初始的 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。Prefix 发现通过 `SkillLookupOptions` 转发调用方的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。其仅用于请求、记录在 header 中的生命周期由 [session-prefix Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md)定义。
 
-面向模型的 `skill({ name })` 工具校验 kebab-case 名称，为调用方 agent 的 cwd 加载完整定义，将未解析的 skill 报告为 unknown 或 no longer available，拒绝 `disableModelInvocation` 的 skill，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。工具结果是模型获取完整指令的可见路径。
+在后续每个模型步骤之前，消费方都会对精确的工具可见性以及完整快照中已渲染的名称和描述计算 digest。digest 发生变化时，会通过 `agent.inject()` 追加一条持久的完整目录替换，并携带 `{ kind: 'skill-catalog', version: 1, digest }` 元数据；删除所有 skill 时会追加一条显式的空替换。不完整快照会保留上一份可用模型视图。可见元数据提供回放基线；如果替换被压缩（compaction）遮蔽，必要时会根据 loop 的初始前缀基线重新建立该替换。这些更新属于会话历史，而非 World State。
+
+面向模型的 `skill({ name })` 工具校验 kebab-case 名称，为调用方 agent 的 cwd 重新读取完整定义，将未解析的 skill 报告为 unknown 或 no longer available，拒绝 `disableModelInvocation` 的 skill，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。因此，仅修改正文会改变后续工具调用，而不会生成目录消息或改写先前工具结果。

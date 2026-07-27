@@ -1,0 +1,220 @@
+import { EventEmitter } from 'node:events'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import SkillService from '@deepseek-ai/dsh-skill'
+
+interface FakeWatcherControl {
+  emitter: EventEmitter
+  closeCalls: number
+  options: Record<string, unknown>
+}
+
+const watcherHarness = vi.hoisted(() => ({
+  watchers: [] as FakeWatcherControl[],
+  startupErrors: [] as Error[],
+  closeErrors: 0,
+  deferredReady: 0,
+}))
+
+vi.mock('chokidar', () => ({
+  default: {
+    watch(_path: unknown, options: Record<string, unknown>) {
+      const emitter = new EventEmitter() as EventEmitter & { close(): Promise<void> }
+      const control: FakeWatcherControl = { emitter, closeCalls: 0, options }
+      emitter.close = async () => {
+        control.closeCalls += 1
+        if (watcherHarness.closeErrors > 0) {
+          watcherHarness.closeErrors -= 1
+          throw new Error('close failed')
+        }
+      }
+      watcherHarness.watchers.push(control)
+      queueMicrotask(() => {
+        if (watcherHarness.deferredReady > 0) {
+          watcherHarness.deferredReady -= 1
+          return
+        }
+        const error = watcherHarness.startupErrors.shift()
+        if (error === undefined) emitter.emit('ready')
+        else emitter.emit('error', error)
+      })
+      return emitter
+    },
+  },
+}))
+
+const SkillLocal = await import('../src/index.ts')
+
+async function tempDir(name: string): Promise<string> {
+  return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
+}
+
+async function writeSkill(root: string, name: string): Promise<void> {
+  const directory = join(root, name)
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: ${name}\n---\n\nBody.\n`)
+}
+
+async function settle(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0))
+}
+
+beforeEach(() => {
+  watcherHarness.watchers.length = 0
+  watcherHarness.startupErrors.length = 0
+  watcherHarness.closeErrors = 0
+  watcherHarness.deferredReady = 0
+})
+
+describe('skill-local watcher failures', () => {
+  it('marks a startup failure incomplete and retries discovery without caching it', async () => {
+    const home = await tempDir('skill-watch-start-error')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'retry-skill')
+    watcherHarness.startupErrors.push(new Error('watch failed'))
+    watcherHarness.closeErrors = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchUsePolling: true,
+      watchFollowSymlinks: false,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'retry-skill' }],
+      complete: true,
+    })
+    expect(watcherHarness.watchers).toHaveLength(2)
+    expect(watcherHarness.watchers[1]?.options).toMatchObject({
+      atomic: true,
+      depth: 1,
+      followSymlinks: false,
+      usePolling: true,
+      interval: 10,
+      awaitWriteFinish: {
+        stabilityThreshold: 20,
+        pollInterval: 10,
+      },
+    })
+
+    await fiber.dispose()
+  })
+
+  it('filters events, coalesces invalidation, recovers runtime errors, and contains late callbacks', async () => {
+    const home = await tempDir('skill-watch-runtime-error')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'watched-skill')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['watched-skill'])
+    const invalidateProvider = ctx.skills.invalidateProvider.bind(ctx.skills)
+    let invalidations = 0
+    ctx.skills.invalidateProvider = (provider) => {
+      invalidations += 1
+      invalidateProvider(provider)
+    }
+    const first = watcherHarness.watchers[0]
+    if (first === undefined) throw new Error('expected a root watcher')
+
+    first.emitter.emit('change', join(root, 'notes.txt'))
+    first.emitter.emit('change', join(home, 'outside.md'))
+    first.emitter.emit('change', join(root, 'watched-skill/references.md'))
+    first.emitter.emit('change', join(root, '.system/SKILL.md'))
+    await settle()
+    expect(invalidations).toBe(0)
+
+    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
+    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
+    await settle()
+    expect(invalidations).toBe(1)
+
+    watcherHarness.closeErrors = 1
+    watcherHarness.startupErrors.push(new Error('runtime rewatch failed'))
+    first.emitter.emit('error', new Error('runtime watch failed'))
+    await settle()
+    await settle()
+    expect(watcherHarness.watchers.length).toBeGreaterThanOrEqual(2)
+    expect(invalidations).toBeGreaterThanOrEqual(2)
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'watched-skill' }],
+      complete: true,
+    })
+
+    await fiber.dispose()
+    first.emitter.emit('change', join(root, 'watched-skill/SKILL.md'))
+    first.emitter.emit('error', new Error('late error'))
+    await settle()
+  })
+
+  it('settles an opening watcher when plugin disposal races its ready event', async () => {
+    const home = await tempDir('skill-watch-opening-dispose')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'racing-skill')
+    watcherHarness.deferredReady = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const provider = new SkillLocal.LocalSkillProvider(ctx, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+    ctx.skills.registerProvider(provider)
+
+    const discovery = provider.list({})
+    await settle()
+    const first = watcherHarness.watchers[0]
+    if (first === undefined) throw new Error('expected an opening root watcher')
+    first.emitter.emit('unlinkDir', root)
+    const disposal = provider.dispose()
+    first.emitter.emit('ready')
+
+    await Promise.all([discovery, disposal])
+    await settle()
+    expect(first.closeCalls).toBeGreaterThan(0)
+  })
+
+  it('contains an opening watcher rejection during provider teardown', async () => {
+    const home = await tempDir('skill-watch-opening-reject')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'rejected-skill')
+    watcherHarness.deferredReady = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const provider = new SkillLocal.LocalSkillProvider(ctx, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+    ctx.skills.registerProvider(provider)
+
+    const discovery = provider.list({})
+    await settle()
+    const first = watcherHarness.watchers[0]
+    if (first === undefined) throw new Error('expected an opening root watcher')
+    const disposal = provider.dispose()
+    first.emitter.emit('error', new Error('opening failed during disposal'))
+
+    await expect(discovery).rejects.toThrow('opening failed during disposal')
+    await disposal
+  })
+})

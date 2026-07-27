@@ -55,6 +55,7 @@
     "@cordisjs/plugin-timer": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
+    "@deepseek-ai/dsh-bash-local": "workspace:^",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-policy": "workspace:^",

@@ -2,7 +2,7 @@
 
 English | [中文](skills.zh.md)
 
-The [skill capability family](../../packages/skill) is split across three packages: the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`) merges provider catalogs; the local provider ([dsh-skill-local](../../packages/skill/skill-local)) scans project/custom/user directories; the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)) owns the session-prefix catalog and model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
+The [skill capability family](../../packages/skill) is split across three packages: the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`) merges provider catalogs; the local provider ([dsh-skill-local](../../packages/skill/skill-local)) scans and watches project/custom/user directories; the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)) owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
 
@@ -10,7 +10,7 @@ Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/ind
 
 `ctx.skills` combines local, embedded, remote, or other providers. Registration is synchronous; remote initialization and discovery belong in awaited `list()`. Provider objects, options, and candidates are borrowed readonly, while semantic fields are validated.
 
-Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and skipped without caching the degraded catalog, while malformed candidates fail fast.
+Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and omitted from an incomplete observation without caching it, while malformed candidates fail fast. `invalidateProvider()` clears completed catalogs only for the exact live provider object, and an in-flight discovery retries when its provider generation changes. Provider and runtime membership mutations emit the unfiltered `skills/change` invalidation event; it carries no diff, so consumers refetch `snapshot()` with their own lookup options.
 
 ```ts type-equiv
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -50,6 +50,8 @@ The shipped local provider scans roots in rank order:
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not ship built-in system skills; deployments supply built-ins through another provider.
 
+Chokidar watches existing roots for direct bundle/flat-entry additions and removals plus direct skill-entry changes. A missing root is followed one absent path segment at a time from its nearest existing ancestor until Chokidar can attach. Resource files below a bundle are not catalog changes. Model-facing `write` and `edit` observations synchronously invalidate the provider when their target is catalog-relevant, while the host watcher covers IDE, Git, shell, and external-process mutations. Watcher failures make the current observation incomplete; project-scoped watchers use a configured bounded LRU.
+
 ## Skill identity
 
 Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider accepts directory bundles (`<name>/SKILL.md`) and flat Markdown files (`<name>.md`). Nested recursive `**/SKILL.md` discovery is intentionally outside v1.
@@ -80,6 +82,18 @@ interface SkillSummary {
   readonly provider: string
   /** Provider-specific base for relative resources. */
   readonly resourceBase?: SkillResourceBase
+}
+```
+
+`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure. `skills` contains the sorted summaries collected in that observation; `complete` is true only when every registered provider completed. Incomplete snapshots are not cached, allowing a consumer to retain its last-good model catalog and retry.
+
+```ts type-equiv
+/** One catalog observation plus whether every registered provider completed discovery. */
+interface SkillCatalogSnapshot {
+  /** Sorted model-invocable summaries from providers that completed. */
+  readonly skills: SkillSummary[]
+  /** Whether every registered provider completed discovery for this observation. */
+  readonly complete: boolean
 }
 ```
 
@@ -132,6 +146,8 @@ type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider
 
 Skill lookup is cwd-sensitive because providers may expose workspace-local skills, and its optional signal cancels provider work for the caller. Providers receive the same readonly options object used for cache identity and loading. Cancellation is checked before and after catalog selection, including cache hits, and races both discovery and full-definition loading. If no git root is found, the local provider treats the supplied cwd itself as the project root.
 
+Full definitions are not cached by the registry. Each `get()` calls the winning provider with the selected candidate, so the local provider rereads the current body. A definition whose name no longer matches that candidate is rejected and invalidates the exact provider for rediscovery.
+
 ```ts type-equiv
 /** Caller context used for cwd-sensitive and abortable provider work. */
 interface SkillLookupOptions {
@@ -142,7 +158,7 @@ interface SkillLookupOptions {
 }
 ```
 
-The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, and `customSkillDirs`). The consumer owns its catalog description bound.
+The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, and `customSkillDirs`) plus watcher enablement, polling, stability, symlink, and project-capacity controls. The consumer owns its catalog description bound. Exact defaults and validation are in the generated [config catalog](../config-catalog.md).
 
 ```ts type-equiv
 /** Skill registry configuration. */
@@ -154,6 +170,8 @@ interface Config {
 
 ## Session catalog and tool contract
 
-`dsh-tool-skill` contributes a user-role `<system-reminder>` through `agent/session-prefix`. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Prefix discovery forwards the caller's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`. Its request-only, header-logged lifecycle is defined by the [session-prefix Agent Note](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md).
+`dsh-tool-skill` contributes the initial user-role `<system-reminder>` through `agent/session-prefix`. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Prefix discovery forwards the caller's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`. Its request-only, header-logged lifecycle is defined by the [session-prefix Agent Note](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md).
 
-The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rejects `disableModelInvocation` skills, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. The tool result is the model-visible path for complete instructions.
+Before each later model step, the consumer digests exact tool visibility plus the rendered names and descriptions from a complete snapshot. A changed digest appends a durable full replacement through `agent.inject()` with `{ kind: 'skill-catalog', version: 1, digest }` metadata; deleting every skill appends an explicit empty replacement. Incomplete snapshots preserve the last-good model view. Visible metadata supplies the replay baseline, while a replacement shadowed by compaction is re-established against the loop's initial-prefix baseline when necessary. These updates are session history, not World State.
+
+The model-facing `skill({ name })` tool validates the kebab-case name, rereads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rejects `disableModelInvocation` skills, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.

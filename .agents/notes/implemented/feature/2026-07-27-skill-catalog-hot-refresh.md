@@ -1,0 +1,46 @@
+# Agent Note: Skill catalog hot refresh
+
+Status: implemented
+
+English | [中文](2026-07-27-skill-catalog-hot-refresh.zh.md)
+
+## Problem
+
+Skill summaries are model routing input, but local skills can appear, disappear, or be renamed after a session starts. IDEs, Git operations, shell commands, and other processes can all mutate `.agents/skills` without going through the harness filesystem tools. A startup-only catalog leaves the model unaware of new skills and able to call deleted names. Treating every instruction-body edit as a catalog revision would instead couple progressive loading to unnecessary prompt churn.
+
+Filesystem updates are also non-atomic from the observer's perspective. An editor or Git operation may briefly remove a file, a watched root may not exist at startup, and discovery may fail transiently. Publishing those intermediate observations as authoritative empty catalogs would be worse than retaining the last complete view.
+
+## Decision
+
+The skill capability separates catalog membership from instruction-body loading. `ctx.skills.snapshot()` returns summaries plus a completeness bit, while `ctx.skills.invalidateProvider(provider)` dirties only the exact registered provider and discards completed catalog caches. A provider or runtime generation change during discovery retries before returning. Incomplete observations are not cached. A stale provider callback after disposal or replacement is a no-op because invalidation uses object identity.
+
+`@deepseek-ai/dsh-skill-local` directly depends on Chokidar and observes catalog-relevant host paths. Existing roots watch direct skill bundle directories, flat Markdown entries, and direct `SKILL.md` entry files. Additions, removals, and directory changes invalidate membership; file changes support frontmatter `name` and `description` refresh. Resource files below a bundle are ignored. Events in one microtask batch coalesce to one invalidation. Project watchers use a bounded least-recently-observed set.
+
+A missing root is followed from its nearest existing ancestor one absent segment at a time with `fs.watchFile`, then handed to Chokidar once the real root exists. Deleting a root re-establishes ancestor observation. Chokidar configuration exposes native-versus-polling mode, write stability, polling interval, symlink following, and project watcher capacity. First-party `write` and `edit` tool observations synchronously invalidate a relevant provider, so the next model step sees its own mutation without waiting for host delivery. Watch startup/runtime failures make discovery incomplete and retry; teardown closes watchers and ignores late callbacks.
+
+`@deepseek-ai/dsh-tool-skill` keeps the initial complete catalog in `agent/session-prefix`. Before every model step it computes a digest over exact `skill` tool visibility and the ordered rendered names and descriptions. A changed digest appends a durable, complete replacement catalog through `agent.inject()`, including an explicit empty catalog when all skills disappear. The logged message carries `{ kind: 'skill-catalog', version: 1, digest }`, so a still-visible replacement supplies the baseline across replay or plugin reload. If compaction shadows it, the next pre-step falls back to the loop's initial-prefix baseline and re-establishes the current catalog when needed. An incomplete snapshot emits no replacement and preserves the last-good model view.
+
+The TUI consumes the same invalidation as presentation state, not session history. `skills/change` carries no diff; the TUI refetches `snapshot()` for the active session cwd, applies only the latest complete result, and retains the previous commands across incomplete observations. A complete empty result clears stale completions. Because pi-tui closes autocomplete when its provider is replaced, a catalog that arrives while the user is typing a slash-command name also triggers a suggestion-only re-query of the current draft.
+
+Instruction bodies keep progressive disclosure. Every `skill(name)` call asks the provider to reread and parse the current file; there is no body cache, hash, revision, or proactive notification. Previously logged tool results remain unchanged. If the loaded frontmatter name no longer matches the selected candidate, the registry rejects the stale name and invalidates that provider so a later catalog observation can publish the new name.
+
+## Verification
+
+Registry tests pin exact invalidation, contained observer failures, incomplete snapshots, generation retries, and stale-name rejection. Local-provider tests cover bundle and flat-file creation, removal, rename, root creation/deletion/recreation, description changes, body-only edits, first-party observation, symlinks, polling options, watcher failures, event coalescing, bounded projects, teardown, and transient reads. Tool tests pin full replacement messages, empty tombstones, digest stability for body-only edits, incomplete-state retention, visibility, and resume metadata. TUI tests pin last-complete retention, authoritative empty removal, latest-wins refresh, teardown, and the already-open slash-draft race; a real Loader/PTY smoke adds a local skill after startup and observes its completion without restarting. A keyless assembled agent-spine snapshot creates a project skill through model-facing filesystem tools, observes its replacement catalog on the next request, and loads its current body with the real `skill` tool.
+
+## Alternatives considered
+
+- **Put the live catalog in World State** — rejected because catalog replacements are model-visible session inputs and must be reconstructable from the event log. Durable injected history already provides replay, resume, fork, and compaction semantics without another mutable state plane.
+- **Rely only on `fs/observed`** — rejected because IDEs, Git, shell commands, and external processes do not cross that seam. The event remains a latency fast path for first-party tools, while host watching supplies coverage.
+- **Hash or version every `SKILL.md` body** — rejected because the model initially sees only names and descriptions, and the provider already rereads the body on each tool call. Body revisions would create catalog traffic without changing routing and would not justify rewriting historical tool results.
+- **Watch every bundle resource** — rejected because references, scripts, and assets are loaded on demand and do not affect the category list. Broad recursive watching would add invalidations, descriptor pressure, and platform variability without improving routing.
+- **Publish partial or failed discovery as the new catalog** — rejected because a transient read failure is not evidence of deletion. The completeness bit lets the model-facing consumer preserve its last-good catalog until a full observation succeeds.
+
+## Consequences
+
+- New, deleted, and renamed local skills become visible at model-step boundaries without restarting the agent, including when the skills root did not exist at startup.
+- The TUI's `/skill:` completions converge on the same complete catalog without blocking each keystroke on discovery; an open slash-name draft refreshes when the catalog arrives.
+- Catalog updates are append-only, logged, and whole-list replacements. They preserve the stable initial prefix and retire stale names explicitly, at token cost proportional to the current catalog on each actual digest change.
+- Body-only edits produce no catalog message. A subsequent tool call sees current content, while prior tool results remain an accurate record of what the model previously loaded.
+- Missing-root polling and Chokidar add one maintained runtime dependency, host watcher resources, bounded detection latency, and deployment tunables. The bounded project set and teardown contract contain those costs.
+- Remote or future mutable providers remain responsible for calling `invalidateProvider()` from their own observation mechanism; the registry does not impose a universal watcher or TTL.

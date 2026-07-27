@@ -4,13 +4,17 @@
 
 面向模型的 skill 目录和 `skill` 工具。
 
-需要 `ctx.tools` 和 `ctx.skills` （`inject: ['tools', 'skills']`）。
+需要 `ctx.agents`、`ctx.tools` 和 `ctx.skills`（`inject: ['agents', 'tools', 'skills']`）。
 
-## 会话前缀目录
+## 目录生命周期
 
-该插件贡献一个用户角色 `<system-reminder>` 目录，并通过 `agent/session-prefix` 提供它。它为调用会话的 cwd 解析 skill，将前缀中止信号转发到发现，并只列出已排序的 `name` 和 `description` 条目；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。如果没有模型可调用 skill，则省略目录；如果该 agent 的工具视图排除已发布的 `skill` 工具，或解析出一个同名作用域遮蔽，也会省略目录。这项精确定义检查使提示词指引、模型可见 schema 和可执行分派保持对齐。
+该插件通过 `agent/session-prefix` 提供初始的用户角色 `<system-reminder>` 目录。之后每个模型步骤开始前，它都会观察 `ctx.skills.snapshot()`，并针对 `skill` 工具的精确可见性，以及按顺序渲染的 `name` 和 `description` 条目计算 digest。它根据调用会话的 cwd 解析 skill，且只列出这些摘要；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。
 
-`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[会话前缀 Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) 定义了该消息仅存在于请求中、记录于 header 的生命周期。
+该 digest 变化时，`agent.inject()` 会记录一条持久的用户角色消息，其中包含完整替换目录和元数据 `{ kind: 'skill-catalog', version: 1, digest }`。空替换会显式停用较早目录中的名称。恢复后，最新且仍可见的元数据充当比较基线；若压缩（compaction）遮蔽了替换消息，模型步骤前的观察会改以会话前缀为基线，并在必要时重新发布当前完整目录。提供方快照不完整时，插件不会发送任何内容，并会保留最后一次完整的模型视图，以便在下一步骤重试。若不存在先前目录且当前视图为空，则不需要 tombstone。
+
+如果最初没有模型可调用 skill，则省略目录；如果该 agent 的工具视图排除已发布的 `skill` 工具，或解析出一个同名作用域遮蔽，也会省略目录。可见性变更参与 digest 计算，使提示词指引、模型可见 schema 和可执行分派保持对齐。
+
+`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[会话前缀 Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) 定义了初始消息仅存在于请求中、记录于 header 的生命周期；[skill 目录热刷新 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) 负责定义持久替换。
 
 ## 工具：`skill`
 
@@ -24,7 +28,7 @@
 
 无法解析的名称会报告 skill 未知或已不可用。无效名称和 `disableModelInvocation: true` skill 产生不同的错误结果。
 
-该工具在 v1 中不调用 `agent.inject()`。其结果已作为工具结果记录，并在下一个模型步骤可用，无需将内容重复为合成上下文。
+工具执行不调用 `agent.inject()`。新加载的结果已作为工具结果记录，并在下一个模型步骤可用，无需将正文重复为合成上下文。只有目录投影会注入替换摘要。
 
 ## 模型体验
 
@@ -32,7 +36,7 @@
 
 #### 模型所见
 
-如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条数据依赖条目。该目录是冻结的用户角色会话前缀。
+如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条数据依赖条目。初始目录是用户角色会话前缀。后续成员关系、描述或可见性的变化会使用同一个 `<available_skills>` 信封追加完整替换；删除所有 skill 时，会追加一个空信封，并明确指示不得使用旧名称。
 
 ##### Skill 目录模板
 
@@ -50,11 +54,11 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### Token 影响
 
-重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当列表为空或工具被隐藏或遮蔽时，不会发送目录 token。
+重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当列表为空或工具被隐藏或遮蔽时，不会发送初始目录 token。每次实际目录变更都会添加一条保留的完整替换消息。
 
 #### KV 缓存影响
 
-会话前缀组合完成后，在一个循环实例内前缀稳定。如果新建或恢复的实例具有不同提供方、skill、描述、可见性或目录上限，则可能从第一个变更目录 token 起使重用失效。
+初始目录保持前缀稳定。动态变更作为该前缀之后的仅追加历史，因此现有可重用 token 保持不变，替换消息和后续轮次则形成新的后缀。
 
 ### 工具 schema
 
@@ -146,3 +150,5 @@ Load referenced resources only as needed.
 - **已加载指令正文没有大小上限**：提供方可返回足以占用大量下一步上下文的 skill；只有目录描述会被截断。
 - **资源是指引，而非附件**：工具报告基础目录/URL/不透明提示，但既不列举也不为模型获取引用文件。
 - **加载是一次性文本**：远程提供方缓慢或 skill 正文很大时，不提供部分、流式或缓存内容句柄。
+- **目录替换采用全量列表**：一个名称或描述发生变化，就会追加当前所有可见摘要；这样能显式停用陈旧名称，但 token 成本与目录大小成正比。
+- **正文不做版本化**：仅修改正文不会改变目录 digest，也不会通知模型；后续工具调用会读取提供方的当前内容，而先前工具结果仍是历史事实。
