@@ -20,7 +20,7 @@ A snapshot test boots the real ACP example, drives its stdio protocol from a det
 
 Each scenario's `session.jsonl` is harvested from a real run. `assistant/chunk` events reproduce the model streams; tool, message, and boundary events capture the harness behavior. One ordinary session artifact therefore serves as both replay source and behavioral expected output.
 
-When a scenario pins an alternative physical storage layout, its fixture is mechanically derived from a real unpacked counterpart. The scenario test requires every intended storage-row kind and exact event-for-event equality after decoding before the ordinary replay and log comparison proves that the assembled process consumes and reproduces that layout.
+Every committed session-format fixture uses the canonical packed physical layout. The all-row-kinds scenario is mechanically derived from an independent real recording; its test requires every packed storage-row kind and exact event-for-event equality after both fixtures decode, then ordinary replay and log comparison prove that the assembled process consumes and reproduces the layout.
 
 ### Replay derives the model script from the log
 
@@ -44,7 +44,7 @@ Replay is positional and therefore permits only one in-flight model stream per s
 
 ### Recording harvests the log; keyless replay needs a providerless config
 
-Recording runs the scenario with the real `llm-deepseek` adapter and the JSONL persistence backend configured with `persistenceCompression: 'none'`, then copies the produced `.jsonl` into the scenario dir. The explicit raw mode keeps committed replay fixtures line-readable while ordinary deployments use the backend's compressed default. Per-event appends are durable, but the harness shuts the subprocess down gracefully (close stdin → `await ctx.dispose()`) before harvesting so the final events are flushed. `llm-replay` itself does no recording — it is replay-only.
+Recording runs the scenario with the real `llm-deepseek` adapter and the JSONL persistence backend configured with `persistenceCompression: 'none'`, then copies the produced `.jsonl` into the scenario dir. The explicit raw mode keeps committed replay fixtures line-readable while ordinary deployments use the backend's compressed default; eligible chunk runs still use the default packed storage rows. Per-event appends are durable, but the harness shuts the subprocess down gracefully (close stdin → `await ctx.dispose()`) before harvesting so the final events are flushed. `llm-replay` itself does no recording — it is replay-only.
 
 Replay uses a `cordis.snapshot.yml` overlay that replaces the real adapter with `llm-replay` while retaining the live composition. Recording uses the ordinary config and a harness-supplied persistence root. Replay mode skips `.env` loading, so a stray API key cannot trigger a live call. See the [single-source config Agent Note](../../archived/testing/2026-07-04-single-source-acp-replay-config.md).
 
@@ -69,7 +69,7 @@ Tool determinism comes from a generated cwd, scrubbed environment, fresh non-log
 
 ### Two subcommands, replay in the default gate
 
-`pnpm run test:snapshot` replays committed fixtures keylessly; `test:snapshot:record` uses the real API and rewrites the harvested session log and stdout expected output. Missing fixtures fail loud. Every scenario carries `input.json`, `stdout.expected.jsonl`, and `session.jsonl`; no-model cases use a header-only log. `replay.override.json` is required only for scenarios marked `overridden`, because its presence replaces derived replay. Fixture guards reject missing, mismatched, and orphaned files. Both commands accept scenario filters.
+`pnpm run test:snapshot` replays committed fixtures keylessly; `test:snapshot:record` uses the real API and rewrites the harvested session log and stdout expected output. The same keyless gate discovers repository JSONL by its `session` header and rejects any fixture that differs from the shared codec's canonical packed representation. Missing fixtures fail loud. Every scenario carries `input.json`, `stdout.expected.jsonl`, and `session.jsonl`; no-model cases use a header-only log. `replay.override.json` is required only for scenarios marked `overridden`, because its presence replaces derived replay. Fixture guards reject missing, mismatched, and orphaned files. Both commands accept scenario filters.
 
 ## Alternatives considered
 
