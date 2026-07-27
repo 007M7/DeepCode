@@ -20,7 +20,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 import SubagentService, {
   runOutcome,
   settleRun,
-  SubagentControlError,
+  SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
 } from '../src/index.ts'
 
@@ -625,7 +625,7 @@ describe('SubagentService.sendMessage', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     await expect(sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
-      .rejects.toThrow(SubagentControlError)
+      .rejects.toThrow(SubagentError)
     await expect(sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
       .rejects.toThrow(/outside continuation ownership.*not delivered/)
     await handle.dispose()

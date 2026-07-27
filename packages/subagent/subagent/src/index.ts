@@ -32,7 +32,6 @@ import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -45,6 +44,7 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentRunId } from './types.ts'
+import { SubagentError } from './error.ts'
 import SubagentContinuationManager from './continuation.ts'
 import type {
   ContinuableStart,
@@ -71,10 +71,10 @@ export {
   SUBAGENT_DESCRIPTOR_VERSION,
 } from './descriptor.ts'
 export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
+export { SubagentError } from './error.ts'
 export {
   runOutcome,
   settleRun,
-  SubagentControlError,
 } from './continuation.ts'
 export type {
   ContinuableStart,
@@ -192,14 +192,6 @@ export interface SubagentRunEndInfo {
   readonly stopReason: SubagentResult['stopReason']
   /** The child's final assistant output, absent on infrastructure rejection. */
   readonly lastAssistantMessage?: ContentBlock[]
-}
-
-/** Typed error for provider lookup, registration, and capability failures. */
-export class SubagentError extends HarnessError {
-  constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, code, options)
-    this.name = 'SubagentError'
-  }
 }
 
 /** Named provider registry with raw and Task-backed continuation operations. */

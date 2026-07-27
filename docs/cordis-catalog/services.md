@@ -2030,7 +2030,7 @@ async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun>
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentResumeRequest](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:206`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:198`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

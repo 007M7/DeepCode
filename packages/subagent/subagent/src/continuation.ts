@@ -24,6 +24,7 @@ import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor
 import type { SubagentResult, SubagentRun, SubagentStartRequest } from './types.ts'
 import type { SubagentService } from './index.ts'
 import type { TaskHooks, TaskId, TaskOutcome } from '@deepseek-ai/dsh-tasks'
+import { SubagentError } from './error.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
@@ -35,14 +36,6 @@ export interface CoordinatorMessageSource {
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     coordinator: CoordinatorMessageSource
-  }
-}
-
-/** Typed error for continuation routing, authorization, and delivery failures. */
-export class SubagentControlError extends HarnessError {
-  constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, code, options)
-    this.name = 'SubagentControlError'
   }
 }
 
@@ -285,13 +278,13 @@ export class SubagentContinuationManager {
     if (live === undefined) return
     const activation = this.activations.get(childId)
     if (activation === undefined) {
-      throw new SubagentControlError(
+      throw new SubagentError(
         `subagent "${childId}" has a live agent outside continuation ownership; the message was not delivered`,
         'OWNERSHIP_CONFLICT',
       )
     }
     if (activation.run !== undefined && activation.run.localAgent !== live) {
-      throw new SubagentControlError(
+      throw new SubagentError(
         `subagent "${childId}" registry agent is not the associated activation's agent; the message was not delivered`,
         'OWNERSHIP_CONFLICT',
       )
@@ -309,12 +302,12 @@ export class SubagentContinuationManager {
     const taskId = activation.taskId
     /* v8 ignore next 3 -- the install and Task registration share one synchronous frame, so an observed activation carries its Task id. */
     if (taskId === undefined) {
-      throw new SubagentControlError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
+      throw new SubagentError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
     }
     // Owner-session authorization plus the live status for admission.
     const snapshot = this.ctx.tasks.get(taskId, parent)
     if (snapshot.status !== 'running') {
-      throw new SubagentControlError(
+      throw new SubagentError(
         `subagent "${childId}" task ${taskId} is ${snapshot.status}; the message was not delivered `
         + '— retry after it settles to start the next activation',
         'NOT_DELIVERED',
@@ -322,10 +315,10 @@ export class SubagentContinuationManager {
     }
     const run = activation.run
     if (run === undefined) {
-      throw new SubagentControlError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
+      throw new SubagentError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
     }
     if (run.steer === undefined) {
-      throw new SubagentControlError(
+      throw new SubagentError(
         `subagent "${childId}" provider does not accept live delivery; the message was not delivered`,
         'NOT_DELIVERED',
       )
@@ -336,7 +329,7 @@ export class SubagentContinuationManager {
       // Confirmed steering lost the race with request admission. Deliberately no
       // cold-resume fallback here: that would attach the message to a turn the
       // caller did not observe.
-      throw new SubagentControlError(
+      throw new SubagentError(
         `subagent "${childId}" stopped before delivery; the message was not delivered`,
         'NOT_DELIVERED',
         { cause: error },
@@ -364,18 +357,18 @@ export class SubagentContinuationManager {
       try {
         loaded = await persistence.load(childId)
       } catch (error: unknown) {
-        throw new SubagentControlError(
+        throw new SubagentError(
           `subagent "${childId}" is unavailable`,
           'NOT_RESUMABLE',
           { cause: error },
         )
       }
       // The persistence seam takes no signal; recheck before any child work.
-      if (signal.aborted) throw new SubagentControlError('subagent resume was cancelled during lookup', 'CANCELLED')
+      if (signal.aborted) throw new SubagentError('subagent resume was cancelled during lookup', 'CANCELLED')
       // Authorize the persisted header before folding: only the direct parent
       // recorded at creation may continue this child.
       if (loaded.meta.parentSession !== parent.id) {
-        throw new SubagentControlError(
+        throw new SubagentError(
           `subagent "${childId}" belongs to another parent session`,
           'UNAUTHORIZED',
         )
@@ -385,7 +378,7 @@ export class SubagentContinuationManager {
       // itself a continuable child.
       const descriptor = foldSubagentDescriptor(loaded.events.slice(loaded.meta.seedLength ?? 0))
       if (descriptor === undefined) {
-        throw new SubagentControlError(
+        throw new SubagentError(
           `subagent "${childId}" has no supported continuation state and cannot be resumed; `
             + 'do not retry send_message with this id',
           'NOT_RESUMABLE',
@@ -477,7 +470,7 @@ export class SubagentContinuationManager {
   private requirePersistence(): SessionPersistence {
     const persistence = this.ctx.get('sessionPersistence')
     if (persistence === undefined) {
-      throw new SubagentControlError(
+      throw new SubagentError(
         'continuable subagents require session persistence (load a dsh-session-persistence backend)',
         'PERSISTENCE_UNAVAILABLE',
       )
