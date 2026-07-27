@@ -129,7 +129,7 @@ export interface SessionsApi {
    * rebuilds the surface from the events with the shared fold.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; modelTarget: ModelTarget }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>

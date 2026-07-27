@@ -71,7 +71,6 @@ describe('createFixtureApi', () => {
     expect(empty.result.value).toEqual({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
   })
 
@@ -93,7 +92,6 @@ describe('createFixtureApi', () => {
     expect(selected.result.value.selected).toEqual({ provider: 'openai', model: 'gpt-5' })
     const history = await api.sessions.history(req({ sessionId }))
     if (!history.result.ok) throw new Error('history failed')
-    expect(history.result.value.modelTarget).toEqual({ provider: 'openai', model: 'gpt-5' })
 
     const prompt = await api.sessions.prompt(req({
       sessionId,

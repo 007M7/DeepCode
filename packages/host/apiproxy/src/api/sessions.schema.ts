@@ -128,7 +128,6 @@ export const historyEntrySchema = z.object({
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
-  modelTarget: modelTargetSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** session.models request payload. */

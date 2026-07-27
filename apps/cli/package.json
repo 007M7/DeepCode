@@ -29,6 +29,7 @@
     "@deepseek-ai/dsh-client-ui-command": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-model": "workspace:^",
     "@deepseek-ai/dsh-client-ui-models": "workspace:^",
     "@deepseek-ai/dsh-client-ui-question": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings": "workspace:^",

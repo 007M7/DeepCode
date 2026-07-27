@@ -9,7 +9,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -354,6 +354,10 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
+  const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
+    session.sessionId,
+    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+  ]))
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -596,6 +600,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
+        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -624,7 +629,32 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, page)
+        return ok(request, { ...page })
+      },
+      models: request => ok(request, {
+        current: modelTargets.get(request.payload.sessionId)
+          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        groups: [
+          {
+            id: 'deepseek',
+            name: 'DeepSeek',
+            models: [
+              { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: '快速响应' },
+              { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', description: '复杂任务' },
+            ],
+          },
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            models: [{ id: 'gpt-5', name: 'GPT-5' }],
+          },
+        ],
+        failures: [],
+      }),
+      selectModel: (request) => {
+        const selected = { provider: request.payload.provider, model: request.payload.model }
+        modelTargets.set(request.payload.sessionId, selected)
+        return ok(request, { selected })
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload
@@ -660,7 +690,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           turn,
           userText === 'render markdown'
             ? MARKDOWN_FIXTURE
-            : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
+            : userText === 'report model'
+              ? `当前模型：${modelTargets.get(id)?.provider ?? 'unknown'}/${modelTargets.get(id)?.model ?? 'unknown'}`
+              : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
         return ok(request, { accepted: true as const })
       },
@@ -908,6 +940,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.list': return this.api.sessions.list(request)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
+      case 'session.models': return this.api.sessions.models(request)
+      case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)

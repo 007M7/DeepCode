@@ -38,6 +38,7 @@ export interface RpcErrorDetailsMap {
   'workspace-invalid-path': { path: string }
   'workspace-name-conflict': { name: string }
   'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
+  'model-unavailable': { provider: string; model: string }
   'agent-busy': { reason: string }
   'internal': {}
 }
