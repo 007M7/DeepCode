@@ -14,6 +14,7 @@ import {
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import {
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
+  workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
   workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
@@ -177,6 +178,13 @@ describe('workspace domain schemas', () => {
     expect(workspaceRenameValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
   })
 
+  it('validates workspace deletion payload and receipt', () => {
+    expect(workspaceDeleteRequestSchema.parse({ workspaceId: 'w1' }).workspaceId).toBe('w1')
+    expect(() => workspaceDeleteRequestSchema.parse({})).toThrow()
+    expect(workspaceDeleteValueSchema.parse({ deleted: true })).toEqual({ deleted: true })
+    expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
+  })
+
   it('insertSessionBefore accepts an anchored and an anchorless move', () => {
     expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1', beforeSessionId: 's2' }).beforeSessionId).toBe('s2')
     expect(workspaceInsertSessionBeforeRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).beforeSessionId).toBeUndefined()
@@ -273,6 +281,11 @@ describe('events frame schemas', () => {
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
       { type: 'host/agent-error', sessionId: 's', message: 'boom' },
+      { type: 'host/workspace-changed', workspace: {
+        workspaceId: 'w', path: '/w', title: 'w', sessionIds: [],
+        createdAt: '0', updatedAt: '0',
+      } },
+      { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]

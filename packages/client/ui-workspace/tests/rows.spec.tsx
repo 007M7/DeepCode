@@ -98,12 +98,16 @@ describe('workspace browser rows', () => {
 
   it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
     const onRename = vi.fn()
+    const onDelete = vi.fn()
     const onToggle = vi.fn()
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', label: 'Project',
       sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
-    render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={vi.fn()} onRename={onRename} />)
+    render(<ProjectRowItem
+      group={group} onToggle={onToggle} onCreate={vi.fn()}
+      actions={{ rename: onRename, delete: onDelete }}
+    />)
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     // Opening the menu neither toggles the group nor renames yet.
     expect(onToggle).not.toHaveBeenCalled()
@@ -111,11 +115,11 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
     expect(onRename).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menu')).toBeNull()
-    // Delete stays visual-only: selecting it just closes the menu.
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete workspace' }))
     expect(screen.queryByRole('menu')).toBeNull()
     expect(onRename).toHaveBeenCalledOnce()
+    expect(onDelete).toHaveBeenCalledOnce()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: 'Workspace actions for Project' }))
     fireEvent.keyDown(document, { key: 'Escape' })
