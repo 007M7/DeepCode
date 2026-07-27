@@ -22,8 +22,8 @@ export const name = 'llm-deepseek'
 export const inject = ['llm']
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash', contextWindow: 128_000 },
-  { id: 'deepseek-v4-pro', contextWindow: 128_000 },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 256_000 },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 256_000 },
 ]
 
 /**

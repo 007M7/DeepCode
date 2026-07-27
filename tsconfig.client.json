@@ -42,6 +42,7 @@
     { "path": "./packages/client/ui-command" },
     { "path": "./packages/client/ui-skill" },
     { "path": "./packages/client/ui-subagent" },
+    { "path": "./packages/client/ui-model" },
     { "path": "./packages/client/ui-question" },
     { "path": "./packages/client/ui-trajectory" },
     { "path": "./packages/client/ui-theme" },

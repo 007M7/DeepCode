@@ -75,13 +75,18 @@ describe('open', () => {
     const page = plainTurn(10, 0, '早', '安')
     session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
-    gate.resolve(ok({ events: entries(page) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(page) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
 })
+
 
 describe('live event path', () => {
   async function opened(events: SessionEvent[] = plainTurn(0, 0, 'a', 'b')) {
@@ -277,7 +282,11 @@ describe('paging', () => {
     api.onHistory = () => gate.promise
     const first = session.loadOlder()
     const second = session.loadOlder()
-    gate.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
@@ -563,7 +572,11 @@ describe('remaining branches', () => {
     const opening = session.open()
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
-    stale.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '代')) as never[], hasMore: false })) // success, but its generation is gone
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
   })
@@ -582,7 +595,11 @@ describe('remaining branches', () => {
     const opening = session.open() // triggers the second pull, which parks
     await vi.waitFor(() => { expect(call).toBe(2) })
     const resynced = session.resync()
-    secondPull.resolve(ok({ events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[], hasMore: false }))
+    secondPull.resolve(ok({
+      events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
   })
@@ -596,7 +613,11 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '页')) as never[], hasMore: false })) // repair result: stale, dropped
+    repairPull.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
@@ -640,6 +661,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
