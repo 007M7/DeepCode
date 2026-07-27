@@ -780,12 +780,16 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # This bookkeeping-only verdict must not depend on custom-pool provisioning.
-    # Standard hosted capacity is also what keeps it out of the failover path:
-    # pinned to either custom pool, an outage of that pool would leave the
-    # branch-protection verdict queued forever even after every worker job
-    # passed on the other pool.
-    runs-on: ubuntu-latest
+    # This bookkeeping-only verdict must not depend on custom-pool
+    # provisioning (master's #734 moved it to ubuntu-latest) — and under
+    # failover it follows the same selector as the worker jobs it
+    # aggregates, so a standard-hosted outage cannot strand the
+    # branch-protection verdict either (observed 2026-07-27).
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'ubuntu-latest' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
