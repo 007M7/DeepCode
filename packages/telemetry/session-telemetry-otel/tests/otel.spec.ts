@@ -202,6 +202,10 @@ describe('TelemetryOtel config fails loud', () => {
     [{ exporter: { url: '' } }, /exporter\.url is required/],
     [{ exporter: { url: 'not a url' } }, /not a valid URL/],
     [{ exporter: { url: 'ftp://collector' } }, /must be http\(s\)/],
+    // The SDK accepts a non-positive batch size but its shutdown drain then
+    // splices empty batches forever — dispose would hang, so reject at load.
+    [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0 } }, /maxExportBatchSize/],
+    [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0.5 } }, /maxExportBatchSize/],
   ])('rejects %j at plugin load', async (config, message) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

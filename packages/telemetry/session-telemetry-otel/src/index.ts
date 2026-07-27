@@ -106,6 +106,14 @@ export class TelemetryOtel extends Telemetry {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`session-telemetry-otel: exporter.url must be http(s), got ${parsed.protocol}`)
     }
+    // The one processor field checked beyond the SDK's own validation: the
+    // SDK accepts a non-positive batch size, but its shutdown drain then
+    // splices empty batches without consuming the queue — dispose would hang
+    // forever with records queued. Misconfiguration fails at load instead.
+    const batchSize = config.processor?.maxExportBatchSize
+    if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) {
+      throw new Error(`session-telemetry-otel: processor.maxExportBatchSize must be a positive integer, got ${String(batchSize)}`)
+    }
     this.provider = new LoggerProvider({
       resource: resourceFromAttributes({
         'service.name': APP_IDENTITY.product,
