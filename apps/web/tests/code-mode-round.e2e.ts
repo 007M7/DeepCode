@@ -18,7 +18,7 @@ import {
   captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/code-mode-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/code-mode-round/ui.expected.md', import.meta.url))
@@ -48,6 +48,8 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // Fresh world: connect a Workspace so the composer scenarios start live.
+    await connectFreshWorkspace(page)
   }, 120_000)
 
   afterAll(async () => {

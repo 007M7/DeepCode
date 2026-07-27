@@ -1,18 +1,19 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
+import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView, WorkspaceId,
+  SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState, PendingPrompt,
-  PromptError, RunningToolCall, SessionIntentSnapshot, SessionIntentTarget,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
+  PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -23,10 +24,37 @@ import { PartialAccumulator } from './partial.ts'
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
-/** Optional frontend Intent and publication observer for a Session object. */
+/** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
-  intent?: { target: SessionIntentTarget; prompt: string }
-  onPublished?(session: Session): void
+  /**
+   * First ACCEPTED prompt on a blank session (fires at most once, on the
+   * prompt RPC's success response): the manager mirrors the blank→false flip
+   * into its list row so the session surfaces without waiting for a host
+   * frame. Acceptance is the flip point because it proves the user message
+   * is in the host log; a rejected first prompt keeps the session blank
+   * (hidden, still reusable by connectWorkspace).
+   */
+  onEngaged?(session: Session): void
+}
+
+/** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
+const QUEUE_PREVIEW_CHARS = 200
+
+/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
+interface QueuedEntry {
+  row: QueuedMessage
+  steering: boolean
+  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
+  sourceJson: string
+}
+
+/** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
+function queuePreviewOf(content: readonly ContentBlock[]): string {
+  const flat = content
+    .map(block => (block.type === 'text' ? block.text : `[${block.type}]`))
+    .join(' ').replace(/\s+/g, ' ').trim()
+  const chars = Array.from(flat)
+  return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
 }
 
 /**
@@ -64,6 +92,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
+  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
+   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
+  private queued: QueuedEntry[] = []
+  private queueRev = 0
+  private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
@@ -78,12 +111,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * engaging edge of the phase machine (see ComposerPhase).
    */
   private promptAttempted = false
+  /** Empty-log mirror (see ConversationSnapshot.blank); monotone false once flipped. */
+  private blankBit = false
   private removed = false
   private promptError: PromptError | null = null
-  private intent: SessionIntentSnapshot | null
-  private pendingPrompt: PendingPrompt | null
-  private intentGeneration = 0
-  private published: boolean
   private lastAgentError: string | null = null
   /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
@@ -96,25 +127,44 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
   })
+  /**
+   * Agent-scoped cordis context, bound once by SessionsService when it
+   * mints the scope (the client mirror of the host Agent's loopCtx). The
+   * Session dispatches its own scoped events through it; undefined means
+   * unbound (bare object-layer construction) or already pruned — both skip
+   * dispatch-dependent behavior rather than fail.
+   */
+  private actx: Context | undefined
 
   /**
-   * @param sessionId - stable identity shared by the frontend Intent and Host entity.
+   * @param sessionId - Host session identity (client sessions are always Host-born).
    * @param api - shared wire client.
-   * @param options - optional frontend-only initial state and publication observer.
+   * @param options - optional manager-owned state observers.
    */
   constructor(
     readonly sessionId: SessionId,
     private readonly api: IApiClient,
     private readonly options: SessionOptions = {},
   ) {
-    this.intent = options.intent === undefined
-      ? null
-      : { target: options.intent.target, phase: 'ready' }
-    this.pendingPrompt = options.intent === undefined
-      ? null
-      : { text: options.intent.prompt, phase: 'editing', retry: 'send' }
-    this.published = options.intent === undefined
     this.snapshotCache = this.buildSnapshot()
+  }
+
+  /**
+   * Bind the Agent-scoped context minted by SessionsService (single write;
+   * a second bind is a wiring error and throws). Direction stays one-way at
+   * the seam: consumers still reach the Session via `sessions.sessionOf`,
+   * while the Session holds its own dispatch point (host Agent.loopCtx
+   * mirror).
+   * @param actx - the agent's scoped context.
+   */
+  bindScope(actx: Context): void {
+    if (this.actx !== undefined) throw new Error(`session ${this.sessionId} already has a bound scope`)
+    this.actx = actx
+  }
+
+  /** Release the bound scope at prune time (a later rebind accompanies a freshly minted scope). */
+  unbindScope(): void {
+    this.actx = undefined
   }
 
   // ---- Operations ----
@@ -142,62 +192,20 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (!result.ok) {
       this.promptError = { op: 'send', error: result.error }
       this.notifier.markDirty()
+      return result
+    }
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
+    // its user/message on the host (events.length > 0 is fact, not
+    // optimism), while a rejected first prompt must keep the session blank
+    // — the client-side blank mirror only ever lowers, so flipping early on
+    // a failure would surface the session forever and strip its
+    // connectWorkspace reuse eligibility against the host's authority.
+    if (this.blankBit) {
+      this.blankBit = false
+      this.options.onEngaged?.(this)
+      this.notifier.markDirty()
     }
     return result
-  }
-
-  /**
-   * Update this Session's retained prompt while it remains editable.
-   * @param text - exact controlled value of this Session's retained prompt.
-   */
-  updatePendingPrompt(text: string): void {
-    const pending = this.pendingPrompt
-    if (pending === null || pending.phase === 'sending') return
-    this.pendingPrompt = { ...pending, text }
-    this.notifier.notifyNow()
-  }
-
-  /**
-   * Connect this frontend Session to a real Workspace and flush its retained prompt.
-   * @param workspaceId - real Workspace target.
-   */
-  connect(workspaceId: WorkspaceId): void {
-    const intent = this.intent
-    const pending = this.pendingPrompt
-    if (intent === null || intent.phase === 'connecting' || pending === null || pending.text.trim() === '') return
-    const connecting: SessionIntentSnapshot = {
-      target: { kind: 'workspace', workspaceId },
-      phase: 'connecting',
-    }
-    const queued: PendingPrompt = {
-      ...pending,
-      phase: 'sending',
-      retry: 'connect',
-      workspaceId,
-    }
-    delete queued.error
-    this.intent = connecting
-    this.pendingPrompt = queued
-    this.notifier.notifyNow()
-    void this.flushPendingPrompt()
-  }
-
-  /** Stop a superseded frontend Intent from automatically sending after publication. */
-  abandonIntent(): void {
-    if (this.intent === null) return
-    this.intentGeneration += 1
-  }
-
-  /** Retry this Session's retained prompt from its failed prerequisite. */
-  retryPendingPrompt(): void {
-    const pending = this.pendingPrompt
-    if (pending === null || pending.phase === 'sending' || pending.text.trim() === '') return
-    const sending: PendingPrompt = { ...pending, phase: 'sending' }
-    delete sending.error
-    this.pendingPrompt = sending
-    this.promptError = null
-    this.notifier.markDirty()
-    void this.flushPendingPrompt()
   }
 
   /**
@@ -272,6 +280,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
+    // The queue mirror is NOT cleared here: onConnected (which drives resync)
+    // races the mux frames — the fresh generation's baseline may have landed
+    // already, and the host never resends it. The mirror re-baselines on the
+    // session/subscribed frame instead (same stream as the queue snapshot
+    // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -320,12 +333,35 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
+        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
+        return
+      }
+      case 'session/queued': {
+        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
+        // provisional-echo reconciliation key); otherwise the frame envelope id.
+        const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
+        this.queued.push({
+          row: { key, preview: queuePreviewOf(frame.content) },
+          steering: frame.steering,
+          sourceJson: JSON.stringify(frame.source),
+        })
+        this.queueRev++
+        this.notifier.markDirty()
         return
       }
       case 'session/subscribed': {
         this.subscribedLastSeq = frame.lastSeq
-        return // pure baseline bookkeeping, no visible change
+        // New mux-generation baseline: the host pushes this session's queue
+        // snapshot AFTER the subscribed frame on the same stream, so the
+        // stale mirror clears here — race-free against onConnected/resync
+        // timing (clearing there could wipe a baseline that already landed).
+        if (this.queued.length > 0) {
+          this.queued = []
+          this.queueRev++
+          this.notifier.markDirty()
+        }
+        return
       }
       case 'approval/requested': {
         const { type: _type, sessionId: _sid, ...payload } = frame
@@ -362,14 +398,38 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
+    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
+    // terminal steering drop) have no per-entry frame, so ANY not-running signal
+    // with a nonempty mirror clears it — checked before the equality return so a
+    // stale replay on an already-idle session still sweeps.
+    if (!running && this.queued.length > 0) {
+      this.queued = []
+      this.queueRev++
+      this.notifier.markDirty()
+    }
+    // Turn-start conversion: a blank session never runs, so the first
+    // running:true proves another端's first message landed (设计稿 2.2).
+    if (running && this.blankBit) {
+      this.blankBit = false
+      this.notifier.markDirty()
+    }
     if (this.running === running) return
     this.running = running
     this.notifier.markDirty()
   }
 
-  /** Mark that Host publication is known without resolving an uncertain local create response. */
-  handlePublished(): void {
-    this.markPublished()
+  /**
+   * Blank-bit relay from the authoritative summary source (list baseline and
+   * the session-added frame). Monotone: once any signal (local first send,
+   * running flip, an earlier summary) cleared it, a stale true never
+   * re-blanks.
+   * @param blank - the summary's derived empty-log bit.
+   */
+  handleBlank(blank: boolean): void {
+    if (blank === this.blankBit) return
+    if (blank && (this.promptAttempted || this.running)) return
+    this.blankBit = blank
+    this.notifier.markDirty()
   }
 
   /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
@@ -403,112 +463,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     wait.markSettled()
     this.pending.delete(wait.key)
     this.pendingRev++
-  }
-
-  /** Advance the retained prompt through Session attachment and submission. */
-  private async flushPendingPrompt(): Promise<void> {
-    const pending = this.pendingPrompt
-    if (pending?.phase === 'sending') {
-      const ready = pending.retry === 'connect'
-        ? await this.attachPendingPrompt(pending)
-        : pending
-      if (ready !== null) await this.sendPendingPrompt(ready)
-    }
-  }
-
-  /** Complete the Host Session prerequisite and return the prompt's send step. */
-  private async attachPendingPrompt(pending: PendingPrompt): Promise<PendingPrompt | null> {
-    const workspaceId = pending.workspaceId
-    if (workspaceId === undefined) throw new Error('a Session attachment requires a Workspace id')
-    const originIntent = this.intent
-    const originGeneration = this.intentGeneration
-    let result: RpcResult<{ sessionId: SessionId }>
-    try {
-      result = (await this.api.sessions.create({ sessionId: this.sessionId, workspaceId })).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    let ready: PendingPrompt | null = null
-    if (result.ok) {
-      ready = this.completePendingAttachment(pending, originIntent, originGeneration)
-    } else {
-      this.failPendingAttachment(pending, originIntent, originGeneration, result.error)
-    }
-    this.notifier.markDirty()
-    return ready
-  }
-
-  /** Move a published Session to the send step unless its page intent was superseded. */
-  private completePendingAttachment(
-    pending: PendingPrompt,
-    originIntent: SessionIntentSnapshot | null,
-    originGeneration: number,
-  ): PendingPrompt | null {
-    this.markPublished()
-    this.intent = null
-    this.promptAttempted = true
-    const superseded = originIntent !== null && originGeneration !== this.intentGeneration
-    const next: PendingPrompt = {
-      ...pending,
-      phase: superseded ? 'failed' : 'sending',
-      retry: 'send',
-      ...(superseded ? { error: 'Message was not sent because you navigated away.' } : {}),
-    }
-    if (!superseded) delete next.error
-    this.pendingPrompt = next
-    return superseded ? null : next
-  }
-
-  /** Retain the prompt at the failed attachment step that owns the retry. */
-  private failPendingAttachment(
-    pending: PendingPrompt,
-    originIntent: SessionIntentSnapshot | null,
-    originGeneration: number,
-    error: RpcError,
-  ): void {
-    const partiallyPublished = error.code === 'workspace-attach-failed'
-    if (partiallyPublished) {
-      this.markPublished()
-      this.intent = null
-      this.promptAttempted = true
-    }
-    const activeIntent = !partiallyPublished
-      && originIntent !== null
-      && originGeneration === this.intentGeneration
-      && this.intent === originIntent
-    if (activeIntent) {
-      this.intent = {
-        target: originIntent.target,
-        phase: 'ready',
-        error: { step: 'session', message: rpcErrorMessage(error) },
-      }
-      this.pendingPrompt = { ...pending, phase: 'editing' }
-    }
-    if (!activeIntent && (partiallyPublished || originIntent === null) && this.pendingPrompt === pending) {
-      this.pendingPrompt = { ...pending, phase: 'failed', error: rpcErrorMessage(error) }
-    }
-  }
-
-  /** Submit the retained prompt and keep it only when Host rejects the send. */
-  private async sendPendingPrompt(pending: PendingPrompt): Promise<void> {
-    const result = await this.prompt([{ type: 'text', text: pending.text.trim() }], 'queue')
-    if (this.pendingPrompt === pending) {
-      this.pendingPrompt = result.ok
-        ? null
-        : {
-          ...pending,
-          retry: 'send',
-          phase: 'failed',
-          error: rpcErrorMessage(result.error),
-        }
-      this.notifier.markDirty()
-    }
-  }
-
-  private markPublished(): void {
-    if (this.published) return
-    this.published = true
-    this.options.onPublished?.(this)
   }
 
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
@@ -611,6 +565,27 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     } finally {
       this.stitching = false
     }
+  }
+
+  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
+   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
+   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
+  private retireQueued(event: SessionEvent): void {
+    if (this.queued.length === 0) return
+    let index = -1
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind !== 'message') return
+      index = this.queued.findIndex(entry => !entry.steering)
+    } else if (event.type === 'steering/message') {
+      const source = JSON.stringify(event.data.source)
+      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
+    } else {
+      return
+    }
+    if (index < 0) return
+    this.queued.splice(index, 1)
+    this.queueRev++
+    this.notifier.markDirty()
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
@@ -791,6 +766,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
+    if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
+      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+    }
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
@@ -800,6 +778,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       codeDispatches: this.dispatchesCache.value,
+      queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
         nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
@@ -811,15 +790,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       hasMore: this.hasMore,
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
-      intent: this.intent,
-      pendingPrompt: this.pendingPrompt,
+      blank: this.blankBit,
       lastAgentError: this.lastAgentError,
     }
   }
-}
-
-function rpcErrorMessage(error: RpcError): string {
-  return `${error.code}: ${error.message}`
 }
 
 /**

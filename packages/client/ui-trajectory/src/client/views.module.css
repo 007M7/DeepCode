@@ -45,3 +45,38 @@
   color: var(--dsw-alias-label-caption);
   font: var(--dsw-font-xs-13);
 }
+
+/* run_code sub-span lanes: one row per sub-dispatch under its turn row,
+   offset/width scaled to the dispatch window (real wall time). A running
+   lane pulses via reduced opacity until its settle arrives. */
+.subRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.subTag {
+  flex: none;
+  width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
+}
+
+.barSub {
+  height: 8px;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.barSub[data-timing='running'] {
+  opacity: 0.45;
+}
+
+/* Settle-only replay entries: no measured span — hollow, not a solid bar. */
+.barSub[data-timing='unknown'] {
+  background: transparent;
+  border: 1px dashed var(--dsw-alias-state-business-primary);
+}

@@ -1170,6 +1170,34 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
+    name: 'slash/input-begin-command',
+    mode: 'bail',
+    signature: '\'slash/input-begin-command\'(request: BeginCommandRequest): true | undefined',
+    jsDoc: '/**\n * Applies one command claim to the scoped Input. Dispatched with the\n * session\'s scope carrier; the owning session\'s input listener returns\n * `true` only after the phase and span CAS checks pass and the machine\n * actually mutated — producers treat anything else as "not applied".\n * @param request - Claim and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Applies one command claim to the scoped Input.',
+  },
+  {
+    name: 'slash/input-consume-token',
+    mode: 'bail',
+    signature: '\'slash/input-consume-token\'(request: ConsumeTokenRequest): true | undefined',
+    jsDoc: '/**\n * Consumes one command token after business success (popup settle /\n * menu-pick execute). Same carrier routing and applied-truth contract.\n * @param request - Exact span or bare-token guard.\n * @mode bail\n */',
+    summary: 'Consumes one command token after business success (popup settle / menu-pick execute).',
+  },
+  {
+    name: 'slash/input-insert-reference',
+    mode: 'bail',
+    signature: '\'slash/input-insert-reference\'(request: InsertReferenceRequest): true | undefined',
+    jsDoc: '/**\n * Inserts one reference into the scoped Input (same carrier routing and\n * applied-truth contract as begin-command).\n * @param request - Reference and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).',
+  },
+  {
+    name: 'slash/input-insert-text',
+    mode: 'bail',
+    signature: '\'slash/input-insert-text\'(request: InsertTextRequest): true | undefined',
+    jsDoc: '/**\n * Replaces the trigger token span with literal text — the plain-text\n * reference path (decision 21). Same carrier routing and applied-truth\n * contract; the draft gains ordinary characters, no occurrence entry.\n * @param request - Replacement text and menu-time span CAS.\n * @mode bail\n */',
+    summary: 'Replaces the trigger token span with literal text — the plain-text reference path (decision 21).',
+  },
+  {
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
@@ -1217,6 +1245,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'tools/change\'(): void',
     jsDoc: '/**\n * A tool was registered or unregistered, or a scoped restriction changed\n * (the available tool set changed — possibly for one scope only). An\n * UNFILTERED registry-subject notification, deliberately not scope-filtered\n * dispatch: a global change concerns every agent\'s next assembly, so a\n * scoped listener subscribing here sees every change, not just its own\n * scope\'s.\n * @mode emit\n */',
     summary: 'A tool was registered or unregistered, or a scoped restriction changed (the available tool set changed — possibly for one scope only).',
+  },
+  {
+    name: 'tools/code-dispatch-log',
+    mode: 'waterfall',
+    signature: '\'tools/code-dispatch-log\'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>',
+    jsDoc: '/**\n * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before\n * the bridge appends its `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the unshaped content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
+    summary: 'Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
   },
   {
     name: 'tools/execute',

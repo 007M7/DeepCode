@@ -24,6 +24,9 @@
       "path": "../runtime"
     },
     {
+      "path": "../ui-slash"
+    },
+    {
       "path": "../ui-layout"
     },
     {

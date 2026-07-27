@@ -43,6 +43,8 @@ Do not process every file the same way:
   Apply the smallest counterpart edits that cover that diff. A minimal update preserves the reviewed phrasing of everything that didn't change; a re-translation throws that review away.
 - **Deleted or renamed doc**: delete or rename the counterpart and the `.i18n.yaml` alongside it — the gate reports an incomplete pair otherwise.
 
+Frozen Agent Notes under `.agents/notes/archived/` are not translation work. Their complete triplets are sealed by the archive verifier; never update, re-record, or repair either side after archival.
+
 ## Translate
 
 - **Pass 1 — write, don't transpose.** Read a semantic unit, then restate it as a native technical author in the nearest [style sample's](../../../docs/i18n/style-samples.md) register. Preserve the required frame without forcing sentence-by-sentence correspondence.
