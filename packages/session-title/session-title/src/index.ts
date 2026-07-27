@@ -5,6 +5,7 @@
 
 import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
+import { z as zod } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
@@ -14,6 +15,8 @@ import type {
   SessionEvent,
   SessionEventMap,
 } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
 
 export { fallbackSessionTitle, normalizeSessionTitle, truncateTitleUtf8 } from './normalize.ts'
@@ -97,6 +100,17 @@ declare module '@deepseek-ai/dsh-session' {
 
   interface OutOfBandSessionEventMap {
     'session/title': true
+  }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /**
+     * The session's current normalized title — the latest `session/title`
+     * event's text (last-wins), or `null` before the first title lands. A
+     * plain string: the shape the client list rows consume.
+     */
+    title: string | null
   }
 }
 
@@ -322,6 +336,21 @@ export class SessionTitleService extends Service {
       await this.drain(this.inFlight)
       this.work.clear()
     }, 'sessionTitle lifecycle')
+
+    // The title projection unit: pure last-wins fold of session/title events
+    // (the same events foldSessionTitle consumes), serving the plain title
+    // string clients list rows read. The unit child activates only when a
+    // projection registry is composed (headless assemblies stay unaffected).
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'title', string | null>({
+        key: 'title',
+        schema: zod.union([zod.string().min(1), zod.null()]),
+        init: () => null,
+        apply: (state, event) => (event.type === 'session/title' ? event.data.title : state),
+        view: state => state,
+        stateVersion: 1,
+      })
+    })
 
     ctx.on('session/event', (session, event) => {
       switch (event.type) {
