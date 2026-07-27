@@ -1,12 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
+import type { ResponseValue } from '../src/api/rpc-map.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
 import { AbstractApiClient, InProcessApiClient } from '../src/fetch/client.ts'
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface ModelModalityMap {
+    audio: 'audio'
+  }
+}
+
 /** Minimal in-memory ApiProxy: echoes rpcIds, scripts one frame per stream. */
-function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFrame[]; crashOn: string }> = {}): ApiProxy {
+function fakeApi(overrides: Partial<{
+  muxFrames: MuxFrame[]
+  hostFrames: HostFrame[]
+  crashOn: string
+  hostDescription: ResponseValue<'host.describe'>
+}> = {}): ApiProxy {
   const muxFrames = overrides.muxFrames ?? [{ type: 'session/subscribed', sessionId: 's1' as never, lastSeq: -1 }]
   const hostFrames = overrides.hostFrames ?? [{ type: 'host/session-removed', sessionId: 's1' as never }]
   async function * stream<F>(frames: F[], signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
@@ -45,7 +57,13 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     host: {
       async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: overrides.hostDescription ?? { version: 'v', cwd: '/w', attachedSessions: 0 },
+          },
+        }
       },
     },
     workspace: {
@@ -135,6 +153,40 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
+  })
+
+  it('round-trips a declaration-merged model modality through host.describe', async () => {
+    const c = client(fakeApi({
+      hostDescription: {
+        version: 'v',
+        cwd: '/w',
+        activeModel: {
+          provider: 'future',
+          id: 'audio-model',
+          name: 'Audio Model',
+          inputModalities: ['text', 'audio'],
+          outputModalities: ['audio'],
+        },
+        attachedSessions: 0,
+      },
+    }))
+
+    const response = await c.host.describe({})
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        version: 'v',
+        cwd: '/w',
+        activeModel: {
+          provider: 'future',
+          id: 'audio-model',
+          name: 'Audio Model',
+          inputModalities: ['text', 'audio'],
+          outputModalities: ['audio'],
+        },
+        attachedSessions: 0,
+      },
+    })
   })
 
   it('round-trips command.list / command.execute / skill.list through the wire form', async () => {

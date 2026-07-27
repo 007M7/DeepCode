@@ -3,11 +3,13 @@
  */
 
 import { z } from 'zod'
+import type { ModelModality } from '@deepseek-ai/dsh-llm'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import { imageMediaTypeSchema } from './sessions.schema.ts'
 
-const modalitySchema = z.union([z.literal('text'), z.literal('image')])
+/** Merge-extensible modality passthrough: declaration merging cannot extend a runtime Zod union. */
+const modalitySchema = z.string() as unknown as z.ZodType<ModelModality>
 
 /** host.describe request payload (empty object literal). */
 export const hostDescribeRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'host.describe'>>>

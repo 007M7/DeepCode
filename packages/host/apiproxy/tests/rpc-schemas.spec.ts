@@ -155,11 +155,32 @@ describe('sessions domain schemas', () => {
 })
 
 describe('host domain schemas', () => {
-  it('validates describe request/value', () => {
+  it('validates describe request/value and preserves merge-extensible modalities', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
+    const value = hostDescribeValueSchema.parse({
+      version: '1',
+      cwd: '/x',
+      provider: 'p',
+      model: 'm',
+      activeModel: {
+        provider: 'p',
+        id: 'm',
+        name: 'Model',
+        inputModalities: ['text', 'audio'],
+        outputModalities: ['text', 'audio'],
+      },
+      attachedSessions: 2,
+    })
     expect(value.attachedSessions).toBe(2)
+    expect(value.activeModel?.inputModalities).toEqual(['text', 'audio'])
+    expect(value.activeModel?.outputModalities).toEqual(['text', 'audio'])
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+    expect(() => hostDescribeValueSchema.parse({
+      version: '1',
+      cwd: '/x',
+      activeModel: { provider: 'p', id: 'm', name: 'Model', inputModalities: [{ type: 'audio' }] },
+      attachedSessions: 0,
+    })).toThrow()
   })
 })
 

@@ -1,11 +1,25 @@
 import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { readImageFile, saveImageFile } from '../src/store.ts'
+
+const fsControl = vi.hoisted(() => ({ syncedDirectories: [] as string[] }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async open(...args: Parameters<typeof actual.open>): ReturnType<typeof actual.open> {
+      if (args[1] === constants.O_RDONLY) fsControl.syncedDirectories.push(String(args[0]))
+      return actual.open(...args)
+    },
+  }
+})
 
 const PNG = Uint8Array.from(Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -33,6 +47,27 @@ afterEach(async () => {
 })
 
 describe('local attachment store', () => {
+  it.skipIf(process.platform === 'win32')('syncs every newly created object ancestor before returning', async () => {
+    const storageRoot = await root()
+    const base = join(storageRoot, '..', '..')
+    const sha256 = createHash('sha256').update(PNG).digest('hex')
+    const objects = join(storageRoot, 'objects')
+    const bucket = join(objects, sha256.slice(0, 2))
+    fsControl.syncedDirectories.length = 0
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
+
+    expect(fsControl.syncedDirectories).toEqual([
+      objects,
+      storageRoot,
+      join(storageRoot, '..'),
+      base,
+      storageRoot,
+      bucket,
+      objects,
+    ])
+  })
+
   it('publishes one private content-addressed object and deduplicates equal bytes', async () => {
     const storageRoot = await root()
     const first = await saveImageFile(storageRoot, {

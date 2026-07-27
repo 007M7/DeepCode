@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { chmod, link, mkdir, open, readFile, unlink } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   AttachmentError,
   AttachmentId,
@@ -79,6 +79,25 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 /**
+ * Create one private directory tree and persist every newly published ancestor.
+ * @param path - absolute directory to create.
+ */
+async function ensureDurableDirectory(path: string): Promise<void> {
+  const target = resolve(path)
+  const firstCreated = await mkdir(target, { recursive: true, mode: 0o700 })
+  await chmod(target, 0o700)
+  if (firstCreated === undefined) return
+
+  const highestCreated = resolve(firstCreated)
+  let created = target
+  while (true) {
+    await syncDirectory(dirname(created))
+    if (created === highestCreated) return
+    created = dirname(created)
+  }
+}
+
+/**
  * Save and verify immutable image bytes below a versioned attachment root.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param input - encoded bytes and declared metadata.
@@ -91,10 +110,8 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
-  await mkdir(bucket, { recursive: true, mode: 0o700 })
-  await mkdir(staging, { recursive: true, mode: 0o700 })
-  await chmod(bucket, 0o700)
-  await chmod(staging, 0o700)
+  await ensureDurableDirectory(bucket)
+  await ensureDurableDirectory(staging)
   const temporary = join(staging, randomUUID())
   const target = objectPath(root, sha256)
   let handle
@@ -112,11 +129,10 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
       const existing = new Uint8Array(await readFile(target))
       if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
     }
-    // The synced file becomes durable only once its directory entries are: sync
-    // the bucket (the new object entry) and its parent (the possibly new bucket
-    // entry) before this reference can reach a session checkpoint. The dedup
-    // path syncs too — the earlier save that created the entry may have crashed
-    // before its own directory sync.
+    // Persist the target entry and close a concurrent bucket-creation window
+    // before the reference can reach a session checkpoint. The dedup path
+    // repeats both syncs because it may observe another writer's link before
+    // that writer reaches its own durability boundary.
     await syncDirectory(bucket)
     await syncDirectory(join(root, 'objects'))
     await unlink(temporary)
