@@ -93,8 +93,9 @@ declare module 'cordis' {
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
      * Awaited parallel durability checkpoint: every listener runs and the
-     * caller awaits all of them, with no waterfall veto. Dispatch through
-     * {@link SessionStore.flush}. Scope-filtered dispatch
+     * caller awaits all of them, with no waterfall veto. An empty listener
+     * snapshot is accepted by {@link SessionStore.flush} and rejected by
+     * {@link SessionStore.flushRequired}. Scope-filtered dispatch
      * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
      * @dshScopeScan unsupported
@@ -973,9 +974,31 @@ export class SessionStore extends Service {
    *   rejects with the first registered listener failure if any listener failed.
    */
   async flush(session: Session): Promise<void> {
+    await this.dispatchFlush(session, false)
+  }
+
+  /**
+   * Dispatch the same awaited checkpoint as {@link flush}, but reject when its
+   * scoped listener snapshot is empty. Callers use this operation when success
+   * requires an installed durability participant rather than optional
+   * best-effort persistence.
+   * @param session - the session whose buffered events must reach durable storage.
+   * @returns resolves when at least one listener participated and every
+   *   listener settled successfully.
+   * @throws when no listener is registered or any registered listener fails.
+   */
+  async flushRequired(session: Session): Promise<void> {
+    await this.dispatchFlush(session, true)
+  }
+
+  /** Dispatch one optional or required flush listener snapshot. */
+  private async dispatchFlush(session: Session, requireListener: boolean): Promise<void> {
     const { carrier } = this.liveEntryFor(session)
     const callbackArgs: unknown[] = [session]
     const callbacks = collectSessionCallbacks(this.ctx, [carrier, 'session/flush', session])
+    if (requireListener && callbacks.length === 0) {
+      throw new Error(`session "${session.id}" required durability checkpoint has no registered listener`)
+    }
     const results = await Promise.allSettled(callbacks.map((callback) => {
       try {
         return callback(...callbackArgs)

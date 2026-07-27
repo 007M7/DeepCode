@@ -31,7 +31,7 @@ durable child Session
 
 ### Task 与取消的所有权
 
-初始后台委派请求控制服务启动 child 并注册其 Task。可继续提供方只有在确认本次激活的最终会话状态已持久化后，才会返回成功的 run 结果。Task 结算流程等待该结果，调用 `run.dispose()`（经由控制服务的 `settleRun`），然后才记录 `TaskOutcome`；`task_kill` 中止活跃 run，其结算路径仍会 dispose 该 run。因此，终态 Task 会留下持久化 child 会话，但不会留下存活的 child agent。必需的持久性检查点失败时，run 会以稳定错误码 `DURABILITY_FAILED` 拒绝，并将后端失败保留为失败原因；控制服务会记录失败的 Task，其详情说明最新状态未确认已持久化，因此恢复时可能不可用或已陈旧。
+初始后台委派请求控制服务启动 child 并注册其 Task。可继续提供方只有在确认本次激活的最终会话状态已持久化后，才会返回成功的 run 结果。Task 结算流程等待该结果，调用 `run.dispose()`（经由控制服务的 `settleRun`），然后才记录 `TaskOutcome`；`task_kill` 中止活跃 run，其结算路径仍会 dispose 该 run。因此，终态 Task 会留下持久化 child 会话，但不会留下存活的 child agent。必需的持久性检查点若没有已安装的监听器或任一监听器失败，run 会以稳定错误码 `DURABILITY_FAILED` 拒绝，并将检查点失败保留为失败原因；控制服务会记录失败的 Task，其详情说明最新状态未确认已持久化，因此恢复时可能不可用或已陈旧。
 
 后续每个轮次都会创建另一个 Task。该轮 producer 持有的执行资源仅服务于这次激活，不属于 child 会话。它只会到达一次终态、只产生一个结果，也不会重新打开。Task 注册表中当前注册的那个存活 parent agent 实例仍是其 owner：dispose 该实例会取消、等待并移除其 Task。Task API 会授权 session id 与该 owner 匹配的调用方，但 id 相同的替代实例不会成为通知或资源清理目标。这一设计保留 `settleRun()` 契约，并使 Task 所拥有的存活 child 数量受并发工作量限制，而不是随历史会话数量增长。
 
@@ -109,7 +109,7 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 ## 测试
 
-- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：flush 持续失败时会以 `DURABILITY_FAILED` 拒绝并保留失败原因，循环检查点的瞬时失败可在最终确认成功后继续完成，发生取消时最终检查点无论成功还是失败都由取消优先决定结果，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent/tests/continuation.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务和 `ctx.subagents`）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在服务分配的 child id 下持久化；取消、steering、cold follow-up、授权、所有权冲突与 resume 竞态保留上述契约。
+- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：缺少 flush 监听器、flush 监听器已脱离或监听器持续失败时，均会以 `DURABILITY_FAILED` 拒绝；循环检查点的瞬时失败可在最终确认成功后继续完成，发生取消时最终检查点无论成功还是失败都由取消优先决定结果，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent/tests/continuation.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务和 `ctx.subagents`）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在服务分配的 child id 下持久化；取消、steering、cold follow-up、授权、所有权冲突与 resume 竞态保留上述契约。
 - `packages/subagent/tool-subagent-control/tests/tool-subagent-control.spec.ts` 固定 `send_message` 的 schema、coordinator 来源标记、两种路由渲染、未送达失败、无 agent 时的拒绝，以及 HMR（热模块替换）dispose。
 - `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖配置的后台路由：可继续模式要求提供方可恢复，并在不要求 `send_message` 的情况下返回两个 id；即使提供方可以恢复，一次性模式仍保持普通的 Task 确认消息。
 - `packages/sdk/helper/tests/project.spec.ts` 固定生成的 spawn 与 fork 组合中的 Task 服务及面向模型的 Task 控制工具。

@@ -270,7 +270,7 @@ function driveTurn(
       await child.whenIdle()
       if (durability === 'required') {
         try {
-          await child.ctx.sessions.flush(child.session)
+          await child.ctx.sessions.flushRequired(child.session)
         } catch (error: unknown) {
           if (!signal.aborted) {
             throw new SubagentError(

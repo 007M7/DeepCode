@@ -80,6 +80,33 @@ describe('session dispatch carriers', () => {
 })
 
 describe('sessions.flush()', () => {
+  it('allows an ordinary flush with no listeners', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+
+    await expect(ctx.sessions.flush(session)).resolves.toBeUndefined()
+  })
+
+  it('rejects a required flush with no listeners', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+
+    await expect(ctx.sessions.flushRequired(session)).rejects.toThrow(
+      `session "${session.id}" required durability checkpoint has no registered listener`,
+    )
+  })
+
+  it('completes a required flush when a listener succeeds', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+    const flushed: Session[] = []
+    ctx.on('session/flush', current => void flushed.push(current))
+
+    await ctx.sessions.flushRequired(session)
+
+    expect(flushed).toEqual([session])
+  })
+
   it('dispatches session/flush with the owning carrier and awaits all listeners', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'owner')

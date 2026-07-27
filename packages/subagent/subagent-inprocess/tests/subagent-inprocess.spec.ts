@@ -73,6 +73,40 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
+  it('rejects a continuable child when no durability listener is registered', async () => {
+    const { parent } = await setup([textResponse('driver answer')])
+
+    const run = await startInProcessRun(continuableRequest(parent), {})
+    const caught: unknown = await run.result.catch((error: unknown) => error)
+
+    expect(caught).toBeInstanceOf(SubagentError)
+    const durabilityError = caught as SubagentError
+    expect(durabilityError.code).toBe('DURABILITY_FAILED')
+    expect(durabilityError.message).toContain('required durability checkpoint has no registered listener')
+    await run.dispose()
+  })
+
+  it('rejects when the durability listener disappears before final confirmation', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    let flushes = 0
+    let detach = (): void => {}
+    detach = ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      if (flushes === 1) detach()
+    })
+
+    const run = await startInProcessRun(continuableRequest(parent), {})
+    const caught: unknown = await run.result.catch((error: unknown) => error)
+
+    expect(caught).toBeInstanceOf(SubagentError)
+    const durabilityError = caught as SubagentError
+    expect(durabilityError.code).toBe('DURABILITY_FAILED')
+    expect(durabilityError.message).toContain('required durability checkpoint has no registered listener')
+    expect(flushes).toBe(1)
+    await run.dispose()
+  })
+
   it('requires a final durability checkpoint for a continuable child', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     const failure = new Error('disk full')
@@ -312,7 +346,7 @@ describe('startInProcessRun', () => {
       acceptsNextStep: false,
       ctx: {
         sessions: {
-          flush: () => {
+          flushRequired: () => {
             flushes++
             return Promise.resolve()
           },

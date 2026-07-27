@@ -685,13 +685,14 @@ Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/sr
 
 ### `session/flush` — parallel
 
-Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Dispatch through SessionStore.flush. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. An empty listener snapshot is accepted by SessionStore.flush and rejected by SessionStore.flushRequired. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
 
 ```ts cordis-catalog
 /**
  * Awaited parallel durability checkpoint: every listener runs and the
- * caller awaits all of them, with no waterfall veto. Dispatch through
- * {@link SessionStore.flush}. Scope-filtered dispatch
+ * caller awaits all of them, with no waterfall veto. An empty listener
+ * snapshot is accepted by {@link SessionStore.flush} and rejected by
+ * {@link SessionStore.flushRequired}. Scope-filtered dispatch
  * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
  * @param session - the session whose buffered events must reach durable storage.
  * @dshScopeScan unsupported
@@ -702,7 +703,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:104`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
 

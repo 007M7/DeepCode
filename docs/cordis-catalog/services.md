@@ -1641,6 +1641,18 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
+ * Dispatch the same awaited checkpoint as {@link flush}, but reject when its
+ * scoped listener snapshot is empty. Callers use this operation when success
+ * requires an installed durability participant rather than optional
+ * best-effort persistence.
+ * @param session - the session whose buffered events must reach durable storage.
+ * @returns resolves when at least one listener participated and every
+ *   listener settled successfully.
+ * @throws when no listener is registered or any registered listener fails.
+ */
+async flushRequired(session: Session): Promise<void>
+
+/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -1672,7 +1684,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:765`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:766`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

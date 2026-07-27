@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -61,10 +61,12 @@ afterEach(() => {
 async function setupWith(adapter: LlmAdapter, options: { persistence?: boolean } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
+  let disposePersistence: (() => Promise<void>) | undefined
   if (options.persistence !== false) {
     const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-continuation-'))
     roots.push(root)
-    await ctx.plugin(JsonlSessionPersistence, { root })
+    const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root })
+    disposePersistence = () => persistenceFiber.dispose()
   }
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
@@ -74,7 +76,7 @@ async function setupWith(adapter: LlmAdapter, options: { persistence?: boolean }
   await ctx.plugin(ToolTasks, {})
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-  return { ctx, parent }
+  return { ctx, parent, disposePersistence }
 }
 
 async function setup(script: Script, options: { persistence?: boolean } = {}) {
@@ -138,6 +140,25 @@ describe('SubagentService.startContinuable', () => {
     expect(snapshot.status).toBe('completed')
     expect(ctx.tasks.read(started.taskId, parent).text).toBe('first answer')
     // Disposal ordering: the terminal Task leaves no live child Agent.
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+  })
+
+  it('fails the Task when persistence detaches before the activation completes', async () => {
+    const releaseResponse = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('unconfirmed answer'), gate: releaseResponse.promise },
+    ])
+    const { ctx, parent, disposePersistence } = await setupWith(adapter)
+    const started = ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+
+    await disposePersistence!()
+    releaseResponse.resolve(undefined)
+
+    const snapshot = await waitTerminal(ctx, started.taskId, parent)
+    expect(snapshot.status).toBe('failed')
+    expect(snapshot.detail).toContain('durability checkpoint failed')
+    expect(snapshot.detail).toContain('required durability checkpoint has no registered listener')
     expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 
