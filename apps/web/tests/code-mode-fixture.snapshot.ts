@@ -144,7 +144,7 @@ it('renders the fixture run_code turn: code parent row, nested sub-rows, error s
       "errorSubRow": true,
       "parentRow": "CodeRead the notes files and summarize",
       "subRows": [
-        "$List notes",
+        "BashList notes",
         "Readnotes/demo.txt",
         "Readnotes/missing.txt",
       ],
