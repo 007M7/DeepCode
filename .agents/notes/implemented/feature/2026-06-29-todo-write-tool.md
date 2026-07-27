@@ -10,7 +10,7 @@ The harness gives the model bash and subagent tools but no way to record a struc
 
 ## Decision
 
-Add a model-facing `todo_write(todos: [{ content, status }])` tool whose whole-list state lives on the event-sourced session log as a new `todo/write` `SessionEventMap` variant. Interactive hosts render from the durable event; the TUI folds it directly, while the [automation-only ACP bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) deliberately omits todo presentation.
+Add a model-facing `todo_write(todos: [{ content, status }])` tool whose whole-list state lives on the event-sourced session log as a new `todo/write` `SessionEventMap` variant. Interactive hosts render from the durable event: the TUI folds it directly, the web client projects it into `ConversationSnapshot.todos` ([web todo display](2026-07-23-web-todo-display.md)), while the [automation-only ACP bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) deliberately omits todo presentation.
 
 ### Whole-list replace, three-state status
 
@@ -18,7 +18,7 @@ The model sends the entire list every call; the new list replaces the old (last-
 
 ### State on the session log, not a service
 
-The list is appended as a `todo/write` event carrying the full `{ todos }` snapshot. The harness is event-sourced — the LLM history, tool calls, and turn structure all live on the log — so the todo list lives there too. This buys durability, replay, and resume reconstruction for free: a reopened session re-derives the current list from the latest `todo/write`, with no separate persistence backend, in-memory service to rehydrate, or extra wiring. An in-memory `ctx.todos` service would have to reinvent all of that.
+The list is appended as a `todo/write` event carrying the full `{ todos }` snapshot. The harness is event-sourced — the LLM history, tool calls, and turn structure all live on the log — so the todo list lives there too. This buys durability, replay, and resume reconstruction for free: a reopened session re-derives the current list from the latest `todo/write`, with no separate persistence backend, in-memory service to rehydrate, or extra wiring. An in-memory `ctx.todos` service would have to reinvent all of that. (Full-log consumers get this reconstruction outright; the web client's paged window gets it from the tail history page's host-computed projection — see the [web todo display note](2026-07-23-web-todo-display.md).)
 
 ### NOT a surface event
 

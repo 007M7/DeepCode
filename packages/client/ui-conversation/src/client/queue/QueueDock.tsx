@@ -30,7 +30,7 @@ export function QueueDock({ useSession }: QueueDockProps) {
 }
 
 /**
- * The dock entry as a plain registrant plugin (bash-sample posture).
+ * The dock entry as a plain registrant plugin (bash posture).
  * `inject: ['conversation']` is the ordering seam: the conversation service
  * mounts after ui-conversation's slot registrations, so the
  * 'conversation.input.dock' declaration is on the ledger by then.

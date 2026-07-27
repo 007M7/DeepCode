@@ -3,7 +3,7 @@
 import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
   SessionId, ToolEventView,
@@ -100,6 +100,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private queued: QueuedEntry[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
+  /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
+   *  field is the authoritative empty list) and every live write overwrites it. */
+  private todos: readonly TodoItem[] = []
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -480,13 +483,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       }
       this.openState = 'open'
     } catch (error) {
@@ -504,11 +507,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
+    // Session-level projection from the tail page (full-log latest todo/write,
+    // independent of the window); an in-window write below re-derives the same
+    // value, and later live events keep overwriting it. Every caller here is a
+    // tail request (no beforeSeq), which the host answers with the projection
+    // or omits it only when the full log holds no todo/write — so an absent
+    // field is the authoritative empty list, not a missing carrier. Assigning
+    // it clears a plan the log never kept (a write lost to a host crash).
+    this.todos = todos ?? []
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
     const buffered = this.liveBuffer
@@ -559,7 +570,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore)
+        this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -698,6 +709,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
         return
       }
+      case 'todo/write': {
+        this.todos = event.data.todos
+        return
+      }
       case 'turn/end': {
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
@@ -742,7 +757,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /** Re-derive state (partial/openCalls/derivedNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same retry notices and interrupted nodes. */
+   *  same retry notices and interrupted nodes (chunks are logged, so the replayed sweep re-freezes
+   *  identical text).
+   *  todos is deliberately NOT reset: it is session-level (seeded by the tail page's full-log
+   *  projection, not derivable from an arbitrary window). The window always extends to the log
+   *  tail, so an in-window todo/write can only overwrite it with the same latest value. */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
@@ -812,6 +831,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
+      todos: this.todos,
     }
   }
 }

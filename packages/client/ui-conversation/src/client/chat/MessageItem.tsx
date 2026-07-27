@@ -1,13 +1,17 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned), steering
-// (badged bubble), context injection, retry disclosure and unknown JSON rows.
-// Props are frozen node slices off the snapshot cache; memo holds across
-// streaming because unchanged nodes keep their references.
+// MessageItem: simple chat nodes — user bubble (right-aligned, with copy /
+// branch / edit IconActions), steering (badged bubble), context injection,
+// retry disclosure and unknown-surface JSON rows. Props are frozen node slices
+// off the snapshot cache; memo holds across streaming because unchanged nodes
+// keep their references.
 
-import { memo, useEffect, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type {
   ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconBranchOutline16, IconCopyOutline16, IconEditOutline16,
+  JsonBlock, MessageText, Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
@@ -47,15 +51,19 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
     : retrySeconds(deadline - Date.now())
 
   useEffect(() => {
-    if (!active || retrySeconds(deadline - Date.now()) === 1) return
-    const timer = window.setInterval(() => {
+    if (!active) return
+    const updateCountdown = (): number => {
       const next = retrySeconds(deadline - Date.now())
       setCountdown(current => (
         current.deadline === deadline && current.seconds === next
           ? current
           : { deadline, seconds: next }
       ))
-      if (next === 1) window.clearInterval(timer)
+      return next
+    }
+    if (updateCountdown() === 1) return
+    const timer = window.setInterval(() => {
+      if (updateCountdown() === 1) window.clearInterval(timer)
     }, 250)
     return () => { window.clearInterval(timer) }
   }, [active, deadline])
@@ -73,6 +81,35 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
       </div>
     </details>
   )
+}
+
+/** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
+async function writeClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Denied permissions / iframe policy.
+    }
+    return
+  }
+  const exec = typeof document.execCommand === 'function'
+    ? document.execCommand.bind(document)
+    : undefined
+  if (exec === undefined) return
+  const el = document.createElement('textarea')
+  el.value = text
+  el.setAttribute('readonly', '')
+  el.style.position = 'fixed'
+  el.style.left = '-9999px'
+  document.body.appendChild(el)
+  el.select()
+  try {
+    exec('copy')
+  } catch {
+    // Clipboard unavailable; the button stays idle.
+  }
+  el.remove()
 }
 
 /**
@@ -107,15 +144,52 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
+/** User-bubble IconActions (figma 659:38820): copy is live; branch/edit are chrome stubs. */
+function UserActions({ text }: { text: string }) {
+  const onCopy = useCallback(() => {
+    void writeClipboard(text)
+  }, [text])
+  return (
+    <div className={css.actions}>
+      <Tooltip label="复制" side="bottom">
+        <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
+          <IconCopyOutline16 />
+        </button>
+      </Tooltip>
+      <Tooltip label="在新对话中分支" side="bottom">
+        <button type="button" className={css.action} aria-label="在新对话中分支">
+          <IconBranchOutline16 />
+        </button>
+      </Tooltip>
+      <Tooltip label="编辑" side="bottom">
+        <button type="button" className={css.action} aria-label="编辑">
+          <IconEditOutline16 />
+        </button>
+      </Tooltip>
+    </div>
+  )
+}
+
 export const MessageItem = memo(function MessageItem({ node, retryActive = false }: MessageItemProps) {
   switch (node.kind) {
-    case 'user':
+    case 'user': {
+      const { text, rest } = contentText(node.content)
+      return (
+        <div className={css.userRow}>
+          <div className={css.bubble}>
+            {projectUserText(text)}
+            {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
+          </div>
+          <UserActions text={text} />
+        </div>
+      )
+    }
     case 'steering': {
       const { text, rest } = contentText(node.content)
       return (
         <div className={css.userRow}>
           <div className={css.bubble}>
-            {node.kind === 'steering' && <span className={css.badge}>插话</span>}
+            <span className={css.badge}>插话</span>
             {projectUserText(text)}
             {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
           </div>

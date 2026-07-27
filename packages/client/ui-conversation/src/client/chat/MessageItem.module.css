@@ -1,10 +1,11 @@
-/* User bubble: right-aligned, figma r22 fill = the bubble specific token
-   (#EDF3FE light / dark pair rides the token sheet). */
+/* User bubble: right-aligned column (bubble + IconActions). Figma
+   User_Bubble/message_container 659:38813 — r22 fill, actions gap 6 below. */
 
-/* Block spacing is the flow column's gap alone — no extra padding here. */
 .userRow {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .bubble {
@@ -17,6 +18,46 @@
   font-size: 16px;
   line-height: 24px;
   color: var(--dsw-alias-label-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+}
+
+/* Hover-capable pointers: hide until the row is hovered/focused. Touch /
+   hover:none keeps actions visible (opacity:0 still hit-tests). */
+@media (hover: hover) {
+  .actions {
+    opacity: 0;
+    transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+
+  .userRow:hover .actions,
+  .userRow:focus-within .actions {
+    opacity: 1;
+  }
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 28px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .badge {

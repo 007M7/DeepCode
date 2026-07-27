@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 // Remaining chat branch tails: MessageItem context/unknown/steering arms,
-// StatsLine no-cache join, PendingCard reason strip, AssistantMarkdown
-// single-line reasoning. (Tool-row dispatch tails live with the keyed-slot
-// machinery specs since the tool ring dissolved into renderSlot.)
+// user IconActions, StatsLine no-cache join, PendingCard reason strip,
+// AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
+// with the keyed-slot machinery specs since the tool ring dissolved into
+// renderSlot.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -21,7 +22,75 @@ afterEach(() => {
 })
 
 describe('MessageItem arms', () => {
-  it('steering bubbles carry the interjection badge and non-text rest blocks', () => {
+  it('user bubbles expose copy / branch / edit actions; copy writes the text', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    render(
+      <MessageItem node={{
+        kind: 'user', seq: 1,
+        content: [{ type: 'text', text: 'hello bubble' }] as never,
+      } as never}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('hello bubble')
+  })
+
+  it('user copy falls back to execCommand when clipboard.writeText is unavailable', () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    const exec = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: exec,
+    })
+    render(
+      <MessageItem node={{
+        kind: 'user', seq: 1,
+        content: [{ type: 'text', text: 'fallback body' }] as never,
+      } as never}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    expect(exec).toHaveBeenCalledWith('copy')
+  })
+
+  it('user copy stays quiet when execCommand throws or is absent', () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => {
+        throw new Error('denied')
+      },
+    })
+    render(
+      <MessageItem node={{
+        kind: 'user', seq: 1,
+        content: [{ type: 'text', text: 'quiet' }] as never,
+      } as never}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: undefined,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+  })
+
+  it('steering bubbles carry the interjection badge and non-text rest blocks, without user actions', () => {
     const view = render(
       <MessageItem node={{
         kind: 'steering', seq: 2, turn: 1, source: null,
@@ -32,6 +101,7 @@ describe('MessageItem arms', () => {
     expect(view.getByText('插话')).toBeTruthy()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
+    expect(view.queryByRole('button', { name: '复制' })).toBeNull()
   })
 
   it('context and unknown nodes render their JSON rows', () => {
@@ -115,6 +185,28 @@ describe('MessageItem arms', () => {
     )
     expect(details?.dataset.active).toBeUndefined()
     expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 4s')
+  })
+
+  it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const node = {
+      kind: 'model-retry',
+      seq: 5,
+      time: 10_000,
+      turn: 1,
+      step: 0,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 5_000,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    } as const
+    const view = render(<MessageItem node={node} />)
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（1/2） · 5s')
+
+    act(() => { vi.advanceTimersByTime(4_200) })
+    view.rerender(<MessageItem node={node} retryActive />)
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
   })
 })
 
