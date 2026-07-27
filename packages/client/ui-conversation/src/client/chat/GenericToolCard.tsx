@@ -30,6 +30,7 @@ export function GenericToolCard({ toolName, block, openDetails }: ToolRowOwnerPr
   return (
     <ToolRow
       variant={model.variant}
+      toolName={toolName}
       icon={VARIANT_ICONS[model.variant]}
       title={model.title}
       summary={model.summary}
