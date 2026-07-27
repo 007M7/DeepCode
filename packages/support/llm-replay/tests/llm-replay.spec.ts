@@ -338,10 +338,12 @@ describe('installLlmReplay (through the real LlmService)', () => {
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'flash')).resolves.toEqual({ contextWindow: 128_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'pro')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('empty', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
+      context: { contextWindow: 128_000 },
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('empty', 'unlisted')).resolves.not.toHaveProperty('context')
     expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
 
     dispose()

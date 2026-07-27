@@ -67,7 +67,7 @@ interface LlmFailure {
 - **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送 `attributionHeaders()`（见下文）作为 `User-Agent` 基线，并通过协议级测试加以证明（mock 服务器断言收到的 header，或对基于库的适配器使用库的 header 钩子）。
 - **回放状态归适配器所有。** 成功的 `finish` 可以携带重建提供方原生响应所需的无损 JSON 状态。除非 `agent/step-result` listener 改写了内容，否则循环会将其与组装后的 assistant 消息一起存储。后续请求中，仅当历史提供方与目标提供方当前注册到完全相同的适配器实例时，`LlmService` 才会传递该状态。该适配器负责校验状态并拥有所有跨模型或跨提供方转换；其他适配器只会收到提供方无关的内容与 provenance，不会收到私有状态。
 
-该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（手写 fetch/SSE（Server-Sent Events））和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
+该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（直接 fetch，SSE（Server-Sent Events）分帧经由 `eventsource-parser`）和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
 
 ## `AppIdentity`：应用归属
 
@@ -157,14 +157,30 @@ declare class BlockAssembler {
 
 ## seam
 
-`LlmAdapter` 是提供方 seam：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerInfo()` 与异步 `listModels()` 方法为 `LlmService.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单独的 `resolveModelContext()` 查询会暴露确切路由上对正确性敏感的容量信息，但不会让目录成员关系具有权威性；缺失表示元数据未知，而不是路由无效。适配器查找发生在 `llm/stream` waterfall（瀑布式事件）的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。消费方 surface（`ctx.llm.stream()`）与 `llm/stream` waterfall 见 [architecture.md § 内容块与流式传输](../architecture.md#content-blocks-and-streaming-dsh-llm)。
+`LlmAdapter` 是提供方 seam：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerInfo()` 与异步 `listModels()` 方法为 `LlmService.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、由模型持有的有序推理强度 ID 和部署默认值；字段缺失表示元数据或能力不可用，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmService.resolveModelInfo()` 会校验聚合结果并返回分离值。服务通过最终适配器边界的 `resolveCallConfig()` 校验推理强度并填入默认值，因此直接调用也无法绕过对不支持推理强度的拒绝；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册。适配器查找发生在 `llm/stream` waterfall（瀑布式事件）的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。消费方 surface（`ctx.llm.stream()`）与 `llm/stream` waterfall 见 [architecture.md § 内容块与流式传输](../architecture.md#content-blocks-and-streaming-dsh-llm)。
+
+```ts type-equiv
+/** One model call whose config and adapter registration were resolved together. */
+interface PreparedLlmCall {
+  /** Detached, deep-frozen config with any adapter-owned default materialized. */
+  readonly config: LlmCallConfig
+  /**
+   * Dispatch this call once through the registration captured during
+   * preparation. The request's call-config fields must match {@link config};
+   * reuse or mismatch fails with `INVALID_PREPARED_CALL`.
+   * @param options - fully assembled request carrying the prepared config.
+   * @returns the chunk stream, including the `llm/stream` waterfall.
+   */
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+}
+```
 
 ```ts public-api
 /**
  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
- * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The hand-rolled
- * DeepSeek and pi-ai adapters intentionally exercise this contract through different internals.
+ * `attributionHeaders()`; prove that at the wire or library header-hook boundary. The direct-fetch
+ * DeepSeek and library-backed pi-ai adapters intentionally exercise this contract through different internals.
  */
 declare abstract class LlmAdapter {
   /**
@@ -182,16 +198,19 @@ declare abstract class LlmAdapter {
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
   /**
-   * Resolve context capacity for one model accepted by this adapter. Absence
-   * means the adapter does not know the capacity, not that routing is invalid.
-   * @param _provider - one provider route owned by this adapter.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   * Resolve all metadata available for one exact model. This query is
+   * independent of the advisory catalog and does not validate request routing.
+   * @param provider - one provider route owned by this adapter.
+   * @param model - exact model id passed to {@link GenerateOptions.model}.
+   * @param _signal - cancellation for this exact-model lookup; asynchronous
+   *   implementations must settle promptly after it aborts.
+   * @returns provider/model identity plus any context and reasoning metadata.
    */
-  resolveModelContext(
-    _provider: string,
-    _model: string,
-  ): Promise<LlmModelContext | undefined>;
+  resolveModel(
+    provider: string,
+    model: string,
+    _signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo>;
   /**
    * Stream one model call as raw chunks. The only required method.
    * @param options - the fully-assembled request; implementations must honor `options.signal`.
