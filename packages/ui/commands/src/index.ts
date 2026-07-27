@@ -7,10 +7,24 @@ import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
+import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 
 export const name = 'commands'
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
+
+/**
+ * Producer record for one command invocation (the `command/run` event's
+ * provenance slot). Merge-extensible sum type mirroring `MessageSourceMap`'s
+ * shape; minimal today because every executor caller is a human-facing UI
+ * surface dispatching a human-typed line, so the sole variant is `user`.
+ */
+export interface CommandSourceMap {
+  user: { kind: 'user' }
+}
+
+/** The union over {@link CommandSourceMap} — who issued a command line. */
+export type CommandSource = CommandSourceMap[keyof CommandSourceMap]
 
 /** Immutable metadata for a command's optional unstructured input. */
 export interface CommandInputDescriptor {
@@ -85,6 +99,34 @@ class CommandLayer implements ScopeLayer {
   /** @returns whether this layer owns no command registrations. */
   isEmpty(): boolean {
     return this.commands.isEmpty()
+  }
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface TurnTriggerMap {
+    /** Zero-step turn opened only to durably record a command lifecycle event on an idle log. */
+    command: { kind: 'command' }
+  }
+
+  interface SessionEventMap {
+    /**
+     * A resolved slash command entered its handler. Log-only (never model
+     * surface); paired with `command/done` by `commandId`, mirroring the
+     * `tool/call`↔`tool/result` pairing. `line` is the exact command line as
+     * dispatched.
+     */
+    'command/run': { commandId: string; name: string; line: string; source: CommandSource }
+    /**
+     * The paired command settled. `kind`/`text` carry the handler's verbatim
+     * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+     * rendered failure); presentation stays client-computed at render time.
+     */
+    'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
+  }
+
+  interface OutOfBandSessionEventMap {
+    'command/run': true
+    'command/done': true
   }
 }
 
@@ -225,10 +267,24 @@ function normalizeResult(command: string, value: unknown): CommandResult {
  * globals for that agent.
  */
 export class CommandService extends Service {
+  /** The executor writes lifecycle events through the session store. */
+  static inject = ['sessions']
+
   private readonly layers = new ScopedLayers(
     scope => new CommandLayer(scope),
     () => { this.notifyChange() },
   )
+
+  /** Monotonic per-instance counter behind {@link mintCommandId}. */
+  private commandSeq = 0
+  /** Instance token keeping minted ids unique across process restarts over one resumed log. */
+  private readonly instanceToken = crypto.randomUUID().slice(0, 8)
+  /**
+   * Per-session lifecycle-append chains: `appendOutOfBand` rejects a second
+   * concurrent out-of-band append, so this service serializes its own writes
+   * (the session-title tail-queue pattern).
+   */
+  private readonly logTails = new WeakMap<Session, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx, 'commands')
@@ -272,6 +328,15 @@ export class CommandService extends Service {
 
   /**
    * Parse and execute a known command without sending it to the model.
+   *
+   * A resolved command's lifecycle is durably logged: `command/run` is
+   * appended before the handler is invoked and `command/done` after
+   * settlement (a thrown or aborted handler settles as `kind: 'error'`).
+   * Admission misses (syntax or unknown name) log nothing — they never
+   * entered a handler. A `command/run` append failure fails the execution
+   * loud; a `command/done` append failure on the handler-failure path is
+   * contained so the handler's own error stays the reported failure.
+   *
    * @param agent - exact receiving agent.
    * @param line - complete slash-command line.
    * @param signal - cancellation signal owned by the UI request.
@@ -287,9 +352,53 @@ export class CommandService extends Service {
     const command = this.view(agent).get(parsed.name)
     if (command === undefined) return undefined
     if (signal.aborted) throw abortError(signal)
+    const commandId = this.mintCommandId()
+    await this.appendLifecycle(agent.session, 'command/run', {
+      commandId, name: parsed.name, line, source: { kind: 'user' },
+    })
     const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
-    const output = command.definition.handler(invocation)
-    return normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
+    let result: CommandResult
+    try {
+      const output = command.definition.handler(invocation)
+      result = normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
+    } catch (error: unknown) {
+      try {
+        await this.appendLifecycle(agent.session, 'command/done', {
+          commandId, kind: 'error',
+          text: error instanceof Error ? error.message : renderThrown(error),
+        })
+      } catch (appendError: unknown) {
+        this.ctx.logger.warn(`command "${parsed.name}": command/done append failed: ${renderThrown(appendError)}`)
+      }
+      throw error
+    }
+    await this.appendLifecycle(agent.session, 'command/done', {
+      commandId, kind: result.kind,
+      ...result.text === undefined ? {} : { text: result.text },
+    })
+    return result
+  }
+
+  /** Mint the next pairing id (monotonic; instance-token-prefixed so a resumed log never repeats one). */
+  private mintCommandId(): string {
+    this.commandSeq += 1
+    return `cmd-${this.instanceToken}-${this.commandSeq}`
+  }
+
+  /**
+   * Append one lifecycle event, serialized per session: `appendOutOfBand`
+   * rejects concurrent out-of-band appends, and two commands may overlap on
+   * one session.
+   */
+  private appendLifecycle<T extends 'command/run' | 'command/done'>(
+    session: Session,
+    type: T,
+    data: SessionEventMap[T],
+  ): Promise<SessionEvent<T>> {
+    const tail = this.logTails.get(session) ?? Promise.resolve()
+    const run = tail.then(() => this.ctx.sessions.appendOutOfBand(session, type, data, { kind: 'command' }))
+    this.logTails.set(session, run.then(() => undefined, () => undefined))
+    return run
   }
 
   /** Resolve global definitions followed by exact scoped shadows. */
