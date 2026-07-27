@@ -108,6 +108,31 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
 
   it('deletes only the Workspace registration and keeps its current Session, folder, and log', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-delete'))
+    const slotConsoleErrors: string[] = []
+    const transientSlotErrors: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /slot entry crashed/i.test(message.text())) {
+        slotConsoleErrors.push(message.text())
+      }
+    })
+    await page.exposeFunction('recordDshSlotError', (key: string) => {
+      if (!transientSlotErrors.includes(key)) transientSlotErrors.push(key)
+    })
+    await page.evaluate(() => {
+      const target = window as unknown as { recordDshSlotError(key: string): Promise<void> }
+      const seen = new Set<string>()
+      const collect = (): void => {
+        for (const node of document.querySelectorAll<HTMLElement>('[data-slot-error]')) {
+          const key = node.dataset.slotError ?? ''
+          if (!seen.has(key)) {
+            seen.add(key)
+            void target.recordDshSlotError(key)
+          }
+        }
+      }
+      new MutationObserver(collect).observe(document.documentElement, { childList: true, subtree: true })
+      collect()
+    })
     // Register the scaffold's existing project directory through the real UI.
     await page.getByRole('button', { name: 'Create workspace' }).click()
     await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
@@ -212,6 +237,69 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await stat(logLocation.path)
     expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
 
+    expect(transientSlotErrors).toEqual([])
+    expect(slotConsoleErrors).toEqual([])
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('reuses a deleted title for a different new directory without any transient error surface', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-reuse-title'))
+    const title = 'same-name'
+    const oldPath = join(scaffold.workspaceCwd, 'adopted', title)
+    await mkdir(oldPath, { recursive: true })
+    const transientErrors: string[] = []
+    const consoleErrors: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text())
+    })
+    await page.exposeFunction('recordDshTransientWorkspaceError', (message: string) => {
+      if (!transientErrors.includes(message)) transientErrors.push(message)
+    })
+    await page.evaluate(() => {
+      const target = window as unknown as {
+        recordDshTransientWorkspaceError(message: string): Promise<void>
+      }
+      const collect = (): void => {
+        for (const node of document.querySelectorAll<HTMLElement>('[data-slot-error], [role="alert"]')) {
+          const message = node.dataset.slotError ?? node.textContent?.trim() ?? ''
+          if (message !== '') void target.recordDshTransientWorkspaceError(message)
+        }
+      }
+      new MutationObserver(collect).observe(document.documentElement, { childList: true, subtree: true })
+      collect()
+    })
+
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
+    await page.getByRole('menuitem', { name: 'Use an existing folder' }).click()
+    const adopt = page.getByRole('dialog', { name: 'Use an existing folder' })
+    await adopt.getByLabel('Existing folder path').fill(oldPath)
+    await adopt.getByRole('button', { name: 'Use folder' }).click()
+    await expect.poll(() => adopt.count(), { timeout: 10_000 }).toBe(0)
+    const oldWorkspace = await scaffold.ctx.workspace.resolveByPath(oldPath)
+    if (oldWorkspace === undefined) throw new Error('old same-name Workspace was not registered')
+
+    const oldRow = page.locator('[role="treeitem"]').filter({ hasText: title }).first()
+    await oldRow.hover()
+    await page.getByRole('button', { name: `Workspace actions for ${title}` }).click()
+    await page.getByRole('menuitem', { name: 'Delete workspace' }).click()
+    await page.getByRole('dialog', { name: 'Delete workspace' })
+      .getByRole('button', { name: 'Delete workspace' }).click()
+    await expect.poll(() => scaffold.ctx.workspace.get(oldWorkspace.id), { timeout: 10_000 }).toBeUndefined()
+
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Create workspace' }).hover()
+    await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
+    const create = page.getByRole('dialog', { name: 'Create a new workspace' })
+    await create.getByLabel('New workspace name').fill(title)
+    await create.getByRole('button', { name: 'Create workspace' }).click()
+    await expect.poll(() => create.count(), { timeout: 10_000 }).toBe(0)
+    const fresh = scaffold.ctx.workspace.list().find(workspace => workspace.title === title)
+    expect(fresh?.id).toBeDefined()
+    expect(fresh?.id).not.toBe(oldWorkspace.id)
+    expect(fresh?.path).toBe(join(scaffold.workspaceCwd, title))
+    expect(transientErrors).toEqual([])
+    expect(consoleErrors).toEqual([])
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 

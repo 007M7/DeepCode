@@ -307,7 +307,15 @@ export function WorkspaceBrowser({
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteCommittedId, setDeleteCommittedId] = useState<WorkspaceId | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  useEffect(() => {
+    if (deleteCommittedId === null
+      || workspaces.some(workspace => workspace.workspaceId === deleteCommittedId)) return
+    setDeleting(false)
+    setDeleteCommittedId(null)
+    setDeleteTarget(null)
+  }, [deleteCommittedId, workspaces])
   const closeDelete = () => {
     if (deleting) return
     setDeleteTarget(null)
@@ -317,10 +325,13 @@ export function WorkspaceBrowser({
     /* v8 ignore next -- the Modal is absent without a target and its button is disabled while deleting. */
     if (deleting || deleteTarget === null) return
     setDeleting(true)
+    setDeleteCommittedId(null)
     setDeleteError(null)
     deleteWorkspace(deleteTarget.workspaceId).then(() => {
-      setDeleting(false)
-      setDeleteTarget(null)
+      // Keep the confirmation pending until this component has rendered the
+      // committed list projection without the deleted id. Closing earlier
+      // exposes one stale React frame to the next Create Workspace gesture.
+      setDeleteCommittedId(deleteTarget.workspaceId)
     }).catch((reason: unknown) => {
       setDeleting(false)
       setDeleteError(reason instanceof Error ? reason.message : String(reason))

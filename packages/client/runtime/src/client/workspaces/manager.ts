@@ -133,7 +133,7 @@ export class WorkspaceManager {
    */
   async delete(workspaceId: WorkspaceId): Promise<RpcResult<{ deleted: true }>> {
     const { result } = await this.api.workspace.delete({ workspaceId })
-    if (result.ok) this.remove(workspaceId)
+    if (result.ok) this.remove(workspaceId, true)
     return result
   }
 
@@ -224,14 +224,21 @@ export class WorkspaceManager {
   }
 
   /** Remove one id idempotently and retain a tombstone against late echoes. */
-  private remove(workspaceId: WorkspaceId): void {
+  private remove(workspaceId: WorkspaceId, direct = false): void {
     this.refreshFrames?.push({ type: 'remove', workspaceId })
     this.removedIds.add(workspaceId)
     const items = this.items.filter(item =>
       item.getSnapshot().view?.workspaceId !== workspaceId)
-    if (items.length === this.items.length) return
+    if (items.length === this.items.length) {
+      // The Host frame may have removed the row first but left its batched
+      // notification pending. A successful unary echo still flushes that
+      // committed state before the user action resolves.
+      if (direct) this.notifier.notifyNow()
+      return
+    }
     this.items = items
-    this.notifier.markDirty()
+    if (direct) this.notifier.notifyNow()
+    else this.notifier.markDirty()
   }
 
   private installViews(views: readonly WorkspaceView[]): void {

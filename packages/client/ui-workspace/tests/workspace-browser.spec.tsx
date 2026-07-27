@@ -461,7 +461,7 @@ describe('WorkspaceBrowser', () => {
   it('confirms Workspace deletion, explains retention, and blocks duplicate submission', async () => {
     let resolveDelete!: () => void
     const deleteWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
-    mount({
+    const browser = mount({
       useWorkspaces: hook(workspaceState([workspace('alpha', ['session'], 'Alpha')])),
       deleteWorkspace,
     })
@@ -484,6 +484,11 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
     await act(async () => { resolveDelete() })
+    // RPC success alone does not close: the component waits until its
+    // useWorkspaces projection has committed the removal, preventing a stale
+    // duplicate-name frame from leaking into the next create gesture.
+    expect(screen.getByRole('dialog', { name: 'Delete workspace' })).toBeTruthy()
+    rerender(browser, { useWorkspaces: hook(workspaceState([])) })
     expect(screen.queryByRole('dialog', { name: 'Delete workspace' })).toBeNull()
   })
 
