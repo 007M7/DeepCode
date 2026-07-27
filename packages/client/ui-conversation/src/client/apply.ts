@@ -179,7 +179,8 @@ export function apply(ctx: Context): void {
   // 'conversation.chat.toolview' declaration) is on the ledger.
   ctx.plugin(ConversationService, { input: inputHub })
 
-  // The bash sample rides that exact seam, in third-party posture.
+  // The bash sample rides that exact seam, in third-party posture
+  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
 
   // The read-only queue dock entry (T9 file territory) rides the same

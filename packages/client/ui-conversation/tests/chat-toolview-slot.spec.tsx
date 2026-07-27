@@ -156,6 +156,7 @@ describe('keyed toolview hole through the real machinery', () => {
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
     expect(view.getByText('Tool call')).toBeTruthy()

@@ -37,17 +37,11 @@
   border-radius: 6px;
 }
 
-/* Selection linkage: the selected call row wears the blue outline.
-   button-info-fill flips 500→400 with the theme, hitting the darker-blue
-   dark-mode spec exactly (business-primary stays 500 on both). */
-.callRow[data-selected] {
-  outline: 1.5px solid var(--dsw-alias-button-info-fill);
-  outline-offset: 1px;
-}
+/* Selection still sets data-selected for details linkage; no outline —
+   tool rows match Think chrome (no selected ring). */
 
 /* run_code sub-dispatch rows: indented under the parent row, left-edged so
-   the code turn reads as one unit; each nested row is itself a .callRow
-   (same components, same selection outline as top-level rows). */
+   the code turn reads as one unit; each nested row is itself a .callRow. */
 .subCalls {
   display: flex;
   flex-direction: column;

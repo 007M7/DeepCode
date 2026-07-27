@@ -264,7 +264,7 @@ describe('ChatView', () => {
     expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
   })
 
-  it('clicking a tool row opens details with callId and toolName; selection paints the outline', () => {
+  it('clicking a tool row opens details with callId and toolName; selection marks data-selected', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     fireEvent.click(view.getByText('run a'))
