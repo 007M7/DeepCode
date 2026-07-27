@@ -38,6 +38,8 @@ const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
 /** Durable provenance and reconciliation facts for one workspace context. */
 export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
+  /** Marks the complete startup/resume baseline rather than a later delta. */
+  baseline?: true
   changes: WorkspaceInstructionChange[]
 }
 
@@ -89,7 +91,7 @@ function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[
 }
 
 /**
- * Build the request-prefix message for a rendered baseline.
+ * Build the user-role message for a rendered baseline.
  * @param text - complete plugin-owned system-reminder text.
  * @returns a user-role prefix message.
  */
@@ -378,50 +380,49 @@ function relativeScope(projectRoot: string, dir: string): string {
  * @param agent - session owner whose visible surface supplies durable state.
  * @param resolved - normalized plugin configuration.
  * @param pendingBySession - short pending window before returned context is logged.
- * @param baselineBySession - frozen baseline comparison state per session.
  * @param versionCache - per-session scope metadata used to skip unchanged reads.
  * @param fileSystem - provider used for current file probes.
- * @param options - touched path and whether baseline scopes should be checked.
+ * @param options - touched path and whether baseline scopes should participate.
  * @returns rendered context plus deferred cache updates, or undefined when unchanged/unavailable.
  */
 export async function reconcileInstructionContext(
   agent: Agent,
   resolved: ResolvedConfig,
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
-  baselineBySession: WeakMap<object, Map<string, WorkspaceInstructionChange>>,
   versionCache: InstructionVersionCache,
   fileSystem: FileSystem,
   options: { touchedPath?: string; includeBaselineScopes: boolean; signal?: AbortSignal },
 ): Promise<ReconciledInstructionContext | undefined> {
   const session = agent.session
   const pending = pendingChangesFor(session, pendingBySession)
-  const visible = visibleInstructionChanges(agent, pending)
-  const effective = new Map(baselineBySession.get(session) ?? [])
-  for (const [scope, change] of visible) effective.set(scope, change)
+  const effective = visibleInstructionChanges(agent, pending)
   /* v8 ignore next -- normal agents carry an absolute session cwd. */
   const cwd = session.header.cwd ?? process.cwd()
   // TODO(frozen-project-root): retain the baseline root for the loop instance;
   // recomputing it after marker edits reinterprets the existing relative scope keys.
   const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
-  const addDirScopes = (directory: string): void => {
-    for (const candidate of resolved.instructionFileCandidates) scopes.add(candidateScopeKey(directory, candidate))
-    for (const candidate of resolved.localInstructionFileCandidates) scopes.add(candidateScopeKey(directory, candidate))
+  const baselineScopes = new Set<string>()
+  const addDirScopes = (target: Set<string>, directory: string): void => {
+    for (const candidate of resolved.instructionFileCandidates) target.add(candidateScopeKey(directory, candidate))
+    for (const candidate of resolved.localInstructionFileCandidates) target.add(candidateScopeKey(directory, candidate))
   }
-  const addProjectScopes = (dir: string): void => {
-    addDirScopes(relativeScope(projectRoot, dir))
+  const addProjectScopes = (target: Set<string>, dir: string): void => {
+    addDirScopes(target, relativeScope(projectRoot, dir))
   }
+  baselineScopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
+  for (const dir of ancestorChain(projectRoot, cwd)) addProjectScopes(baselineScopes, dir)
   if (options.includeBaselineScopes) {
-    scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
-    for (const dir of ancestorChain(projectRoot, cwd)) addProjectScopes(dir)
+    for (const scope of baselineScopes) scopes.add(scope)
   }
   for (const scope of effective.keys()) {
+    if (!options.includeBaselineScopes && baselineScopes.has(scope)) continue
     const { directory } = decodeScopeKey(scope)
     if (directory === USER_GLOBAL_DIRECTORY) scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
-    else addDirScopes(directory)
+    else addDirScopes(scopes, directory)
   }
   if (options.touchedPath !== undefined) {
-    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) addProjectScopes(dir)
+    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) addProjectScopes(scopes, dir)
   }
 
   const versions = versionStatesFor(session, versionCache)
@@ -533,7 +534,7 @@ export async function reconcileInstructionContext(
  * @param result - original tool result before post-execute decisions.
  * @param resolved - normalized plugin configuration.
  * @param pendingNestedChanges - per-session pending transition maps.
- * @param baselineInstructionStates - retained baseline comparison state.
+ * @param baselineSessions - sessions whose configured baseline scopes should be probed.
  * @param versionCache - per-session scope metadata used to skip unchanged reads.
  * @param fileSystem - provider used for current file probes.
  * @returns rendered context plus deferred cache updates, or undefined for irrelevant/failed/unchanged calls.
@@ -544,7 +545,7 @@ export async function dynamicInstructionContext(
   result: ToolExecutionResult,
   resolved: ResolvedConfig,
   pendingNestedChanges: WeakMap<object, Map<string, PendingInstructionChange>>,
-  baselineInstructionStates: WeakMap<object, Map<string, WorkspaceInstructionChange>>,
+  baselineSessions: WeakSet<object>,
   versionCache: InstructionVersionCache,
   fileSystem: FileSystem,
 ): Promise<ReconciledInstructionContext | undefined> {
@@ -552,10 +553,10 @@ export async function dynamicInstructionContext(
   const touchedPath = filePathFromExecution(exec)
   if (touchedPath === undefined) return undefined
   return reconcileInstructionContext(
-    agent, resolved, pendingNestedChanges, baselineInstructionStates, versionCache, fileSystem,
+    agent, resolved, pendingNestedChanges, versionCache, fileSystem,
     {
       touchedPath,
-      includeBaselineScopes: baselineInstructionStates.has(agent.session),
+      includeBaselineScopes: baselineSessions.has(agent.session),
       signal: exec.signal,
     },
   )

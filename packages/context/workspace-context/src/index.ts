@@ -43,19 +43,27 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
+function hasVisibleBaseline(agent: Agent): boolean {
+  return agent.session.surface.nodes.some((seq) => {
+    const event = agent.session.events[seq]
+    return event?.type === 'user/message'
+      && event.data.source.kind === 'workspace-instructions'
+      && event.data.source.baseline === true
+  })
+}
+
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const pendingNestedChanges = new WeakMap<object, Map<string, PendingInstructionChange>>()
-  const baselineInstructionStates = new WeakMap<object, Map<string, WorkspaceInstructionChange>>()
+  const baselineSessions = new WeakSet<object>()
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
   const baselineLoaded = new WeakSet<object>()
   // Sessions whose lifecycle start this mount witnessed. A startup or resume
   // emits agent/session-start before the first step; a hot remount attaches to
-  // an already-live session and never sees it. That difference is the only
-  // reliable way to tell a resumed session (re-compose the baseline from
-  // current files) from a remount over a live one (keep the single baseline
-  // already in the log) — the durable log looks identical in both cases.
+  // an already-live session and never sees it. Resumes always re-compose the
+  // baseline from current files. Hot remounts retain a baseline only while its
+  // typed event remains model-visible.
   const lifecycleWitnessed = new WeakSet<object>()
   const pendingByParent = new Map<ToolExecutionToken, {
     agent: Agent
@@ -73,15 +81,6 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     if (baselineLoaded.has(agent.session)) return
-    // A baseline already in the log with no witnessed lifecycle start is a hot
-    // remount over a live session: keep that single baseline and skip. A
-    // resumed session witnessed its start, so it falls through and re-composes.
-    if (!lifecycleWitnessed.has(agent.session)
-      && agent.session.events.some(event => event.type === 'user/message'
-        && event.data.source.kind === 'plugin' && event.data.source.plugin === 'workspace-context')) {
-      baselineLoaded.add(agent.session)
-      return
-    }
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
       baselineLoaded.add(agent.session)
       return
@@ -104,14 +103,13 @@ export function apply(ctx: Context, config: Config): void {
       signal,
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])
-    baselineInstructionStates.set(agent.session, baseline.changes)
+    baselineSessions.add(agent.session)
     instructionVersions.set(agent.session, baseline.versions)
 
     const update = await reconcileInstructionContext(
       agent,
       resolved,
       pendingNestedChanges,
-      baselineInstructionStates,
       instructionVersions,
       fileSystem,
       { includeBaselineScopes: false, signal },
@@ -120,9 +118,17 @@ export function apply(ctx: Context, config: Config): void {
       agent.inject({ content: update.context.content, source: update.context.source })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    if (instructions !== undefined && instructions.rendered.text.length > 0) {
+    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
+    if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.inject({ content: baselineMessage.content, source: { kind: 'plugin', plugin: 'workspace-context' } })
+      agent.inject({
+        content: baselineMessage.content,
+        source: {
+          kind: 'workspace-instructions',
+          baseline: true,
+          changes: [...baseline.changes.values()],
+        },
+      })
     }
     baselineLoaded.add(agent.session)
   })
@@ -148,7 +154,7 @@ export function apply(ctx: Context, config: Config): void {
       result,
       resolved,
       pendingNestedChanges,
-      baselineInstructionStates,
+      baselineSessions,
       instructionVersions,
       fileSystem,
     )

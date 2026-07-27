@@ -207,6 +207,13 @@ function workspaceContextOf(result: { additionalContexts?: UserMessageData[] }):
     context.source.kind === 'workspace-instructions')
 }
 
+function baselineEvents(agent: Agent): SessionEvent[] {
+  return agent.session.events.filter(event =>
+    event.type === 'user/message'
+    && event.data.source.kind === 'workspace-instructions'
+    && event.data.source.baseline === true)
+}
+
 function workspaceChangeContext(scope: string, digest: string): UserMessageData {
   return {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
@@ -943,9 +950,17 @@ describe('workspace context request injection', () => {
 
       await composeBaselinePrefix(ctx, agent)
 
-      expect(agent.session.events.filter(event =>
-        event.type === 'user/message' && event.data.source.kind !== 'user',
-      )).toHaveLength(1)
+      expect(baselineEvents(agent)).toHaveLength(1)
+      expect(baselineEvents(agent)[0]).toMatchObject({
+        type: 'user/message',
+        data: {
+          source: {
+            kind: 'workspace-instructions',
+            baseline: true,
+            changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+          },
+        },
+      })
       expect(composedPrefixes.get(agent)).toHaveLength(1)
       expect(derivedText(agent)).toContain('<system-reminder>')
       expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
@@ -980,7 +995,44 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('folds an already-appended baseline from the log after a plugin remount', async () => {
+  it('retains a visible baseline after a plugin remount', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      const fiber = await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      // Hot remount over the live session: the durable baseline remains
+      // visible, so the fresh mount does not append a duplicate.
+      await fiber.dispose()
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(baselineEvents(agent)).toHaveLength(1)
+
+      await write(join(root, 'AGENTS.md'), 'updated repo rule')
+      const update = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-after-remount'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      expect(workspaceContextOf(update)?.source).toMatchObject({
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('restores a compacted baseline on a hot plugin remount', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -991,15 +1043,23 @@ describe('workspace context request injection', () => {
       const fiber = await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
 
-      // Hot remount over the live session: the durable baseline survived, so
-      // the fresh mount must fold it from the log instead of appending a
-      // duplicate on its next step.
+      agent.session.append('user/message', {
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }, {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+
       await fiber.dispose()
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       await composeBaselinePrefix(ctx, agent)
 
-      expect(agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toHaveLength(1)
+      expect(baselineEvents(agent)).toHaveLength(2)
+      expect(blocksText(agent.session.deriveMessages().at(-1)?.content)).toContain('repo rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1031,14 +1091,12 @@ describe('workspace context request injection', () => {
       agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
       await composeBaselinePrefix(ctx, resumed)
 
-      const pluginMessages = resumed.session.events.filter(event =>
-        event.type === 'user/message' && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === 'workspace-context')
-      expect(pluginMessages).toHaveLength(2)
-      const latest = pluginMessages.at(-1)
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const latest = baselines.at(-1)
       expect(latest?.type === 'user/message' && blocksText(latest.data.content))
         .toContain('new root rule after offline edit')
-      const original0 = pluginMessages[0]
+      const original0 = baselines[0]
       expect(original0?.type === 'user/message' && blocksText(original0.data.content))
         .toContain('old root rule')
     } finally {
@@ -2651,6 +2709,63 @@ describe('dynamic nested workspace context injection', () => {
       expect(visibleBeforeCompact.additionalContexts).toBeUndefined()
       expect(afterCompact.additionalContexts).toBeDefined()
       expect(blocksText(workspaceContextOf(afterCompact)?.content)).toContain('nested package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('re-arms an unchanged baseline after compaction removes it from the surface', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root rule')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      const whileVisible = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-visible-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      agent.session.append('user/message', {
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }, {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+
+      const rearmed = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-compacted-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      appendAdditionalContexts(agent, rearmed)
+      const afterRearm = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-rearmed-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+
+      expect(whileVisible.additionalContexts).toBeUndefined()
+      expect(workspaceContextOf(rearmed)?.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+      expect(blocksText(workspaceContextOf(rearmed)?.content)).toContain('root rule')
+      expect(afterRearm.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

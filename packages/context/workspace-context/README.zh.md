@@ -48,11 +48,11 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 ## 状态与刷新
 
-模型可见文本不含隐藏状态标记。每个动态上下文事件改为携带带类型的 `workspace-instructions` 来源，其中包含 `{ action, scope, path, digest? }` 变更列表。每次相关工具 touch 时，插件会从可见会话事件重建已加载状态，并叠加一个短暂内存 pending 窗口，用于不可变顶层 `tools/result` 上存在但 loop 尚未追加的上下文。匹配的持久 `user/message` 会确认 pending 转换。如果所属 `step/end` 在匹配上下文进入日志之前到达，插件会清除 pending 转换及其版本快速路径，使下一次成功 touch 可以重新加载。嵌套 Code Mode 结果会在外层执行 token 下暂存 pending 变更，用于抑制同次运行中的重复项；外层结果会回滚该状态，再只重新提交经过外层策略的上下文。
+模型可见文本不含隐藏状态标记。每个基线或动态上下文事件改为携带带类型的 `workspace-instructions` 来源，其中包含 `{ action, scope, path, digest? }` 变更列表；完整的启动或恢复基线还会携带 `baseline: true`。每次相关工具 touch 时，插件会从可见会话事件重建已加载状态，并叠加一个短暂内存 pending 窗口，用于不可变顶层 `tools/result` 上存在但 loop 尚未追加的上下文。匹配的持久 `user/message` 会确认 pending 转换。如果所属 `step/end` 在匹配上下文进入日志之前到达，插件会清除 pending 转换及其版本快速路径，使下一次成功 touch 可以重新加载。嵌套 Code Mode 结果会在外层执行 token 下暂存 pending 变更，用于抑制同次运行中的重复项；外层结果会回滚该状态，再只重新提交经过外层策略的上下文。
 
 路径与 SHA-1 内容 digest 都未变时，不会重复注入。每会话、每 scope 提供方 cache 只存储 `{ path, version, digest, trimmedDigest }`：当提供方的不透明 `FsVersion` 与有效可见状态都匹配时，对账会跳过内容读取；版本改变会在任何模型可见更新之前触发有界读取与 SHA-1 确认。`trimmedDigest` 是针对去除空白后内容的 SHA-1，也是每目录重复 key，因此较早候选文件与某个未更改文件的内容收敛后，后者仍可被移除。恢复可行，因为 SHA-1 状态持久化在带类型的来源中，而空的内存版本 cache 只会导致一次确认读取。压缩会在 scope 的上下文事件离开可见表层后重新启用它，即使缓存版本未变。移除是 tombstone，因此候选文件之后重新出现时会重新加载。只有在字节预算内实际渲染的模型可见变更才会进入来源、pending 状态和版本 cache；已省略变更仍可在后续 touch 处理，而相同 digest 的版本刷新只更新提供方 cache。
 
-初始基线事件自身不会被改写。其路径／digest map 保留为比较状态；下一次成功文件系统 touch 会追加任何基线替换或移除。恢复的 loop 会重新组合当前基线，并在第一个请求前对账仍可见的动态 scope。没有文件 watcher，因此磁盘变更会在下一次成功 `read`、`write` 或 `edit` touch 时可见，也会在恢复 loop 准备基线时可见。
+初始基线事件自身不会被改写。其带类型的变更仅在该事件仍位于可见会话表层时才是权威状态；下一次成功的文件系统 touch 会在压缩后重新添加未变的基线 scope，或追加其替换或移除。内存中的 scope 标记和提供方版本 cache 只负责选择探测对象并加速探测。插件热重挂只有在其带类型的事件仍然可见时才保留基线，同时会重建当前 scope 与版本跟踪状态；否则会注入当前基线。恢复的 loop 始终重新组合当前基线，并在第一个请求前对账仍可见的动态 scope。没有文件 watcher，因此磁盘变更会在下一次成功 `read`、`write` 或 `edit` touch 时可见，也会在恢复 loop 准备基线时可见。
 
 ## 配置
 
