@@ -252,18 +252,27 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
-/** Fold the latest fixture title into the host's control-frame projection. */
-function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
-  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
-  if (event === undefined) return undefined
-  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
-  return {
-    type: 'session/title',
-    sessionId: id,
-    title: titleEvent.data.title,
-    eventSeq: titleEvent.seq,
-    updatedAt: titleEvent.time,
+/** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (titleEvent !== undefined) {
+    values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
   }
+  const todos = backscanTodos(log)
+  if (todos !== undefined) values['todos'] = todos
+  return values
+}
+
+/** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
+function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
+  const type = (event as { type: string }).type
+  const key = type === 'session/title' ? 'title' : type === 'todo/write' ? 'todos' : undefined
+  if (key === undefined) return []
+  const values = projectionValuesOf(log)
+  /* v8 ignore next -- the advancing event is in the log, so its key always has a value. */
+  if (!Object.hasOwn(values, key)) return []
+  return [{ type: 'session/projection', sessionId: id, key, value: values[key], seq: event.seq }]
 }
 
 /**
@@ -489,10 +498,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
-    if ((event as { type: string }).type === 'session/title') {
-      // The raw title is already in this log, so the latest-title fold must find it.
-      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
-    }
+    // Host eager-drive parallel: a unit-advancing event pushes its finished value.
+    for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -644,14 +651,18 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
-        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
-        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
+        // Tail page carries the projections block (host parallel: one consistent
+        // cut over the registered units, asOfSeq = window tail seq); an empty
+        // log has no cut to stamp, so the block stays absent.
+        const projections = request.payload.beforeSeq === undefined && log.length > 0
+          ? { asOfSeq: log.length - 1, values: projectionValuesOf(log) }
+          : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload
@@ -853,9 +864,13 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
-          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
-          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
-          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
+          const log = logs.get(s.sessionId) ?? []
+          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: log.length - 1 } })
+          // Post-subscribe projection baseline (host parallel: recomputed unit values ride push frames).
+          const values = projectionValuesOf(log)
+          for (const key of Object.keys(values)) {
+            conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
+          }
         }
         conn.push({
           rpcId: pendingApprovalRpcId,

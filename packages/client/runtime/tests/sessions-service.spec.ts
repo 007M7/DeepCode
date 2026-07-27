@@ -47,7 +47,7 @@ describe('list store projection', () => {
     const b = bench()
     b.svc.handleMuxEnvelope({
       rpcId: 'title' as never,
-      payload: { type: 'session/title', sessionId: sid('s1'), title: 'Durable title', eventSeq: 2, updatedAt: 3 },
+      payload: { type: 'session/projection', sessionId: sid('s1'), key: 'title', value: 'Durable title', seq: 2 } as never,
     })
     await feedList(b, [
       { id: 's1', cwd: '/home/u/proj-a/' },
