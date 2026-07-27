@@ -18,7 +18,7 @@ Status: implemented
 
 ### TodoPanel：长驻列表作为一条常驻横条
 
-骨架把面板钉在视图区与 composer 之间（composer-card 轴），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经框架 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。它住在 `ConversationRoot` 之内，而非 details 列或自建 slot：details slot 单占用且由选中驱动（生命周期不同于一条常开横条），且 slot 表没有为 plan 预留席位。组件 props 完备且框架无关，因此日后迁往专用 slot 不触及其内部任何东西。
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 
@@ -27,9 +27,10 @@ Status: implemented
 ## Alternatives considered
 
 - **把 todo 写入作为 surface 条目折叠进 `nodes`**——回放的窗口会渲染每一份已被取代的列表；该事件被刻意设计成非 surface 类型。
-- **面板放进 details 列或专用 slot**——details slot 单占用且由选中驱动；新增一个 slot 键需要一个 slot 表席位，而设计尚未分配。面板框架无关，所以真要迁移，代价依然很低。
+- **面板硬编码进 `ConversationRoot`**——input-dock slot 出现之前的原始落点；dock 是本架构给"composer 上方常开横条"安排的家，硬编码绕开了 slot 注册表的 disposal 与定序。
+- **面板放进 details 列**——details slot 单占用且由选中驱动，生命周期不同于一条常开横条。
 - **host 计算的视图（一个 todo `ToolEventView`）**——呈现属于客户端；协议已在事件载荷里携带整份快照。
 
 ## Consequences
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 63 轮的 fixture（测试前置数据）加 `scripts/verify-todo-display.mjs` 在真实 chromium 里钉住整条链（面板可见性、行摘要、详情联动、折叠、深色主题）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。ACP 桥接的 todo → `plan` 映射与 TUI 面板均未受改动；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；播种值跨窗口重建保留，之后的任何写入照常覆盖。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。ACP 桥接的 todo → `plan` 映射与 TUI 面板均未受改动；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；播种值跨窗口重建保留，之后的任何写入照常覆盖。
