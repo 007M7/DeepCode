@@ -68,12 +68,17 @@ export type UseProjection = {
   ): S
 }
 
-/** Tail-page projections baseline (structural wire mirror; the zod schema lands with the host-base PR). */
+/**
+ * Tail-page projections baseline — structurally identical to the wire's
+ * `SessionProjectionsBlock` (apiproxy api layer), restated here so the
+ * React-free cell framework depends only on the type table, not the wire
+ * package's response vocabulary.
+ */
 export interface ProjectionsBaseline {
   /** The consistent-cut seq (equals the window tail seq by construction). */
   asOfSeq: number
   /** Whole current values by key; a registered key absent here means the capability is absent. */
-  values: Record<string, unknown>
+  values: Partial<SessionProjectionMap>
 }
 
 /** Type-erased spec view the framework machinery works with (the register seam already proved the typed contract). */
@@ -215,8 +220,11 @@ export class ProjectionCellSet {
    * @param baseline - the response's projections block.
    */
   resetBaseline(baseline: ProjectionsBaseline): void {
+    // Erased view: the framework walks the open key space; per-key typing
+    // lives at the cell spec seam (schema.parse re-establishes it).
+    const values = baseline.values as Record<string, unknown>
     for (const [key, cell] of this.cells) {
-      cell.resetBaseline(Object.hasOwn(baseline.values, key), baseline.values[key], baseline.asOfSeq)
+      cell.resetBaseline(Object.hasOwn(values, key), values[key], baseline.asOfSeq)
     }
   }
 }

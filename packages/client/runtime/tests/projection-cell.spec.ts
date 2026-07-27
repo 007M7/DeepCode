@@ -95,7 +95,9 @@ describe('ProjectionCellSet semantics', () => {
 
   it('degrades a baseline payload failing schema validation to absent instead of poisoning the cell', () => {
     const { set, cell } = bench()
-    set.resetBaseline({ asOfSeq: 10, values: { 'test/marks': 'not-an-object' } })
+    // Deliberately malformed wire payload: the typed block cannot express it,
+    // which is exactly why the boundary schema exists.
+    set.resetBaseline({ asOfSeq: 10, values: { 'test/marks': 'not-an-object' as never } })
     expect(cell.getSnapshot()).toBeUndefined()
     // The watermark still advanced to the cut: pre-cut events stay dropped.
     set.offerEvent(markEvent(8, ['pre-cut']))

@@ -495,13 +495,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
+      this.installWindow(result.value.events, result.value.hasMore, result.value.todos, result.value.projections)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos, result.value.projections)
       }
       this.openState = 'open'
     } catch (error) {
@@ -590,7 +590,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.todos, projectionsOf(result.value))
+        this.installWindow(result.value.events, result.value.hasMore, result.value.todos, result.value.projections)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -849,20 +849,4 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
   if (hasContent) return 'active'
   return promptAttempted ? 'engaging' : 'blank'
-}
-
-/**
- * Structural read of the optional projections block on a history response.
- * TODO(gui): drop this narrowing once the host-base PR (dsh-session-projection
- * + apiproxy block) lands and the wire type carries `projections` — parallel
- * construction posture, same as the code-dispatch event narrowing above.
- * @param value - the history response value.
- * @returns the block, or undefined (loadOlder pages and blockless deployments).
- */
-function projectionsOf(value: object): ProjectionsBaseline | undefined {
-  const block = (value as { projections?: ProjectionsBaseline }).projections
-  if (block === undefined) return undefined
-  return typeof block.asOfSeq === 'number' && typeof block.values === 'object' && block.values !== null
-    ? block
-    : undefined
 }
