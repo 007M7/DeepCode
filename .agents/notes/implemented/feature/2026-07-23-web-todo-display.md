@@ -18,11 +18,11 @@ Consume `todo/write` as a Session side effect, not a surface node, and render it
 
 ### TodoPanel: the durable list as a persistent strip
 
-The panel mounts through the `conversation.input.dock` slot (a plain registrant plugin, `todoDockEntry`, the QueueDock posture: `inject: ['slots', 'conversation']` as the load-order seam, `order: -1` above the queue rows), hidden while empty, collapsible with the in-progress item as the collapsed one-line hint; ✓/●/○ glyphs mirror the TUI plan panel. It reads `snapshot.todos` via the standard-kit `useSession` hook the dock entry receives — no store, no service, no ctx. The inner component stays props-complete and framework-free; the dock adapter is a one-line wrapper.
+The panel mounts through the `conversation.input.dock` slot (a plain registrant plugin, `todoDockEntry`, the QueueDock posture: `inject: ['slots', 'conversation']` as the load-order seam, `order: -1` above the queue rows), hidden while empty, collapsible with the first in-progress item plus a count of the other active ones as the collapsed one-line hint; ✓/●/○ glyphs mirror the TUI plan panel. It reads `snapshot.todos` via the standard-kit `useSession` hook the dock entry receives — no store, no service, no ctx. The inner component stays props-complete and framework-free; the dock adapter is a one-line wrapper.
 
 ### TodoRow: the per-call row through the keyed toolview slot
 
-The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`, mounted from `apply`) that registers into the keyed `conversation.chat.toolview` slot via `ctx.slots.register` — the same seam and load-order posture as the bash sample (`inject: ['slots', 'conversation']`), but a product registration. The summary derives from call args (`N/M done · active item`); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
+The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`, mounted from `apply`) that registers into the keyed `conversation.chat.toolview` slot via `ctx.slots.register` — the same seam and load-order posture as the bash sample (`inject: ['slots', 'conversation']`), but a product registration. The summary derives from call args (`N/M done · first active item`, with a `+<n>` count of the other active ones in its own non-shrinking span); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
 
 ## Alternatives considered
 

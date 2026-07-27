@@ -18,11 +18,11 @@ Status: implemented
 
 ### TodoPanel：长驻列表作为一条常驻横条
 
-面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠——折叠态以进行中项作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，QueueDock 同款姿势：`inject: ['slots', 'conversation']` 载序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠——折叠态以第一个进行中项加上其余活跃项的数量作为单行提示；✓/●/○ 字形与 TUI plan 面板一致。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 
-专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.register` 注册进 keyed 的 `conversation.chat.toolview` slot——与 bash 样例同一接缝、同一载序姿态（`inject: ['slots', 'conversation']`），但属产品级注册。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
+专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.register` 注册进 keyed 的 `conversation.chat.toolview` slot——与 bash 样例同一接缝、同一载序姿态（`inject: ['slots', 'conversation']`），但属产品级注册。摘要由调用 args 推导（`N/M done · 第一个活跃项`，其余活跃项的 `+<n>` 计数放在自己的不收缩 span 里）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
 
 ## Alternatives considered
 
