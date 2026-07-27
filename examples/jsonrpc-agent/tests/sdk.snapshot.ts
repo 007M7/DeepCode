@@ -257,7 +257,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           const existing = expectedContents[index]
           const file = files[index]
           if (existing === undefined || file === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          const stable = stabilizeRefreshLog(log.content, existing, replacements)
+          const stable = stabilizeRefreshLog(log.content, existing, replacements, actualContext)
           await writeFile(file, stable)
           return stable
         }))
