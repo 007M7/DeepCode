@@ -30,7 +30,7 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, CodeSubCall, ComposerPhase, ContextMessageNode, ConversationNode,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
-  SteeringMessageNode, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
