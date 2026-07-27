@@ -5,7 +5,9 @@ import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ConversationPromptSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  AssistantRequestConfig, ConversationPromptSnapshot,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
@@ -41,6 +43,8 @@ type DetailTab =
   | 'input'
   | 'output'
   | 'schema'
+  | 'options'
+  | 'usage'
   | 'timing'
 type RecordState = 'complete' | 'running' | 'error'
 
@@ -89,6 +93,8 @@ const SYSTEM_PROMPT_TABS: readonly DetailTabItem[] = [
 ]
 const REQUEST_TABS: readonly DetailTabItem[] = [
   { id: 'overview', label: 'Summary' },
+  { id: 'options', label: 'Options' },
+  { id: 'usage', label: 'Usage' },
   { id: 'timing', label: 'Timing' },
 ]
 
@@ -172,14 +178,6 @@ function AssistantTimingPanel({ metrics }: { metrics: AssistantMetricDetail }) {
       <div><dt>TTFT</dt><dd>{ttft(metrics)}</dd></div>
       <div><dt>Generation</dt><dd>{generationTime(metrics)}</dd></div>
       <div><dt>Throughput</dt><dd>{throughput(metrics)}</dd></div>
-      <div>
-        <dt>Output tokens</dt>
-        <dd>
-          {!metrics.usageProvided
-            ? 'Usage unavailable'
-            : metrics.outputTokens ?? 'Output tokens unavailable'}
-        </dd>
-      </div>
     </dl>
   )
 }
@@ -188,6 +186,8 @@ function AssistantTimingPanel({ metrics }: { metrics: AssistantMetricDetail }) {
 export interface TrajectoryTableProps {
   /** Latest model request header in force for the selected context. */
   prompt?: ConversationPromptSnapshot
+  /** Session-global request numbers for the request groups visible in this context. */
+  requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
   /** Turn ids whose rows after the first are folded into a summary. */
@@ -198,6 +198,27 @@ export interface TrajectoryTableProps {
   collapsedAssistants: ReadonlySet<number>
   /** Toggle tool calls under one assistant record. */
   onToggleAssistant(index: number): void
+}
+
+/** One context-local request identity paired with its session-global number. */
+export interface TrajectoryRequestNumber {
+  turn: number
+  step: number
+  number: number
+  provider?: string
+  model?: string
+  requestConfig?: AssistantRequestConfig
+  usage?: TrajectoryUsage
+  cumulativeUsage?: TrajectoryUsage
+}
+
+/** Disjoint provider token buckets for one request or a session prefix. */
+export interface TrajectoryUsage {
+  input?: number
+  cacheRead?: number
+  cacheWrite?: number
+  output?: number
+  reasoning?: number
 }
 
 function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
@@ -223,10 +244,33 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
   })
 }
 
-function requestNumber(group: string): number | undefined {
+function requestStep(group: string): number | undefined {
   if (!group.startsWith('Step ')) return undefined
   const value = Number(group.slice('Step '.length))
   return Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function requestKey(turn: number, group: string): string {
+  return `${turn}\u0000${group}`
+}
+
+function indexRequestNumbers(
+  records: readonly TableRecord[],
+  sessionNumbers: readonly TrajectoryRequestNumber[] | undefined,
+): ReadonlyMap<string, number> {
+  const numbers = new Map<string, number>()
+  for (const request of sessionNumbers ?? []) {
+    numbers.set(requestKey(request.turn, `Step ${request.step}`), request.number)
+  }
+  let next = Math.max(0, ...numbers.values()) + 1
+  const boundaries = records
+    .filter(record => record.groupStart && requestStep(record.group) !== undefined)
+    .sort((left, right) => left.cell.index - right.cell.index)
+  for (const record of boundaries) {
+    const key = requestKey(record.turn, record.group)
+    if (!numbers.has(key)) numbers.set(key, next++)
+  }
+  return numbers
 }
 
 function summarizeTurn(records: readonly TableRecord[]): string {
@@ -381,6 +425,94 @@ function tokenSummary(cell: TrajectoryCellProps): ReactNode {
   )
 }
 
+function inputTotal(usage: TrajectoryUsage): number | undefined {
+  if (
+    usage.input === undefined
+    && usage.cacheRead === undefined
+    && usage.cacheWrite === undefined
+  ) return undefined
+  return (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
+}
+
+function UsageRows({ usage }: { usage: TrajectoryUsage | undefined }) {
+  if (usage === undefined) return <p className={css.noPayload}>Usage not reported</p>
+  const totalInput = inputTotal(usage)
+  return (
+    <dl className={css.overview}>
+      {totalInput !== undefined && (
+        <div><dt>Input</dt><dd>{totalInput} tok</dd></div>
+      )}
+      {usage.cacheRead !== undefined && (
+        <div className={css.requestTokenDetail}>
+          <dt>Cached</dt>
+          <dd>{usage.cacheRead} tok</dd>
+        </div>
+      )}
+      {usage.cacheWrite !== undefined && (
+        <div className={css.requestTokenDetail}>
+          <dt>Cache created</dt>
+          <dd>{usage.cacheWrite} tok</dd>
+        </div>
+      )}
+      {usage.input !== undefined && (
+        <div className={css.requestTokenDetail}>
+          <dt>Other</dt>
+          <dd>{usage.input} tok</dd>
+        </div>
+      )}
+      {usage.output !== undefined && (
+        <div><dt>Output</dt><dd>{usage.output} tok</dd></div>
+      )}
+      {usage.reasoning !== undefined && (
+        <div className={css.requestTokenDetail}>
+          <dt>Reasoning</dt>
+          <dd>{usage.reasoning} tok</dd>
+        </div>
+      )}
+    </dl>
+  )
+}
+
+function RequestUsagePanel({
+  usage,
+  cumulative,
+}: {
+  usage: TrajectoryUsage | undefined
+  cumulative: TrajectoryUsage | undefined
+}) {
+  return (
+    <div className={css.usagePanel}>
+      <section className={css.usageGroup}>
+        <h4 className={css.usageHeading}>This request</h4>
+        <UsageRows usage={usage} />
+      </section>
+      <section className={css.usageGroup}>
+        <h4 className={css.usageHeading}>Session cumulative</h4>
+        <UsageRows usage={cumulative} />
+      </section>
+    </div>
+  )
+}
+
+function RequestOptions({
+  options,
+  preview = false,
+}: {
+  options: AssistantRequestConfig | undefined
+  preview?: boolean
+}) {
+  if (options === undefined) {
+    return <p className={css.noPayload}>Options not recorded</p>
+  }
+  return (
+    <JsonTree
+      data={options}
+      label="Request options JSON"
+      className={preview ? css.jsonPreview! : css.jsonPayload!}
+    />
+  )
+}
+
 function isMarkdownRecord(record: TableRecord): boolean {
   return record.cell.kind === 'user'
     || record.cell.kind === 'context'
@@ -435,7 +567,6 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
       { id: 'overview', label: 'Summary' },
       { id: 'rendered', label: 'Preview' },
       { id: 'source', label: 'Source' },
-      { id: 'timing', label: 'Timing' },
     ]
   }
   return [
@@ -1011,6 +1142,7 @@ function OverviewSection({
  */
 export function TrajectoryTable({
   prompt,
+  requestNumbers: sessionRequestNumbers,
   turns,
   collapsedTurns,
   onToggleTurn,
@@ -1026,6 +1158,7 @@ export function TrajectoryTable({
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
   const allRecords = flattenRecords(turns)
+  const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
   const turnRecords = collapseTurnRecords(allRecords, collapsedTurns)
   const records = collapseAssistantRecords(turnRecords, collapsedAssistants)
   const systemPromptPreview = prompt === undefined
@@ -1060,26 +1193,55 @@ export function TrajectoryTable({
   const selectedRequestSubtoolCalls = selectedRequestRecords.filter(
     record => record.cell.kind === 'subtool',
   ).length
-  const selectedRequestInputTotal = selectedRequestAssistant !== undefined
-    && (
-      selectedRequestAssistant.cell.input !== undefined
-      || selectedRequestAssistant.cell.cacheRead !== undefined
-      || selectedRequestAssistant.cell.cacheWrite !== undefined
-    )
-    ? (selectedRequestAssistant.cell.input ?? 0)
-      + (selectedRequestAssistant.cell.cacheRead ?? 0)
-      + (selectedRequestAssistant.cell.cacheWrite ?? 0)
-    : undefined
+  const selectedRequestInfo = selectedRequest === null
+    ? undefined
+    : sessionRequestNumbers?.find(request => request.number === selectedRequest.number)
+  const selectedRequestUsage = selectedRequestInfo?.usage ?? (
+    selectedRequestAssistant === undefined
+      ? undefined
+      : {
+          ...(selectedRequestAssistant.cell.input === undefined
+            ? {}
+            : { input: selectedRequestAssistant.cell.input }),
+          ...(selectedRequestAssistant.cell.cacheRead === undefined
+            ? {}
+            : { cacheRead: selectedRequestAssistant.cell.cacheRead }),
+          ...(selectedRequestAssistant.cell.cacheWrite === undefined
+            ? {}
+            : { cacheWrite: selectedRequestAssistant.cell.cacheWrite }),
+          ...(selectedRequestAssistant.cell.output === undefined
+            ? {}
+            : { output: selectedRequestAssistant.cell.output }),
+          ...(selectedRequestAssistant.cell.think === undefined
+            ? {}
+            : { reasoning: selectedRequestAssistant.cell.think }),
+        }
+  )
+  const selectedRequestCumulativeUsage =
+    selectedRequestInfo?.cumulativeUsage ?? selectedRequestUsage
+  const selectedRequestOptions = selectedRequestInfo?.requestConfig
   const activeTurn = selectedRequest?.turn ?? selected?.turn
   const selectedTabs = selectedRequest !== null
-    ? REQUEST_TABS
+    ? REQUEST_TABS.filter(tab => tab.id !== 'options' || selectedRequestOptions !== undefined)
     : promptSelected
       ? SYSTEM_PROMPT_TABS
       : selected === undefined ? [] : detailTabs(selected)
   const selectedParents: ParentRecords = selected === undefined
     ? {}
     : parentRecords(allRecords, selected)
-  const hasSelectedParents = selectedParents.message !== undefined
+  const selectedAssistantRequest = selected?.cell.kind === 'message'
+    ? requestNumbers.get(requestKey(selected.turn, selected.group))
+    : undefined
+  const selectedAssistantRequestTarget: SelectedRequest | undefined =
+    selected !== undefined && selectedAssistantRequest !== undefined
+      ? {
+          turn: selected.turn,
+          number: selectedAssistantRequest,
+          group: selected.group,
+        }
+      : undefined
+  const hasSelectedHierarchy = selectedAssistantRequestTarget !== undefined
+    || selectedParents.message !== undefined
     || selectedParents.tool !== undefined
   const splitStyle: TrajectorySplitStyle | undefined = toolRequestOffset === null
     ? undefined
@@ -1109,10 +1271,13 @@ export function TrajectoryTable({
     activateTab('system-prompt')
   }
 
-  const selectRequest = (request: SelectedRequest) => {
+  const selectRequest = (
+    request: SelectedRequest,
+    tab: 'overview' | 'timing' = 'overview',
+  ) => {
     setSelectedIndex(null)
     setSelectedRequest(request)
-    activateTab('overview')
+    activateTab(tab)
   }
 
   const openRecordSummary = (target: TableRecord) => {
@@ -1186,7 +1351,7 @@ export function TrajectoryTable({
               const request = record.groupStart
                 && !isCollapsedSummary
                 && !collapsedTurns.has(record.turn)
-                ? requestNumber(record.group)
+                ? requestNumbers.get(requestKey(record.turn, record.group))
                 : undefined
               return (
                 <tr
@@ -1516,48 +1681,24 @@ export function TrajectoryTable({
                     <dt>Status</dt>
                     <dd>{statusLabel(selectedRequestState)}</dd>
                   </div>
-                  <div>
-                    <dt>Started</dt>
-                    <StartedAtValue
-                      timestamp={selectedRequestAnchor?.cell.startedAt ?? null}
-                    />
-                  </div>
-                  <div>
-                    <dt>Duration</dt>
-                    <dd>
-                      {formatElapsedSeconds(
-                        selectedRequestAssistant?.cell.timeSeconds ?? null,
-                      )}
-                    </dd>
-                  </div>
-                  {selectedRequestInputTotal !== undefined && (
+                  {(selectedRequestInfo?.provider
+                    ?? selectedRequestInfo?.requestConfig?.provider) !== undefined && (
                     <div>
-                      <dt>Input</dt>
-                      <dd>{selectedRequestInputTotal} tok</dd>
+                      <dt>Provider</dt>
+                      <dd>
+                        {selectedRequestInfo?.provider
+                          ?? selectedRequestInfo?.requestConfig?.provider}
+                      </dd>
                     </div>
                   )}
-                  {selectedRequestAssistant?.cell.cacheRead !== undefined && (
-                    <div className={css.requestTokenDetail}>
-                      <dt>Cached</dt>
-                      <dd>{selectedRequestAssistant.cell.cacheRead} tok</dd>
-                    </div>
-                  )}
-                  {selectedRequestAssistant?.cell.cacheWrite !== undefined && (
-                    <div className={css.requestTokenDetail}>
-                      <dt>Cache created</dt>
-                      <dd>{selectedRequestAssistant.cell.cacheWrite} tok</dd>
-                    </div>
-                  )}
-                  {selectedRequestAssistant?.cell.input !== undefined && (
-                    <div className={css.requestTokenDetail}>
-                      <dt>Other</dt>
-                      <dd>{selectedRequestAssistant.cell.input} tok</dd>
-                    </div>
-                  )}
-                  {selectedRequestAssistant?.cell.output !== undefined && (
+                  {(selectedRequestInfo?.model
+                    ?? selectedRequestInfo?.requestConfig?.model) !== undefined && (
                     <div>
-                      <dt>Output</dt>
-                      <dd>{selectedRequestAssistant.cell.output} tok</dd>
+                      <dt>Model</dt>
+                      <dd>
+                        {selectedRequestInfo?.model
+                          ?? selectedRequestInfo?.requestConfig?.model}
+                      </dd>
                     </div>
                   )}
                   <div>
@@ -1570,23 +1711,36 @@ export function TrajectoryTable({
                       <dd>{selectedRequestSubtoolCalls}</dd>
                     </div>
                   )}
+                  {selectedRequestAssistant !== undefined && (
+                    <div>
+                      <dt>Result</dt>
+                      <dd className={css.overviewParentLinks}>
+                        <button
+                          type="button"
+                          className={css.overviewHierarchyNavLink}
+                          onClick={() => {
+                            openRecordSummary(selectedRequestAssistant)
+                          }}
+                        >
+                          <span>Assistant Message</span>
+                          <IconChevronRightOutline14
+                            className={css.overviewHierarchyJumpIconTight}
+                            size={11}
+                          />
+                        </button>
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 <div className={css.overviewSections}>
-                  {selectedRequestAssistant !== undefined && (
-                    <OverviewSection
-                      label="Result"
-                      onOpen={() => { openRecordSummary(selectedRequestAssistant) }}
-                    >
-                      <MarkdownRecordContent
-                        record={selectedRequestAssistant}
-                        rendered
-                        preview
-                        thinkingExpanded={thinkingExpanded}
-                        onThinkingExpandedChange={setThinkingExpanded}
-                        onOpenCall={openCallSummary}
-                      />
+                  {selectedRequestOptions !== undefined && (
+                    <OverviewSection label="Options" onOpen={() => { activateTab('options') }}>
+                      <RequestOptions options={selectedRequestOptions} preview />
                     </OverviewSection>
                   )}
+                  <OverviewSection label="Usage" onOpen={() => { activateTab('usage') }}>
+                    <UsageRows usage={selectedRequestUsage} />
+                  </OverviewSection>
                   <OverviewSection label="Timing" onOpen={() => { activateTab('timing') }}>
                     <RequestTiming
                       assistant={selectedRequestAssistant}
@@ -1595,6 +1749,15 @@ export function TrajectoryTable({
                   </OverviewSection>
                 </div>
               </>
+            )}
+            {selectedRequest !== null && activeTab === 'options' && (
+              <RequestOptions options={selectedRequestOptions} />
+            )}
+            {selectedRequest !== null && activeTab === 'usage' && (
+              <RequestUsagePanel
+                usage={selectedRequestUsage}
+                cumulative={selectedRequestCumulativeUsage}
+              />
             )}
             {selectedRequest !== null && activeTab === 'timing' && (
               <RequestTiming
@@ -1621,17 +1784,32 @@ export function TrajectoryTable({
             {!promptSelected && selected !== undefined && selectedState !== undefined && activeTab === 'overview' && (
               <>
                 <dl className={css.overview}>
-                  {hasSelectedParents && (
+                  {hasSelectedHierarchy && (
                     <div>
                       <dt>Hierarchy</dt>
                       <dd className={css.overviewParentLinks}>
+                        {selectedAssistantRequestTarget !== undefined && (
+                          <button
+                            type="button"
+                            className={css.overviewHierarchyNavLink}
+                            onClick={() => {
+                              selectRequest(selectedAssistantRequestTarget)
+                            }}
+                          >
+                            <span>Request #{selectedAssistantRequestTarget.number}</span>
+                            <IconChevronRightOutline14
+                              className={css.overviewHierarchyJumpIconTight}
+                              size={11}
+                            />
+                          </button>
+                        )}
                         {selectedParents.message !== undefined && (
                           <button
                             type="button"
                             className={css.overviewHierarchyNavLink}
                             onClick={() => { openRecordSummary(selectedParents.message!) }}
                           >
-                            <span>Parent Message</span>
+                            <span>Assistant Message</span>
                             <IconChevronRightOutline14
                               className={css.overviewHierarchyJumpIconTight}
                               size={11}
@@ -1644,7 +1822,7 @@ export function TrajectoryTable({
                             className={css.overviewHierarchyNavLink}
                             onClick={() => { openRecordSummary(selectedParents.tool!) }}
                           >
-                            <span>Parent Tool Call</span>
+                            <span>Tool Call</span>
                             <IconChevronRightOutline14
                               className={css.overviewHierarchyJumpIconTight}
                               size={11}
@@ -1661,7 +1839,12 @@ export function TrajectoryTable({
                   {selected.cell.kind === 'message' && (
                     <div><dt>Tokens</dt><dd>{tokenSummary(selected.cell)}</dd></div>
                   )}
-                  <div><dt>Duration</dt><dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd></div>
+                  {(selected.cell.kind === 'user' || selected.cell.kind === 'context') && (
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
+                    </div>
+                  )}
                 </dl>
                 <div className={css.overviewSections}>
                   {isMarkdownRecord(selected)
@@ -1696,9 +1879,21 @@ export function TrajectoryTable({
                           </OverviewSection>
                         </>
                       )}
-                  <OverviewSection label="Timing" onOpen={() => { activateTab('timing') }}>
-                    <RecordTiming record={selected} />
-                  </OverviewSection>
+                  {selectedAssistantRequestTarget !== undefined && (
+                    <OverviewSection
+                      label="Timing"
+                      onOpen={() => {
+                        selectRequest(selectedAssistantRequestTarget, 'timing')
+                      }}
+                    >
+                      <RecordTiming record={selected} />
+                    </OverviewSection>
+                  )}
+                  {(selected.cell.kind === 'tool' || selected.cell.kind === 'subtool') && (
+                    <OverviewSection label="Timing" onOpen={() => { activateTab('timing') }}>
+                      <RecordTiming record={selected} />
+                    </OverviewSection>
+                  )}
                 </div>
               </>
             )}

@@ -62,7 +62,7 @@ export function WaterfallView({ useSession, pxPerNode }: ConvViewProps & Waterfa
                   }}
                   title={lane.timing === 'measured'
                     /* durationMs is non-null exactly when timing is measured. */
-                    ? `${lane.name} · ${((lane.durationMs ?? 0) / 1000).toFixed(2)}s`
+                    ? `${lane.name} · ${((lane.durationMs ?? 0) / 1000).toFixed(2)} s`
                     : lane.timing === 'running' ? `${lane.name} · running` : `${lane.name} · duration unknown`}
                 />
               </div>

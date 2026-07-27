@@ -60,6 +60,23 @@ export interface AssistantTiming {
   completedTime: number
 }
 
+/** Request configuration recorded in the effective header for one assistant response. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity attached to one assistant response. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -70,6 +87,8 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
   /** Timing derived from the recorded step/chunk/message event sequence. */
   timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
@@ -211,6 +230,8 @@ export type ConversationContextOriginKind = 'compaction' | 'rewind' | 'rewrite'
 
 /** Latest complete model request header in force within one context generation. */
 export interface ConversationPromptSnapshot {
+  /** Provider/model and sampling configuration from the latest effective request header. */
+  config?: AssistantRequestConfig
   /** Rendered system prompt text; empty when the request had no system prompt. */
   system: string
   /** Complete tool catalog sent with the request, including tools that were never called. */

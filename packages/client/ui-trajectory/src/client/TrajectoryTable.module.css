@@ -699,6 +699,26 @@
   padding-left: 12px;
 }
 
+.usagePanel {
+  padding: 4px 0 10px;
+}
+
+.usageGroup + .usageGroup {
+  margin-top: 8px;
+}
+
+.usageHeading {
+  margin: 0;
+  padding: 4px 14px 1px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-strong-13);
+  user-select: none;
+}
+
+.usageGroup .overview {
+  padding: 0;
+}
+
 .overview dt {
   color: var(--dsw-alias-label-tertiary);
 }

@@ -2,14 +2,64 @@
 
 import { useMemo, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ConversationContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  AssistantMessageNode, ConversationContext,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { ContextsPanel, contextLabel } from './ContextsPanel.tsx'
-import { TrajectoryTable } from './TrajectoryTable.tsx'
+import {
+  TrajectoryTable,
+  type TrajectoryRequestNumber,
+  type TrajectoryUsage,
+} from './TrajectoryTable.tsx'
 import { TrajectoryToolbar } from './TrajectoryToolbar.tsx'
 import { deriveTrajectoryLayout } from './layout.ts'
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
+
+interface UsageLike {
+  inputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  outputTokens?: number
+  reasoningTokens?: number
+}
+
+function requestUsage(value: unknown): TrajectoryUsage | undefined {
+  const usage = value as UsageLike | undefined
+  if (usage === undefined) return undefined
+  return {
+    ...(usage.inputTokens === undefined ? {} : { input: usage.inputTokens }),
+    ...(usage.cacheReadTokens === undefined ? {} : { cacheRead: usage.cacheReadTokens }),
+    ...(usage.cacheWriteTokens === undefined ? {} : { cacheWrite: usage.cacheWriteTokens }),
+    ...(usage.outputTokens === undefined ? {} : { output: usage.outputTokens }),
+    ...(usage.reasoningTokens === undefined ? {} : { reasoning: usage.reasoningTokens }),
+  }
+}
+
+function addUsage(
+  total: TrajectoryUsage | undefined,
+  usage: TrajectoryUsage | undefined,
+): TrajectoryUsage | undefined {
+  if (usage === undefined) return total
+  return {
+    ...(total?.input === undefined && usage.input === undefined
+      ? {}
+      : { input: (total?.input ?? 0) + (usage.input ?? 0) }),
+    ...(total?.cacheRead === undefined && usage.cacheRead === undefined
+      ? {}
+      : { cacheRead: (total?.cacheRead ?? 0) + (usage.cacheRead ?? 0) }),
+    ...(total?.cacheWrite === undefined && usage.cacheWrite === undefined
+      ? {}
+      : { cacheWrite: (total?.cacheWrite ?? 0) + (usage.cacheWrite ?? 0) }),
+    ...(total?.output === undefined && usage.output === undefined
+      ? {}
+      : { output: (total?.output ?? 0) + (usage.output ?? 0) }),
+    ...(total?.reasoning === undefined && usage.reasoning === undefined
+      ? {}
+      : { reasoning: (total?.reasoning ?? 0) + (usage.reasoning ?? 0) }),
+  }
+}
 
 function currentContextOf(contexts: readonly ConversationContext[]): ConversationContext {
   const context = contexts.at(-1)
@@ -43,6 +93,72 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
     : contexts.find(context => context.id === selectedContextId) ?? currentContext
   const viewingCurrent = selectedContext.id === currentContext.id
   const selectedNodes = viewingCurrent ? nodes : selectedContext.nodes
+  const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
+    const requestsBySeq = new Map<number, AssistantMessageNode>()
+    for (const context of contexts) {
+      for (const node of context.nodes) {
+        if (node.kind !== 'assistant' || node.step <= 0) continue
+        requestsBySeq.set(node.seq, node)
+      }
+    }
+    for (const node of nodes) {
+      if (node.kind !== 'assistant' || node.step <= 0) continue
+      requestsBySeq.set(node.seq, node)
+    }
+    const orderedRequests = [...requestsBySeq.values()]
+      .sort((left, right) => left.seq - right.seq)
+    const requestBySeq = new Map<number, TrajectoryRequestNumber>()
+    let cumulativeUsage: TrajectoryUsage | undefined
+    for (const [index, node] of orderedRequests.entries()) {
+      const usage = requestUsage(node.usage)
+      cumulativeUsage = addUsage(cumulativeUsage, usage)
+      requestBySeq.set(node.seq, {
+        turn: node.turn,
+        step: node.step,
+        number: index + 1,
+        ...(node.provenance?.provider === undefined
+          ? {}
+          : { provider: node.provenance.provider }),
+        ...(node.provenance?.model === undefined
+          ? {}
+          : { model: node.provenance.model }),
+        ...(node.requestConfig === undefined ? {} : { requestConfig: node.requestConfig }),
+        ...(usage === undefined ? {} : { usage }),
+        ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
+      })
+    }
+
+    const selected: TrajectoryRequestNumber[] = []
+    const selectedKeys = new Set<string>()
+    for (const node of selectedNodes) {
+      if (node.kind !== 'assistant' || node.step <= 0) continue
+      const request = requestBySeq.get(node.seq)
+      if (request === undefined) continue
+      selected.push(request)
+      selectedKeys.add(`${node.turn}\u0000${node.step}`)
+    }
+    if (viewingCurrent && partial !== null && partial.step > 0) {
+      const key = `${partial.turn}\u0000${partial.step}`
+      if (!selectedKeys.has(key)) {
+        selected.push({
+          turn: partial.turn,
+          step: partial.step,
+          number: orderedRequests.length + 1,
+          ...(currentContext.prompt?.config?.provider === undefined
+            ? {}
+            : { provider: currentContext.prompt.config.provider }),
+          ...(currentContext.prompt?.config?.model === undefined
+            ? {}
+            : { model: currentContext.prompt.config.model }),
+          ...(currentContext.prompt?.config === undefined
+            ? {}
+            : { requestConfig: currentContext.prompt.config }),
+          ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
+        })
+      }
+    }
+    return selected
+  }, [contexts, currentContext.prompt, nodes, partial, selectedNodes, viewingCurrent])
   const collapsedTurns = collapsedTurnsByContext.get(selectedContext.id) ?? EMPTY_IDS
   const collapsedAssistants = collapsedAssistantsByContext.get(selectedContext.id) ?? EMPTY_IDS
   const turns = useMemo(
@@ -164,6 +280,7 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
           <TrajectoryTable
             key={selectedContext.id}
             {...selectedContext.prompt === undefined ? {} : { prompt: selectedContext.prompt }}
+            requestNumbers={requestNumbers}
             turns={turns}
             collapsedTurns={collapsedTurns}
             onToggleTurn={toggleTurn}

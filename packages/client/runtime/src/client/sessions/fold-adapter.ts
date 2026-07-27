@@ -12,7 +12,7 @@ import {
 } from '@deepseek-ai/dsh-session/surface'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  AssistantTiming, ConversationContext, ConversationContextOriginKind, ConversationNode,
+  AssistantRequestConfig, AssistantTiming, ConversationContext, ConversationContextOriginKind, ConversationNode,
   ConversationPromptSnapshot,
 } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
@@ -43,6 +43,7 @@ function materializeNode(
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
   assistantTiming?: AssistantTiming,
+  requestConfig?: AssistantRequestConfig,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
@@ -64,6 +65,11 @@ function materializeNode(
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.content), usage: event.data.usage,
+        provenance: {
+          provider: event.data.provenance.provider,
+          model: event.data.provenance.model,
+        },
+        ...(requestConfig === undefined ? {} : { requestConfig }),
         ...(assistantTiming !== undefined ? { timing: assistantTiming } : {}),
       }
     case 'steering/message':
@@ -204,6 +210,7 @@ export class FoldAdapter {
         this.callIdx,
         this.resultViews.get(seq) ?? null,
         event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
+        event.type === 'assistant/message' ? this.assistantRequestConfig(event) : undefined,
       )
       this.nodeCache.set(seq, node)
       out.push(node)
@@ -280,6 +287,7 @@ export class FoldAdapter {
       this.callIdx,
       this.resultViews.get(seq) ?? null,
       event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
+      event.type === 'assistant/message' ? this.assistantRequestConfig(event) : undefined,
     )
     this.nodeCache.set(seq, node)
     return node
@@ -312,6 +320,17 @@ export class FoldAdapter {
     return { stepStartTime, firstTokenTime, completedTime: event.time }
   }
 
+  private assistantRequestConfig(
+    event: SessionEvent<'assistant/message'>,
+  ): AssistantRequestConfig | undefined {
+    for (let i = event.seq; i >= this.baseSeq; i--) {
+      const candidate = this.padded[i]
+      if (candidate?.type !== 'request/header') continue
+      return candidate.data.header.config
+    }
+    return undefined
+  }
+
   private indexCall(event: SessionEvent, view?: ToolEventView): void {
     if (event.type === 'tool/result') {
       if (view?.for === 'result') this.resultViews.set(event.seq, view.view)
@@ -336,6 +355,7 @@ export class FoldAdapter {
     }
     if (event.type !== 'request/header') return
     this.activePrompt = {
+      config: event.data.header.config,
       system: event.data.header.system ?? '',
       tools: event.data.header.tools ?? [],
     }

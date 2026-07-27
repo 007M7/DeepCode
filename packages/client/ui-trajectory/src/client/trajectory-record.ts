@@ -80,6 +80,6 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
 export function formatElapsedSeconds(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return '—'
   const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded}s`
-  return `${rounded.toFixed(1)}s`
+  if (Number.isInteger(rounded)) return `${rounded} s`
+  return `${rounded.toFixed(1)} s`
 }

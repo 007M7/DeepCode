@@ -53,6 +53,15 @@ interface LaidCell {
   callId?: string
 }
 
+interface LaidGroup {
+  title: string
+  laid: LaidCell[]
+}
+
+interface TurnBucket {
+  groups: LaidGroup[]
+}
+
 /**
  * Fold a snapshot into turn → Message/Step groups with expanded cells.
  * @param input - nodes plus in-flight partial/runningCalls.
@@ -70,7 +79,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     const startedAt = finiteTime(call.time)
     if (startedAt !== null) callStartById.set(call.callId, startedAt)
   }
-  const turns = new Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>()
+  const turns = new Map<number, TurnBucket>()
   let index = 0
   let prevAbsTime: number | null = null
   let lastAssistantTurn: number | null = null
@@ -78,20 +87,31 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const bucket = (turn: number) => {
     let entry = turns.get(turn)
     if (entry === undefined) {
-      entry = { message: [], steps: new Map() }
+      entry = { groups: [] }
       turns.set(turn, entry)
     }
     return entry
   }
 
   const pushMessage = (turn: number, laid: LaidCell) => {
-    bucket(turn).message.push(laid)
+    const groups = bucket(turn).groups
+    const last = groups.at(-1)
+    if (last?.title === 'Message') {
+      last.laid.push(laid)
+      return
+    }
+    groups.push({ title: 'Message', laid: [laid] })
   }
-  const pushStep = (turn: number, step: number, laid: LaidCell) => {
-    const steps = bucket(turn).steps
-    const list = steps.get(step) ?? []
-    list.push(laid)
-    steps.set(step, list)
+  const pushStep = (turn: number, step: number, laid: readonly LaidCell[]) => {
+    if (laid.length === 0) return
+    const groups = bucket(turn).groups
+    const title = `Step ${step}`
+    const existing = groups.find(group => group.title === title)
+    if (existing !== undefined) {
+      existing.laid.push(...laid)
+      return
+    }
+    groups.push({ title, laid: [...laid] })
   }
 
   for (let i = 0; i < nodes.length; i++) {
@@ -123,10 +143,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         expandAssistant(node, index + 1, prevAbsTime, resultByCall, callStartById),
         codeDispatches,
       )
-      for (const laid of laidList) {
-        if (node.step > 0) pushStep(node.turn, node.step, laid)
-        else pushMessage(node.turn, laid)
-      }
+      if (node.step > 0) pushStep(node.turn, node.step, laidList)
+      else for (const laid of laidList) pushMessage(node.turn, laid)
       const last = laidList[laidList.length - 1]
       if (last !== undefined) index = last.cell.index
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
@@ -153,7 +171,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (node.kind === 'tool-result') {
       if (!callEmittedInAssistant(nodes, node.callId)) {
         const toolName = node.call?.name
-        pushStep(0, 1, {
+        const laidList: LaidCell[] = [{
           absTime: finiteTime(node.callTime ?? node.time),
           ...(toolName !== undefined ? { toolName } : {}),
           callId: node.callId,
@@ -172,11 +190,12 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             timeSeconds: durationSeconds(node.time, node.callTime),
             startedAt: finiteTime(node.callTime),
           },
-        })
+        }]
         for (const laid of expandSubCalls(codeDispatches.get(node.callId), index)) {
-          pushStep(0, 1, laid)
+          laidList.push(laid)
           index = laid.cell.index
         }
+        pushStep(0, 1, laidList)
       }
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
     }
@@ -195,10 +214,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       callStartById,
       { streaming: true },
     )
-    for (const laid of laidList) {
-      if (partial.step > 0) pushStep(partial.turn, partial.step, laid)
-      else pushMessage(partial.turn, laid)
-    }
+    if (partial.step > 0) pushStep(partial.turn, partial.step, laidList)
+    else for (const laid of laidList) pushMessage(partial.turn, laid)
     const last = laidList[laidList.length - 1]
     if (last !== undefined) index = last.cell.index
   }
@@ -206,7 +223,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const seenCalls = collectCallIds(turns)
   for (const call of runningCalls) {
     if (seenCalls.has(call.callId)) continue
-    pushStep(call.turn, call.step > 0 ? call.step : 1, {
+    const laidList: LaidCell[] = [{
       absTime: null,
       toolName: call.name,
       callId: call.callId,
@@ -219,34 +236,27 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         timeSeconds: null,
         startedAt: finiteTime(call.time),
       },
-    })
+    }]
     for (const laid of expandSubCalls(codeDispatches.get(call.callId), index)) {
-      pushStep(call.turn, call.step > 0 ? call.step : 1, laid)
+      laidList.push(laid)
       index = laid.cell.index
     }
+    pushStep(call.turn, call.step > 0 ? call.step : 1, laidList)
   }
 
   // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
   const prologue = turns.get(0)
   if (prologue !== undefined) {
     turns.delete(0)
-    const emptyTurn = (): { message: LaidCell[]; steps: Map<number, LaidCell[]> } => ({
-      message: [],
-      steps: new Map(),
-    })
+    const emptyTurn = (): TurnBucket => ({ groups: [] })
     const first = turns.get(1) ?? emptyTurn()
-    first.message = [...prologue.message, ...first.message]
-    for (const [step, cells] of prologue.steps) {
-      const existing = first.steps.get(step) ?? []
-      first.steps.set(step, [...cells, ...existing])
-    }
+    first.groups = [...prologue.groups, ...first.groups]
     turns.set(1, first)
   }
 
   for (const entry of turns.values()) {
-    for (const laid of entry.message) attachToolSchema(laid, callSchemas)
-    for (const laid of entry.steps.values()) {
-      for (const cell of laid) attachToolSchema(cell, callSchemas)
+    for (const group of entry.groups) {
+      for (const laid of group.laid) attachToolSchema(laid, callSchemas)
     }
   }
 
@@ -267,30 +277,20 @@ function attachToolSchema(
 
 function toTurnModel(
   turn: number,
-  entry: { message: LaidCell[]; steps: Map<number, LaidCell[]> },
+  entry: TurnBucket,
 ): TrajectoryTurnModel {
-  const groups: TrajectoryGroupModel[] = []
-  if (entry.message.length > 0) {
-    const description = groupDescription(entry.message)
-    groups.push({
-      title: 'Message',
-      ...(description !== undefined ? { description } : {}),
-      cells: entry.message.map(l => l.cell),
-    })
-  }
-  for (const step of [...entry.steps.keys()].sort((a, b) => a - b)) {
-    const laid = entry.steps.get(step) ?? []
+  const groups = entry.groups.map(({ title, laid }): TrajectoryGroupModel => {
     const description = groupDescription(laid)
-    groups.push({
-      title: `Step ${step}`,
+    return {
+      title,
       ...(description !== undefined ? { description } : {}),
       cells: laid.map(l => l.cell),
-    })
-  }
+    }
+  })
   return { turn, groups }
 }
 
-/** Wall-span duration + tool histogram, e.g. `1.5s bash×6`. */
+/** Wall-span duration + tool histogram, e.g. `1.5 s bash×6`. */
 function groupDescription(laid: readonly LaidCell[]): string | undefined {
   const parts: string[] = []
   // Tool rows contribute start (absTime) and end (start + own duration) so a
@@ -325,8 +325,8 @@ function groupDescription(laid: readonly LaidCell[]): string | undefined {
 function formatGroupDuration(seconds: number): string | undefined {
   if (!Number.isFinite(seconds)) return undefined
   const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded}s`
-  return `${rounded.toFixed(1)}s`
+  if (Number.isInteger(rounded)) return `${rounded} s`
+  return `${rounded.toFixed(1)} s`
 }
 
 /** Own-duration seconds from two epoch-ms stamps; null when either is unusable. */
@@ -551,15 +551,12 @@ function callEmittedInAssistant(nodes: ConversationSnapshot['nodes'], callId: st
 }
 
 function collectCallIds(
-  turns: Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>,
+  turns: Map<number, TurnBucket>,
 ): Set<string> {
   const ids = new Set<string>()
   for (const entry of turns.values()) {
-    for (const laid of entry.message) {
-      if (laid.callId !== undefined) ids.add(laid.callId)
-    }
-    for (const list of entry.steps.values()) {
-      for (const laid of list) {
+    for (const group of entry.groups) {
+      for (const laid of group.laid) {
         if (laid.callId !== undefined) ids.add(laid.callId)
       }
     }
