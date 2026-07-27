@@ -41,6 +41,9 @@ const DEFAULT_MAX_MESSAGES = 50
 /** Product contract: sidebar search returns one bounded page and no cursor. */
 const SESSION_SEARCH_LIMIT = 20
 
+/** Provider work budget: at most 100 pages × 20 hits = 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_PAGE_LIMIT = 100
+
 /** Bound cold-log stat fan-out so an aborted search stops launching new work. */
 const COLD_SUMMARY_BATCH_SIZE = 16
 
@@ -645,8 +648,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const acceptedIds = new Set<SessionId>()
           const seenCursors = new Set<SessionSearchCursor>()
           let cursor: SessionSearchCursor | undefined
+          let providerPageCount = 0
           while (authorized.length <= SESSION_SEARCH_LIMIT) {
             if (isAborted(signal)) return cancelled()
+            if (providerPageCount >= SESSION_SEARCH_PROVIDER_PAGE_LIMIT) {
+              throw new Error(
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_PAGE_LIMIT}-page work budget`,
+              )
+            }
+            providerPageCount++
             const page = await sessionQuery.searchSessions({
               query: request.payload.query,
               eventFilters: [
@@ -657,6 +667,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ...cursor === undefined ? {} : { cursor },
             }, { signal })
             if (isAborted(signal)) return cancelled()
+            if (page.items.length > SESSION_SEARCH_LIMIT) {
+              throw new Error(
+                `session search provider returned ${page.items.length} items; maximum is ${SESSION_SEARCH_LIMIT}`,
+              )
+            }
             // Host visibility is the authorization boundary. Consume the
             // provider's globally ranked stream rather than binding every
             // visible id into one SQLite statement, then re-check complete

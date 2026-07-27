@@ -225,6 +225,128 @@ describe('session.search', () => {
     expect(searchSessions.mock.calls[1]?.[0]).toMatchObject({ cursor: 'page-2' })
   })
 
+  it('fails closed after 100 provider pages with distinct continuation cursors', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    let pageNumber = 0
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
+      pageNumber++
+      expect(providerRequest.limit).toBe(20)
+      return Promise.resolve({
+        items: [],
+        nextCursor: `page-${pageNumber}`,
+      })
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('endless-pages'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error).toMatchObject({ code: 'internal' })
+    expect(response.result.error.message).toContain('100-page work budget')
+    expect(searchSessions).toHaveBeenCalledTimes(100)
+  })
+
+  it('rejects an oversized provider page before iterating its items', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const oversized = new Array<SessionSearchHit>(21)
+    const iterate = vi.fn(() => oversized.values())
+    Object.defineProperty(oversized, Symbol.iterator, { value: iterate })
+    const searchSessions = vi.fn(() => Promise.resolve({ items: oversized }))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('oversized-page'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error).toMatchObject({ code: 'internal' })
+    expect(response.result.error.message).toContain('returned 21 items; maximum is 20')
+    expect(iterate).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the provider repeats a continuation cursor', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: [], nextCursor: 'repeated' })
+      .mockResolvedValueOnce({ items: [], nextCursor: 'repeated' })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('repeated-cursor'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error).toMatchObject({ code: 'internal' })
+    expect(response.result.error.message).toContain('repeated a continuation cursor')
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not count duplicate session ids toward the result or lookahead boundary', async () => {
+    const ctx = await baseContext()
+    const items = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
+    for (const item of items) {
+      ctx.sessions.create(item.header.id, { meta: item.header })
+    }
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: items.slice(0, 20), nextCursor: 'page-2' })
+      .mockResolvedValueOnce({ items: items.slice(0, 20), nextCursor: 'page-3' })
+      .mockResolvedValueOnce({ items: items.slice(20) })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('duplicate-pages'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: { hasMore: true },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.items.map(item => item.sessionId)).toEqual(
+      items.slice(0, 20).map(item => item.header.id),
+    )
+    expect(searchSessions).toHaveBeenCalledTimes(3)
+  })
+
+  it('cancels on a continuation page and passes the carrier signal to both calls', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const controller = new AbortController()
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: [], nextCursor: 'page-2' })
+      .mockImplementationOnce(() => {
+        controller.abort()
+        return Promise.resolve({ items: [] })
+      })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('cancel-continuation'),
+      controller.signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+    for (const call of searchSessions.mock.calls) {
+      expect(call[1]).toEqual({ signal: controller.signal })
+    }
+  })
+
   it('keeps visibility sets above SQLite variable limits out of provider bindings', async () => {
     const ctx = await baseContext()
     const cold = Array.from(
