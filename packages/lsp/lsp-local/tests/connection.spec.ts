@@ -14,7 +14,7 @@ let open: LspConnection[] = []
 
 afterEach(async () => {
   for (const conn of open) {
-    conn.kill()
+    conn.terminate()
     await conn.closed
   }
   open = []
@@ -33,7 +33,7 @@ function connect(
     env: { ...scrubbedParentEnv(), ...env },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
-    pipeDrainGraceMs: 3_000,
+    killGraceMs: 3_000,
     configuration: { setting: 42 },
   }, spawnSubprocess, (method, params) => {
     seen?.push({ method, params })
@@ -66,10 +66,10 @@ describe('LspConnection', () => {
     await expect(conn.request('textDocument/hover', {})).rejects.toThrow(/server refused the request/)
   })
 
-  it('treats signaling an already-closed child as a teardown race', async () => {
+  it('treats terminating an already-closed child as a teardown race', async () => {
     const conn = connectScript('')
     await conn.closed
-    expect(() => { conn.kill() }).not.toThrow()
+    expect(() => { conn.terminate() }).not.toThrow()
   })
 
   it('answers a server workspace/configuration request from static config', async () => {
@@ -152,7 +152,7 @@ function connectScript(script: string, maxStderrBytes = 100_000, writer?: Connec
     env: scrubbedParentEnv(),
     maxMessageBytes: 16_000_000,
     maxStderrBytes,
-    pipeDrainGraceMs: 3_000,
+    killGraceMs: 3_000,
     configuration: null,
   }, spawnSubprocess, () => Promise.resolve(null), writer)
   open.push(conn)
@@ -168,7 +168,7 @@ describe('LspConnection edge behavior', () => {
       env: {},
       maxMessageBytes: 1000,
       maxStderrBytes: 1000,
-      pipeDrainGraceMs: 3_000,
+      killGraceMs: 3_000,
       configuration: null,
     }, spawnSubprocess, () => Promise.resolve(null))
     open.push(conn)

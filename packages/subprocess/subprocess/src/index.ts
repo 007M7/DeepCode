@@ -2,10 +2,9 @@
  * The subprocess seam (`ctx.subprocess`): spawn fully-specified commands into
  * managed process trees with Node-shaped stdio dispositions — raw pipes for
  * protocol streams, inherit for diagnostics, bounded spill-backed collection
- * for batch output — plus tree-scoped signalling and a cooperative dispose
- * ladder. Command defaulting, shell semantics, deadlines, framing, and
- * presentation belong to consumers; the bash executor seam is the owning
- * template. The local implementation lives in
+ * for batch output — plus tree-scoped signalling. Command defaulting, shell
+ * semantics, deadlines, teardown ladders, framing, and presentation belong to
+ * consumers; the bash executor seam is the owning template. The local implementation lives in
  * `@deepseek-ai/dsh-subprocess-local`.
  * @module @deepseek-ai/dsh-subprocess
  */
@@ -21,7 +20,6 @@ export type {
   DshEnvironmentKey,
   SubprocessCollect,
   SubprocessCollectedOutputs,
-  SubprocessDisposeGraces,
   SubprocessHandle,
   SubprocessOutcome,
   SubprocessOutputMode,
@@ -79,10 +77,11 @@ declare module 'cordis' {
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped
  *   streams are handed to the caller raw and never buffered here.
- * - {@link SubprocessHandle.kill} signals without escalation,
- *   {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
- *   SIGTERM→grace→SIGKILL, and {@link SubprocessHandle.dispose} runs the
- *   cooperative EOF-first ladder — all tree-scoped on every platform.
+ * - {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
+ *   SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every
+ *   platform. {@link SubprocessHandle.waitForExit} observes whole-tree
+ *   liveness, so a consumer-owned teardown ladder can hold each tier on real
+ *   quiescence.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  */

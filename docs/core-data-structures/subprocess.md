@@ -127,7 +127,7 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and tree-scoped termination
 
-A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `kill(signal)` sends one signal Node-style, `terminate()` escalates SIGTERM→grace→SIGKILL, `waitForExit()` observes the whole tree, and `dispose(graces)` runs the cooperative stdin-EOF→SIGTERM→SIGKILL ladder out-of-process children need.
+A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `terminate()` — the only termination verb — escalates SIGTERM→grace→SIGKILL, and `waitForExit()` observes the whole tree — enough for a consumer to build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
@@ -153,16 +153,10 @@ interface SubprocessHandle {
   /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Send one signal to the process tree, Node-style — no escalation, no
-   * timers. A no-op after the outcome has settled (the pid may be reused).
-   * @param signal - the signal to deliver (default `SIGTERM`; Windows
-   *   force-terminates the tree for any value).
-   */
-  kill(signal?: NodeJS.Signals): void
-  /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately). Idempotent; also triggered by the
-   * spec's abort signal.
+   * (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
+   * and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**
@@ -172,15 +166,6 @@ interface SubprocessHandle {
    * @returns `true` when the tree exited, `false` when the signal aborted first.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
-  /**
-   * Tear the child down to quiescence, resolving only after exit: close stdin
-   * (when this handle owns a piped one) and allow cooperative flush for
-   * `eofGraceMs`, then SIGTERM with a `graceMs` window (POSIX), then forced
-   * tree termination with a final bounded `graceMs` wait.
-   * @param graces - the ladder's two windows, from the consumer's Config.
-   * @throws when the child still has not exited `graceMs` after the forced tier.
-   */
-  dispose(graces: SubprocessDisposeGraces): Promise<void>
 }
 ```
 
@@ -228,31 +213,6 @@ interface SubprocessCollectedOutputs {
 }
 ```
 
-```ts type-equiv
-/**
- * The two grace periods of the cooperative dispose ladder
- * ({@link SubprocessHandle.dispose}). Consumers carry them as defaulted,
- * validated Config fields, so teardown timing is deployment-tunable and this
- * seam hardcodes nothing.
- */
-interface SubprocessDisposeGraces {
-  /**
-   * Tier-1 window (ms): after stdin EOF, how long the child gets to quiesce
-   * ON ITS OWN — flush durable state, tear down its own descendants — before
-   * escalation to platform termination. Usually WIDER than
-   * {@link SubprocessDisposeGraces.graceMs}: a cooperative child's EOF-driven
-   * teardown may itself wait on a signal-trapping grandchild plus a final
-   * flush.
-   */
-  eofGraceMs: number
-  /**
-   * Termination confirmation window (ms): POSIX applies it after `SIGTERM`
-   * and again after `SIGKILL`; Windows applies it after the forced tree
-   * termination.
-   */
-  graceMs: number
-}
-```
 
 ## Outcomes carry exit facts only
 

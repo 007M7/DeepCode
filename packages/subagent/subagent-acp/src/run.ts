@@ -90,6 +90,46 @@ export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 /** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
+/** Bounded whole-tree exit wait: polls the handle's tree liveness until it exits or `ms` elapses. */
+async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, ms)
+  try {
+    return await child.waitForExit(controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Cooperative teardown ladder for an out-of-process agent, over the seam's
+ * public verbs; resolves only at whole-tree quiescence: stdin EOF (the child's
+ * window to flush persistence and reap its own descendants), then the
+ * terminate() escalation (SIGTERM → spec grace → SIGKILL), then a bounded
+ * confirmation wait.
+ * @param child - the spawned ACP child's handle.
+ * @param eofGraceMs - tier-1 window after stdin EOF.
+ * @param graceMs - confirmation window after the escalation's SIGKILL.
+ * @throws when the tree still has not exited `graceMs` after forced termination.
+ */
+export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number, graceMs: number): Promise<void> {
+  // A spawn failure has no process to tear down; observe the rejection so
+  // disposal in a finally block cannot surface it as unhandled.
+  if (child.pid <= 0) {
+    await child.done.catch(() => {})
+    return
+  }
+  child.stdin?.end()
+  if (await treeExitsWithin(child, eofGraceMs)) return
+  // terminate() sends SIGTERM now and SIGKILL after the spawn spec's grace
+  // (this plugin passes disposeGraceMs there), so the bound covers both the
+  // escalation window and an equal confirmation window after the SIGKILL.
+  child.terminate()
+  if (!(await treeExitsWithin(child, graceMs * 2))) {
+    throw new Error('ACP child process tree did not exit within its dispose windows')
+  }
+}
+
 /**
  * Map an ACP {@link StopReason} to a harness {@link SubagentStopReason}.
  * @param reason - the terminal reason from the child's `session/prompt` response.
@@ -195,10 +235,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
 
   // Startup rollback and the published handle share one process teardown.
   let processDisposal: Promise<void> | undefined
-  const disposeProcess = (): Promise<void> => (processDisposal ??= child.dispose({
-    eofGraceMs: spec.disposeEofGraceMs,
-    graceMs: spec.disposeGraceMs,
-  }))
+  const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs, spec.disposeGraceMs))
 
   // Accumulate the child's streamed assistant text — the SubagentResult output.
   const output: string[] = []

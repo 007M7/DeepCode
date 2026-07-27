@@ -1,10 +1,9 @@
 /**
  * Process plumbing for the local subprocess service: detached process-tree
  * spawn with per-stream stdio dispositions, tail-keep collection with spill
- * files, tree-scoped signalling (POSIX groups; Windows taskkill), the
- * SIGTERM→SIGKILL escalation, and the cooperative EOF-first dispose ladder.
- * This layer reacts to an abort signal; callers own deadlines and classify
- * causes.
+ * files, tree-scoped signalling (POSIX groups; Windows taskkill), and the
+ * SIGTERM→SIGKILL escalation. This layer reacts to an abort signal; callers
+ * own deadlines, teardown ladders, and cause classification.
  * @module dsh-subprocess-local/spawn
  */
 
@@ -15,12 +14,10 @@ import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
-import { deadline } from '@deepseek-ai/dsh-timeout'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {
   CollectedOutput,
   SubprocessCollect,
-  SubprocessDisposeGraces,
   SubprocessHandle,
   SubprocessOutcome,
   SubprocessOutputMode,
@@ -47,9 +44,6 @@ export interface SpawnInternals {
   /** Host platform override for signalling decisions. */
   platform?: NodeJS.Platform
 }
-
-/** Timeout code marking a dispose-ladder tier bound (vs an external abort). */
-const DISPOSE_TIER_TIMEOUT = 'SUBPROCESS_DISPOSE_TIER'
 
 /**
  * Liveness-poll cadence for tree-exit waits. The timer stays ref'd: an
@@ -377,11 +371,12 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     }
   }
 
-  const kill = (sig: NodeJS.Signals = 'SIGTERM'): void => {
-    // Guard on TREE liveness, not outcome settlement: a TERM-trapping helper
-    // can outlive the settled direct child and must stay signalable, while a
-    // fully-dead tree (possible pid reuse) must not be re-signalled from a
-    // caller's finally block.
+  // The escalation's tier primitive (not on the handle — terminate() is the
+  // only consumer-facing termination verb). Guards on TREE liveness, not
+  // outcome settlement: a TERM-trapping helper can outlive the settled direct
+  // child and must stay signalable, while a fully-dead tree (possible pid
+  // reuse) must not be re-signalled by a later tier.
+  const kill = (sig: NodeJS.Signals): void => {
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
@@ -389,15 +384,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const terminate = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
     if (!treeAlive()) return
-    signalTree(platform, pid, 'SIGTERM', child, taskkill)
+    kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
     // does not mean the tree died — so settle does not clear this timer, and
-    // it re-probes tree liveness before force-killing. It stays ref'd: the
-    // pending SIGKILL is a commitment, and a parent exiting before it fires
-    // would orphan a trapped survivor. Self-bounds at graceMs.
-    graceTimer = setTimeout(() => {
-      if (treeAlive()) signalTree(platform, pid, 'SIGKILL', child, taskkill)
-    }, spec.graceMs)
+    // kill() re-probes tree liveness before force-killing. It stays ref'd:
+    // the pending SIGKILL is a commitment, and a parent exiting before it
+    // fires would orphan a trapped survivor. Self-bounds at graceMs.
+    graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -454,39 +447,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     return true
   }
 
-  /**
-   * Wait, bounded, for whole-tree exit — the dispose ladder's quiescence test.
-   * Tree liveness, not direct-child settlement: a TERM-trapping helper that
-   * outlives the leader must hold the ladder on its tier until it exits.
-   */
-  const treeExitsWithin = async (ms: number): Promise<boolean> => {
-    using bound = deadline(undefined, ms, DISPOSE_TIER_TIMEOUT)
-    return await waitForExit(bound.signal)
-  }
-
-  let disposal: Promise<void> | undefined
-  const dispose = (graces: SubprocessDisposeGraces): Promise<void> => (disposal ??= (async () => {
-    // A spawn failure has no process to tear down; observe the rejection so
-    // disposal in a finally block cannot surface it as unhandled.
-    if (pid <= 0) {
-      await done.catch(() => {})
-      return
-    }
-    // 1. Close a piped stdin and allow cooperative teardown and flush.
-    if (stdinMode === 'pipe') child.stdin?.end()
-    if (await treeExitsWithin(graces.eofGraceMs)) return
-    // 2. POSIX gets a catchable graceful signal; Windows taskkill force-terminates.
-    if (platform !== 'win32') {
-      kill('SIGTERM')
-      if (await treeExitsWithin(graces.graceMs)) return
-    }
-    // 3. Force-kill the tree and await a bounded exit edge.
-    kill('SIGKILL')
-    if (!(await treeExitsWithin(graces.graceMs))) {
-      throw new Error(`child process tree did not exit within ${graces.graceMs}ms after forced termination`)
-    }
-  })())
-
   return {
     pid,
     /* v8 ignore start -- pipe-mode fds exist on every spawn Node returns; the null-coalesces guard a nonconforming ChildProcess only. */
@@ -499,9 +459,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       ...stderrCollector !== undefined ? { stderr: stderrCollector } : {},
     },
     done,
-    kill,
     terminate,
     waitForExit,
-    dispose,
   }
 }

@@ -1567,7 +1567,7 @@ Implementations must honor these semantics:
 
 - spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.kill signals without escalation, SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL, and SubprocessHandle.dispose runs the cooperative EOF-first ladder — all tree-scoped on every platform.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 
 ```ts cordis-catalog
@@ -1582,7 +1582,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 
 Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
 
-Source: [`packages/subprocess/subprocess/src/index.ts:89`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:88`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

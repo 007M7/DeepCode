@@ -29,11 +29,11 @@ export interface ConnectionSpec {
   /** Largest stderr tail retained for diagnostics. */
   readonly maxStderrBytes: number
   /**
-   * Bound (ms) for draining pipes a surviving helper still holds after the
-   * server exits; the instance passes its kill grace so exit observation is
-   * never slower than the escalation it feeds.
+   * The subprocess spec's `graceMs`: the SIGTERM→SIGKILL window of
+   * {@link LspConnection.terminate}'s escalation, and the bound for draining
+   * pipes a surviving helper still holds after the server exits.
    */
-  readonly pipeDrainGraceMs: number
+  readonly killGraceMs: number
   /** Static answer to every `workspace/configuration` item. */
   readonly configuration: unknown
 }
@@ -97,7 +97,7 @@ export class LspConnection {
         stdout: 'pipe',
         stderr: { maxBytes: spec.maxStderrBytes },
       },
-      graceMs: spec.pipeDrainGraceMs,
+      graceMs: spec.killGraceMs,
       // spec.env mixes the scrubbed base with explicit config entries; the
       // seam merges the whole map after its own ambient scrub, so a
       // configured DSH_* fact reaches the child.
@@ -210,14 +210,9 @@ export class LspConnection {
     return this.nextId
   }
 
-  /** Request termination of the server's process tree (SIGTERM, no escalation). */
+  /** Terminate the server's process tree (the seam's SIGTERM→grace→SIGKILL escalation; idempotent). */
   terminate(): void {
-    this.handle.kill('SIGTERM')
-  }
-
-  /** Force termination of the server's process tree. */
-  kill(): void {
-    this.handle.kill('SIGKILL')
+    this.handle.terminate()
   }
 
   /**
@@ -235,9 +230,10 @@ export class LspConnection {
       messages = this.decoder.push(chunk)
     } catch (error) {
       // A framing/JSON failure corrupts the stream position irrecoverably: fail the instance and
-      // SIGKILL the whole group so helper processes don't outlive the leader.
+      // terminate the whole group so helper processes don't outlive the leader (SIGTERM first, then
+      // the kill grace's SIGKILL — a misbehaving server still gets its bounded flush window).
       this.fail(asError(error))
-      this.handle.kill('SIGKILL')
+      this.handle.terminate()
       return
     }
     for (const message of messages) this.dispatch(message)
