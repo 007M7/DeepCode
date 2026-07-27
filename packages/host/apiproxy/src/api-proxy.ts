@@ -46,7 +46,7 @@ const DEFAULT_MAX_MESSAGES = 50
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 
-/** Bound cold-log stat fan-out so an aborted search stops launching new work. */
+/** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
 const COLD_SUMMARY_BATCH_SIZE = 16
 
 /** Surface message event types (the pagination counting unit). */
@@ -615,10 +615,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
         signal?.throwIfAborted()
         const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
-        items.push(...await Promise.all(
+        const settled = await Promise.allSettled(
           batch.map(meta => summarizeCold(persistence, meta, signal)),
-        ))
+        )
+        const summaries: SessionSummary[] = []
+        let rejected = false
+        let failure: unknown
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            summaries.push(result.value)
+          } else if (!rejected) {
+            rejected = true
+            failure = result.reason
+          }
+        }
+        if (rejected) throw failure
         signal?.throwIfAborted()
+        items.push(...summaries)
       }
     }
     items.sort((a, b) => b.updatedAt - a.updatedAt)

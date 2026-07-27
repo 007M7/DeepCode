@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { stat } from 'node:fs/promises'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -18,6 +19,11 @@ import {
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, stat: vi.fn(actual.stat) }
+})
 
 const sid = (value: string): SessionId => value as SessionId
 const defaults = { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }
@@ -774,6 +780,48 @@ describe('session.search', () => {
     })
     expect(list).toHaveBeenCalledOnce()
     expect(locateCalls).toBe(1)
+    expect(searchSessions).not.toHaveBeenCalled()
+  })
+
+  it('awaits every started cold-summary stat before returning cancellation', async () => {
+    const ctx = await baseContext()
+    const controller = new AbortController()
+    const cold = Array.from({ length: 16 }, (_, index) => header(`cold-${index}`, `/cold-${index}`))
+    const statGates = cold.map(() => Promise.withResolvers<{ mtimeMs: number }>())
+    const statMock = vi.mocked(stat)
+    statMock.mockClear()
+    for (const gate of statGates) {
+      statMock.mockImplementationOnce((() => gate.promise) as never)
+    }
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve(cold),
+      locate: (meta: SessionHeader) => ({ kind: 'jsonl', path: `/logs/${meta.id}.jsonl` }),
+    } as never)
+    const searchSessions = vi.fn()
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    let settled = false
+    const responsePromise = createApiProxy(ctx, defaults).sessions.search(
+      request('cancel-during-cold-stats'),
+      controller.signal,
+    ).finally(() => {
+      settled = true
+    })
+    await vi.waitFor(() => {
+      expect(statMock).toHaveBeenCalledTimes(16)
+    })
+
+    controller.abort()
+    statGates[0]!.resolve({ mtimeMs: 101 })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(settled).toBe(false)
+
+    for (const gate of statGates.slice(1)) gate.resolve({ mtimeMs: 102 })
+    const response = await responsePromise
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
     expect(searchSessions).not.toHaveBeenCalled()
   })
 
