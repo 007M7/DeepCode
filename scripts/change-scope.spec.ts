@@ -155,6 +155,20 @@ describe('change-scope', () => {
     expect(report.paths).toEqual({ committed: [], staged: [], unstaged: [], untracked: [] })
   })
 
+  it('preserves legal Unicode edge whitespace in branch and upstream names', () => {
+    const { root } = fixture()
+    const branch = '\u00a0topic\u3000'
+    const upstreamBranch = '\u3000upstream\u00a0'
+    git(root, ['switch', '-c', branch])
+    git(root, ['push', 'origin', `HEAD:refs/heads/${upstreamBranch}`])
+    git(root, ['branch', '--set-upstream-to', `origin/${upstreamBranch}`])
+
+    const report = jsonReport(root, 'origin/master')
+
+    expect(report.repository.branch).toBe(branch)
+    expect(report.repository.upstream).toBe(`origin/${upstreamBranch}`)
+  })
+
   it('reports an exact head above a non-master stacked base while dirty paths remain worktree-local', () => {
     const { root } = fixture()
     git(root, ['switch', '-c', 'foundation'])

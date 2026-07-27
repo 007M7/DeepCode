@@ -153,16 +153,16 @@ function currentBranch(root: string): string | null {
   const result = executeGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
   if (result.status === 1) return null
   if (result.status !== 0) throw new Error(`cannot inspect the current branch: ${failureDetail(result)}`)
-  return result.stdout.trim()
+  return stripGitLineTerminator(result.stdout)
 }
 
 function configuredUpstream(root: string, branch: string | null): string | null {
   if (branch === null) return null
-  const output = requireGit(
+  const output = stripGitLineTerminator(requireGit(
     root,
     ['for-each-ref', '--count=1', '--format=%(upstream:short)', `refs/heads/${branch}`],
     'cannot inspect the configured upstream',
-  ).trim()
+  ))
   return output === '' ? null : output
 }
 
