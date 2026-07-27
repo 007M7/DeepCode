@@ -15,7 +15,7 @@
   foo.zh.md: 89e6c98d92887913cadf06b2adb97f26cde4849b
   ```
 
-  用 blob hash 而不是 commit hash，这样同一个 PR 里改动的文件也能算出记录（`git hash-object foo.md`），一致性是纯内容比较。记录的 hash 还能还原任一侧上次确认时的确切文本（`git cat-file -p <hash>`），所以失去同步的配对是「把被改的一侧与其上次确认状态做 diff、再最小化地修补另一侧」，从不整篇重译。两侧对齐后，`pnpm run verify-translation-pairing --write` 重新记录两个 hash；那份 yaml diff 就是「确认一致」这个动作本身，可以被评审。
+  用 blob hash 而不是 commit hash，这样同一个 PR 里改动的文件也能算出记录（`git hash-object foo.md`），一致性是纯内容比较。记录的 hash 还能还原任一侧上次确认时的确切文本，所以失去同步的配对是「按被改一侧的 diff 最小化地修补另一侧」，从不整篇重译。`pnpm run gen-translation-brief <pair>` 会以能安全对齐的最窄粒度——先是有改动的 Markdown 单元，再是标题小节，最后是整篇文档——机械地汇集这次更新的工作集：被改一侧自上次确认以来的 diff、每个改动块的三方文本、改动触及的术语表行，以及有约束力的更新规则；仅落在配对中逐字节一致的围栏代码块内的改动可以直接算出，`--apply` 则经结构签名校验后把它拼接进对侧文件（[briefed-updates Agent Note](../../.agents/notes/implemented/process/2026-07-26-briefed-minimal-translation-updates.md)）。两侧对齐后，`pnpm run verify-translation-pairing --write <pair>` 重新记录两个 hash；那份 yaml diff 就是「确认一致」这个动作本身，可以被评审，也正因如此，`--write` 要求点名你确认过的配对（`--write --all` 是显式的全语料形式）。
 - **语言切换行。** 两个文件在各自 H1 标题之后立即互链：英文文件带 `English | [中文](foo.zh.md)`，中文文件带 `[English](foo.md) | 中文`。
 - **结构与另一侧一一对应。** 标题深度与顺序、列表类型、有序列表起始编号、列表项数量、表格行列数、链接目标与逐字节一致的代码块在配对两侧一一对应；完整保持规则见 [translation-rules.md](translation-rules.md)。既有 Markdown 门禁对 `.zh.md` 文件原样生效（`verify-md-wrap`、`verify-md-links`）。
 
@@ -31,7 +31,9 @@
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前配对状态（missing、out-of-sync 或 ok）。它从不失败；其中 missing 与 out-of-sync 行指出普通检查会拒绝的违规。
 
-这个门禁带来的实际规则是：**当一个 PR 修改了已配对文档的任一侧时，同一个 PR 更新另一侧并重新记录配对**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill（技能），再 `--write`），与本仓库既有的代码与 README 的 doc-sync 规则完全一致。留下失去同步的配对的 PR 会在 CI 变红。
+`pnpm run verify-translation-pairing <pair...>` 只检查被点名的配对——配对的三个文件中的任意一个（或其裸词干）都能点名它——因此更新循环几秒内就能验证自己的配对，而不必重新扫描全语料。`doc-sync` 与 CI 运行的是无参数的全语料形式；限定范围的绿灯在 PR 层面永远不能替代它。
+
+这个门禁带来的实际规则是：**当一个 PR 修改了已配对文档的任一侧时，同一个 PR 更新另一侧并重新记录配对**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill（技能），再 `--write <pair>`），与本仓库既有的代码与 README 的 doc-sync 规则完全一致。留下失去同步的配对的 PR 会在 CI 变红。
 
 把门禁的边界说白：**门禁通过意味着这组文档在当前内容上的一致性得到了确认，不代表确认本身正确可靠。** 它检查记录的 hash 与结构签名；它无法判断两侧是否真的在说同样的话，也无法判断措辞是否准确、术语是否得当、行文是否自然；这部分契约由评审者把关，见 [translation-rules.md](translation-rules.md)。重新记录了 hash 但另一侧翻得潦草的配对能通过门禁；它不得通过评审。
 

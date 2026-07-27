@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { Session, SessionId, canonicalHeader, foldRequestHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const CONFIG = { provider: 'mock', model: 'm' }
 
@@ -29,6 +30,10 @@ describe('headerEquals', () => {
   it('compares every canonical field and preserves tool order', () => {
     expect(headerEquals(base, structuredClone(base))).toBe(true)
     expect(headerEquals(base, { ...base, config: { provider: 'mock', model: 'other' } })).toBe(false)
+    expect(headerEquals(base, {
+      ...base,
+      config: { ...base.config, reasoningEffort: ReasoningEffortId('high') },
+    })).toBe(false)
     expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
     expect(headerEquals(base, { ...base, messagePrefix: [msg('other')] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [] })).toBe(false)

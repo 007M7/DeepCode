@@ -1,6 +1,7 @@
 /**
  * Derives the workspace browser tree from Host Workspace order and membership.
- * Unassigned Sessions trail under Ungrouped; only Intents targeting real Workspaces render.
+ * Unassigned Sessions trail under Ungrouped; only the selected blank Session
+ * remains visible.
  */
 import type { SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -31,13 +32,11 @@ export interface GroupNode {
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
   label: string
-  /** Total sessions in the group, including hidden ones. */
+  /** Total visible sessions in the group. */
   sessionCount: number
   expanded: boolean
   /** The group contains the selected session (active folder tint; supplied here so the renderer never scans). */
   containsCurrent: boolean
-  /** The frontend Session Intent points here: render one "New session" row. */
-  intentHere: boolean
   /** Visible roots (empty while the group is folded). */
   sessions: readonly SessionNode[]
 }
@@ -75,6 +74,16 @@ export function projectLabel(cwd: string | undefined): string {
 function byRecency(a: SessionSummary, b: SessionSummary): number {
   if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
   return a.id < b.id ? -1 : 1
+}
+
+/** Ordinary sessions are visible; among blank sessions, only the current one is visible. */
+function sessionVisible(session: SessionSummary, current: SessionId | undefined): boolean {
+  return !session.blank || session.id === current
+}
+
+/** A blank session is the selected Workspace's provisional New Session row. */
+function sessionTitle(session: SessionSummary): string {
+  return session.blank ? 'New Session' : session.displayTitle
 }
 
 /** Build one group's parent/child tree from an ordered member list. */
@@ -149,8 +158,9 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
-      members.push(summary)
       accounted.add(id)
+      if (!sessionVisible(summary, list.current)) continue
+      members.push(summary)
     }
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path, workspace.title, members, 'account',
@@ -158,7 +168,8 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
   }
   const stray = list.ids
     .map(id => list.byId[id])
-    .filter((s): s is SessionSummary => s !== undefined && !accounted.has(s.id))
+    .filter((s): s is SessionSummary =>
+      s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current))
   if (stray.length > 0) {
     groups.push(buildGroup(UNGROUPED_KEY, undefined, undefined, UNGROUPED_LABEL, stray, 'recency'))
   }
@@ -168,7 +179,7 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
 function sessionNode(s: SessionSummary, children: readonly SessionNode[], hasChildren: boolean, expanded: boolean): SessionNode {
   return {
     id: s.id,
-    title: s.displayTitle,
+    title: sessionTitle(s),
     children,
     hasChildren,
     expanded,
@@ -197,7 +208,7 @@ function buildVisible(g: Group, expandedSessions: ReadonlySet<string>): SessionN
 function searchVisible(g: Group, q: string): Set<SessionId> {
   const visible = new Set<SessionId>()
   for (const m of g.summaries.values()) {
-    if (!m.displayTitle.toLowerCase().includes(q)) continue
+    if (!sessionTitle(m).toLowerCase().includes(q)) continue
     let cur: SessionSummary | undefined = m
     while (cur !== undefined && !visible.has(cur.id)) {
       visible.add(cur.id)
@@ -226,13 +237,11 @@ function buildSearch(g: Group, visible: ReadonlySet<SessionId>): SessionNode[] {
  * Derive the nested workspace browser group structure.
  *
  * Normal mode: every group shows; sessions populate under expanded groups,
- * descending only into expanded sessions. A frontend Session Intent targeting
- * a real Workspace marks that group `intentHere` (rendered only while the
- * group is expanded; expansion stays viewer-owned). Search mode (non-blank query,
+ * descending only into expanded sessions. Search mode (non-blank query,
  * case-insensitive display-title substring): expansion state is ignored —
  * matched sessions and their ancestor chains are forced visible, groups
- * without a display-title or label hit are dropped, a label-only hit keeps
- * the bare group header, and Intent rows do not participate.
+ * without a display-title or label hit are dropped, and a label-only hit
+ * keeps the bare group header. Blank sessions are excluded everywhere.
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param view - local expansion arrays and search query.
@@ -246,36 +255,22 @@ export function deriveGroups(
   const q = view.query.trim().toLowerCase()
   const expandedProjects = new Set(view.expandedProjects)
   const expandedSessions = new Set(view.expandedSessions)
-  const intent = list.intent
-  const intentWorkspaceId = intent?.target.kind === 'workspace'
-    ? intent.target.workspaceId
-    : undefined
-  const currentAccount = list.current === undefined
-    ? undefined
-    : workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined
   const currentGroup = list.current === undefined
     ? undefined
-    : intent?.sessionId === list.current
-      ? intentWorkspaceId
-      : currentAccount ?? UNGROUPED_KEY
+    : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces)) {
-    const hasIntent = intentWorkspaceId !== undefined
-      && g.workspaceId !== undefined && intentWorkspaceId === g.workspaceId
-    const intentHere = q === '' && hasIntent
     if (q === '') {
-      // The intent never forces expansion — the viewer auto-expands the
-      // target group once (current-group effect); the toggle stays live.
       const expanded = expandedProjects.has(g.key)
       groups.push({
         key: g.key,
         workspaceId: g.workspaceId,
         cwd: g.cwd,
         label: g.label,
-        sessionCount: g.summaries.size + (hasIntent ? 1 : 0),
+        sessionCount: g.summaries.size,
         expanded,
         containsCurrent: g.key === currentGroup,
-        intentHere,
         sessions: expanded ? buildVisible(g, expandedSessions) : [],
       })
     } else {
@@ -286,10 +281,9 @@ export function deriveGroups(
         workspaceId: g.workspaceId,
         cwd: g.cwd,
         label: g.label,
-        sessionCount: g.summaries.size + (hasIntent ? 1 : 0),
+        sessionCount: g.summaries.size,
         expanded: visible.size > 0,
         containsCurrent: g.key === currentGroup,
-        intentHere: false,
         sessions: buildSearch(g, visible),
       })
     }
@@ -312,8 +306,8 @@ export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
     const s = list.byId[id]
-    if (s === undefined) continue
-    if (q !== '' && !s.displayTitle.toLowerCase().includes(q)) continue
+    if (s === undefined || !sessionVisible(s, list.current)) continue
+    if (q !== '' && !sessionTitle(s).toLowerCase().includes(q)) continue
     rows.push(s)
   }
   rows.sort(byRecency)

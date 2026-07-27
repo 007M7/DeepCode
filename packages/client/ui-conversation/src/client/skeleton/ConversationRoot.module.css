@@ -127,3 +127,23 @@
   flex-direction: column;
   min-height: 0;
 }
+
+/* Composer stack: dock strips above the input card (design §6 MIX order). */
+.composerStack {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hero phase: the composer stack (hero chrome + workspace row + card) is
+   flex-centered in the column; composer phase docks it at the bottom. Flex,
+   NOT absolute+transform: a transform would make this box the containing
+   block for position:fixed descendants (pickers/modals), shrinking them. */
+.composerHero {
+  align-self: center;
+  width: min(776px, calc(100% - 48px));
+  z-index: 1;
+}
+
+.root[data-phase='hero'] {
+  justify-content: center;
+}
