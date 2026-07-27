@@ -14,7 +14,7 @@ Status: implemented
 
 ### 自有池是什么
 
-`vm-backup`：一台 64 核虚拟机，4 个常驻 systemd 管理的运行器实例，另有 4 个已注册备用位。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：绿色 = 这套环境昨天刚被全量验证过。
+`vm-backup`：一台 64 核虚拟机，6 个常驻 systemd 管理的运行器实例。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：绿色 = 这套环境昨天刚被全量验证过。
 
 ### 切换步骤（仓库管理员，约 1 分钟，无需合并）
 
@@ -24,15 +24,12 @@ Status: implemented
 
 ### 切换期间的容量
 
-4 个常驻实例可承接正常 PR 流量。若出现排队，在虚拟机上把 4 个已注册的备用位拉起（无需 token——它们已注册）：
+6 个常驻实例可承接正常 PR 流量（该池平时唯一的稳态负载是每次 master 推送一个串行热备作业，故障切换时几乎全池可用）。若仍出现排队，用组织级注册 token（组织 Settings → Actions → Runners → New runner）追加注册实例——复制现有 runner 目录再跑 `config.sh`，每个约一分钟。
 
-```bash
-for i in 7 8 9 10; do cd /data_local/actions-runner-$i && sudo ./svc.sh install ubuntu && sudo ./svc.sh start; done
-```
 
 ### 切回
 
-删除 `DSH_CI_FAILOVER` 变量（或改为 `selfhosted` 以外的任何值），新的运行即解析回托管企业池。若启动过备用实例，将其停止。
+删除 `DSH_CI_FAILOVER` 变量（或改为 `selfhosted` 以外的任何值），新的运行即解析回托管企业池。若故障期间追加注册过实例，将其移除。
 
 ### 信任边界
 

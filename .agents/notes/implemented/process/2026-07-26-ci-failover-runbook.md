@@ -14,7 +14,7 @@ Each of the three required Linux jobs resolves its runner pool through the `DSH_
 
 ### What the in-house pool is
 
-`vm-backup`: one 64-core VM, four always-on systemd-managed runner instances, four registered spares. Check the latest `serial / linux (self-hosted standby)` run before switching: a green standby is verified-yesterday capacity.
+`vm-backup`: one 64-core VM, six always-on systemd-managed runner instances. Check the latest `serial / linux (self-hosted standby)` run before switching: a green standby is verified-yesterday capacity.
 
 ### Switch (repo admin, ~1 minute, no merge)
 
@@ -24,15 +24,12 @@ Each of the three required Linux jobs resolves its runner pool through the `DSH_
 
 ### Capacity during failover
 
-Four always-on instances absorb normal PR traffic. If queues build, bring the four registered spares online on the VM (no token needed — they are already registered):
+Six always-on instances absorb normal PR traffic (the pool's steady-state load is one serial standby job per master push, so failover capacity is effectively the full pool). If queues still build, register additional instances with an org registration token (org Settings → Actions → Runners → New runner) — cloning an existing runner directory and running `config.sh` takes about a minute per instance.
 
-```bash
-for i in 7 8 9 10; do cd /data_local/actions-runner-$i && sudo ./svc.sh install ubuntu && sudo ./svc.sh start; done
-```
 
 ### Switch back
 
-Delete the `DSH_CI_FAILOVER` variable (or set it to anything other than `selfhosted`). New runs resolve back to the hosted enterprise pools. Stop the spare instances if they were started.
+Delete the `DSH_CI_FAILOVER` variable (or set it to anything other than `selfhosted`). New runs resolve back to the hosted enterprise pools. Remove any extra instances that were registered during the incident.
 
 ### Trust boundary
 
