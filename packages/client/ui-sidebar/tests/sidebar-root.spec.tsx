@@ -26,7 +26,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
       startSession={startSession} toggleSidebar={toggleSidebar}
       renderSlot={((key: string, owner: SidebarSectionOwnerProps | SidebarSettingsOwnerProps) => {
         if (key === 'sidebar.settings') {
-          settingsOwner = owner as SidebarSettingsOwnerProps
+          settingsOwner = owner
           return <div data-testid="settings-seat" data-wide={owner.wide} />
         }
         regionOwner = owner as SidebarSectionOwnerProps

@@ -71,7 +71,7 @@ export function WorkspaceCreateFlow({
 
   const items: MenuEntry[] = [
     ...workspaces.map(workspace => ({
-      id: workspace.workspaceId as string,
+      id: workspace.workspaceId,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
       disabled: pickingFolder,

@@ -64,20 +64,20 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
     void writeClipboard(text).then((ok) => {
       if (!ok) return
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1000)
+      window.setTimeout(() => { setCopied(false) }, 1000)
     })
   }, [copied, trimmed])
 
   const body = html === undefined
     ? (
-        <pre className={css.plain}><code>{trimmed}</code></pre>
-      )
+      <pre className={css.plain}><code>{trimmed}</code></pre>
+    )
     : (
-        // eslint-disable-next-line react/no-danger -- shiki's output is a static
-        // span tree it generated from `code` (no user HTML passes through), the
-        // sanctioned innerHTML consumption path per shiki's own docs.
-        <div dangerouslySetInnerHTML={{ __html: html }} />
-      )
+  // eslint-disable-next-line react/no-danger -- shiki's output is a static
+  // span tree it generated from `code` (no user HTML passes through), the
+  // sanctioned innerHTML consumption path per shiki's own docs.
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    )
 
   return (
     <div ref={rootRef} className={clsx(css.block, 'md-code-block', className)}>

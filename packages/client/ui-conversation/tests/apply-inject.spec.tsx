@@ -39,7 +39,7 @@ const SCOPE_TAG: symbol = (() => {
       return Reflect.get(target, prop, receiver)
     },
   })
-  void scopeOf(spy as Context)
+  void scopeOf(spy)
   const symbol = recorded.find((p): p is symbol => typeof p === 'symbol')
   if (symbol === undefined) throw new Error('scopeOf probe recorded no symbol read')
   return symbol
@@ -73,7 +73,7 @@ async function bench() {
   const mint = (id: SessionId): Context => {
     let scoped = scopes.get(id)
     if (scoped === undefined) {
-      scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: id }) as Context
+      scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: id })
       scopes.set(id, scoped)
     }
     return scoped
@@ -234,11 +234,11 @@ describe('conversation slot inject surface', () => {
     const injectFn = entry.inject as unknown as (sessionId: SessionId) => ComposerBarInjected
     // Unknown session: sessions.scope answers nothing.
     ;(b.sessionsFake.scope as unknown) = () => undefined
-    expect(() => injectFn(ROOT).stop()).toThrow(/resolved no scope/)
+    expect(() => { injectFn(ROOT).stop() }).toThrow(/resolved no scope/)
     // A scope minted outside the service tree: no conversation service on it.
     const foreign = new Context()
     ;(b.sessionsFake.scope as unknown) = () => foreign.plugin(() => {}).ctx.extend({})
-    expect(() => injectFn(ROOT).stop()).toThrow(/unavailable through the session scope/)
+    expect(() => { injectFn(ROOT).stop() }).toThrow(/unavailable through the session scope/)
   })
 
   it('openDetails (chat view face) writes the selection through the store actions and opens the panel', async () => {

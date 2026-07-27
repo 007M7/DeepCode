@@ -145,10 +145,10 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
   const skipQuestion = (): void => {
     const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index
       ? {
-          selected: [], custom: '',
-          customOpen: (question.options?.length ?? 0) === 0,
-          skipped: true,
-        }
+        selected: [], custom: '',
+        customOpen: (question.options?.length ?? 0) === 0,
+        skipped: true,
+      }
       : item)
     setDrafts(nextDrafts)
     setError(null)

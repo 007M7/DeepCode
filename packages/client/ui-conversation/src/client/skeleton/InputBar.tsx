@@ -330,8 +330,8 @@ export function InputBar({
             onChange={onChange}
             onKeyDown={onKeyDown}
             onSelect={onSelect}
-            onCopy={e => { onCopyOrCut(e, false) }}
-            onCut={e => { onCopyOrCut(e, true) }}
+            onCopy={(e) => { onCopyOrCut(e, false) }}
+            onCut={(e) => { onCopyOrCut(e, true) }}
             onPaste={onPaste}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}

@@ -83,7 +83,7 @@ describe('tails', () => {
       byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
-    } as SessionListState)
+    })
     const props = (block: RunningToolCall | ToolResultNode) => ({
       callId: 'c1', toolName: 'bash', block, openDetails: vi.fn(),
       sessionId: sid, useSessions: bindSnapshotSelector(list),

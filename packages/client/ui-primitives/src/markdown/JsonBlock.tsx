@@ -23,7 +23,7 @@ export function JsonBlock({ label, payload, defaultOpen = false }: {
   }, [open, payload])
   return (
     <div className={css.root}>
-      <button type="button" className={css.toggle} onClick={() => setOpen((v) => !v)}>
+      <button type="button" className={css.toggle} onClick={() => { setOpen(v => !v) }}>
         {open ? '▾' : '▸'} {label}
       </button>
       {open && <pre className={css.body}>{body}</pre>}

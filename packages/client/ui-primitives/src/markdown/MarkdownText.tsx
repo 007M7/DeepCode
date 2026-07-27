@@ -27,25 +27,25 @@ const safeUrl: UrlTransform = url => sanitizeUrl(url)
 /** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
 function buildComponents(streaming: boolean): Components {
   return {
-  a: ({ href = '', children }) => {
-    const safeHref = sanitizeUrl(href)
-    if (safeHref === '') return <>{children}</>
-    const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
-    return (
-      <a
-        href={safeHref}
-        {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      >
-        {children}
-      </a>
-    )
-  },
-  img: ({ alt = '' }) => <span className={css.imageAlt}>{alt}</span>,
-  table: ({ children }) => (
-    <div className={css.tableScroll}>
-      <table>{children}</table>
-    </div>
-  ),
+    a: ({ href = '', children }) => {
+      const safeHref = sanitizeUrl(href)
+      if (safeHref === '') return <>{children}</>
+      const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
+      return (
+        <a
+          href={safeHref}
+          {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          {children}
+        </a>
+      )
+    },
+    img: ({ alt = '' }) => <span className={css.imageAlt}>{alt}</span>,
+    table: ({ children }) => (
+      <div className={css.tableScroll}>
+        <table>{children}</table>
+      </div>
+    ),
     // Fenced blocks route through the shared CodeBlock (shiki for registered
     // grammars, identical-geometry plain fallback for unknown/absent
     // languages); inline code keeps the default <code> path (the :not(pre)

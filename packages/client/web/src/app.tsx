@@ -26,7 +26,7 @@ export interface AssemblyDeps {
  */
 export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
   const { ctx } = deps
-  const sessions = ctx.get('sessions') as SessionsService | undefined
+  const sessions = ctx.get('sessions')
   if (sessions === undefined) throw new Error('shell assembly: sessions service unavailable')
   const useSessions = bindSnapshotSelector(sessions.list)
   const SessionDocumentTitle = (): ReactNode => {

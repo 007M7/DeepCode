@@ -86,7 +86,7 @@ export function AppFrame({
   actions,
   renderSlot,
 }: AppFrameProps) {
-  const panels = useStore((s) => s)
+  const panels = useStore(s => s)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 

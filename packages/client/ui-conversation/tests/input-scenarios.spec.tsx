@@ -100,7 +100,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   await ctx.plugin(SlashService).await()
   const slash = ctx.get('slash') as SlashService
   register?.(slash)
-  const actx = sessions.scope(sessionId)! as ClientContext
+  const actx = sessions.scope(sessionId)!
   const controller = slash.sessionOf(actx)
   const sink = vi.fn()
   const shell = new SessionInputShell({ actx, slash: () => controller, defaultSink: sink })
@@ -121,11 +121,11 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-    })) as InputBarProps['useSessions'],
+    })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
-    })) as InputBarProps['useWorkspaces'],
+    })),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -134,7 +134,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     variant: 'composer',
   }
   const view = render(<InputBar {...barProps} />)
-  const textarea = view.container.querySelector('textarea')! as HTMLTextAreaElement
+  const textarea = view.container.querySelector('textarea')!
   const type = (text: string): void => {
     fireEvent.change(textarea, { target: { value: text } })
   }
@@ -145,7 +145,7 @@ async function bench(executeImpl?: (line: string) => Promise<SubmitOutcome>) {
   const execute = vi.fn(executeImpl ?? ((line: string) =>
     Promise.resolve({ kind: 'success' as const, text: `已执行 ${line}` })))
   const { source, executed } = commandSource(COMMANDS, execute)
-  const base = await scopedBench((slash) => { slash.registerSource(source as never) })
+  const base = await scopedBench((slash) => { slash.registerSource(source) })
   return { ...base, execute, executed }
 }
 

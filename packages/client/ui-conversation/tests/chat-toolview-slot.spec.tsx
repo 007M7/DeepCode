@@ -42,7 +42,7 @@ function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
-  } as ConversationSnapshot
+  }
 }
 
 /** Test-owned AppFrame role: declares and renders the resident conversation area. */
@@ -252,7 +252,7 @@ describe('registrant load-order seam', () => {
       children: {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        },
+      },
     }, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject
