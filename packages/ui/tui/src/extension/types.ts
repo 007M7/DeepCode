@@ -5,7 +5,7 @@
  * the live pi-tui tree, focus controller, overlay handles, or terminal
  * lifecycle. Registrations and open overlays remain owned by the calling
  * Cordis fiber.
- * @module @deepseek-ai/dsh-tui/extension
+ * @module @deepseek-ai/dsh-tui/extension/types
  */
 
 /** Terminal component shape accepted from a trusted TUI extension. */

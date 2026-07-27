@@ -39,8 +39,8 @@ export async function mountDynamic(group: Fiber, plugin: Plugin): Promise<Fiber>
     // while the old mount still holds the name — teach the replace recipe.
     if (message.includes('already registered')) {
       throw new Error(
-        `${message} — to REPLACE something an earlier mount registered, first cordis_unmount that mount's id `
-        + '(find it with cordis_inspect what:"dynamic"), then mount the new version.',
+        `${message} — to REPLACE something an earlier temporary Plugin registered, first cordis_unmount that Plugin's id `
+        + '(find it with cordis_inspect what:"temporary"), then mount the new version.',
       )
     }
     throw error instanceof Error ? error : new Error(message)

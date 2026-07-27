@@ -2219,7 +2219,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSource',
-    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | (string & {});',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
   },
   {
     name: 'SkillSummary',
@@ -2504,58 +2504,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
-  },
-  {
-    name: 'TuiComponent',
-    declaration: 'export interface TuiComponent {\n    render(width: number): string[];\n    handleInput?(data: string): void;\n    wantsKeyRelease?: boolean;\n    invalidate(): void;\n}',
-  },
-  {
-    name: 'TuiFocusable',
-    declaration: 'export interface TuiFocusable {\n    focused: boolean;\n}',
-  },
-  {
-    name: 'TuiOverlayAnchor',
-    declaration: 'export type TuiOverlayAnchor = \'center\' | \'top-left\' | \'top-right\' | \'bottom-left\' | \'bottom-right\' | \'top-center\' | \'bottom-center\' | \'left-center\' | \'right-center\';',
-  },
-  {
-    name: 'TuiOverlayCloseReason',
-    declaration: 'export type TuiOverlayCloseReason = \'closed\' | \'aborted\' | \'owner-disposed\' | \'tui-disposed\' | \'error\';',
-  },
-  {
-    name: 'TuiOverlayHost',
-    declaration: 'export interface TuiOverlayHost {\n    readonly signal: AbortSignal;\n    readonly viewport: TuiViewport;\n    readonly theme: TuiTheme;\n    display(value: string): string;\n    invalidate(): void;\n    close(): void;\n}',
-  },
-  {
-    name: 'TuiOverlayMargin',
-    declaration: 'export interface TuiOverlayMargin {\n    readonly top?: number;\n    readonly right?: number;\n    readonly bottom?: number;\n    readonly left?: number;\n}',
-  },
-  {
-    name: 'TuiOverlayOptions',
-    declaration: 'export interface TuiOverlayOptions {\n    readonly width?: number | `${number}%`;\n    readonly minWidth?: number;\n    readonly maxHeight?: number | `${number}%`;\n    readonly anchor?: TuiOverlayAnchor;\n    readonly margin?: number | TuiOverlayMargin;\n}',
-  },
-  {
-    name: 'TuiOverlayOutcome',
-    declaration: 'export type TuiOverlayOutcome = {\n    readonly reason: Exclude<TuiOverlayCloseReason, \'error\'>;\n} | {\n    readonly reason: \'error\';\n    readonly error: unknown;\n};',
-  },
-  {
-    name: 'TuiOverlayRequest',
-    declaration: 'export interface TuiOverlayRequest {\n    readonly create: (host: TuiOverlayHost) => TuiComponent & Partial<TuiFocusable>;\n    readonly options?: TuiOverlayOptions;\n    readonly signal?: AbortSignal;\n}',
-  },
-  {
-    name: 'TuiOverlaySession',
-    declaration: 'export interface TuiOverlaySession {\n    readonly state: TuiOverlayState;\n    readonly closed: Promise<TuiOverlayOutcome>;\n    close(): Promise<TuiOverlayOutcome>;\n}',
-  },
-  {
-    name: 'TuiOverlayState',
-    declaration: 'export type TuiOverlayState = \'queued\' | \'active\' | \'closed\';',
-  },
-  {
-    name: 'TuiTheme',
-    declaration: 'export interface TuiTheme {\n    readonly text: (value: string) => string;\n    readonly muted: (value: string) => string;\n    readonly dim: (value: string) => string;\n    readonly accent: (value: string) => string;\n    readonly success: (value: string) => string;\n    readonly warning: (value: string) => string;\n    readonly error: (value: string) => string;\n    readonly bold: (value: string) => string;\n}',
-  },
-  {
-    name: 'TuiViewport',
-    declaration: 'export interface TuiViewport {\n    readonly columns: number;\n    readonly rows: number;\n}',
   },
   {
     name: 'TurnEndReason',

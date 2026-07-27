@@ -578,6 +578,15 @@ describe('mapStopReason / mapUsage', () => {
     'other side closed',
     'HTTP2 request did not get a response',
     'WebSocket closed unexpectedly',
+    // undici flattens a mid-stream socket drop to this bare word (its SocketError
+    // cause is discarded upstream before it reaches us).
+    'terminated',
+    'Premature close',
+    // pi-ai's per-provider throws when the wire closes before the terminal event.
+    'Anthropic stream ended before message_stop',
+    'OpenAI Responses stream ended before a terminal response event',
+    'openrouter stream ended without a terminal event',
+    'Stream ended without finish_reason',
   ])('maps pi-ai transport wording %j', (errorMessage) => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
