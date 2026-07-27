@@ -186,13 +186,13 @@ describe('Web session model selection', () => {
       reasoningEffort: 'max',
     })
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
+      'agent/request', 1, 0, signal, () => Promise.resolve(seed),
     )).resolves.toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
 
     expect((await ctx.systemPrompt.assemble()).variables)
       .toMatchObject({ provider: 'deepseek', model: 'private-preview' })
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 1, seed, signal, () => Promise.resolve(seed),
+      'agent/request', 1, 1, signal, () => Promise.resolve(seed),
     )).resolves.toMatchObject({
       provider: 'deepseek',
       model: 'private-preview',
