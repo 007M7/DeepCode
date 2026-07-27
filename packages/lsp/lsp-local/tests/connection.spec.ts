@@ -1,18 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { LspConnection } from '@deepseek-ai/dsh-lsp-local'
-import {
-  signalProcessGroup,
-  signalProcessTree,
-  taskkillProcessTree,
-  waitForTreeExit,
-} from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
-import type {
-  ConnectionWriter,
-  ProcessSignalRunner,
-  ProcessTreeOperations,
-  TaskkillRunner,
-} from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
@@ -23,7 +14,7 @@ let open: LspConnection[] = []
 
 afterEach(async () => {
   for (const conn of open) {
-    conn.kill()
+    conn.terminate()
     await conn.closed
   }
   open = []
@@ -39,11 +30,12 @@ function connect(
     command: process.execPath,
     args: [fixtureServer],
     cwd: process.cwd(),
-    env: { ...process.env as Record<string, string>, ...env },
+    env: { ...scrubbedParentEnv(), ...env },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
+    killGraceMs: 3_000,
     configuration: { setting: 42 },
-  }, (method, params) => {
+  }, spawnSubprocess, (method, params) => {
     seen?.push({ method, params })
     return onServerRequest(method, params)
   })
@@ -59,16 +51,25 @@ describe('LspConnection', () => {
     expect(conn.pid).toBeGreaterThan(0)
   })
 
+  it('forwards explicit DSH_* env entries to the child', async () => {
+    // A configured DSH_* fact must reach the child: the seam scrubs only the
+    // ambient namespace, and the explicit entry merges after that scrub. The
+    // fixture echoes the named variable back as hover text.
+    const conn = connect({ LSP_FAKE_ECHO_ENV: 'DSH_LSP_TEST_FACT', DSH_LSP_TEST_FACT: 'managed' })
+    await conn.request('initialize', { capabilities: {} })
+    expect(await conn.request('textDocument/hover', {})).toEqual({ contents: 'managed' })
+  })
+
   it('rejects a request when the server replies with an error', async () => {
     const conn = connect({ LSP_FAKE_ERROR: '1' })
     await conn.request('initialize', { capabilities: {} })
     await expect(conn.request('textDocument/hover', {})).rejects.toThrow(/server refused the request/)
   })
 
-  it('treats signaling an already-closed child as a teardown race', async () => {
+  it('treats terminating an already-closed child as a teardown race', async () => {
     const conn = connectScript('')
     await conn.closed
-    expect(() => { conn.kill() }).not.toThrow()
+    expect(() => { conn.terminate() }).not.toThrow()
   })
 
   it('answers a server workspace/configuration request from static config', async () => {
@@ -148,11 +149,12 @@ function connectScript(script: string, maxStderrBytes = 100_000, writer?: Connec
     command: process.execPath,
     args: ['-e', script],
     cwd: process.cwd(),
-    env: { ...process.env as Record<string, string> },
+    env: scrubbedParentEnv(),
     maxMessageBytes: 16_000_000,
     maxStderrBytes,
+    killGraceMs: 3_000,
     configuration: null,
-  }, () => Promise.resolve(null), writer)
+  }, spawnSubprocess, () => Promise.resolve(null), writer)
   open.push(conn)
   return conn
 }
@@ -166,8 +168,9 @@ describe('LspConnection edge behavior', () => {
       env: {},
       maxMessageBytes: 1000,
       maxStderrBytes: 1000,
+      killGraceMs: 3_000,
       configuration: null,
-    }, () => Promise.resolve(null))
+    }, spawnSubprocess, () => Promise.resolve(null))
     open.push(conn)
     await expect(conn.request('initialize', {})).rejects.toThrow()
   })
@@ -247,72 +250,6 @@ describe('LspConnection edge behavior', () => {
     await expect(conn.request('initialize', {})).resolves.toEqual({ ok: true })
   })
 })
-
-describe('process-tree signaling', () => {
-  it('forwards POSIX process-group signals through the host runner', () => {
-    const run: ProcessSignalRunner = vi.fn(() => true)
-    signalProcessGroup(-42, 'SIGKILL', run)
-    expect(run).toHaveBeenCalledWith(-42, 'SIGKILL')
-  })
-
-  it('waits for tree exit and stops when its bound aborts', async () => {
-    const isAlive = vi.fn()
-      .mockReturnValueOnce(true)
-      .mockReturnValue(false)
-    const yieldNow = vi.fn(() => Promise.resolve())
-    await expect(waitForTreeExit(isAlive, undefined, yieldNow)).resolves.toBe(true)
-    expect(yieldNow).toHaveBeenCalledOnce()
-
-    const controller = new AbortController()
-    controller.abort()
-    await expect(waitForTreeExit(() => true, controller.signal, yieldNow)).resolves.toBe(false)
-  })
-
-  it('uses taskkill for a Windows tree and a negative pid for a POSIX group', () => {
-    const operations = fakeProcessTreeOperations()
-    signalProcessTree('win32', 42, 'SIGTERM', operations)
-    expect(operations.taskkill).toHaveBeenCalledWith(42)
-    expect(operations.signal).not.toHaveBeenCalled()
-
-    signalProcessTree('linux', 42, 'SIGKILL', operations)
-    expect(operations.signal).toHaveBeenCalledWith(-42, 'SIGKILL')
-  })
-
-  it('surfaces a Windows taskkill failure without downgrading to the direct child', () => {
-    const fallback = fakeProcessTreeOperations()
-    vi.mocked(fallback.taskkill).mockImplementation(() => { throw new Error('taskkill unavailable') })
-    expect(() => { signalProcessTree('win32', 42, 'SIGTERM', fallback) }).toThrow(/taskkill unavailable/)
-    expect(fallback.killChild).not.toHaveBeenCalled()
-  })
-
-  it('tolerates a POSIX tree-signaling race after the direct child is already gone', () => {
-    const posixGone = fakeProcessTreeOperations()
-    vi.mocked(posixGone.signal).mockImplementation(() => { throw new Error('group gone') })
-    vi.mocked(posixGone.killChild).mockImplementation(() => { throw new Error('child gone') })
-    expect(() => { signalProcessTree('linux', 42, 'SIGKILL', posixGone) }).not.toThrow()
-  })
-
-  it('runs taskkill for the full tree, accepts an absent tree, and rejects command failures', () => {
-    const success: TaskkillRunner = vi.fn(() => ({ status: 0 }))
-    taskkillProcessTree(42, success)
-    expect(success).toHaveBeenCalledWith('taskkill', ['/PID', '42', '/T', '/F'], { stdio: 'ignore' })
-
-    expect(() => { taskkillProcessTree(42, () => ({ status: 128 })) }).not.toThrow()
-
-    const spawnFailure = new Error('cannot spawn taskkill')
-    expect(() => { taskkillProcessTree(42, () => ({ status: null, error: spawnFailure })) }).toThrow(spawnFailure)
-    expect(() => { taskkillProcessTree(42, () => ({ status: 1 })) }).toThrow(/status 1/)
-  })
-})
-
-/** Create observable process-tree operations without touching host processes. */
-function fakeProcessTreeOperations(): ProcessTreeOperations {
-  return {
-    signal: vi.fn(),
-    killChild: vi.fn(),
-    taskkill: vi.fn(),
-  }
-}
 
 /** Poll a predicate until it holds or a deadline elapses. */
 async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {

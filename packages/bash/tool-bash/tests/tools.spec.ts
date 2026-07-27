@@ -17,6 +17,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome } from '../src/background.ts'
@@ -32,8 +33,9 @@ async function setup() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(LocalSubprocessService)
+  ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
-  ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
   await ctx.plugin(ToolBash)
   return ctx
 }
@@ -46,8 +48,9 @@ async function setupWithTasks() {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(LocalSubprocessService)
+  ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
-  ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
   await ctx.plugin(ToolBash)
   return ctx
 }
@@ -275,8 +278,9 @@ describe('bash tool', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSubprocessService)
+    ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
     await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     await ctx.plugin(ToolBash)
     const result = await call(ctx, 'bash', { command: 'for i in $(seq 1 100); do printf "line-%04d\\n" $i; done', description: 'test command' })
     expect(text(result)).toContain('[output truncated; full output: ')
@@ -383,6 +387,7 @@ describe('bash tool', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(1)
@@ -400,6 +405,7 @@ describe('bash tool', () => {
     // inject: ['tools', 'bash'] keeps the plugin pending until bash exists.
     await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(0)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(ctx.tools.schemas()).toHaveLength(1)
@@ -411,6 +417,7 @@ describe('bash tool', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
     ToolBash.apply(ctx, {})
     const schema = ctx.tools.schemas()[0]!
@@ -526,6 +533,7 @@ describe('background execution through the task runtime', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
     await ctx.plugin(ToolBash, { enableRunInBackground: false })
 

@@ -257,7 +257,7 @@ Implementations must honor these semantics:
 - run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
 - start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
 - BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
-- Disposal kills all running background processes and awaits their exit.
+- A still-running background process is stopped and awaited when its owning composition tears down. With the subprocess seam that boundary is `ctx.subprocess` disposal, so a background process survives an executor-only reload.
 
 ```ts cordis-catalog
 /**
@@ -286,7 +286,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:48`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
@@ -315,7 +315,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../core-data-structures/subprocess.md) · [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
@@ -1582,6 +1582,31 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
+
+## `ctx.subprocess` — `SubprocessService` (abstract seam)
+
+Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
+- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- Disposal of the service terminates all still-running managed processes and awaits their exit.
+
+```ts cordis-catalog
+/**
+ * Start one managed child process from a fully-specified spec; this seam
+ * applies no defaults.
+ * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
+ * @returns the live process handle (streams/readers, signalling, outcome promise).
+ */
+abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+```
+
+Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
+
+Source: [`packages/subprocess/subprocess/src/index.ts:88`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
