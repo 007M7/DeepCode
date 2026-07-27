@@ -33,16 +33,33 @@ wine_bin=''
 for candidate in "$(command -v wine || true)" "$(command -v wine64 || true)" /usr/lib/wine/wine64; do
   if [ -n "$candidate" ] && [ -x "$candidate" ]; then wine_bin="$candidate"; break; fi
 done
+# GNU coreutils sha256sum on Linux; perl shasum ships with macOS. Both
+# accept the same "<hash>  <file>" --check input.
+checksum_tool=''
+if command -v sha256sum > /dev/null; then
+  checksum_tool='sha256sum'
+elif command -v shasum > /dev/null; then
+  checksum_tool='shasum'
+fi
 missing=()
 [ -n "$wine_bin" ] || missing+=('wine (apt: wine | brew: wine-stable)')
 command -v curl > /dev/null || missing+=('curl')
 command -v unzip > /dev/null || missing+=('unzip')
+[ -n "$checksum_tool" ] || missing+=('sha256sum or shasum (apt: coreutils | macOS ships shasum)')
 if ! command -v pnpm > /dev/null; then corepack enable > /dev/null 2>&1 || true; fi
 command -v pnpm > /dev/null || missing+=('pnpm (corepack enable)')
 if (( ${#missing[@]} > 0 )); then
   printf 'wine-windows-gates: missing required tool: %s\n' "${missing[@]}" >&2
   exit 1
 fi
+
+# Verify file $2 against SHA-256 hex $1 with whichever tool preflight found.
+verify_sha256() {
+  case "$checksum_tool" in
+    sha256sum) printf '%s  %s\n' "$1" "$2" | sha256sum --check - > /dev/null ;;
+    shasum) printf '%s  %s\n' "$1" "$2" | shasum -a 256 --check - > /dev/null ;;
+  esac
+}
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/dsh-wine-gates.XXXXXX")"
 cleanup() {
@@ -68,9 +85,11 @@ provision_node() {
     zip="$cache_dir/node-$version-win-x64.zip"
     if [ ! -f "$zip" ]; then
       curl -fsSL -o "$zip.tmp" "https://nodejs.org/dist/$version/node-$version-win-x64.zip"
-      curl -fsSL "https://nodejs.org/dist/$version/SHASUMS256.txt" \
-        | awk -v a="node-$version-win-x64.zip" -v f="$zip.tmp" '$2 == a { print $1 "  " f }' \
-        | sha256sum --check - > /dev/null
+      local expected
+      expected="$(curl -fsSL "https://nodejs.org/dist/$version/SHASUMS256.txt" \
+        | awk -v a="node-$version-win-x64.zip" '$2 == a { print $1; exit }')"
+      [ -n "$expected" ] || { echo "wine-windows-gates: no SHASUMS256 entry for node-$version-win-x64.zip" >&2; exit 1; }
+      verify_sha256 "$expected" "$zip.tmp"
       mv "$zip.tmp" "$zip"
     fi
   else
@@ -115,7 +134,24 @@ start=$SECONDS
 provision_node & node_pid=$!
 boot_wine & wine_pid=$!
 snapshot_and_install & install_pid=$!
-for task_pid in "$node_pid" "$wine_pid" "$install_pid"; do wait "$task_pid"; done
+# Wait for EVERY child before judging any: a bare `wait` under set -e would
+# exit on the first failure and let the EXIT trap delete $scratch while the
+# other children still run inside it. Named statuses also make the report
+# point at the root cause instead of a downstream symptom.
+node_status=0; wait "$node_pid" || node_status=$?
+wine_status=0; wait "$wine_pid" || wine_status=$?
+install_status=0; wait "$install_pid" || install_status=$?
+provision_failed=0
+report_provision() {
+  if (( $2 != 0 )); then
+    echo "wine-windows-gates: FAILED $1 (exit $2)" >&2
+    provision_failed=$2
+  fi
+}
+report_provision 'Windows Node provisioning' "$node_status"
+report_provision 'wineboot' "$wine_status"
+report_provision 'workspace snapshot + pnpm install' "$install_status"
+if (( provision_failed != 0 )); then exit "$provision_failed"; fi
 node_win="$(cat "$scratch/node-win-path")"
 echo "wine-windows-gates: provisioned in $((SECONDS - start))s (wine $("$wine_bin" --version 2> /dev/null), node $(basename "$(dirname "$node_win")"))"
 
