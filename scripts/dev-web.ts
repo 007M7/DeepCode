@@ -17,8 +17,8 @@
  * `watch` through API-level inline config (tsdown workspace mode fills inline
  * keys under each package's file config, and no package config defines it).
  */
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { globSync, readFileSync } from 'node:fs'
+import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'tsdown'
 
@@ -33,20 +33,9 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
  */
 function discoverPluginDirs(): string[] {
   const dirs: string[] = []
-  for (const group of readdirSync(join(repoRoot, 'packages'), { withFileTypes: true })) {
-    if (!group.isDirectory()) continue
-    for (const pkg of readdirSync(join(repoRoot, 'packages', group.name), { withFileTypes: true })) {
-      if (!pkg.isDirectory()) continue
-      let manifest: { dshClient?: { platform?: unknown } }
-      try {
-        manifest = JSON.parse(
-          readFileSync(join(repoRoot, 'packages', group.name, pkg.name, 'package.json'), 'utf8'),
-        ) as { dshClient?: { platform?: unknown } }
-      } catch {
-        continue // no package.json (support dirs, scratch): not a workspace package
-      }
-      if (manifest.dshClient?.platform === 'web') dirs.push(`packages/${group.name}/${pkg.name}`)
-    }
+  for (const manifestPath of globSync('packages/*/*/package.json', { cwd: repoRoot }).sort()) {
+    const manifest = JSON.parse(readFileSync(join(repoRoot, manifestPath), 'utf8')) as { dshClient?: { platform?: unknown } }
+    if (manifest.dshClient?.platform === 'web') dirs.push(dirname(manifestPath).split(sep).join('/'))
   }
   return dirs
 }
