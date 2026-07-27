@@ -8,13 +8,13 @@
 
 ## 目录生命周期
 
-该插件通过 `agent/session-prefix` 提供初始的用户角色 `<system-reminder>` 目录。之后每个模型步骤开始前，它都会观察 `ctx.skills.snapshot()`，并针对 `skill` 工具的精确可见性，以及按顺序渲染的 `name` 和 `description` 条目计算 digest。它根据调用会话的 cwd 解析 skill，且只列出这些摘要；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。
+每次 `agent/step`，该插件都会使用调用会话的 cwd 调用 `ctx.skills.snapshot()`，将该步骤的 abort signal 转发给发现，应用 `skill` 工具的精确可见性，并按顺序渲染 `name` 和 `description` 条目。如果先前不存在目录且该视图非空，插件会在请求之前注入初始的持久用户角色 `<system-reminder>`。目录消息只包含这些摘要；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。
 
-该 digest 变化时，`agent.inject()` 会记录一条持久的用户角色消息，其中包含完整替换目录和元数据 `{ kind: 'skill-catalog', version: 1, digest }`。空替换会显式停用较早目录中的名称。恢复后，最新且仍可见的元数据充当比较基线；若压缩（compaction）遮蔽了替换消息，模型步骤前的观察会改以会话前缀为基线，并在必要时重新发布当前完整目录。提供方快照不完整时，插件不会发送任何内容，并会保留最后一次完整的模型视图，以便在下一步骤重试。若不存在先前目录且当前视图为空，则不需要 tombstone。
+该 digest 覆盖 `<available_skills>` 标签之间精确渲染的文本。插件从后向前扫描持久会话事件且不复制，并以自身发布的最新一条可识别且仍可见的目录消息作为比较基线。digest 变化时，`agent.inject()` 会记录一条包含完整替换目录的持久用户角色消息；空替换会显式停用较早的名称。如果没有目录仍然可见，但历史中存在可识别目录，则说明压缩（compaction）已将其遮蔽，下一次完整观察会重新建立当前目录。提供方快照不完整时，插件不会发送任何内容，并会保留最后一次完整的模型视图，以便在下一步骤重试。若不存在先前目录且当前视图为空，则不需要 tombstone。
 
 如果最初没有模型可调用 skill，则省略目录；如果该 agent 的工具视图排除已发布的 `skill` 工具，或解析出一个同名作用域遮蔽，也会省略目录。可见性变更参与 digest 计算，使提示词指引、模型可见 schema 和可执行分派保持对齐。
 
-`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[会话前缀 Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) 定义了初始消息仅存在于请求中、记录于 header 的生命周期；[skill 目录热刷新 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) 负责定义持久替换。
+`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[skill 目录热刷新 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) 负责定义持久初始目录和替换目录的生命周期。
 
 ## 工具：`skill`
 
@@ -32,11 +32,11 @@
 
 ## 模型体验
 
-### 会话前缀
+### 会话目录
 
 #### 模型所见
 
-如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条数据依赖条目。初始目录是用户角色会话前缀。后续成员关系、描述或可见性的变化会使用同一个 `<available_skills>` 信封追加完整替换；删除所有 skill 时，会追加一个空信封，并明确指示不得使用旧名称。
+如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会在第一个请求之前收到下方目录模板，它是一条持久的用户角色消息，其中包含每个已排序 skill 的一条数据依赖条目。后续成员关系、描述或可见性的变化会使用同一个 `<available_skills>` 信封追加完整替换；删除所有 skill 时，会追加一个空信封，并明确指示不得使用旧名称。
 
 ##### Skill 目录模板
 
@@ -58,7 +58,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### KV 缓存影响
 
-初始目录保持前缀稳定。动态变更作为该前缀之后的仅追加历史，因此现有可重用 token 保持不变，替换消息和后续轮次则形成新的后缀。
+初始持久目录追加在现有可重用前缀之后。动态变更作为该目录之后的仅追加历史，因此较早的可重用 token 保持不变，每条新追加的目录和后续轮次都会形成新的后缀。新建或恢复的实例如果 digest 发生变化，可能会从新追加的目录位置起影响缓存重用。
 
 ### 工具 schema
 

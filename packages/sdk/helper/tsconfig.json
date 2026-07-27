@@ -34,6 +34,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../subprocess/subprocess"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

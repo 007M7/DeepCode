@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-06-30-interception-seams.md: 81799f4c6e3e7a4c6b9605cd97f5728b99d11995
-2026-06-30-interception-seams.zh.md: 65ae16842c632641e7ac65908162f4784dc6e1e0
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-30-interception-seams.md
+2026-06-30-interception-seams.md: 4658983e1f098ecd199eecec4408e7c2f134cbf7
+2026-06-30-interception-seams.zh.md: 13b7c56829412773111fcf6d75cc717c51d49c7b

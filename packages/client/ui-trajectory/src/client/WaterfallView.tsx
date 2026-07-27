@@ -24,8 +24,8 @@ export interface WaterfallExtraProps {
 
 export function WaterfallView({ useSession, pxPerNode }: ConvViewProps & WaterfallExtraProps) {
   const scale = pxPerNode ?? PX_PER_NODE
-  const nodes = useSession((s) => s.nodes)
-  const codeDispatches = useSession((s) => s.codeDispatches)
+  const nodes = useSession(s => s.nodes)
+  const codeDispatches = useSession(s => s.codeDispatches)
   const spans = useMemo(() => deriveSpans(nodes), [nodes])
   const subSpans = useMemo(() => deriveSubSpans(nodes, codeDispatches), [nodes, codeDispatches])
   if (spans.length === 0) return <div className={css.root}><p className={css.empty}>暂无瀑布数据</p></div>
@@ -50,7 +50,7 @@ export function WaterfallView({ useSession, pxPerNode }: ConvViewProps & Waterfa
                 />
               )}
             </div>
-            {(subSpans.get(span.turn) ?? []).map((lane) => (
+            {(subSpans.get(span.turn) ?? []).map(lane => (
               <div key={lane.callId} className={css.subRow} data-subspan style={{ paddingLeft: i * 12 + 24 }}>
                 <span className={css.subTag}>{lane.name}</span>
                 <span

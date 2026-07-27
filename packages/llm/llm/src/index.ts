@@ -16,6 +16,8 @@ import type {
   Message,
   StreamChunk,
 } from './types.ts'
+import { resolveRetryPolicy } from './retry-policy.ts'
+import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
 import type { LlmCallConfig } from './call-config.ts'
@@ -28,10 +30,11 @@ export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
+export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
-export { isLlmAdapterFailure, llmFailureOf } from './adapter-failure.ts'
+export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -135,6 +138,15 @@ export abstract class LlmAdapter {
   }
 
   /**
+   * Return the provider-owned retry policy captured with this route.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @returns a resolved policy, or `undefined` to use the normal defaults.
+   */
+  providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined {
+    return undefined
+  }
+
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * The result is advisory: an adapter may accept unlisted model ids, and
    * consumers must not turn absence into request rejection.
@@ -204,7 +216,13 @@ export class LlmService extends Service {
           throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
         }
         unique.add(provider)
-        registrations.push({ adapter, provider: { id: info.id, name: info.name } })
+        const retryPolicy = adapter.providerRetryPolicy(provider)
+          ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
+        registrations.push({
+          adapter,
+          provider: { id: info.id, name: info.name },
+          retryPolicy,
+        })
       }
       for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
       yield () => {
@@ -222,6 +240,15 @@ export class LlmService extends Service {
    */
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
+  }
+
+  /**
+   * Resolve the retry policy captured when one provider route was registered.
+   * @param provider - registered provider route to inspect.
+   * @returns the provider-owned policy, with normal defaults already resolved.
+   */
+  providerRetryPolicy(provider: string): ResolvedRetryPolicy {
+    return this.registration(provider).retryPolicy
   }
 
   /**
@@ -459,6 +486,7 @@ export class LlmService extends Service {
     let iterator: AsyncIterator<StreamChunk>
     try {
       const registration = prepared?.registration ?? this.registration(options.provider)
+      failures.retryPolicy = registration.retryPolicy
       const resolvedConfig = prepared === undefined
         ? await this.resolveCallConfigFor(registration, options, options.signal)
         : prepared.config
@@ -530,7 +558,7 @@ export class LlmService extends Service {
     options: GenerateOptions,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncIterable<StreamChunk> {
-    const failures: AdapterFailureScope = new WeakMap<Error, LlmFailure>()
+    const failures: AdapterFailureScope = { failures: new WeakMap<Error, LlmFailure>() }
     const stream = this.ctx.waterfall(
       this,
       'llm/stream',
@@ -544,6 +572,7 @@ export class LlmService extends Service {
 interface AdapterRegistration {
   readonly adapter: LlmAdapter
   readonly provider: LlmProviderInfo
+  readonly retryPolicy: ResolvedRetryPolicy
 }
 
 export default LlmService

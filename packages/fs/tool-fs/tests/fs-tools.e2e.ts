@@ -29,10 +29,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     // (config.cwd = workdir) is the workspace.
     const agent = ctx.agentLoop.create(SessionId('fs-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{ type: 'text', text:
+    agent.followup({ content: [{ type: 'text', text:
       'Create a file named note.txt containing exactly the line: status: draft. '
       + 'Then read it back, then edit it to replace the literal word draft with final. '
-      + 'Tell me when done.' }])
+      + 'Tell me when done.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // Assert the filesystem effect independently of the model response.
@@ -61,8 +61,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
         meta: { cwd: sessionDir },
         agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
       })
-      handle.agent.followup([{ type: 'text', text:
-        'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }])
+      handle.agent.followup({ content: [{ type: 'text', text:
+        'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }], source: { kind: 'user' } })
       await waitForIdle(ctx, handle.agent)
 
       // The file is in the SESSION dir, not the config dir.

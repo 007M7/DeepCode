@@ -37,7 +37,25 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
 }
 
 function agentForCwd(cwd: string): Agent {
-  return { session: { header: { cwd } } } as unknown as Agent
+  const id = SessionId(`tool-skill-${cwd}`)
+  const session = new Session(id, [], { version: 0, id, createdAt: 0, cwd })
+  return {
+    ctx: new Context(),
+    id,
+    options: {},
+    session,
+    status: 'idle',
+    acceptsNextStep: false,
+    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
+      return AgentMessageId('stub')
+    },
+    cancel() {},
+    whenIdle: () => Promise.resolve(),
+  }
 }
 
 function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
@@ -46,19 +64,15 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     options: {},
     session,
     status: 'running',
+    acceptsNextStep: false,
     ctx: new Context(),
+    send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
-    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
-    inject(content, options) {
-      session.append('user/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-        ...(options?.meta === undefined ? {} : { meta: options.meta }),
-      }, { surfaceOp: 'append' })
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
-    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -72,14 +86,21 @@ function openMessageTurn(session: Session, turn = 1): void {
   }, { surfaceOp: 'append' })
 }
 
-async function firePreStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/pre-step', turn, step, new AbortController().signal)
+async function fireStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
+  await agentEvents(ctx, agent).serial('agent/step', turn, step, new AbortController().signal)
 }
 
-function catalogUpdates(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
+function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
   return session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
     && event.data.source.kind === 'plugin'
     && event.data.source.plugin === 'tool-skill')
+}
+
+function catalogContent(entries: string[]): Message['content'] {
+  return [{
+    type: 'text',
+    text: ['<system-reminder>', '<available_skills>', ...entries, '</available_skills>', '</system-reminder>'].join('\n'),
+  }]
 }
 
 async function composePrefix(ctx: Context, cwd: string, signal = new AbortController().signal): Promise<Message[]> {
@@ -87,11 +108,8 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 }
 
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
-  const empty: Message[] = []
-  return await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, signal,
-    () => Promise.resolve(empty),
-  )
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, signal)
+  return agent.session.deriveMessages()
 }
 
 async function mintAgentScope(ctx: Context, subject: string | Agent): Promise<{ agent: Agent; scope: Scope }> {
@@ -131,7 +149,7 @@ describe('dsh-tool-skill', () => {
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['skill'])
   })
 
-  it('forwards the session-prefix abort signal to skill discovery', async () => {
+  it('forwards the step abort signal to skill discovery', async () => {
     const home = await tempDir('tool-prefix-signal')
     const ctx = await setup(home)
     let seenSignal: AbortSignal | undefined
@@ -152,7 +170,7 @@ describe('dsh-tool-skill', () => {
     expect(seenSignal).toBe(controller.signal)
   })
 
-  it('contributes a stable name-and-description catalog through the session prefix', async () => {
+  it('injects a stable durable name-and-description catalog at the first step', async () => {
     const home = await tempDir('tool-catalog')
     const ctx = await setup(home, { catalogDescriptionMaxLength: 50 })
     ctx.skills.register({
@@ -171,10 +189,9 @@ describe('dsh-tool-skill', () => {
       provider: 'runtime',
       content: 'A body.',
     })
-    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => [
-      { role: 'user', content: [{ type: 'text', text: 'later contribution' }] },
-      ...await next(),
-    ])
+    ctx.on('agent/step', (agent) => {
+      agent.inject({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } })
+    })
 
     const prefix = await composePrefix(ctx, '/workspace')
 
@@ -207,7 +224,7 @@ describe('dsh-tool-skill', () => {
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/workspace') }))).not.toContain('<available_skills>')
   })
 
-  it('does not contribute a session-prefix message when no skills are available', async () => {
+  it('does not inject a catalog when no skills are available', async () => {
     const home = await tempDir('tool-empty-catalog')
     const ctx = await setup(home)
 
@@ -233,25 +250,26 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
-    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
+    await composePrefixForAgent(ctx, agent)
+    expect(catalogMessages(session)).toEqual([])
     failing = false
     ctx.skills.invalidateProvider(provider)
-    await firePreStep(ctx, agent, 1, 1)
+    await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogUpdates(session)).toEqual([])
+    expect(catalogMessages(session)).toEqual([])
   })
 
-  it('records an empty baseline when pre-step runs before prefix composition', async () => {
-    const home = await tempDir('tool-empty-pre-step')
+  it('records an empty baseline across repeated step observations', async () => {
+    const home = await tempDir('tool-empty-step')
     const ctx = await setup(home)
-    const session = new Session(SessionId('empty-pre-step'))
+    const session = new Session(SessionId('empty-step'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
-    await firePreStep(ctx, agent, 1, 1)
-    await firePreStep(ctx, agent, 1, 2)
+    await fireStep(ctx, agent, 1, 1)
+    await fireStep(ctx, agent, 1, 2)
 
-    expect(catalogUpdates(session)).toEqual([])
+    expect(catalogMessages(session)).toEqual([])
   })
 
   it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {
@@ -268,8 +286,8 @@ describe('dsh-tool-skill', () => {
     openMessageTurn(session)
 
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
-    await firePreStep(ctx, agent, 1, 1)
-    expect(catalogUpdates(session)).toEqual([])
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
 
     const disposeSecond = ctx.skills.register({
       name: 'second-skill',
@@ -277,26 +295,25 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'Second body.',
     })
-    await firePreStep(ctx, agent, 1, 2)
+    await fireStep(ctx, agent, 1, 2)
 
-    const addition = catalogUpdates(session)[0]
+    const addition = catalogMessages(session)[1]
     if (addition?.type !== 'user/message') throw new Error('expected catalog addition')
-    expect(addition.data.meta).toMatchObject({ kind: 'skill-catalog', version: 1 })
     expect(JSON.stringify(addition.data.content)).toContain('first-skill')
     expect(JSON.stringify(addition.data.content)).toContain('second-skill')
 
     disposeSecond()
     disposeFirst()
-    await firePreStep(ctx, agent, 1, 3)
+    await fireStep(ctx, agent, 1, 3)
 
-    const removal = catalogUpdates(session)[1]
+    const removal = catalogMessages(session)[2]
     if (removal?.type !== 'user/message') throw new Error('expected catalog removal')
     expect(JSON.stringify(removal.data.content)).toContain('No skills are currently available')
     expect(JSON.stringify(removal.data.content)).not.toContain('first-skill')
     expect(JSON.stringify(removal.data.content)).not.toContain('second-skill')
   })
 
-  it('resumes from the latest valid visible catalog metadata', async () => {
+  it('resumes from the latest valid visible catalog content', async () => {
     const home = await tempDir('tool-catalog-resume')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -309,28 +326,33 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
     session.append('user/message', {
-      content: [{ type: 'text', text: 'old catalog' }],
+      content: catalogContent(['- `old-skill`: Old skill']),
       source: { kind: 'plugin', plugin: 'tool-skill' },
-      meta: { kind: 'skill-catalog', version: 1, digest: 'old-digest' },
     }, { surfaceOp: 'append' })
     session.append('user/message', {
-      content: [{ type: 'text', text: 'malformed metadata' }],
+      content: [{ type: 'text', text: 'missing catalog markers' }],
       source: { kind: 'plugin', plugin: 'tool-skill' },
-      meta: { kind: 'skill-catalog', version: 1, digest: 42 },
     }, { surfaceOp: 'append' })
     session.append('user/message', {
-      content: [{ type: 'text', text: 'non-record metadata' }],
+      content: [{ type: 'text', text: '<available_skills>\nmissing closing marker' }],
       source: { kind: 'plugin', plugin: 'tool-skill' },
-      meta: [],
+    }, { surfaceOp: 'append' })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }],
+      source: { kind: 'plugin', plugin: 'tool-skill' },
+    }, { surfaceOp: 'append' })
+    session.append('user/message', {
+      content: [{ type: 'reasoning', text: 'not a user-role catalog block' }],
+      source: { kind: 'plugin', plugin: 'tool-skill' },
     }, { surfaceOp: 'append' })
 
-    await firePreStep(ctx, agent, 1, 1)
+    await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogUpdates(session)).toHaveLength(4)
-    expect(JSON.stringify(catalogUpdates(session).at(-1)?.data.content)).toContain('resumed-skill')
+    expect(catalogMessages(session)).toHaveLength(6)
+    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('resumed-skill')
   })
 
-  it('re-establishes a replacement catalog after compaction shadows its metadata', async () => {
+  it('re-establishes the current catalog after compaction hides its durable message', async () => {
     const home = await tempDir('tool-catalog-compaction')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -343,27 +365,20 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
-    ctx.skills.register({
-      name: 'second-skill',
-      description: 'Second skill',
-      source: 'runtime',
-      content: 'Second body.',
-    })
-    await firePreStep(ctx, agent, 1, 1)
-    const replacement = catalogUpdates(session)[0]
-    if (replacement === undefined) throw new Error('expected replacement catalog')
+    const initial = catalogMessages(session)[0]
+    if (initial === undefined) throw new Error('expected initial catalog')
     session.append('user/message', {
       content: [{ type: 'text', text: 'compacted history' }],
       source: { kind: 'plugin', plugin: 'compact' },
     }, {
-      surfaceOp: { op: 'replace', start: replacement.seq, end: replacement.seq },
-      sourceEventSeqs: [replacement.seq],
+      surfaceOp: { op: 'replace', start: initial.seq, end: initial.seq },
+      sourceEventSeqs: [initial.seq],
     })
 
-    await firePreStep(ctx, agent, 1, 2)
+    await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogUpdates(session)).toHaveLength(2)
-    expect(JSON.stringify(catalogUpdates(session).at(-1)?.data.content)).toContain('second-skill')
+    expect(catalogMessages(session)).toHaveLength(2)
+    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('first-skill')
   })
 
   it('keeps body-only edits out of the catalog and loads the latest body on demand', async () => {
@@ -377,8 +392,8 @@ describe('dsh-tool-skill', () => {
 
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('Stable description')
     await writeSkill(root, 'body-skill', 'Stable description', 'Second body.')
-    await firePreStep(ctx, agent, 1, 1)
-    expect(catalogUpdates(session)).toEqual([])
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
@@ -416,9 +431,9 @@ describe('dsh-tool-skill', () => {
       },
     })
     disposeStable()
-    await firePreStep(ctx, agent, 1, 1)
+    await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogUpdates(session)).toEqual([])
+    expect(catalogMessages(session)).toHaveLength(1)
   })
 
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
@@ -432,9 +447,10 @@ describe('dsh-tool-skill', () => {
     scope.ctx.tools.restrict({ deny: ['skill'] })
 
     expect(ctx.tools.get('skill', agent)).toBeUndefined()
-    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
-    await firePreStep(ctx, agent, 1, 1)
-    expect(catalogUpdates(session)).toEqual([])
+    await composePrefixForAgent(ctx, agent)
+    expect(catalogMessages(session)).toEqual([])
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toEqual([])
     expect(await composePrefix(ctx, '/workspace')).toHaveLength(1)
     await scope.dispose()
   })

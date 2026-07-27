@@ -80,10 +80,19 @@ class ScriptedTuiAdapter extends LlmAdapter {
       throw new Error('the scripted TUI request did not apply the selected model and reasoning effort')
     }
     const lastMessage = options.messages.at(-1)
-    const lastText = (lastMessage?.content ?? [])
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
+    // The loop appends plugin-sourced context (the plan-mode notice, the
+    // tool-skill catalog) AFTER the admitted prompt, so the scripted trigger
+    // may sit one or more user messages back: scan the whole trailing run of
+    // user-role messages since the last assistant message.
+    const trailingUserTexts: string[] = []
+    for (let index = options.messages.length - 1; index >= 0; index--) {
+      const message = options.messages[index]
+      if (message?.role !== 'user') break
+      for (const block of message.content) {
+        if (block.type === 'text') trailingUserTexts.push(block.text)
+      }
+    }
+    const lastText = trailingUserTexts.join('\n')
     if (lastText.includes(DEFAULT_MODE_PROBE)) {
       if (options.system?.includes('Stay in plan mode for this scripted TUI test.')) {
         throw new Error('the scripted TUI request retained plan guidance after /plan off')

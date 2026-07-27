@@ -1,0 +1,59 @@
+version: 2
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    exclude-paths:
+      # Vendored Cordis sources follow vendor/README.md instead of registry updates.
+      - "vendor/**"
+      # This independently locked pnpm workspace has its own update entry below.
+      - "native/landlock-run/**"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:01"
+      timezone: "Asia/Shanghai"
+    cooldown:
+      default-days: 30
+    labels:
+      - "cleanup"
+      - "area/infra"
+
+  - package-ecosystem: "npm"
+    directory: "/native/landlock-run"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:01"
+      timezone: "Asia/Shanghai"
+    cooldown:
+      default-days: 30
+    labels:
+      - "cleanup"
+      - "area/infra"
+
+  - package-ecosystem: "uv"
+    directory: "/python/sdk"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:01"
+      timezone: "Asia/Shanghai"
+    cooldown:
+      default-days: 30
+    labels:
+      - "cleanup"
+      - "area/infra"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:01"
+      timezone: "Asia/Shanghai"
+    cooldown:
+      default-days: 30
+    labels:
+      - "cleanup"
+      - "area/infra"

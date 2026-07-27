@@ -21,6 +21,10 @@
     reasoningEffort: max
 
 # Local executor for the app bundle's bash tool.
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:

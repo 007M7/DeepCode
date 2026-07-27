@@ -48,7 +48,7 @@ describe('ACP prompt lifecycle', () => {
 
   it('rejects an ordinary plugin failure through the same prompt boundary', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
-    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
+    harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .rejects.toThrow(/turn failed: plugin pre-step failed/)
@@ -72,7 +72,7 @@ describe('ACP prompt lifecycle', () => {
     harness.ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        agent.inject([{ type: 'text', text: 'context' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } })
       }
     })
 
@@ -165,5 +165,41 @@ describe('ACP prompt lifecycle', () => {
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'two' }] }))
       .resolves.toEqual({ stopReason: 'end_turn' })
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('next') })
+  })
+
+  it('a retry turn adopts the prompt instead of rejecting at the failed turn end', async () => {
+    harness = await makeBridgeHarness({ script: [errorResponse('transient boom'), textResponse('recovered')] })
+    // A recovery policy: schedule one retry for the failed request.
+    let retried = false
+    harness.ctx.on('agent/request-error', async (_subject) => {
+      if (!retried) {
+        retried = true
+        return { kind: 'retry' }
+      }
+    })
+    const sessionId = await newSession(harness)
+    const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(result.stopReason).toBe('end_turn')
+    await vi.waitFor(() => { expect(messageText(harness!)).toBe('recovered') })
+  })
+
+  it('a failed turn with no retry still rejects, at quiescence', async () => {
+    harness = await makeBridgeHarness({ script: [errorResponse('terminal boom')] })
+    let offered = 0
+    harness.ctx.on('agent/request-error', async () => { offered += 1 })
+    const sessionId = await newSession(harness)
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: terminal boom/)
+    expect(offered).toBe(1)
+  })
+
+  it('an admission-blocked prompt settles cancelled instead of hanging', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    harness.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy said no' }))
+    const sessionId = await newSession(harness)
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .resolves.toEqual({ stopReason: 'cancelled' })
+    // The blocked prompt opened no turn and streamed nothing.
+    expect(messageText(harness)).toBe('')
   })
 })

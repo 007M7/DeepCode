@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,9 +6,10 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
-import { escalateProcessTree } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
@@ -38,7 +39,7 @@ function makeInstance(
     command: process.execPath,
     args: [fixtureServer],
     cwd: ws,
-    env: { ...process.env as Record<string, string>, ...env },
+    env: { ...scrubbedParentEnv(), ...env },
     configuration: { setting: 42 },
     initializationOptions: { init: true },
     maxMessageBytes: 16_000_000,
@@ -46,7 +47,7 @@ function makeInstance(
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
     ...overrides,
-  }, writer)
+  }, spawnSubprocess, writer)
   live.push(instance)
   return instance
 }
@@ -67,7 +68,7 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     command: process.execPath,
     args: ['-e', script],
     cwd: ws,
-    env: { ...process.env as Record<string, string> },
+    env: scrubbedParentEnv(),
     configuration: null,
     initializationOptions: null,
     maxMessageBytes: 16_000_000,
@@ -75,7 +76,7 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
     ...overrides,
-  })
+  }, spawnSubprocess)
   live.push(instance)
   return instance
 }
@@ -254,14 +255,6 @@ describe('LspInstance query and abort', () => {
 })
 
 describe('LspInstance disposal', () => {
-  it('escalates only when the process tree survives its grace period', () => {
-    const forceKill = vi.fn()
-    escalateProcessTree(false, forceKill)
-    expect(forceKill).toHaveBeenCalledOnce()
-    escalateProcessTree(true, forceKill)
-    expect(forceKill).toHaveBeenCalledOnce()
-  })
-
   it('lets a server finish protocol exit before signal escalation', async () => {
     const marker = join(root, 'graceful-exit.log')
     const instance = makeInstance({

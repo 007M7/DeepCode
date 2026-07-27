@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Local filesystem provider for the `ctx.skills` registry.
 
-This package implements one skill source. It scans local project, custom, and user skill roots, parses `SKILL.md` or flat Markdown skill files, and registers the provider on `ctx.skills`. The registry remains in `@deepseek-ai/dsh-skill`; the session-prefix catalog and model-facing loader tool remain in `@deepseek-ai/dsh-tool-skill`.
+This package implements one skill source. It scans local project, custom, and user skill roots, parses `SKILL.md` or flat Markdown skill files, and registers the provider on `ctx.skills`. The registry remains in `@deepseek-ai/dsh-skill`; the durable session catalogs and model-facing loader tool remain in `@deepseek-ai/dsh-tool-skill`.
 
 ## Plugin
 
@@ -60,7 +60,7 @@ Indirectly, through `dsh-tool-skill`, which renders this provider's invocable na
 
 #### KV Cache effect
 
-Watcher invalidation can cause the named consumer to append a replacement catalog after the reusable session prefix. Body-only edits leave the catalog digest unchanged.
+Watcher invalidation can cause the named consumer to append a replacement catalog to the existing request history. Body-only edits leave the catalog digest unchanged.
 
 ## Known Limitations and Deferred Work
 

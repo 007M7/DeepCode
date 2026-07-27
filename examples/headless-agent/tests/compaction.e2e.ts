@@ -46,12 +46,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     })
     const agent = ctx.agentLoop.create(SessionId('e2e-compaction'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Read file1.txt, file2.txt, file3.txt, and file4.txt one at a '
         + 'time using cat (a separate bash command for each). After reading all four, tell me how '
         + 'many files you read and the number mentioned in file1.txt.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]

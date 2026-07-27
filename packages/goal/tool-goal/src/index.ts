@@ -6,7 +6,6 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -18,7 +17,6 @@ import {
   goalToolExecution,
   requireDirectHuman,
 } from './authority.ts'
-import type { GoalToolExecution } from './authority.ts'
 
 export const name = 'tool-goal'
 export const inject = ['agents', 'goals', 'tools', 'systemPrompt']
@@ -184,30 +182,9 @@ function present(title: string, kind: 'read' | 'other', rawInput?: unknown): Gen
   return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
 }
 
-/** Remember whether one autonomous terminal report should stop this turn. */
-function observeMutation(
-  terminalTurns: WeakMap<Agent, number>,
-  execution: GoalToolExecution,
-  autonomousTerminal: boolean,
-): void {
-  if (!autonomousTerminal) {
-    terminalTurns.delete(execution.agent)
-    return
-  }
-  terminalTurns.set(execution.agent, execution.start.data.turn)
-}
-
 /** Register the three Codex-shaped goal tools and their shared policy section. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
-  // A stale entry cannot match a later loop turn because turn numbers increase
-  // monotonically within the agent's fixed session.
-  const terminalTurns = new WeakMap<Agent, number>()
-  ctx.on('agent/turn-stop', (agent, turn) => {
-    if (terminalTurns.get(agent) !== turn) return undefined
-    terminalTurns.delete(agent)
-    return { action: 'stop' }
-  })
   ctx.systemPrompt.section({
     name: 'tool:goal',
     order: 114,
@@ -248,7 +225,6 @@ export function apply(ctx: Context, config: Config): void {
         objective: args.objective,
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
       })
-      observeMutation(terminalTurns, execution, false)
       return Promise.resolve(goalValue(goal))
     },
     presentCall: args => present('Create goal', 'other', args.objective),
@@ -290,7 +266,6 @@ export function apply(ctx: Context, config: Config): void {
           throw new HarnessError('blocked_reason is valid only with action blocked', 'GOAL_TOOL_INVALID_UPDATE')
         }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
-        observeMutation(terminalTurns, execution, false)
         return Promise.resolve(goalValue(goal))
       }
       if (args.action === 'pause' || args.action === 'resume') {
@@ -304,7 +279,6 @@ export function apply(ctx: Context, config: Config): void {
         const goal = args.action === 'pause'
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
-        observeMutation(terminalTurns, execution, false)
         return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
@@ -335,7 +309,7 @@ export function apply(ctx: Context, config: Config): void {
           code: 'model-reported',
           message: args.blocked_reason as string,
         })
-      observeMutation(terminalTurns, execution, authority.kind === 'goal-round')
+      if (authority.kind === 'goal-round') exec.concludeTurn()
       return Promise.resolve(goalValue(goal))
     },
     presentCall: args => present(

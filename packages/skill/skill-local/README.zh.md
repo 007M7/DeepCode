@@ -4,7 +4,7 @@
 
 `ctx.skills` 注册表的本地文件系统提供方。
 
-该包实现一个 skill 来源。它扫描本地项目、自定义和用户 skill 根，解析 `SKILL.md` 或平铺 Markdown skill 文件，并将提供方注册到 `ctx.skills`。注册表仍位于 `@deepseek-ai/dsh-skill`；会话前缀目录和面向模型的加载器工具仍位于 `@deepseek-ai/dsh-tool-skill`。
+该包实现一个 skill 来源。它扫描本地项目、自定义和用户 skill 根，解析 `SKILL.md` 或平铺 Markdown skill 文件，并将提供方注册到 `ctx.skills`。注册表仍位于 `@deepseek-ai/dsh-skill`；持久会话目录和面向模型的加载器工具仍位于 `@deepseek-ai/dsh-tool-skill`。
 
 ## 插件
 
@@ -60,7 +60,7 @@ Skill 可以是单层目录 bundle（`<name>/SKILL.md`），也可以是平铺 M
 
 #### KV 缓存影响
 
-watcher 触发的失效可促使指定的消费方在可复用会话前缀之后追加替换目录。仅涉及正文的编辑不会改变目录 digest。
+watcher 触发的失效可促使指定的消费方在现有请求历史中追加替换目录。仅涉及正文的编辑不会改变目录 digest。
 
 ## 已知限制与待完成工作
 

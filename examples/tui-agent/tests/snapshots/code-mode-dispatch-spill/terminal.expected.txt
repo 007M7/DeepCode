@@ -1,65 +1,57 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "Using ONE run_code program: call — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=26 bufferRow=26
+cursor hidden column=7 viewportRow=26 bufferRow=26
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Using ONE run_code program: call"
   style 1-32 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| "▌ "
-  style 0-0 fg=bright-blue
-5| "▌ You                                                                                               "
-  style 0-0 fg=bright-blue
-  style 2-4 fg=bright-blue bold
-6| "▌ Using ONE run_code program: call the bash tool exactly once with the command seq 1 200 | awk      "
-  style 0-0 fg=bright-blue
-  style 79-99 fg=cyan
-7| "▌ '{printf \"line %04d: the quick brown fox jumps over the lazy dog\\n\", $1}', then return ONLY the   "
-  style 0-0 fg=bright-blue
-  style 2-74 fg=cyan
-8| "▌ number of lines in its output. Reply with just that number and stop.                              "
-  style 0-0 fg=bright-blue
-9| "▌ "
-  style 0-0 fg=bright-blue
-10| <blank>
-11| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-12| " The user wants me to write a single run_code program that calls bash exactly once with a specific  "
-  style 1-99 fg=bright-black italic
-13| " command, then returns only the number of lines in its output.                                      "
-  style 1-61 fg=bright-black italic
-14| <blank>
-15| "▌ "
-  style 0-0 fg=green
-16| "▌ ✓ Count lines in seq/awk output                                                                   "
-  style 0-0 fg=green
-  style 2-2 fg=green bold
-  style 3-32 bold
-17| "▌ 200                                                                                               "
-  style 0-0 fg=green
-18| "▌ "
-  style 0-0 fg=green
-19| <blank>
-20| " Reasoning                                                                                          "
-  style 1-9 fg=bright-black italic
-21| " The result is 200 lines. The user wants me to reply with just that number and stop.                "
-  style 1-83 fg=bright-black italic
-22| <blank>
-23| " Assistant                                                                                          "
-  style 1-9 fg=bright-magenta bold
-24| " 200                                                                                                "
-25| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-26| "                                                                                                    "
-  style 1-1 inverse
-27| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-28| "deepseek-v4-flash  /workspace/project  ↑123 ↓208  cache 99%  3% c"
-  style 0-93 dim
-  style 96-99 dim
-29-35| <blank>
+4| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+5| "Using ONE run_code program: call the bash tool exactly once with the command seq 1 200 | awk        "
+  style 77-99 fg=cyan
+6| "'{printf \"line %04d: the quick brown fox jumps over the lazy dog\\n\", $1}', then return ONLY the     "
+  style 0-72 fg=cyan
+7| "number of lines in its output. Reply with just that number and stop.                                "
+8| <blank>
+9| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+10| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+11| "The user wants me to write a single run_code program that calls bash exactly once with a specific   "
+  style 0-99 fg=bright-black italic
+12| "command, then returns only the number of lines in its output.                                       "
+  style 0-60 fg=bright-black italic
+13| <blank>
+14| "● Tool / run_code"
+  style 0-16 fg=green
+15| "Count lines in seq/awk output                                                                       "
+16| "200                                                                                                 "
+17| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+18| <blank>
+19| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+20| "Reasoning                                                                                           "
+  style 0-8 fg=bright-black italic
+21| "The result is 200 lines. The user wants me to reply with just that number and stop.                 "
+  style 0-82 fg=bright-black italic
+22| "200                                                                                                 "
+23| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
+  style 0-46 dim
+24| <blank>
+25| "/workspace/project  deepseek-v4-flash  ↑123 ↓208  cache 99%  3% c"
+  style 0-52 fg=bright-blue bold
+  style 55-71 fg=bright-black
+  style 74-93 fg=bright-black
+  style 96-99 fg=bright-black
+26| " dsh ◍                                                                                              "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+27-35| <blank>

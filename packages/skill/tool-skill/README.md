@@ -8,13 +8,13 @@ Requires `ctx.agents`, `ctx.tools`, and `ctx.skills` (`inject: ['agents', 'tools
 
 ## Catalog lifecycle
 
-The plugin contributes the initial user-role `<system-reminder>` catalog through `agent/session-prefix`. Before every later model step it observes `ctx.skills.snapshot()` and computes a digest over exact `skill` tool visibility plus the ordered rendered `name` and `description` entries. It resolves skills for the calling session's cwd and lists only those summaries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog.
+At every `agent/step`, the plugin calls `ctx.skills.snapshot()` for the calling session's cwd, forwards the step abort signal to discovery, applies exact `skill` tool visibility, and renders the ordered `name` and `description` entries. When no prior catalog exists and that view is non-empty, it injects an initial durable user-role `<system-reminder>` before the request. Catalog messages contain only those summaries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog.
 
-When that digest changes, `agent.inject()` records a durable user-role message containing the complete replacement catalog and metadata `{ kind: 'skill-catalog', version: 1, digest }`. An empty replacement explicitly retires names from earlier catalogs. The latest still-visible metadata supplies the comparison baseline across replay or plugin reload. If compaction shadows that replacement, the next pre-step falls back to the loop's initial-prefix baseline and re-establishes the current catalog when needed. An incomplete provider snapshot emits nothing and preserves the last-good model view for retry on the next step. If no prior catalog exists and the current view is empty, no tombstone is necessary.
+The digest covers the exact rendered text between the `<available_skills>` tags. The plugin scans durable session events backwards without copying them and derives the comparison baseline from the newest recognizable visible catalog message it sourced. When the digest changes, `agent.inject()` records a durable user-role message containing the complete replacement catalog; an empty replacement explicitly retires earlier names. If no catalog remains visible but a recognizable historical catalog exists, compaction hid it and the next complete observation re-establishes the current catalog. An incomplete provider snapshot emits nothing and preserves the last-good model view for retry on the next step. If no prior catalog exists and the current view is empty, no tombstone is necessary.
 
 The catalog is omitted when no model-invocable skills are initially available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. Visibility changes participate in the digest, keeping prompt guidance, model-visible schema, and executable dispatch aligned.
 
-`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [session-prefix Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) defines the request-only, header-logged lifecycle of the initial message; the [skill catalog hot-refresh Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) owns durable replacements.
+`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [skill catalog hot-refresh Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) owns the durable initial catalog and replacement lifecycle.
 
 ## Tool: `skill`
 
@@ -32,11 +32,11 @@ Tool execution does not call `agent.inject()`. Its freshly loaded result is alre
 
 ## Model Experience
 
-### Session prefix
+### Session catalog
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below, with one data-dependent entry per sorted skill. The initial catalog is a user-role session prefix. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names.
 
 ##### Skill catalog template
 
@@ -58,7 +58,7 @@ Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; n
 
 #### KV Cache effect
 
-The initial catalog remains prefix-stable. Dynamic changes are append-only history after that prefix, so existing reusable tokens stay intact while the replacement and later turns form a new suffix.
+The initial durable catalog is appended after the existing reusable prefix. Dynamic changes are append-only history after that catalog, so earlier reusable tokens stay intact while each newly appended catalog and later turns form a new suffix. A new or resumed instance with a changed digest may affect cache reuse from the newly appended catalog position.
 
 ### Tool schema
 

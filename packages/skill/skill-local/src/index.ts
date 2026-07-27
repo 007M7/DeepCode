@@ -37,6 +37,7 @@ const USER_AGENTS_RANK = 500
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
+const BUNDLED_RANK = 600
 
 export const name = 'skill-local'
 export const inject = ['skills']
@@ -61,6 +62,8 @@ export interface Config {
   watchMaxProjects?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  bundledSkillDir?: string
 }
 
 export const Config: Schema<Config> = z.object({
@@ -73,6 +76,7 @@ export const Config: Schema<Config> = z.object({
   watchPollIntervalMs: z.number().default(DEFAULT_WATCH_POLL_INTERVAL_MS),
   watchMaxProjects: z.number().default(DEFAULT_WATCH_MAX_PROJECTS),
   watchFollowSymlinks: z.boolean().default(true),
+  bundledSkillDir: z.string(),
 })
 
 interface SkillRoot {
@@ -81,6 +85,7 @@ interface SkillRoot {
   rank: number
   skipSystem?: boolean
   projectRoot?: string
+  trustedHost?: boolean
 }
 
 interface SkillRootEntry {
@@ -132,12 +137,15 @@ export class LocalSkillProvider implements SkillProvider {
   private readonly agentsHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
+  private readonly bundledSkillDir: string | undefined
 
   constructor(private readonly ctx: Context, config: Config = {}) {
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, this, resolveWatchConfig(config))
+    const bundledSkillDir = config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR
+    this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
 
   /**
@@ -165,7 +173,7 @@ export class LocalSkillProvider implements SkillProvider {
    */
   async get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined> {
     const locator = candidate.locator as LocalLocator
-    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal)
+    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal, candidate.source === 'bundled')
     if (parsed === undefined) return undefined
     return {
       name: parsed.name,
@@ -207,6 +215,9 @@ export class LocalSkillProvider implements SkillProvider {
       ...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })),
       { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
       { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+      ...this.bundledSkillDir === undefined
+        ? []
+        : [{ path: this.bundledSkillDir, source: 'bundled' as const, rank: BUNDLED_RANK, trustedHost: true }],
     )
     return roots
   }
@@ -622,7 +633,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandida
         ? { path: entry.path, directory: root.path }
         : undefined
     if (locator === undefined) continue
-    const parsed = await parseSkillFile(locator.path, ctx)
+    const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
     if (parsed === undefined) continue
     skills.push({
       name: parsed.name,
@@ -643,7 +654,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandida
 
 async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
   const fs = optionalFileSystem(ctx)
-  if (fs !== undefined) return await listSkillRootEntriesFromFileSystem(root, fs)
+  if (fs !== undefined && root.trustedHost !== true) return await listSkillRootEntriesFromFileSystem(root, fs)
   return await listSkillRootEntriesFromNode(root, ctx)
 }
 
@@ -685,8 +696,8 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   return result
 }
 
-async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal): Promise<ParsedSkill | undefined> {
-  const raw = await readSkillText(ctx, path, signal)
+async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, trustedHost = false): Promise<ParsedSkill | undefined> {
+  const raw = await readSkillText(ctx, path, signal, trustedHost)
   signal?.throwIfAborted()
   if (raw === undefined) {
     return undefined
@@ -726,10 +737,10 @@ function optionalFileSystem(ctx: Context): FileSystem | undefined {
   return ctx.get('fs')
 }
 
-async function readSkillText(ctx: Context, path: string, signal?: AbortSignal): Promise<string | undefined> {
+async function readSkillText(ctx: Context, path: string, signal?: AbortSignal, trustedHost = false): Promise<string | undefined> {
   signal?.throwIfAborted()
   const fs = optionalFileSystem(ctx)
-  if (fs !== undefined) {
+  if (fs !== undefined && !trustedHost) {
     return await readSkillTextFromFileSystem(ctx, fs, path, signal)
   }
   try {

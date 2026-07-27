@@ -1,5 +1,5 @@
 /**
- * Session-prefix skill catalog and model-facing `skill` loader tool.
+ * Durable session skill catalog and model-facing `skill` loader tool.
  *
  * @module @deepseek-ai/dsh-tool-skill
  */
@@ -7,17 +7,17 @@
 import { createHash } from 'node:crypto'
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
-const CATALOG_META_KIND = 'skill-catalog'
-const CATALOG_META_VERSION = 1
+const CATALOG_ENTRIES_START = '<available_skills>\n'
+const CATALOG_ENTRIES_END = '\n</available_skills>'
 const PLUGIN_SOURCE = { kind: 'plugin', plugin: name } as const
 
 /** Model-facing skill catalog configuration. */
@@ -33,14 +33,13 @@ export const Config: z<Config> = z.object({
 
 /**
  * Register the model-facing skill loader and its visibility-matched
- * session-prefix catalog. The catalog is emitted only when the calling agent
+ * durable session catalog. The catalog is emitted only when the calling agent
  * resolves this plugin's exact tool registration; a restriction or scoped
  * same-name shadow therefore removes both the schema and its call guidance.
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
-  const baselineBySession = new WeakMap<object, string>()
 
   const skillTool = defineTool({
     name: 'skill',
@@ -121,41 +120,24 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
-  ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
-    const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
-    const snapshot = toolVisible
-      ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
-      : { skills: [], complete: true }
-    const rest = await next()
-    signal.throwIfAborted()
-    if (!snapshot.complete) return rest
-    const digest = catalogDigest(toolVisible, snapshot.skills, catalogDescriptionMaxLength)
-    baselineBySession.set(agent.session, digest)
-    if (!toolVisible || snapshot.skills.length === 0) return rest
-    return [renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength), ...rest]
-  })
-
-  ctx.on('agent/pre-step', async (agent, _turn, _step, signal) => {
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
     const snapshot = toolVisible
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
       : { skills: [], complete: true }
     signal.throwIfAborted()
     if (!snapshot.complete) return
-    const digest = catalogDigest(toolVisible, snapshot.skills, catalogDescriptionMaxLength)
-    const effective = latestVisibleCatalogDigest(agent) ?? baselineBySession.get(agent.session)
-    if (effective === digest) return
-    if (effective === undefined && snapshot.skills.length === 0) {
-      baselineBySession.set(agent.session, digest)
-      return
-    }
-    agent.inject(
-      renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength).content,
-      {
-        source: PLUGIN_SOURCE,
-        meta: { kind: CATALOG_META_KIND, version: CATALOG_META_VERSION, digest },
-      },
-    )
+    const digest = catalogDigest(snapshot.skills, catalogDescriptionMaxLength)
+    const history = catalogHistory(agent)
+    if (history.visibleDigest === digest) return
+    if (!history.published && snapshot.skills.length === 0) return
+    const catalog = history.published
+      ? renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength)
+      : renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength)
+    agent.inject({
+      content: catalog.content,
+      source: PLUGIN_SOURCE,
+    })
   })
 }
 
@@ -258,38 +240,44 @@ function renderCatalogEntries(skills: SkillSummary[], descriptionMaxLength: numb
   return skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
 }
 
-function catalogDigest(toolVisible: boolean, skills: SkillSummary[], descriptionMaxLength: number): string {
+function catalogDigest(skills: SkillSummary[], descriptionMaxLength: number): string {
+  return digestCatalogEntries(renderCatalogEntries(skills, descriptionMaxLength).join('\n'))
+}
+
+function digestCatalogEntries(entries: string): string {
   return createHash('sha256')
-    .update(JSON.stringify({
-      toolVisible,
-      entries: renderCatalogEntries(skills, descriptionMaxLength),
-    }))
+    .update(entries)
     .digest('hex')
 }
 
-function latestVisibleCatalogDigest(agent: Agent): string | undefined {
+function catalogHistory(agent: Agent): { visibleDigest?: string; published: boolean } {
   const visible = new Set(agent.session.surface.nodes)
   const events = agent.session.events
+  let published = false
   for (let index = events.length - 1; index >= 0; index -= 1) {
     // The loop bounds prove the read-only event view contains this index.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const event = events[index]!
-    if (!visible.has(event.seq)
-      || event.type !== 'user/message'
+    if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== name) continue
-    const meta = event.data.meta
-    if (!isRecord(meta)
-      || meta.kind !== CATALOG_META_KIND
-      || meta.version !== CATALOG_META_VERSION
-      || typeof meta.digest !== 'string') continue
-    return meta.digest
+    const digest = catalogContentDigest(event.data.content)
+    if (digest === undefined) continue
+    published = true
+    if (visible.has(event.seq)) return { visibleDigest: digest, published }
   }
-  return undefined
+  return { published }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function catalogContentDigest(content: Message['content']): string | undefined {
+  if (content.length !== 1 || content[0]?.type !== 'text') return undefined
+  const text = content[0].text
+  const start = text.indexOf(CATALOG_ENTRIES_START)
+  if (start === -1) return undefined
+  const entriesStart = start + CATALOG_ENTRIES_START.length
+  const end = text.indexOf(CATALOG_ENTRIES_END, entriesStart)
+  if (end === -1) return undefined
+  return digestCatalogEntries(text.slice(entriesStart, end))
 }
 
 function catalogDescription(value: string, maxLength: number): string {

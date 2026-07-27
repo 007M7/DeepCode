@@ -4,6 +4,9 @@
  * fully scripted by environment variables — no model, no network:
  *
  * - `MOCK_TEXT`        — the assistant text it streams as one `agent_message_chunk`.
+ * - `MOCK_ECHO_ENV`    — if set to a variable NAME, stream that variable's value
+ *                        (or `<NAME unset>`) instead of MOCK_TEXT — asserts what
+ *                        environment actually reached the child process.
  * - `MOCK_STOP`        — the ACP `StopReason` it returns from `prompt`
  *                        (`end_turn` default, or `max_tokens`/`refusal`/…).
  * - `MOCK_HANG`        — if `1`, `prompt` never resolves on its own (it waits for
@@ -67,7 +70,12 @@ import {
   type StopReason,
 } from '@agentclientprotocol/sdk'
 
-const TEXT = process.env.MOCK_TEXT ?? 'mock child answer'
+// When MOCK_ECHO_ENV names a variable, stream that variable's value in place
+// of MOCK_TEXT — lets a test assert exactly what env reached this process.
+const echoEnvName = process.env.MOCK_ECHO_ENV
+const TEXT = echoEnvName !== undefined
+  ? process.env[echoEnvName] ?? `<${echoEnvName} unset>`
+  : process.env.MOCK_TEXT ?? 'mock child answer'
 const ECHO_CWD = process.env.MOCK_ECHO_CWD === '1'
 const STOP = (process.env.MOCK_STOP ?? 'end_turn') as StopReason
 const HANG = process.env.MOCK_HANG === '1'

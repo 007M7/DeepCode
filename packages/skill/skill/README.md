@@ -43,15 +43,15 @@ Definitions remain progressively loaded. `get()` asks the winning provider for t
 
 ## Consumer boundary
 
-The registry does not render model guidance or register model-facing tools. [`@deepseek-ai/dsh-tool-skill`](../tool-skill) consumes `ctx.skills` to provide the session-prefix catalog and `skill` tool, so providers remain independent of the model surface.
+The registry does not render model guidance or register model-facing tools. [`@deepseek-ai/dsh-tool-skill`](../tool-skill) consumes `ctx.skills` to provide durable session catalogs and the `skill` tool, so providers remain independent of the model surface.
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-skill`, which renders provider summaries into the initial session prefix or durable replacement catalog messages and loaded instructions into retained tool results.
+Indirectly, through `dsh-tool-skill`, which renders provider summaries into durable initial or replacement catalog messages and loaded instructions into retained tool results.
 
 #### KV Cache effect
 
-No direct prompt effect. The named consumer owns initial prefix composition and append-only catalog replacements after invalidation.
+No direct prompt effect. The named consumer owns the durable initial catalog and append-only replacements after invalidation.
 
 ## Known Limitations and Deferred Work
 

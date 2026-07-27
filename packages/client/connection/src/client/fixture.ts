@@ -704,6 +704,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
+      pickDirectory: request => ok(request, { path: null }),
     },
     workspace: {
       list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
@@ -749,6 +750,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
         return ok(request, { workspace: { ...workspace } })
+      },
+      delete: (request) => {
+        const { workspaceId } = request.payload
+        const index = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+        if (index === -1) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        workspaces.splice(index, 1)
+        emitHost({ type: 'host/workspace-removed', workspaceId })
+        return ok(request, { deleted: true as const })
       },
       insertSessionBefore: (request) => {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
@@ -938,9 +953,11 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
+      case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'command.list': return this.api.commands.list(request)
       // The in-memory execute never blocks, so a never-aborting signal is faithful here.

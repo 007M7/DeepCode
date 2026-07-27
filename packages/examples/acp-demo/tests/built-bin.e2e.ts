@@ -17,6 +17,7 @@ import {
 import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import { zstdDecompress } from 'node:zlib'
+import { execa } from 'execa'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -32,7 +33,7 @@ const decompress = promisify(zstdDecompress)
 const dshPackages = [
   'examples/agent-spine-demo', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
+  'bash/bash-local', 'bash/tool-bash', 'subprocess/subprocess', 'subprocess/subprocess-local', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
   'acp/acp', 'examples/acp-demo', 'util/paths',
@@ -94,6 +95,8 @@ async function makeConsumer(): Promise<string> {
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
     '  name: \'./mock-llm.mjs\'',
+    '- id: subprocess',
+    '  name: \'@deepseek-ai/dsh-subprocess-local\'',
     '- id: bash',
     '  name: \'@deepseek-ai/dsh-bash-local\'',
     '- id: acp-agent',
@@ -207,27 +210,22 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     expect(code).not.toBe(0)
     expect(stderr).toContain('config file not found')
   }, 30_000)
+
 })
 
-/** Spawn the built acp bin against `configArg` and resolve with its exit code + stderr. */
-function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise<{ code: number; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(process.execPath, [acpBin, '--config', configArg], {
-      cwd,
-      env: {
-        ...process.env,
-        DSH_HOME: join(cwd, '.dsh'),
-        DSH_AGENTS_HOME: join(cwd, '.agents'),
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    child = proc
-    let stderr = ''
-    proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', (c: string) => { stderr += c })
-    const timer = setTimeout(() => { proc.kill('SIGKILL'); reject(new Error(`bin did not exit within 25s. stderr:\n${stderr}`)) }, 25_000)
-    proc.on('exit', (code) => { clearTimeout(timer); resolve({ code: code ?? -1, stderr }) })
-    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
-    proc.stdin.end()
+/** Spawn the built acp bin against `configArg` (stdin closed at EOF) and resolve with its exit code + stderr. */
+async function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise<{ code: number; stderr: string }> {
+  const result = await execa(process.execPath, [acpBin, '--config', configArg], {
+    cwd,
+    env: {
+      DSH_HOME: join(cwd, '.dsh'),
+      DSH_AGENTS_HOME: join(cwd, '.agents'),
+    },
+    input: '',
+    timeout: 25_000,
+    killSignal: 'SIGKILL',
+    reject: false,
   })
+  if (result.timedOut) throw new Error(`bin did not exit within 25s. stderr:\n${result.stderr}`)
+  return { code: result.exitCode ?? -1, stderr: result.stderr }
 }

@@ -12,7 +12,16 @@ import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { CallId, LlmAdapter, LlmError, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import {
+  CallId,
+  LlmAdapter,
+  LlmError,
+  resolveRetryPolicy,
+  type GenerateOptions,
+  type Message,
+  type ResolvedRetryPolicy,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
@@ -28,12 +37,9 @@ declare module '@deepseek-ai/dsh-tasks' {
 }
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
-  const agent = { session: { header: { cwd } } } as unknown as Agent
-  const empty: Message[] = []
-  return await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, new AbortController().signal,
-    () => Promise.resolve(empty),
-  )
+  const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  return agent.session.deriveMessages()
 }
 
 /**
@@ -101,15 +107,8 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function waitForIdle(ctx: Context, target: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (agent, status) => {
-      if (agent === target && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
+function waitForIdle(_ctx: Context, target: Agent): Promise<void> {
+  return target.whenIdle()
 }
 
 function messageText(message: Message | undefined): string {
@@ -118,6 +117,15 @@ function messageText(message: Message | undefined): string {
 
 class TransientOnceAdapter extends LlmAdapter {
   requests = 0
+  private readonly retryPolicy = resolveRetryPolicy({
+    mode: 'normal',
+    maxRetries: 1,
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'agent-spine test provider retryPolicy')
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
+  }
 
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests += 1
@@ -221,15 +229,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('loads and configures bounded request recovery for every bundled front door', async () => {
     const adapter = new TransientOnceAdapter()
-    const ctx = await mount({
-      workspaceContext: false,
-      llmRetry: {
-        maxTransientRetries: 1,
-        initialDelayMs: 1,
-        maxDelayMs: 1,
-        jitterRatio: 0,
-      },
-    })
+    const ctx = await mount({ workspaceContext: false })
     ctx.llm.registerAdapter(['mock'], adapter)
     const handle = await ctx.agents.create({
       sessionId: SessionId('bundled-retry-session'),
@@ -237,14 +237,14 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    handle.agent.followup([{ type: 'text', text: 'recover' }])
+    handle.agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
     const retryEvents = handle.agent.session.events.filter(event => event.type === 'llm/retry')
     expect(retryEvents).toHaveLength(1)
     expect(retryEvents[0]?.data.retry).toBe(1)
-    expect(retryEvents[0]?.data.maxRetries).toBe(1)
+    expect(retryEvents[0]?.data).toMatchObject({ provider: 'mock', mode: 'normal', maxRetries: 1 })
     expect(handle.agent.session.events.find(event => event.type === 'session/title')?.data.title).toBe('recover')
     expect(messageText(handle.agent.session.deriveMessages().at(-1))).toBe('recovered by bundled policy')
     await handle.dispose()
@@ -337,7 +337,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
       const agent = handle.agent
 
-      agent.followup([{ type: 'text', text: 'hi' }])
+      agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
@@ -366,7 +366,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup([{ type: 'text', text: 'hi' }])
+      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
@@ -441,7 +441,10 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup([{ type: 'text', text: 'Create and load the project skill.' }])
+      handle.agent.followup({
+        content: [{ type: 'text', text: 'Create and load the project skill.' }],
+        source: { kind: 'user' },
+      })
       await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests).toHaveLength(4)
@@ -451,7 +454,7 @@ describe('dsh-agent-spine-demo bundle', () => {
           expect.not.stringContaining('hot-skill'),
         ])
       const catalogRequest = adapter.requests[2]?.messages.map(messageText).join('\n')
-      expect(catalogRequest).toContain('The available skill catalog changed.')
+      expect(catalogRequest).toContain('The following skills are available in this session:')
       expect(catalogRequest).toContain('- `hot-skill`: Hot-added skill')
       const loadedRequest = JSON.stringify(adapter.requests[3]?.messages)
       expect(loadedRequest).toContain('<skill_instructions>')
@@ -464,11 +467,6 @@ describe('dsh-agent-spine-demo bundle', () => {
           return [{
             type: event.type,
             source: event.data.source,
-            meta: {
-              kind: (event.data.meta as { kind?: unknown } | undefined)?.kind,
-              version: (event.data.meta as { version?: unknown } | undefined)?.version,
-              digest: typeof (event.data.meta as { digest?: unknown } | undefined)?.digest,
-            },
             text: event.data.content.map(block => block.type === 'text' ? block.text : '').join('\n'),
           }]
         }
@@ -496,23 +494,18 @@ describe('dsh-agent-spine-demo bundle', () => {
             "type": "tool/result",
           },
           {
-            "meta": {
-              "digest": "string",
-              "kind": "skill-catalog",
-              "version": 1,
-            },
             "source": {
               "kind": "plugin",
               "plugin": "tool-skill",
             },
             "text": "<system-reminder>
-        The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:
+        A skill is a reusable set of task-specific instructions. The following skills are available in this session:
 
         <available_skills>
         - \`hot-skill\`: Hot-added skill
         </available_skills>
 
-        Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the \`skill\` tool with the exact name before acting.
+        If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
         </system-reminder>",
             "type": "user/message",
           },
@@ -597,11 +590,11 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup([{ type: 'text', text: 'hi' }])
+      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
       await waitForIdle(ctx, handle.agent)
 
-      expect(messageText(adapter.requests[0]?.messages[0])).toContain('workspace rule before skills')
-      expect(messageText(adapter.requests[0]?.messages[1])).toContain('prefix-order-skill')
+      expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
+      expect(messageText(adapter.requests[0]?.messages[2])).toContain('prefix-order-skill')
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {
@@ -666,7 +659,6 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolBash: { enableRunInBackground: false },
       toolTasks: false as const,
       invariants: { enabled: false },
-      llmRetry: { maxTransientRetries: 1, jitterRatio: 0 },
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
@@ -680,7 +672,6 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolBash: appConfig.toolBash,
       toolTasks: appConfig.toolTasks,
       invariants: appConfig.invariants,
-      llmRetry: appConfig.llmRetry,
     })
     expect(agentCore.pickSpineConfig({ workspaceContext: false })).toEqual({ workspaceContext: false })
   })

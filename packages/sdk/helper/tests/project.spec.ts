@@ -187,6 +187,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(await readFile(join(project.root, 'cordis.yml'), 'utf8'))
       .toContain('sessionId: !!js process.env.DSH_SDK_SESSION_ID')
     expect(project.cordis.entry('tui')?.config).not.toHaveProperty('model')
+    expect(project.cordis.entry('tui-prompt')?.name).toBe('@deepseek-ai/dsh-tui/prompt')
     expect(project.cordis.entry('agent-loop')?.config).toEqual({ agents: [] })
     expect(project.cordis.entry('session-invariant')?.name).toBe('@deepseek-ai/dsh-session/invariant')
     expect(project.cordis.entry('agent-invariant')?.name).toBe('@deepseek-ai/dsh-agent/invariant')
