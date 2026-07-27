@@ -26,9 +26,9 @@
 | `searchMaxResults` | `8` | 一次 `web_search` 调用返回的源数量上限（seam 截断更长的提供方列表并标记）。 |
 | `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
 | `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms）。 |
-| `fetchMaxOutputChars` | `200000` | 单次 `web_fetch` 输出的字符上限——状态头、渲染后的主体与页脚合并计算；被截断的主体带截断提示。 |
+| `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限（状态头、渲染后的主体与页脚合并计算）；主体被截断时，在能容纳的情况下附带截断提示。 |
 
-`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。`fetchMaxOutputChars` 对完整渲染输出设上限：markdown 转义可能让转换后的 HTML 超出提供方的主体上限（最坏约 2 倍）；默认值取本地提供方默认 100,000 字符主体上限的 2 倍，因此绝不会削减该上限本已允许的内容。
+`fetchTimeoutMs`／`searchTimeoutMs` 声明每个工具的协作式超时预算（附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) 强制执行；面向模型的 schema 不公开超时参数。`fetchMaxOutputChars` 同时限制同步转换工作量和完整渲染结果：只转换至多该数量的源字符，随后对状态头、转换后的前缀和截断提示合并设限。默认值为本地提供方的 100,000 字符主体上限留出余量，但渲染膨胀仍可能使最终上限截断结果。
 
 ```yaml
 - id: tool-web
@@ -127,6 +127,6 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 ## 已知限制与暂缓事项
 
-- **HTML→markdown 转换在病态输入上回退为原始 HTML**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换抓取到的 HTML，但同步遍历在深层未闭合嵌套上呈超线性，因此嵌套超过固定 512 层预检上限的主体不经转换原样通过（仍让 turndown 抛异常的输入同样如此），而非阻塞事件循环或报错（[决策记录](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
+- **HTML→markdown 转换会在 GFM 无法安全表示的输入上降级**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换至多 `fetchMaxOutputChars` 个源字符。保守的 512 层词法守卫会将深层或嵌套有歧义的主体作为原始 HTML 直接透传，转换异常也会如此处理；表格的 `colspan` 会被忽略，因为 GFM 无法表示跨列单元格。这些限制可避免阻塞事件循环，也避免不受信任的数值属性使输出膨胀（[决策记录](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
 - **面向模型的表层有意保持最小，提升项暂缓**：`max_results` 保持为配置上限（不是模型参数），`web_fetch` 只接受 `url`（没有 `format`／`prompt`／LLM 摘要模式）；两项都列为 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) 中的后续步骤。
 - **没有 web 专用权限策略**：两个工具都不会请求 `ctx.approval` 就直接执行；需要确认的部署必须添加 `tools/pre-execute` 策略，该包不定义持久 URL／domain 授权。

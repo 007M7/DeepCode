@@ -10,12 +10,10 @@ import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import {
   formatSearchOutput,
   formatFetchOutput,
-  htmlNestingDepth,
   parseSearchArgs,
   parseFetchArgs,
   presentSearchCall,
   presentFetchCall,
-  renderBody,
   WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
@@ -95,6 +93,11 @@ describe('search formatting', () => {
 
 describe('fetch formatting', () => {
   const NO_CAP = 1_000_000
+  const HEADER = 'Fetched https://a.test (HTTP 200)\n\n'
+  const renderHtml = (content: string) => formatFetchOutput({
+    url: 'https://a.test', statusCode: 200, truncated: false,
+    body: { kind: 'html', content },
+  }, NO_CAP).slice(HEADER.length)
 
   it('renders an html body to markdown text with a status header', () => {
     const out = formatFetchOutput({
@@ -136,27 +139,34 @@ describe('fetch formatting', () => {
       url: 'https://a.test', statusCode: 200, truncated: true,
       body: { kind: 'text', content: 'abcdef' },
     }, 10)
-    expect(tiny).toContain('Fetched https://a.test (HTTP 200)')
-    expect(tiny).toContain('Content truncated')
-    expect(tiny).not.toContain('abcdef')
+    expect(tiny.length).toBeLessThanOrEqual(10)
+    expect(tiny).toBe('Fetched ht')
   })
 
-  it('renderBody dispatches on kind', () => {
-    expect(renderBody({ kind: 'text', content: 'x' })).toBe('x')
-    expect(renderBody({ kind: 'html', content: '<p>y</p>' })).toBe('y')
+  it('dispatches text and html bodies', () => {
+    expect(formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'text', content: 'x' },
+    }, NO_CAP)).toBe(`${HEADER}x`)
+    expect(renderHtml('<p>y</p>')).toBe('y')
   })
 
   it('converts html via turndown: entities, links, tables, nesting; drops script/style/noscript', () => {
-    expect(renderBody({
-      kind: 'html',
-      content: '<style>.x{}</style><script>bad()</script><noscript>ns</noscript><p>Tom &amp; Jerry &copy; R&eacute;sum&eacute;</p><a href="https://a.test">link</a>',
-    })).toBe('Tom & Jerry © Résumé\n\n[link](https://a.test)')
-    expect(renderBody({ kind: 'html', content: '<h2>Heading</h2><ul><li>one</li><li>two</li></ul>' }))
+    expect(renderHtml('<style>.x{}</style><script>bad()</script><noscript>ns</noscript><p>Tom &amp; Jerry &copy; R&eacute;sum&eacute;</p><a href="https://a.test">link</a>'))
+      .toBe('Tom & Jerry © Résumé\n\n[link](https://a.test)')
+    expect(renderHtml('<h2>Heading</h2><ul><li>one</li><li>two</li></ul>'))
       .toBe('## Heading\n\n-   one\n-   two')
-    expect(renderBody({ kind: 'html', content: '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>' }))
+    expect(renderHtml('<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'))
       .toBe('| A   | B   |\n| --- | --- |\n| 1   | 2   |')
-    expect(renderBody({ kind: 'html', content: '<p><strong>bold <em>italic</em></strong></p><blockquote><p>quoted</p></blockquote>' }))
+    expect(renderHtml('<table><thead><tr><th align="left">L</th><th align="right">R</th><th style="text-align:center">C</th></tr></thead><tbody><tr><td>1</td><td>2</td><td>3</td></tr></tbody></table>'))
+      .toBe('| L   | R   | C   |\n| :--- | ---: | :---: |\n| 1   | 2   | 3   |')
+    expect(renderHtml('<p><strong>bold <em>italic</em></strong></p><blockquote><p>quoted</p></blockquote>'))
       .toBe('**bold _italic_**\n\n> quoted')
+  })
+
+  it('does not expand numeric colspan attributes into unbounded output', () => {
+    const table = '<table><thead><tr><th colspan="1000000">A</th></tr></thead><tbody><tr><td>B</td></tr></tbody></table>'
+    expect(renderHtml(table)).toBe('| A   |\n| --- |\n| B   |')
   })
 
   it('passes deeply nested html through raw without attempting conversion', () => {
@@ -167,27 +177,73 @@ describe('fetch formatting', () => {
     const depth = 20_000
     const pathological = '<div>'.repeat(depth) + 'x' + '</div>'.repeat(depth)
     const started = Date.now()
-    expect(renderBody({ kind: 'html', content: pathological })).toBe(pathological)
+    expect(formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html', content: pathological },
+    }, NO_CAP)).toBe(`${HEADER}${pathological}`)
     expect(Date.now() - started).toBeLessThan(2_000)
   })
 
-  it('htmlNestingDepth counts open elements, ignoring void and self-closing tags', () => {
-    expect(htmlNestingDepth('<div><p>x</p></div>')).toBe(2)
-    expect(htmlNestingDepth('<div><br><img src="x"><input/></div>')).toBe(1)
-    expect(htmlNestingDepth('</div></div><p>x</p>')).toBe(1)
-    expect(htmlNestingDepth('plain text, no tags')).toBe(0)
-    expect(htmlNestingDepth('<div>'.repeat(600))).toBe(600)
+  it('comments and mismatched closing tags cannot hide deep nesting from the preflight', () => {
+    const pathological = '<div><!-- </div> --></span>'.repeat(600) + 'x'
+    expect(formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html', content: pathological },
+    }, NO_CAP)).toBe(`${HEADER}${pathological}`)
+    const abruptlyClosedComments = '<div><!-->'.repeat(600) + 'x'
+    expect(formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html', content: abruptlyClosedComments },
+    }, NO_CAP)).toBe(`${HEADER}${abruptlyClosedComments}`)
+  })
+
+  it('the preflight accepts ordinary closed, void, self-closing, quoted, and raw-text markup', () => {
+    const paragraphs = '<p title=\'>\'>x<br   ><img src="x"><input/></p>'.repeat(600)
+    const script = `<script>const invalid = '</scriptx>'; const template = '${'<div>'.repeat(600)}'</script >`
+    expect(renderHtml(`<!doctype html><?pi><1bad>${paragraphs}${script}`))
+      .not.toContain('<p')
+    expect(renderHtml('plain text')).toBe('plain text')
+    expect(renderHtml('<p>x</p><!-- unfinished')).toBe('x')
+    expect(renderHtml('<script>unclosed')).toBe('')
+    expect(renderHtml('<script>closed by slash</script/>')).toBe('')
+    expect(renderHtml('<script>closed at end</script')).toBe('')
+  })
+
+  it('scans malformed unterminated tags in bounded time', () => {
+    const malformed = '<a'.repeat(100_000)
+    const started = Date.now()
+    const out = formatFetchOutput({
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html', content: malformed },
+    }, 200_000)
+    expect(out.length).toBeLessThanOrEqual(200_000)
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it('falls back to the raw html when turndown throws despite a shallow depth scan', () => {
-    // Comments hide markup from the depth scan by design (it may only
-    // over-count, never under-count real elements); simulate the residual
-    // turndown failure path with a converter throw instead.
     const spy = vi.spyOn(TurndownService.prototype, 'turndown').mockImplementation(() => {
       throw new RangeError('Maximum call stack size exceeded')
     })
     try {
-      expect(renderBody({ kind: 'html', content: '<p>x</p>' })).toBe('<p>x</p>')
+      expect(formatFetchOutput({
+        url: 'https://a.test', statusCode: 200, truncated: false,
+        body: { kind: 'html', content: '<p>x</p>' },
+      }, NO_CAP)).toBe(`${HEADER}<p>x</p>`)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('bounds source conversion work before rendering a custom provider body', () => {
+    const spy = vi.spyOn(TurndownService.prototype, 'turndown').mockReturnValue('converted')
+    try {
+      const out = formatFetchOutput({
+        url: 'https://a.test', statusCode: 200, truncated: false,
+        body: { kind: 'html', content: `<p>${'x'.repeat(10_000)}</p>` },
+      }, 500)
+      expect(spy).toHaveBeenCalledWith(`<p>${'x'.repeat(497)}`)
+      expect(out.length).toBeLessThanOrEqual(500)
+      expect(out).toContain('Content truncated')
     } finally {
       spy.mockRestore()
     }
@@ -434,5 +490,37 @@ describe('tool-call timeout budget is plugin config', () => {
     await ctx.plugin(WebService, {})
     await expect(ctx.plugin(ToolWeb, config))
       .rejects.toThrow(new RegExp(`tool-web: ${key} must be a positive integer`))
+  })
+})
+
+describe('fetchMaxOutputChars is plugin config', () => {
+  it('bounds the rendered output of the registered web_fetch tool', async () => {
+    const fetchProvider = {
+      id: 'stub-fetch',
+      available: () => available,
+      fetch: (request: { url: string }) => Promise.resolve({
+        url: request.url,
+        statusCode: 200,
+        body: { kind: 'html' as const, content: `<p>${'_'.repeat(1_000)}</p>` },
+        truncated: false,
+      }),
+    }
+    const { fiber, call } = await mountTools({
+      config: { fetchMaxOutputChars: 100 },
+      webConfig: { fetchProvider: 'stub-fetch' },
+      fetchProvider,
+    })
+    const out = await call('web_fetch', { url: 'https://a.test' })
+    expect(out.content.map(block => block.type === 'text' ? block.text : '').join('')).toHaveLength(100)
+    await fiber.dispose()
+  })
+
+  it.each([0, -1, 1.5])('rejects an invalid fetchMaxOutputChars value %s at load', async (value) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, { fetchMaxOutputChars: value }))
+      .rejects.toThrow(/tool-web: fetchMaxOutputChars must be a positive integer/)
   })
 })

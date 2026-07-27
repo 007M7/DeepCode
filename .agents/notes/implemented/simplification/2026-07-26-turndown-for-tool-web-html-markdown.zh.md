@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`packages/web/tool-web/src/fetch.ts` 持有一个模块级 [`turndown`](https://github.com/mixmark-io/turndown) 实例（`headingStyle: 'atx'`、`codeBlockStyle: 'fenced'`、`bulletListMarker: '-'`——固定的面向模型呈现方式，不是部署可调项），配合 `@joplin/turndown-plugin-gfm` 的组合 `gfm` 插件提供表格／删除线支持，并用 `remove(['script', 'style', 'noscript'])` 替代旧实现的整体剥离。`renderBody` 的 `html` 分支对转换做了双重防护：一次线性标签扫描预检把嵌套超过 512 层的主体直接原样透传（同步遍历在未闭合嵌套上呈超线性——实测 2 万层需要数秒——期间协作式超时无法触发），扫描看不到的标记若仍让 turndown 抛异常，则由 try/catch 回退为原始 HTML；对提供方已经解码的主体来说，降级页面好过报错。`formatFetchOutput` 对完整输出设上限（`fetchMaxOutputChars` 配置，默认 200,000）：markdown 转义可能把转换后的 HTML 膨胀到提供方主体上限的约 2 倍。`html.ts` 及其转换测试已删除；透传、回退与整体输出上限，连同状态头、截断页脚的格式化，都在 `tests/tool-web.spec.ts` 中有测试覆盖，README 的 Known Limitations 用病态嵌套回退条目替换了正则转换器的警示说明。gfm 插件不带类型声明；`src/turndown-plugin-gfm.d.ts` 基于 `@types/turndown`（devDependency）声明了唯一被导入的导出。
+`packages/web/tool-web/src/fetch.ts` 持有一个模块级 [`turndown`](https://github.com/mixmark-io/turndown) 实例（`headingStyle: 'atx'`、`codeBlockStyle: 'fenced'`、`bulletListMarker: '-'`——固定的面向模型呈现方式，不是部署可调项），配合 `@joplin/turndown-plugin-gfm` 的组合 `gfm` 插件提供表格／删除线支持，并用 `remove(['script', 'style', 'noscript'])` 替代旧实现的整体剥离。`formatFetchOutput` 通过 `fetchMaxOutputChars`（默认 200,000）同时限制同步转换的源前缀和完整渲染输出，因此自定义提供方无法在输出上限生效前造成无界的转换工作。随后，HTML 分支对转换做双重防护：保守的线性词法扫描会保守处理注释内容，跳过原始文本元素的内容，正确处理标签内的引号文本，并在栈深超过 512 层时将主体作为原始 HTML 直接透传；当 turndown 拒绝守卫无法建模的标记时，try/catch 同样回退为原始 HTML。GFM 单元格规则被覆写为忽略 `colspan`；Markdown 无法表示它，这也避免了不受信任的数值属性凭空合成任意数量的空单元格。`html.ts` 及其转换测试已删除；源／输出上限、回退以及状态头／截断页脚格式化均在 `tests/tool-web.spec.ts` 中有测试覆盖，README 的 Known Limitations 用有界降级情形替换了正则转换器警示。gfm 插件不带类型声明；`src/turndown-plugin-gfm.d.ts` 基于 `@types/turndown`（devDependency）声明了唯一被导入的导出。
 
 提案标记的依赖体积问题的裁决结果支持替换：`@deepseek-ai/dsh-tool-web` 在单文件可执行文件闭包内（[single-exe 决策记录](../architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)），可执行文件的资产 glob 会把这三个包按发布原样打入约 7.9 MB——但其中约 6 MB 是 `@mixmark-io/domino` 的测试语料（`test/**`），运行时 `lib/` 仅约 550 KB，相对约 174 MB 的产物，两种口径都不到 0.5%。
 
@@ -27,11 +27,11 @@ Status: implemented
 
 ## 后果
 
-- **收益**：模型可见的完整保真 markdown——表格、图片、删除线、嵌套强调、围栏代码块以及完整的命名实体集——并删除了自制转换器及其实体表，README 中的正则转换器警示收窄为一个退化用例。
-- **代价**：两个运行时依赖（`turndown` → `@mixmark-io/domino`）进入 tool-web 进而进入可执行文件闭包（如上实测约 550 KB 运行时代码），并新增一种失败模式——病态嵌套改为回退原始 HTML 而非转换。
+- **收益**：基于标准的模型可见 markdown——普通表格、图片、删除线、嵌套强调、围栏代码块以及完整的命名实体集——并删除了自制转换器及其实体表。
+- **代价**：两个运行时依赖（`turndown` → `@mixmark-io/domino`）进入 tool-web 进而进入可执行文件闭包（如上实测约 550 KB 运行时代码）；超长输入只转换有界前缀，病态嵌套回退为原始 HTML，跨列表格单元格会被展平，因为 GFM 没有对应语法。
 - 每个抓取到的 HTML 页面上模型可见的输出都已变化；旧输出本无任何固定，新快照固定了新输出。
 
 ## 测试
 
-- `packages/web/tool-web/tests/tool-web.spec.ts` 通过 `renderBody` 覆盖 turndown 转换面（实体、链接、表格、嵌套、script/style/noscript 移除）、2 万层嵌套的快速原样透传、深度扫描的空元素／自闭合／不平衡用例、残余的转换器抛错回退，以及在膨胀、恰好、极小预算下的整体输出上限；该包 src 的逐文件覆盖率为 100%。
+- `packages/web/tool-web/tests/tool-web.spec.ts` 覆盖 turndown 转换面（实体、链接、表格、嵌套、script/style/noscript 移除）、被忽略的表格跨列、源前缀与完整输出上限、深层或带欺骗性闭合嵌套的快速原始 HTML 透传、畸形标签的线性处理、残余的转换器抛错回退，以及恰好达到上限和极小的输出预算；该包 src 的逐文件覆盖率为 100%。
 - acp-agent 的 `web-fetch` 快照无密钥地端到端固定组装后的行为（真实 Loader 组合、真实 HTTP 抓取、真实转换）。
