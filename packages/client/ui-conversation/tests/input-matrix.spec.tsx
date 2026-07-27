@@ -34,11 +34,11 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-    })) as InputBarProps['useSessions'],
+    })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
-    })) as InputBarProps['useWorkspaces'],
+    })),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -88,7 +88,7 @@ describe('matrix row: claimed', () => {
     expect(shell.snapshot.claim).toEqual({ token: '/goal ', hint: '目标' })
     expect(view.container.querySelector('[data-decoration="token"]')?.textContent).toBe('/goal ')
     expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('目标')
-    expect((textarea as HTMLTextAreaElement).readOnly).toBe(false)
+    expect((textarea).readOnly).toBe(false)
     // Free editing beyond the token: hint drops, claim holds.
     fireEvent.change(textarea, { target: { value: '/goal 发布版本' } })
     expect(shell.snapshot.phase).toBe('claimed')
@@ -104,7 +104,7 @@ describe('matrix row: claimed', () => {
     expect(sink).not.toHaveBeenCalled()
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledWith('发布', SCTX) })
     // Commit: draft cleared, notice surfaced, back to plain.
-    await vi.waitFor(() => { expect((textarea as HTMLTextAreaElement).value).toBe('') })
+    await vi.waitFor(() => { expect((textarea).value).toBe('') })
     expect(view.getByText('完成')).toBeTruthy()
   })
 
@@ -126,7 +126,7 @@ describe('matrix row: submitting', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(shell.snapshot.phase).toBe('submitting')
     expect(shell.snapshot.claim).toBeDefined()
-    expect((textarea as HTMLTextAreaElement).readOnly).toBe(true)
+    expect((textarea).readOnly).toBe(true)
     expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     // Enter is dead inside the lock (submit dispatch is microtask-deferred).
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledTimes(1) })
@@ -145,7 +145,7 @@ describe('matrix row: submitting', () => {
     await vi.waitFor(() => { expect(submit).toHaveBeenCalled() })
     act(() => { rejectSubmit(new Error('执行失败')) })
     await vi.waitFor(() => { expect(first.shell.snapshot.phase).toBe('claimed') })
-    expect((first.textarea as HTMLTextAreaElement).value).toBe('/goal ')
+    expect((first.textarea).value).toBe('/goal ')
     expect(first.view.getByText('执行失败')).toBeTruthy()
     cleanup()
     // Drift: typing during flight wins; no restore, plain, notice only.
@@ -157,7 +157,7 @@ describe('matrix row: submitting', () => {
     act(() => { second.shell.setDraft('用户飞行中打的新稿') })
     act(() => { rejectSubmit(new Error('晚到失败')) })
     await vi.waitFor(() => { expect(second.shell.snapshot.phase).toBe('plain') })
-    expect((second.textarea as HTMLTextAreaElement).value).toBe('用户飞行中打的新稿')
+    expect((second.textarea).value).toBe('用户飞行中打的新稿')
     expect(second.view.getByText('晚到失败')).toBeTruthy()
   })
 })
@@ -165,14 +165,14 @@ describe('matrix row: submitting', () => {
 describe('matrix row: locked (session disabled)', () => {
   it('disables the textarea and chrome; the machine currency is untouched', () => {
     const { view, textarea, shell } = bench({ disabled: true })
-    expect((textarea as HTMLTextAreaElement).disabled).toBe(true)
+    expect((textarea).disabled).toBe(true)
     expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
     expect(shell.snapshot.phase).toBe('plain')
   })
 
   it('running does NOT lock (queue cut 1): typing and enter-queue stay live', () => {
     const { textarea, sink } = bench({ running: true })
-    expect((textarea as HTMLTextAreaElement).disabled).toBe(false)
+    expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('排队', 'queue')
