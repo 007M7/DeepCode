@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -12,7 +14,6 @@ import {
   listedGatePlan,
   parseCliRequest,
   replayCommand,
-  resolveGateEnvironment,
   resolvePlanConcurrency,
   runGate,
   validateGatePlan,
@@ -89,6 +90,7 @@ describe('gate plan validation', () => {
   it.each([
     ['empty', plan([]), /plan has no gates/],
     ['duplicate ids', plan([gate('same'), gate('same')]), /duplicate gate id "same"/],
+    ['unsafe ids', plan([gate('unsafe id')]), /gate id "unsafe id" must contain only lowercase letters/],
     ['unknown dependencies', plan([gate('subject', { needs: ['missing'] })]), /depends on unknown gate "missing"/],
     ['cycles', plan([gate('first', { needs: ['second'] }), gate('second', { needs: ['first'] })]), /dependency cycle: first -> second -> first/],
   ])('rejects %s before starting a child', async (_label, invalid, message) => {
@@ -136,6 +138,27 @@ describe('gate plan validation', () => {
 
     await expect(execution).resolves.toHaveLength(2)
     expect(observed).toEqual(['first:failed', 'second:passed'])
+  })
+
+  it('propagates dependency skips in causal order', async () => {
+    const leaf = gate('leaf', { needs: ['middle'] })
+    const middle = gate('middle', { needs: ['root'] })
+    const rootGate = gate('root')
+    const execute = vi.fn(async (subject: Gate) => resultFor(subject, 'failed'))
+    const observed: string[] = []
+
+    const results = await executeGatePlan(
+      plan([leaf, middle, rootGate]),
+      1,
+      execute,
+      result => observed.push(`${result.gate.id}:${result.status}`),
+    )
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledWith(rootGate)
+    expect(observed).toEqual(['root:failed', 'middle:skipped', 'leaf:skipped'])
+    expect(results.find(result => result.gate === middle)?.error).toBe('dependency failed or skipped: root')
+    expect(results.find(result => result.gate === leaf)?.error).toBe('dependency failed or skipped: middle')
   })
 
   it('selects a target with its transitive dependencies in canonical plan order', () => {
@@ -235,6 +258,32 @@ describe('gate plan inspection and replay', () => {
     })
   })
 
+  it.skipIf(process.platform === 'win32')('executes when the script entry path is a symlink', () => {
+    const temporary = mkdtempSync(join(tmpdir(), 'dsh-run-gates-entry-'))
+    const entry = join(temporary, 'run-gates.ts')
+    try {
+      symlinkSync(join(repositoryRoot, 'scripts/run-gates.ts'), entry)
+      const result = spawnSync(process.execPath, [
+        '--import',
+        'tsx',
+        entry,
+        'ci-consumers',
+        '--list',
+        '--json',
+      ], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: { ...process.env, npm_execpath: process.env.npm_execpath ?? '/private/pnpm.cjs' },
+        timeout: 10_000,
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(JSON.parse(result.stdout)).toMatchObject({ mode: 'ci-consumers', maxWorkers: 7 })
+    } finally {
+      rmSync(temporary, { recursive: true, force: true })
+    }
+  })
+
   it('renders a cross-platform scheduler replay and labels focused evidence', () => {
     const subject = plan([gate('snapshot')])
     expect(replayCommand(subject, 'snapshot')).toBe('pnpm run check:all -- --only snapshot')
@@ -243,17 +292,22 @@ describe('gate plan inspection and replay', () => {
     )
   })
 
-  it('resolves append and set operations only when spawning', () => {
-    const resolved = resolveGateEnvironment(gate('subject', {
+  it('applies append and set operations through the child spawn environment', async () => {
+    vi.stubEnv('NODE_OPTIONS', '--trace-warnings')
+    vi.stubEnv('INHERITED', 'kept')
+    const result = await runGate(gate('subject', {
+      args: ['-e', 'process.stdout.write(JSON.stringify({ nodeOptions: process.env.NODE_OPTIONS, mode: process.env.MODE, inherited: process.env.INHERITED }))'],
       env: {
         NODE_OPTIONS: { operation: 'append', value: '--max-old-space-size=8192' },
         MODE: { operation: 'set', value: 'lib' },
       },
-    }), { NODE_OPTIONS: '--trace-warnings', INHERITED: 'kept' })
-    expect(resolved).toEqual({
-      NODE_OPTIONS: '--trace-warnings --max-old-space-size=8192',
-      MODE: 'lib',
-      INHERITED: 'kept',
+    }))
+
+    expect(result.status).toBe('passed')
+    expect(JSON.parse(result.stdout)).toEqual({
+      nodeOptions: '--trace-warnings --max-old-space-size=8192',
+      mode: 'lib',
+      inherited: 'kept',
     })
   })
 

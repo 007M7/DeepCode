@@ -9,7 +9,6 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { pathToFileURL } from 'node:url'
 
 const MODE_SCRIPTS = {
   'ci-primary': 'check:ci',
@@ -121,8 +120,7 @@ type GateExecutor = (gate: Gate) => Promise<GateResult>
 type ResultObserver = (result: GateResult) => void
 
 const root = resolve(import.meta.dirname, '..')
-const entry = process.argv[1]
-if (entry !== undefined && import.meta.url === pathToFileURL(resolve(entry)).href) {
+if (import.meta.main) {
   process.exitCode = await main(process.argv.slice(2))
 }
 
@@ -833,19 +831,29 @@ export function formatOnlyNotice(plan: GatePlan, gateId: string): string {
  * @param inherited - environment inherited by the runner.
  * @returns the child environment without mutating the inherited object.
  */
-export function resolveGateEnvironment(gate: Gate, inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function resolveGateEnvironment(gate: Gate, inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const resolved = { ...inherited }
   for (const [name, override] of Object.entries(gate.env ?? {})) {
-    if (override.operation === 'set') {
-      resolved[name] = override.value
-    } else {
-      const current = resolved[name]
-      resolved[name] = current === undefined || current === ''
-        ? override.value
-        : `${current} ${override.value}`
+    switch (override.operation) {
+      case 'set':
+        resolved[name] = override.value
+        break
+      case 'append': {
+        const current = resolved[name]
+        resolved[name] = current === undefined || current === ''
+          ? override.value
+          : `${current} ${override.value}`
+        break
+      }
+      default:
+        assertNever(override)
     }
   }
   return resolved
+}
+
+function assertNever(value: never): never {
+  throw new Error(`run-gates: unreachable value ${JSON.stringify(value)}.`)
 }
 
 /**
@@ -894,9 +902,17 @@ async function runGates(
     }
 
     if (running.length === 0) {
-      const pending = allGates.filter(gate => states.get(gate.id) === 'pending')
-      for (const gate of pending) {
-        const failedDeps = (gate.needs ?? []).filter(id => states.get(id) !== 'passed')
+      let pending = allGates.filter(gate => states.get(gate.id) === 'pending')
+      while (pending.length > 0) {
+        const gate = pending.find(item => (item.needs ?? []).some((id) => {
+          const state = states.get(id)
+          return state === 'failed' || state === 'skipped'
+        }))
+        if (gate === undefined) throw new Error('run-gates: validated plan stalled without a failed dependency.')
+        const failedDeps = (gate.needs ?? []).filter((id) => {
+          const state = states.get(id)
+          return state === 'failed' || state === 'skipped'
+        })
         const result: GateResult = {
           gate,
           status: 'skipped',
@@ -911,6 +927,7 @@ async function runGates(
         states.set(gate.id, 'skipped')
         results.set(gate.id, result)
         observe(result)
+        pending = pending.filter(item => item !== gate)
       }
       break
     }
@@ -1031,10 +1048,10 @@ function printResult(plan: GatePlan, result: GateResult): void {
     const environment = listedGate(result.gate).env
     console.error(`command: ${result.gate.displayCommand}`)
     if (Object.keys(environment).length > 0) console.error(`scheduler environment: ${JSON.stringify(environment)}`)
+    console.error(`outcome: ${formatGateResultReason(result)}`)
     console.error(`replay: ${replayCommand(plan, result.gate.id)}`)
   }
   printOutput(result.output)
-  if (result.error !== undefined) console.error(result.error)
 }
 
 function printSummary(plan: GatePlan, results: GateResult[], durationMs: number): void {
