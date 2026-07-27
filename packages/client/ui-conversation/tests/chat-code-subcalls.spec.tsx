@@ -156,12 +156,13 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(view.getByText('List the notes directory')).toBeTruthy()
 
     // Nested rows are ALWAYS visible (no parent expand needed): the bash
-    // sub-call landed in the bash sample plugin's keyed registration — the
-    // exact component a native top-level bash row uses — and the unregistered
+    // sub-call landed in the bash sample plugin's keyed registration — Bash ·
+    // description chrome, same as a top-level bash row — and the unregistered
     // sub-tool fell back to GenericToolCard at the same render site.
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
     expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('List notes')).toBeTruthy()
     expect(view.getByText('Tool call')).toBeTruthy()
   })
