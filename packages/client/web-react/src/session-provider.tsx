@@ -86,12 +86,12 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
 /**
  * The useProjection framework seat (session-projection RFC), one bound
  * function per provide bundle (cached by info identity — components may hold
- * it across renders). Key-addressed: the key resolves a per-session cell
- * source, whose bound selector hook comes from the same per-source cache as
- * every other kit hook, so exactly one uSES subscription runs per call and
- * the subscribe reference stays stable while the cell lives. An unresolved
- * key (no cell, no session, plugin unloaded) reads `undefined` — capability
- * absence — through the absent source, keeping the hook order constant.
+ * it across renders). Key-addressed: the key resolves a per-session value
+ * face off the projection store; the bound selector hook comes from the same
+ * per-source cache as every other kit hook, so exactly one uSES subscription
+ * runs per call and the subscribe reference stays stable per key. A key no
+ * baseline or frame has carried (or a no-session bundle) reads `undefined` —
+ * capability absence — keeping the hook order constant.
  */
 export function projectionHook(info: SessionMaybeProvideInfo): (
   key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean
@@ -99,14 +99,14 @@ export function projectionHook(info: SessionMaybeProvideInfo): (
   let hook = projectionHookCache.get(info)
   if (hook === undefined) {
     hook = (key, selector, eq) => {
-      const cell = info.projections?.cellOf(key)
-      // The absent branch binds the shared absent source so the caller's
-      // selector still runs over `undefined` (absence flows through the
-      // selector) and the uSES call count stays constant across resolution.
-      const useCell = observableHook(cell ?? absentSource)
-      // Whole values are frozen event/wire data (identical reference between
-      // events), so the identity selector needs no equality function.
-      return useCell(selector ?? (value => value), eq)
+      // The no-session (faceless) branch binds the shared absent source so
+      // the caller's selector still runs over `undefined` (absence flows
+      // through the selector) and the uSES call count stays constant.
+      const useValue = observableHook(info.projections?.faceOf(key) ?? absentSource)
+      // Whole values are finished wire payloads (reference changes only when
+      // a frame or baseline lands), so the identity selector needs no
+      // equality function.
+      return useValue(selector ?? (value => value), eq)
     }
     projectionHookCache.set(info, hook)
   }

@@ -3,8 +3,8 @@
  * useProjection standard-kit delivery (session-projection RFC): the fifth
  * framework hook seat rides the same provide channel as useSession — a
  * session slot component receives `useProjection` in its kit, key-addressed
- * over the bundle's projection face; unresolved keys (no cell, no face, no
- * session) uniformly read `undefined`; live cell changes re-render; the
+ * over the bundle's projection face; unresolved keys (no value, no face, no
+ * session) uniformly read `undefined`; live value changes re-render; the
  * selector overload runs over the whole value.
  */
 import { describe, expect, it } from 'vitest'
@@ -27,6 +27,8 @@ type UseProjectionProp = (key: string, selector?: (v: unknown) => unknown) => un
 function makeHost() {
   const current = observable<string | undefined>(undefined)
   const cells = new Map<string, ReturnType<typeof observable<unknown>>>()
+  /** Store-parallel face: always defined per key; an unseen key snapshots undefined. */
+  const absent = { getSnapshot: () => undefined, subscribe: () => () => {} }
   const sessionEntries: StoredEntry[] = []
   let withFace = true
   const rootEntry: StoredEntry = {
@@ -39,7 +41,7 @@ function makeHost() {
     sessionId: id,
     hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
     props: {},
-    ...(withFace ? { projections: { cellOf: (key: string) => cells.get(key) } } : {}),
+    ...(withFace ? { projections: { faceOf: (key: string) => cells.get(key) ?? absent } } : {}),
   })
   const host: SlotRendererHost = {
     subscribe: () => () => {},
@@ -66,7 +68,7 @@ function makeHost() {
 }
 
 describe('useProjection standard-kit delivery', () => {
-  it('reads the cell value through the kit, undefined for unresolved keys, and follows live changes', () => {
+  it('reads the projected value through the kit, undefined for unresolved keys, and follows live changes', () => {
     const h = makeHost()
     const cell = observable<unknown>({ marks: ['a'] })
     h.cells.set('test/marks', cell)
