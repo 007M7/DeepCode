@@ -49,22 +49,24 @@ interface SubagentDescriptorBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
-  /**
-   * The initial delegation's short `description`, kept as the child's durable
-   * creation label so enumeration can identify the conversation without
-   * replaying parent tool results or exposing the child prompt.
-   */
-  readonly label: string
 }
 
 /** A session-backed subagent that cannot be cold-resumed after its run. */
 export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {
   readonly mode: 'one-shot'
+  /**
+   * The initial delegation's short `description`, kept as the child's durable
+   * creation label so enumeration can identify the conversation without
+   * replaying parent tool results or exposing the child prompt.
+   */
+  readonly label?: string
 }
 
 /** A session-backed subagent whose declared composition supports cold resume. */
 export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {
   readonly mode: 'continuable'
+  /** The initial delegation's short `description`, used for durable enumeration. */
+  readonly label: string
   /** Resolved child `agentOptions.provider`, when one was declared. */
   readonly agentProvider?: string
   /** Resolved child `agentOptions.model`, when one was declared. */
@@ -86,18 +88,20 @@ interface SubagentDescriptorInputBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that will establish the child. */
   readonly provider: string
-  /** The initial delegation's short `description`, the durable creation label. */
-  readonly label: string
 }
 
 /** Input for a one-shot child's durable identity. */
 export interface OneShotSubagentDescriptorInput extends SubagentDescriptorInputBase {
   readonly mode: 'one-shot'
+  /** Optional initial delegation `description` used as the durable creation label. */
+  readonly label?: string
 }
 
 /** Input for a continuable child's durable identity and resumable composition. */
 export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorInputBase {
   readonly mode: 'continuable'
+  /** Initial delegation `description` used for durable enumeration. */
+  readonly label: string
   /** Requested child `agentOptions.provider`. */
   readonly agentProvider?: string
   /** Requested child `agentOptions.model`. */
@@ -207,17 +211,18 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof provider !== 'string') {
     throw new Error('persisted subagent descriptor provider must be a string')
   }
-  const label = value['label']
-  if (typeof label !== 'string') {
-    throw new Error('persisted subagent descriptor label must be a string')
-  }
   if (mode === 'one-shot') {
+    const label = optionalString(value, 'label')
     return {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode,
       provider,
-      label,
+      ...label !== undefined ? { label } : {},
     }
+  }
+  const label = value['label']
+  if (typeof label !== 'string') {
+    throw new Error('persisted subagent descriptor label must be a string')
   }
   const agentProvider = optionalString(value, 'agentProvider')
   const agentModel = optionalString(value, 'agentModel')
@@ -259,20 +264,23 @@ export function snapshotSubagentDescriptor(
   input: ContinuableSubagentDescriptorInput,
 ): ContinuableSubagentDescriptorData
 export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): SubagentDescriptorData {
-  const candidate: SubagentDescriptorData = {
-    version: SUBAGENT_DESCRIPTOR_VERSION,
-    mode: input.mode,
-    provider: input.provider,
-    label: input.label,
-    ...input.mode === 'continuable'
-      ? {
-        ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
-        ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
-        ...input.persona !== undefined ? { persona: input.persona } : {},
-        ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
-      }
-      : {},
-  }
+  const candidate: SubagentDescriptorData = input.mode === 'one-shot'
+    ? {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: input.mode,
+      provider: input.provider,
+      ...input.label !== undefined ? { label: input.label } : {},
+    }
+    : {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: input.mode,
+      provider: input.provider,
+      label: input.label,
+      ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
+      ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
+      ...input.persona !== undefined ? { persona: input.persona } : {},
+      ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
+    }
   const snapshot = snapshotJsonValue(candidate)
   if (snapshot === undefined) {
     throw new Error('subagent descriptor is not losslessly JSON-serializable')

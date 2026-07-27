@@ -420,13 +420,10 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     `))
     await host.result()
     const starts = host.ofType(WorkerToHostType.AgentStart).map(m => m.info)
-    const requests = host.ofType(WorkerToHostType.ChildStart).map(m => m.request)
     expect(starts[0]).toMatchObject({ seq: 1, phase: 'Find' })
     expect(starts[0]!.label.length).toBeLessThanOrEqual(48)
     expect(starts[0]!.label).not.toContain('second line')
     expect(starts[1]).toMatchObject({ seq: 2, label: 'named', phase: 'Custom' })
-    expect(requests[0]!.label).toBe(starts[0]!.label)
-    expect(requests[1]!.label).toBe('named')
     host.close()
   })
 

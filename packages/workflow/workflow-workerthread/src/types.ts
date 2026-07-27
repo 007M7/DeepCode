@@ -38,8 +38,6 @@ export interface WorkerInit {
 
 /** What the worker asks the host to start for one `agent()` call (options already validated worker-side). */
 export interface ChildStartRequest {
-  /** Short display label resolved by the worker runtime. */
-  label: string
   /** The child's prompt text. */
   prompt: string
   /** The structured-output schema, if the call passed one (already subset-checked). */

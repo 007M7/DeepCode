@@ -45,8 +45,8 @@ interface SubagentCapabilities {
  * {@link SubagentProvider.start}.
  */
 interface SubagentStartRequest {
-  /** Short display label persisted with a session-backed child. */
-  readonly label: string
+  /** Optional short display label persisted with a session-backed child. */
+  readonly label?: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
@@ -214,13 +214,13 @@ interface ContinuableCreateSpec {
 }
 ```
 
-描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）是每个由会话支撑的 subagent 所使用、按模式判别的持久化身份。两种模式都携带提供方名称和作为持久化创建 `label` 的委派 `description`。`one-shot` 到此为止；`continuable` 还会对已解析的子 agent `agentOptions.provider`／`model` 与可选的 `persona`／`toolFilter` 建立快照，用于冷恢复。它绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。描述符省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次运行或 Activation 的结果契约，而非持久化身份）。
+描述符（[descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts) 中的 `SubagentDescriptorData`）是每个由会话支撑的 subagent 所使用、按模式判别的持久化身份。两种模式都携带提供方名称。`one-shot` 描述符可以携带调用方拥有的可选显示 `label`；`continuable` 描述符要求以委派 `description` 作为持久化创建标签，并另外对已解析的子 agent `agentOptions.provider`／`model` 与可选的 `persona`／`toolFilter` 建立快照，用于冷恢复。它绝不会对可合并扩展的 `AgentOptions` 对象建立快照，因此无关的扩展值不会破坏继续执行，后续新增组合配置输入则是一次有意的版本更改。描述符省略 `subagentDepth`（冷恢复以持久化 header 中的 `delegationDepth` 作为单调下界）和 `outputSchema`（单次运行或 Activation 的结果契约，而非持久化身份）。
 
 本地一次性提供方会在子 agent 的初始轮次内、首次请求前追加描述符。继续执行管理器会在任何提供方提供的谱系之后、初始 prompt 获准之前追加描述符；`header.seedLength` 仍是 fork 谱系边界，因此描述符查找会读取子 agent 自身的后缀。该事件只进入日志：不含 `surfaceOp`，绝不进入模型历史，并由仅追加日志跨压缩保留。格式错误的当前版本描述符属于损坏；本运行时无法对不受支持的版本进行分类。
 
 ## 持久化枚举：`listChildren()` 与 `SubagentListEntry`
 
-`SubagentService.listChildren(parentSessionId)` 从一次 `ctx.sessionQuery.traceSession()` 观测中枚举 parent 直接且由会话支撑的 subagent，而不会加载或恢复任何 Agent。会话谱系的范围比 subagent 身份更广——普通 fork 也会共享 `parentSession`——因此，child 自身后缀中恰好一个受支持的 `subagent/descriptor` 事件（位于 `seedLength` 之后，避免 fork seed 泄漏祖先描述符）是唯一的 subagent 判别信息。结果是一个按追踪结果中 `createdAt`、再按 id 排列候选顺序的 `SubagentListEntry[]`：有效描述符生成带有 `mode: 'one-shot' | 'continuable'` 和 `activity: 'running' | 'inactive'` 的 `child` 条目；逐 child 检查失败生成 `diagnostic` 条目（`corrupt`、`unsupported` 或 `unavailable`），因此一个损坏的 sibling 不会隐藏健康 child；缺少描述符则不生成条目。活动状态只表示逻辑记录是否在 `ctx.sessions` 中存活，而不表示结果或可恢复性。UI 等服务消费方可以展示两种模式；面向模型的 `list_agents` 适配器（[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) 中可单独加载的 `/list-agents` 插件）则只保留可继续条目，并将活动状态映射到现有的 `running`／`complete` 词汇。构建初始追踪时的失败会让整个调用失败——只有得到可信候选集后才开始逐 child 隔离。服务将 `sessionQuery` 保持为按 id 继续执行时的可选依赖：缺少该服务时，`listChildren()` 抛出 `SubagentError`，并携带错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`；列表工具则在插件加载时要求 `ctx.subagents` 与 `ctx.sessionQuery`。枚举不会查询继续执行管理器的 Activation map、Agent 注册表或提供方可用性；`send_message` 仍是消息送达时的权威操作，列表中的运行中可继续 child 仍可能因所有权冲突而拒绝投递。
+`SubagentService.listChildren(parentSessionId)` 从一次 `ctx.sessionQuery.traceSession()` 观测中枚举 parent 直接且由会话支撑的 subagent，而不会加载或恢复任何 Agent。会话谱系的范围比 subagent 身份更广——普通 fork 也会共享 `parentSession`——因此，child 自身后缀中恰好一个受支持的 `subagent/descriptor` 事件（位于 `seedLength` 之后，避免 fork seed 泄漏祖先描述符）是唯一的 subagent 判别信息。结果是一个按追踪结果中 `createdAt`、再按 id 排列候选顺序的 `SubagentListEntry[]`：有效描述符生成带有 `mode: 'one-shot' | 'continuable'` 和 `activity: 'running' | 'inactive'` 的 `child` 条目；可继续条目始终携带 `label`，一次性条目则只在启动调用方提供展示元数据时携带该字段。逐 child 检查失败生成 `diagnostic` 条目（`corrupt`、`unsupported` 或 `unavailable`），因此一个损坏的 sibling 不会隐藏健康 child；缺少描述符则不生成条目。活动状态只表示逻辑记录是否在 `ctx.sessions` 中存活，而不表示结果或可恢复性。UI 等服务消费方可以展示两种模式，并为无标签的一次性 child 选择回退展示；面向模型的 `list_agents` 适配器（[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) 中可单独加载的 `/list-agents` 插件）则只保留可继续条目，并将活动状态映射到现有的 `running`／`complete` 词汇。构建初始追踪时的失败会让整个调用失败——只有得到可信候选集后才开始逐 child 隔离。服务将 `sessionQuery` 保持为按 id 继续执行时的可选依赖：缺少该服务时，`listChildren()` 抛出 `SubagentError`，并携带错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`；列表工具则在插件加载时要求 `ctx.subagents` 与 `ctx.sessionQuery`。枚举不会查询继续执行管理器的 Activation map、Agent 注册表或提供方可用性；`send_message` 仍是消息送达时的权威操作，列表中的运行中可继续 child 仍可能因所有权冲突而拒绝投递。
 
 ## 终态结果：`SubagentResult`
 

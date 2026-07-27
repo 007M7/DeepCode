@@ -28,7 +28,6 @@ const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, 
 
 function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentStartRequest {
   return {
-    label: 'do a thing',
     prompt: [{ type: 'text', text: 'do a thing' }],
     parent: fakeParent(),
     signal: new AbortController().signal,
@@ -119,7 +118,6 @@ describe('SubagentService', () => {
         version: SUBAGENT_DESCRIPTOR_VERSION,
         mode: 'one-shot',
         provider: 'one-shot',
-        label: 'do a thing',
       },
     })
     expect(provider.lastRequest).not.toBe(request)
@@ -308,14 +306,18 @@ describe('subagent descriptors', () => {
 
   it('omits absent fields, recovers a complete payload, and rejects unsupported versions', () => {
     expect(foldSubagentDescriptor([])).toBeUndefined()
-    const minimal = snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'spawn', label: 'child work' })
+    const minimal = snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'spawn' })
     expect(minimal).toEqual({
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'one-shot',
       provider: 'spawn',
-      label: 'child work',
     })
     expect(foldSubagentDescriptor([event(minimal)])).toEqual(minimal)
+    expect(snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'child work',
+    })).toEqual({ ...minimal, label: 'child work' })
     const complete = {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'continuable' as const,
@@ -380,6 +382,12 @@ describe('subagent descriptors', () => {
       label: 'l',
       persona: 'reviewer',
     }, 'payload has unknown field "persona"'],
+    ['invalid one-shot label', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 7,
+    }, 'label must be a string'],
     ['unknown payload field', {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'continuable',

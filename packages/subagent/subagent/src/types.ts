@@ -93,8 +93,8 @@ export interface SubagentCapabilities {
  * {@link SubagentProvider.start}.
  */
 export interface SubagentStartRequest {
-  /** Short display label persisted with a session-backed child. */
-  readonly label: string
+  /** Optional short display label persisted with a session-backed child. */
+  readonly label?: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**

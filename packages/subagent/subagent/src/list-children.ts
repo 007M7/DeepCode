@@ -30,10 +30,6 @@ export type SubagentListEntry =
     readonly kind: 'child'
     /** The durable child session id, stable across Activations. */
     readonly id: SessionId
-    /** The durable creation label from the child's descriptor. */
-    readonly label: string
-    /** Lifecycle policy declared when the child was created. */
-    readonly mode: 'one-shot' | 'continuable'
     /**
      * Corpus snapshot activity: `running` means the logical record is live in
      * `ctx.sessions`; `inactive` means it exists only in persistence. Neither
@@ -41,7 +37,20 @@ export type SubagentListEntry =
      * delivery as an ownership conflict.
      */
     readonly activity: 'running' | 'inactive'
-  }
+  } & (
+    | {
+      /** A terminal one-shot child. */
+      readonly mode: 'one-shot'
+      /** Optional durable creation label from the child's descriptor. */
+      readonly label?: string
+    }
+    | {
+      /** A resumable conversation. */
+      readonly mode: 'continuable'
+      /** Durable creation label from the child's descriptor. */
+      readonly label: string
+    }
+  )
   | {
     readonly kind: 'diagnostic'
     /** The traced candidate's session id. */
@@ -139,13 +148,17 @@ async function inspectChild(
     if (descriptor === undefined) {
       return { kind: 'diagnostic', id: childId, reason: 'unsupported' }
     }
-    return {
-      kind: 'child',
-      id: childId,
-      label: descriptor.label,
-      mode: descriptor.mode,
-      activity: candidate.live ? 'running' : 'inactive',
+    const activity = candidate.live ? 'running' : 'inactive'
+    if (descriptor.mode === 'one-shot') {
+      return {
+        kind: 'child',
+        id: childId,
+        mode: descriptor.mode,
+        ...descriptor.label !== undefined ? { label: descriptor.label } : {},
+        activity,
+      }
     }
+    return { kind: 'child', id: childId, mode: descriptor.mode, label: descriptor.label, activity }
   } catch (error: unknown) {
     const reason = perChildDiagnosticReason(error, queryRuntime.SessionQueryError)
     if (reason === undefined) throw error

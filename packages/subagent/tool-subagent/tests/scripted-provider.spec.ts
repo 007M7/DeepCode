@@ -12,7 +12,6 @@ function fakeParent(id = 'parent-1'): Agent {
 
 function baseRequest(over: Partial<SubagentStartRequest> = {}): SubagentStartRequest {
   return {
-    label: 'task',
     prompt: [{ type: 'text', text: 'task' }],
     parent: fakeParent(),
     signal: new AbortController().signal,

@@ -314,7 +314,7 @@ export class SubagentService extends Service {
     const descriptor = snapshotSubagentDescriptor({
       mode: 'one-shot',
       provider: name,
-      label: request.label,
+      ...request.label !== undefined ? { label: request.label } : {},
     })
     const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))

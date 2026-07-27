@@ -144,7 +144,6 @@ describe('SubagentService.listChildren', () => {
   it('lists one-shot and continuable children from the same trace', async () => {
     const { ctx, parent } = await setup([textResponse('once'), textResponse('again')])
     const oneShot = await ctx.subagents.start('spawn', {
-      label: 'one-shot child',
       prompt: [{ type: 'text', text: 'finish once' }],
       parent,
       signal: new AbortController().signal,
@@ -159,7 +158,6 @@ describe('SubagentService.listChildren', () => {
     expect(entries).toContainEqual({
       kind: 'child',
       id: oneShotId,
-      label: 'one-shot child',
       mode: 'one-shot',
       activity: 'inactive',
     })

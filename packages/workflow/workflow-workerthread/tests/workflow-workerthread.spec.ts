@@ -211,7 +211,7 @@ describe('dsh-workflow-workerthread', () => {
         reply: () => ({ output: [], structured: { files: ['x.ts', 'y.ts'] }, stopReason: 'completed' }),
       })
       const result = await run(ctx, parent, scripted(`
-        const found = await agent('list files', { label: 'inventory', model: 'deepseek-v4-pro', schema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } }, required: ['files'] } })
+        const found = await agent('list files', { model: 'deepseek-v4-pro', schema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } }, required: ['files'] } })
         return { first: found.files[0], count: found.files.length }
       `))
       expect(result.value).toEqual({ first: 'x.ts', count: 2 })
@@ -221,7 +221,6 @@ describe('dsh-workflow-workerthread', () => {
         required: ['files'],
       })
       expect(provider.runs[0]!.request.agentOptions).toEqual({ model: 'deepseek-v4-pro' })
-      expect(provider.runs[0]!.request.label).toBe('inventory')
       expect(provider.runs[0]!.request.parent).toBeDefined()
     })
 
