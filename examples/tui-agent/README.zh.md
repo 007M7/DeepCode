@@ -19,7 +19,7 @@ pnpm run demo:tui
 
 `todo_write` 任务跟踪器是选用的，不在已交付配置中：请将 `@deepseek-ai/dsh-tool-todo` 添加到 `cordis.yml`（或在 `~/.dsh` 下使用个人配置覆盖）以公开该工具。加载后，模型会把整表计划记录到会话日志，TUI 则渲染它。
 
-TUI 渲染 Markdown 历史、推理、工具所有的终端／diff／通用卡片、token 总量，以及加载 `todo_write` 时的最新计划。较长的工具正文保留首尾预览；Ctrl+O 展开或折叠所有卡片。Enter 用于提交，或在 agent 运行时进行 steering（中途引导）；Ctrl+R 切换推理，Escape 取消，`/help` 列出命令。`/plan` 为下一步骤选择 plan mode；`/plan <message>` 还会将消息提交到该步骤，`/plan off` 则在没有模型输入的情况下选择默认 mode。`/status` 会展开当前会话的标识、活动计数、精确 token／缓存 bucket、上下文用量和时间戳，而不中断正在运行的轮次。`/model` 打开当前提供方目录的键盘选择器；使用 Up/Down 和 Enter，或使用 `/model <model>` 和 `/model <provider>/<model>` 直接选择。`ask_user_question` 会打开一个位于左下方的宽键盘面板，包含批次进度和编号选项。
+TUI 渲染 Markdown 历史、推理、工具所有的终端／diff／通用卡片、token 总量，以及加载 `todo_write` 时的最新计划。较长的工具正文保留首尾预览；Ctrl+O 展开或折叠所有卡片。Enter 用于提交，或在 agent 运行时进行 steering（中途引导）；Ctrl+R 切换推理，Escape 取消，`/help` 列出命令。`/plan` 为下一步骤选择 plan mode；`/plan <message>` 还会将消息提交到该步骤，`/plan off` 则在没有模型输入的情况下选择默认 mode。`/status` 会展开当前会话的标识、活动计数、精确 token／缓存 bucket、上下文用量和时间戳，而不中断正在运行的轮次。`/model` 打开当前提供方目录的键盘选择器；使用 Up/Down 聚焦模型，使用 Shift+Tab 循环切换为该模型公布的推理强度，再用 Enter 选择；也可以使用 `/model <model>` 和 `/model <provider>/<model>` 直接选择。`ask_user_question` 会打开一个位于左下方的宽键盘面板，包含批次进度和编号选项。
 
 ### 恢复早先的会话
 
@@ -53,7 +53,7 @@ pnpm run demo:code-mode acp    # the acp-agent example's same-shaped overlay
 | 配置项 | 演示内容 |
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | 开发／演示的编辑-重载循环：它是 **叶节点** 配置项（不内置到应用），因为它依赖 Loader 的内部模块访问 |
-| `llm-deepseek` | 通过配置提供真实 `LlmAdapter`（`!!js process.env.…` 密钥）；将一行替换为 `@deepseek-ai/dsh-llm-pi-ai` 即可使用库后端对照实现 |
+| `llm-deepseek` | 默认原生适配器 |
 | `bash` (`dsh-bash-local`) | 执行器实现：bash seam 的可替换一半。面向模型的 `bash` schema（`tool-bash`）和通用 `task_*` 控制（`tool-tasks`）由 `dsh-agent-spine-demo` 提供，因此叶节点只选择执行器 |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | 应用组合包：agent-spine 演示 + JSONL 持久化 + pi-tui 通道 + 预创建的 `main` agent |
 | `subagent`, `subagent-spawn`, `subagent-fork` | subagent 提供方注册表加两个进程内后端：新子 agent，以及用父 agent 已完成轮次前缀播种的子 agent |

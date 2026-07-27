@@ -8,7 +8,12 @@ import AgentRegistry, {
   type AgentStatus,
   type SendOptions,
 } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  LlmModelInfo,
+  LlmProviderInfo,
+  LlmResolvedModelInfo,
+} from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -47,7 +52,10 @@ export interface TuiHarnessOptions {
     providers: LlmProviderInfo[]
     models: LlmModelInfo[]
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
-    resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
+    resolveModelInfo?: (
+      provider: string,
+      model: string,
+    ) => Promise<Pick<LlmResolvedModelInfo, 'context' | 'reasoning'>>
   }
   /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
   sessionPersistence?: {
@@ -118,9 +126,20 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
         return catalog.listModels?.(provider)
           ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
       },
-      resolveModelContext(provider: string, model: string) {
-        return catalog.resolveModelContext?.(provider, model)
-          ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      async resolveModelInfo(provider: string, model: string) {
+        const advertised = catalog.models.find(candidate =>
+          candidate.provider === provider && candidate.id === model)
+        const capabilities = await (catalog.resolveModelInfo?.(provider, model)
+          ?? Promise.resolve({
+            context: { contextWindow: options.contextWindow ?? 128_000 },
+          }))
+        return {
+          provider,
+          id: model,
+          name: advertised?.name ?? model,
+          ...advertised?.description === undefined ? {} : { description: advertised.description },
+          ...capabilities,
+        }
       },
     } as never)
   }

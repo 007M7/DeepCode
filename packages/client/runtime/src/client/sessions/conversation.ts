@@ -4,10 +4,13 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  RpcError, SessionId, ToolCallView, ToolResultView, WorkspaceId,
+  RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+
+export type { TodoItem }
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -156,6 +159,12 @@ export interface RunningToolCall {
 }
 
 
+/** One queued-message row mirrored from `session/queued` frames (key: the enqueueing prompt's rpcId when wire-sourced). */
+export interface QueuedMessage {
+  readonly key: string
+  readonly preview: string
+}
+
 /** In-progress assistant output (chunk accumulator product). */
 export interface PartialAssistant {
   turn: number
@@ -194,30 +203,6 @@ export interface PromptError {
   error: RpcError
 }
 
-/** Workspace target of a frontend-only Session. */
-export type SessionIntentTarget =
-  | { kind: 'workspace'; workspaceId: WorkspaceId }
-  | { kind: 'workspace-intent' }
-
-/** Publication state owned by a frontend Session before it joins the Host. */
-export interface SessionIntentSnapshot {
-  target: SessionIntentTarget
-  phase: 'ready' | 'connecting'
-  error?: { step: 'session'; message: string }
-}
-
-/** One editable prompt retained by its Session until the Host accepts it. */
-export interface PendingPrompt {
-  text: string
-  phase: 'editing' | 'sending' | 'failed'
-  /** Failed prerequisite retried before sending, or the send itself. */
-  retry: 'connect' | 'send'
-  /** Workspace needed when retrying Session attachment. */
-  workspaceId?: WorkspaceId
-  /** Last failure diagnostic, absent while editing or sending. */
-  error?: string
-}
-
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
@@ -235,6 +220,8 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
+  /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
+  queue: readonly QueuedMessage[]
   running: boolean
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
   composerPhase: ComposerPhase
@@ -245,9 +232,19 @@ export interface ConversationSnapshot {
   hasMore: boolean
   loadingOlder: boolean
   promptError: PromptError | null
-  /** Frontend-only publication state; null for a Host-connected Session. */
-  intent: SessionIntentSnapshot | null
-  /** Session-owned editable prompt waiting for connection, attachment, or send. */
-  pendingPrompt: PendingPrompt | null
+  /**
+   * Whether this session still has an empty log (no user message yet).
+   * Mirrors the host summary's derived blank bit: seeded from `session.list`
+   * / the `host/session-added` frame, flipped false by the first ACCEPTED
+   * prompt locally (on the RPC success response — acceptance proves the
+   * user message is in the host log; a rejected first prompt keeps the
+   * session blank and reusable) and by any `running: true` status remotely,
+   * and re-aligned by every list re-pull (the summary stays authoritative).
+   * Blank sessions are hidden from session lists and reused by New Session.
+   */
+  blank: boolean
   lastAgentError: string | null
+  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
+   *  write (last write wins); empty = the log holds no plan. */
+  todos: readonly TodoItem[]
 }

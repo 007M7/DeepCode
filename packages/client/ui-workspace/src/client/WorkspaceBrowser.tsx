@@ -17,7 +17,7 @@ import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode } from './tree.ts'
 import { deriveFlat, deriveGroups, UNGROUPED_KEY } from './tree.ts'
-import { IntentRowItem, ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
+import { ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
 import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -87,27 +87,25 @@ type SessionTreeProps = Pick<
   query: string
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
+  onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
-function SessionTree({ useSessions, startSession, open, workspaces, query, onRenameRequest, insertSessionBefore }: SessionTreeProps) {
+function SessionTree({
+  useSessions, startSession, open, workspaces, query,
+  onRenameRequest, onDeleteRequest, insertSessionBefore,
+}: SessionTreeProps) {
   const list = useSessions((s) => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [expandedSessions, setExpandedSessions] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
-  // Re-expand when publication moves the selected intent into a real Workspace.
-  const intent = list.intent
-  const intentWorkspaceId = intent?.target.kind === 'workspace'
-    ? intent.target.workspaceId
-    : undefined
   const currentGroup = current === undefined
     ? undefined
-    : intent?.sessionId === current
-      ? intentWorkspaceId
-      : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
+    : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+      ?? UNGROUPED_KEY
   useEffect(() => {
     if (current === undefined || currentGroup === undefined) return
     setExpandedProjects((l) => (l.includes(currentGroup) ? l : [...l, currentGroup]))
@@ -135,14 +133,19 @@ function SessionTree({ useSessions, startSession, open, workspaces, query, onRen
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
               }}
-              onRename={group.workspaceId === undefined
+              actions={group.workspaceId === undefined
                 ? undefined
-                : () => {
-                    /* v8 ignore next -- narrowing guard: the closure is only created for real-workspace groups. */
-                    if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                : {
+                    rename: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                    },
+                    delete: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+                    },
                   }}
             />
-            {group.expanded && group.intentHere && <IntentRowItem />}
             {group.sessions.map((node, index) => {
               // Draggable: real-workspace group roots outside search. The drag
               // never leaves its group — rows of other groups show no markers
@@ -204,16 +207,12 @@ function FlatList({ useSessions, open, query }: Pick<SessionTreeProps, 'useSessi
   const list = useSessions((s) => s)
   const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
   const now = Date.now()
-  // The intent placeholder renders outside search only; it suppresses the
-  // empty state only while actually rendered (a query hides both).
-  const intentRow = query === '' && list.intent !== undefined
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={css.list} role="tree" aria-label="Sessions">
-        {rows.length === 0 && !intentRow && (
+        {rows.length === 0 && (
           <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
         )}
-        {intentRow && <IntentRowItem />}
         {rows.map(node => (
           <SessionNodeItem
             key={node.id}
@@ -248,6 +247,7 @@ export function WorkspaceBrowser({
   startSession,
   open,
   renameWorkspace,
+  deleteWorkspace,
   insertSessionBefore,
   createWorkspace,
 }: WorkspaceBrowserProps) {
@@ -300,6 +300,41 @@ export function WorkspaceBrowser({
     }).catch((reason: unknown) => {
       setRenaming(false)
       setRenameError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Delete dialog is separate from the row so a successful removal can
+  // unmount that row without tearing down the in-flight confirmation state.
+  const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteCommittedId, setDeleteCommittedId] = useState<WorkspaceId | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  useEffect(() => {
+    if (deleteCommittedId === null
+      || workspaces.some(workspace => workspace.workspaceId === deleteCommittedId)) return
+    setDeleting(false)
+    setDeleteCommittedId(null)
+    setDeleteTarget(null)
+  }, [deleteCommittedId, workspaces])
+  const closeDelete = () => {
+    if (deleting) return
+    setDeleteTarget(null)
+    setDeleteError(null)
+  }
+  const confirmDelete = () => {
+    /* v8 ignore next -- the Modal is absent without a target and its button is disabled while deleting. */
+    if (deleting || deleteTarget === null) return
+    setDeleting(true)
+    setDeleteCommittedId(null)
+    setDeleteError(null)
+    deleteWorkspace(deleteTarget.workspaceId).then(() => {
+      // Keep the confirmation pending until this component has rendered the
+      // committed list projection without the deleted id. Closing earlier
+      // exposes one stale React frame to the next Create Workspace gesture.
+      setDeleteCommittedId(deleteTarget.workspaceId)
+    }).catch((reason: unknown) => {
+      setDeleting(false)
+      setDeleteError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -394,6 +429,10 @@ export function WorkspaceBrowser({
                   setRenameDraft(currentTitle)
                   setRenameError(null)
                 }}
+                onDeleteRequest={(workspaceId, title) => {
+                  setDeleteTarget({ workspaceId, title })
+                  setDeleteError(null)
+                }}
               />
             ))}
       </div>
@@ -427,6 +466,30 @@ export function WorkspaceBrowser({
           <div className={css.renameError} role="alert">A workspace named “{renameTrimmed}” already exists.</div>
         )}
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
+      </Modal>
+      <Modal
+        open={deleteTarget !== null}
+        onClose={closeDelete}
+        title="Delete workspace"
+        {...deleteTarget === null
+          ? {}
+          : { description: `This removes “${deleteTarget.title}” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.` }}
+        footer={(
+          <>
+            <Button variant="outline" disabled={deleting} onClick={closeDelete}>Cancel</Button>
+            <Button
+              variant="outline"
+              className={css.deleteAction!}
+              disabled={deleting}
+              onClick={confirmDelete}
+            >
+              Delete workspace
+            </Button>
+          </>
+        )}
+      >
+        {deleting && <div className={css.deleteStatus} role="status">Deleting workspace…</div>}
+        {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
       </Modal>
     </div>
   )

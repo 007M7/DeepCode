@@ -6,7 +6,7 @@
 
 ## 配置
 
-估算器没有设置。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何 key 都会被拒绝，包括已废弃的全局 `contextWindow`；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelContext()` 获取。
+估算器没有设置。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何 key 都会被拒绝，包括已废弃的全局 `contextWindow`；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
 
 ## 测量契约
 

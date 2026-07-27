@@ -12,7 +12,7 @@ import { act, render } from '@testing-library/react'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSlotRenderer, SessionProvider,
-  type SessionCell, type SlotRendererHost,
+  type SessionProvideInfo, type SlotRendererHost,
 } from '@deepseek-ai/dsh-client-web-react'
 
 function observable<T>(initial: T) {
@@ -32,7 +32,7 @@ function observable<T>(initial: T) {
  */
 function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.ReactNode) => React.ReactNode }) {
   const current = observable<string | undefined>(undefined)
-  const cells = new Map<string, SessionCell>()
+  const infos = new Map<string, SessionProvideInfo>()
   const sessionEntries: StoredEntry[] = []
   const rootEntry: StoredEntry = {
     component: (props: { renderSlot: (key: string, owner: object) => React.ReactNode }) =>
@@ -50,7 +50,9 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     sessions: {
       list: observable<unknown>({ ids: [] }),
       current,
-      cell: (id) => cells.get(id),
+      provideInfo: (id) => infos.get(id),
+      maybeProvideInfo: (id) => (id === undefined ? undefined : infos.get(id))
+        ?? { sessionId: undefined, hooks: { session: undefined }, props: {} },
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }
@@ -58,13 +60,14 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     host,
     current,
     addSession: (id: string) => {
-      // Bare source per cell (identity-stable): the machinery binds useSession from it.
-      const cell: SessionCell = {
+      // Bare source per bundle (identity-stable): the machinery binds useSession from it.
+      const info: SessionProvideInfo = {
         sessionId: id,
-        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+        hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
+        props: {},
       }
-      cells.set(id, cell)
-      return cell
+      infos.set(id, info)
+      return info
     },
     registerSession: (entry: StoredEntry) => { sessionEntries.push(entry) },
   }

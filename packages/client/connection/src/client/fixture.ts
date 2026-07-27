@@ -6,7 +6,7 @@
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -167,6 +167,22 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
+  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // todo/write snapshot event feeding the TodoPanel plan strip.
+  const fixtureTodos = [
+    { content: '梳理需求', status: 'completed' },
+    { content: '实现 fixture 样本', status: 'in_progress' },
+    { content: '浏览器验收', status: 'pending' },
+  ]
+  const todoArgs = JSON.stringify({ todos: fixtureTodos })
+  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  // The real tool appends the snapshot mid-execution — between tool/call and
+  // tool/result — so the fixture reproduces that exact ordering (the last
+  // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
+  const callIndex = events.length - 4
+  const callTime = events[callIndex]?.time as number
+  events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
+  events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
 
@@ -281,6 +297,15 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i]
+    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+  }
+  return undefined
+}
+
 interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
@@ -347,10 +372,11 @@ class FxInbox<F> implements StreamConn<F> {
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
 export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  // The resident fixture sessions all carry history, so none of them is blank.
   const sessions: SessionSummary[] = options.empty ? [] : [
-    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
-    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-beta'), updatedAt: Date.now() - 60_000, running: false, blank: false, parentSessionId: sid('fx-alpha'), cwd: '/tmp/fixture' },
+    { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
@@ -427,6 +453,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
+  /** Shared session guard for sessionId-addressed catalog routes: the error
+   *  response when the session is unknown, undefined when it exists. */
+  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
+    if (summaryOf(request.payload.sessionId) !== undefined) return undefined
+    return err<{ sessionId: SessionId }, never>(request, {
+      code: 'session-not-found',
+      message: `no session ${request.payload.sessionId}`,
+      details: { sessionId: request.payload.sessionId },
+    })
+  }
   const setRunning = (id: SessionId, running: boolean): void => {
     const summary = summaryOf(id)
     if (summary === undefined || summary.running === running) return
@@ -582,12 +618,13 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           }
         }
         const created: SessionSummary = {
-          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, cwd,
+          sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
         attachedSessions += 1
         const emitSession = (): void => {
-          emitHost({ type: 'host/session-added', sessionId: created.sessionId, cwd })
+          // Mirrors the host: the frame fires at creation, so blank is constantly true.
+          emitHost({ type: 'host/session-added', sessionId: created.sessionId, blank: true, cwd })
         }
         if (workspace !== undefined && options.failWorkspaceAttach) {
           emitSession()
@@ -607,12 +644,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
+        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
+        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, page)
+        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload
@@ -628,6 +667,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           })
         }
         summary.updatedAt = Date.now()
+        // First accepted prompt appends events: the summary stops being blank.
+        summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (mode === 'steer' && replays.has(id)) {
           // Steering: insert a steering message into the current turn; the replay continues.
@@ -709,6 +750,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         return ok(request, { workspace: { ...workspace } })
       },
+      delete: (request) => {
+        const { workspaceId } = request.payload
+        const index = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+        if (index === -1) {
+          return err(request, {
+            code: 'workspace-not-found',
+            message: `no workspace ${workspaceId}`,
+            details: { workspaceId },
+          })
+        }
+        workspaces.splice(index, 1)
+        emitHost({ type: 'host/workspace-removed', workspaceId })
+        return ok(request, { deleted: true as const })
+      },
       insertSessionBefore: (request) => {
         const { workspaceId, sessionId, beforeSessionId } = request.payload
         const workspace = workspaces.find(w => w.workspaceId === workspaceId)
@@ -736,6 +791,52 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
         return ok(request, { workspace: { ...workspace } })
+      },
+    },
+    commands: {
+      // The catalog mirrors one session's effective view (every fixture
+      // session has an agent, like the real host).
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          commands: [
+            { name: 'compact', description: 'fixture：压缩当前会话上下文' },
+            { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
+            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+          ],
+        })
+      },
+      execute: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const line = request.payload.line.trim()
+        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const name = match?.[1]
+        if (name === 'compact' || name === 'echo') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
+          })
+        }
+        if (name === 'goal-fixture') {
+          return ok(request, {
+            matched: true as const,
+            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
+          })
+        }
+        return ok(request, { matched: false as const })
+      },
+    },
+    skills: {
+      list: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          skills: [
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+          ],
+        })
       },
     },
     events: {
@@ -854,7 +955,12 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
+      case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'command.list': return this.api.commands.list(request)
+      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
+      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'skill.list': return this.api.skills.list(request)
     }
   }
 
