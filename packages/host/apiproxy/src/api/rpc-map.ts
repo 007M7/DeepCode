@@ -26,6 +26,7 @@ export interface RpcMethodMap {
   'workspace.list': WorkspaceApi['list']
   'workspace.create': WorkspaceApi['create']
   'workspace.rename': WorkspaceApi['rename']
+  'workspace.delete': WorkspaceApi['delete']
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
   'command.list': CommandsApi['list']
   'command.execute': CommandsApi['execute']

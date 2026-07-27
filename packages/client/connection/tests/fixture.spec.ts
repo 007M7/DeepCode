@@ -380,6 +380,31 @@ describe('createFixtureApi', () => {
     expect(noop.result.value.workspace.updatedAt).toBe(before)
   })
 
+  it('workspace.delete removes only the Workspace row and emits the removal frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const missing = await api.workspace.delete(req({ workspaceId: 'fx-ws-void' as WorkspaceId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const deleted = await api.workspace.delete(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    await consuming
+    expect(seen).toEqual([{ type: 'host/workspace-removed', workspaceId: 'fx-ws-fixture' }])
+    const list = await api.workspace.list(req({}))
+    if (!list.result.ok) throw new Error('workspace list failed')
+    expect(list.result.value.items.some(workspace => workspace.workspaceId === 'fx-ws-fixture')).toBe(false)
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
+  })
+
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
