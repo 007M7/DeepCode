@@ -108,7 +108,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
 
     const events = [...live.agent.session.events]
     const update = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'workspace-instructions')
+      && event.data.source.kind === 'workspace-instructions'
+      && event.data.source.baseline !== true)
     expect(update?.type === 'user/message' && update.data.source).toMatchObject({
       changes: [{ action: 'replace', scope: candidateScopeKey('.', 'AGENTS.md'), path: 'AGENTS.md' }],
     })
