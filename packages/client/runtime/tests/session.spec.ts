@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false) {
+function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
 }
 
 describe('open', () => {
@@ -153,6 +153,42 @@ describe('live event path', () => {
     })
   })
 
+  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
+    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
+    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
+    const { session } = await opened()
+    expect(session.getSnapshot().todos).toEqual([])
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.todoWrite(6, listA))
+    expect(session.getSnapshot().todos).toEqual(listA)
+    feed(ev.todoWrite(7, listB))
+    expect(session.getSnapshot().todos).toEqual(listB)
+    // Window replay converges on the same last snapshot (history contains both writes).
+    const replayed = makeSession()
+    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
+    await replayed.session.open()
+    expect(replayed.session.getSnapshot().todos).toEqual(listB)
+  })
+
+  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
+    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
+    // Cold open: the page window carries NO todo/write; the projection rides the response.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
+    await session.open()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // Paging an older window in must not clear the session-level projection.
+    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
+    await session.loadOlder()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // A later live write still overrides the seeded projection.
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
+  })
+
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -165,6 +201,37 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
+  })
+
+  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
+    expect(session.getSnapshot().todos).toEqual([])
+    // The missed range contained a todo/write that the repulled page no longer
+    // covers; the response's session-level projection is the only carrier.
+    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(2)
+    })
+    await Promise.resolve()
+    expect(session.getSnapshot().todos).toEqual(current)
+  })
+
+  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
+    // Live write lands, then the host crashes before persisting it: the
+    // authoritative log holds no todo/write, so the resync tail response
+    // carries no projection — an omitted field on a tail request is the empty
+    // list, not a missing carrier, and the rolled-back plan must disappear.
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.resync()
+    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 

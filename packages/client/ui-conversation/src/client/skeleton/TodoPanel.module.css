@@ -1,0 +1,111 @@
+/* Plan strip pinned above the composer: bordered card on the composer card's
+   axis (776px column inside 32px side padding). Colors resolve through
+   --dsw-alias-* tokens only; the active row rides the business blue, done
+   rows fade to tertiary. */
+
+.root {
+  flex: none;
+  overflow: hidden;
+  margin: 8px auto 0;
+  width: calc(100% - 64px);
+  max-width: 776px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.title {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.progress {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.activeHint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.list {
+  margin: 0;
+  padding: 0 12px 8px;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.glyph {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.item[data-status='completed'] .content {
+  color: var(--dsw-alias-label-tertiary);
+  text-decoration: line-through;
+}
+
+.item[data-status='completed'] .glyph {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.item[data-status='in_progress'] .content {
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.item[data-status='in_progress'] .glyph {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
