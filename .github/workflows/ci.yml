@@ -30,9 +30,24 @@ jobs:
   # Three enterprise jobs isolate coverage, static analysis, and the
   # build-backed consumer tail. The static job publishes its exact build so
   # consumers do not repeat the longest part of their critical path.
+  #
+  # FAILOVER: each Linux enterprise job resolves its pool through the
+  # DSH_CI_FAILOVER repository variable. Unset (normal), the expressions
+  # pick the hosted enterprise pools below. Setting the variable to
+  # 'selfhosted' (repo Settings → Actions → Variables; writer-manageable
+  # repository state — not PR-editable, no merge required) retargets all
+  # three onto the in-house
+  # vm-backup pool and re-running the failed jobs is the entire switch —
+  # see .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md. The
+  # in-house pool's readiness is re-proven on every master push by the
+  # serial-linux-selfhosted standby lane below.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     name: node 24 / static
     env:
       DSH_GATE_CONCURRENCY: '8'
@@ -44,8 +59,10 @@ jobs:
           persist-credentials: false
 
       # Pull requests consume the default-branch cache but do not put cache
-      # compression and upload on the paid latency-critical path.
+      # compression and upload on the paid latency-critical path. Skipped
+      # under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -81,17 +98,30 @@ jobs:
 
   node-24-coverage:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
     name: node 24 / coverage
     env:
-      DSH_COVERAGE_MAX_WORKERS: '24'
+      # Failover shrinks the worker bound: the hosted 32-core runner is
+      # exclusive to one job, but the failover pool shares one 64-core VM
+      # across six always-on runner instances, and the timing-sensitive
+      # process suites have documented aggregate-contention failures.
+      # 8 × 6 instances = 48 workers worst case on 64 cores.
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '24' }}
       DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
+      # Skipped under failover: the self-hosted VM's persistent pnpm store
+      # serves warm installs directly, and this hosted-path restore would
+      # spend ~52 s pulling ~180 MB into a path pnpm never reads there.
       - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -122,7 +152,11 @@ jobs:
   node-24-consumers:
     needs: node-24
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     name: node 24 / snapshots and artifacts
     env:
       DSH_ESLINT_CACHE: '1'
@@ -130,7 +164,8 @@ jobs:
       DSH_GATE_CONCURRENCY: '8'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_PUBLINT_CONCURRENCY: '8'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '32'
+      # Failover halves snapshot concurrency for the shared 64-core VM.
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -144,7 +179,9 @@ jobs:
       - name: Restore built tree
         run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
 
+      # Skipped under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
           path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -555,6 +592,56 @@ jobs:
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
 
+  # Hot-standby drill for the in-house self-hosted pool: every master move
+  # re-runs the complete unsharded aggregate on the persistent 64-core VM,
+  # continuously proving that environment can take over a required lane if
+  # the hosted pools degrade (the switch is then setting the writer-manageable
+  # DSH_CI_FAILOVER variable — see the failover runbook, no merge required).
+  # Push-triggered, so this lane always executes the base branch's own
+  # workflow definition. (Under failover, pull_request jobs do reach these
+  # runners with the PR merge ref's workflow — the boundary there is
+  # repository membership: private, forking disabled, Dependabot excluded.)
+  # Non-blocking for
+  # pull requests; no cache steps because the VM's persistent pnpm store and
+  # tool caches make them redundant (and saving here would poison the hosted
+  # cache namespace with self-hosted paths).
+  serial-linux-selfhosted:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    name: serial / linux (self-hosted standby)
+    runs-on: [self-hosted, linux, x64, vm-backup]
+    steps:
+      # Full history + DSH_ARCHIVE_BASE_REF below: same frozen-archive
+      # comparison as serial-linux. Depth 2 would miss github.event.before
+      # on multi-commit or force pushes; full fetch is cheap here because
+      # checkout resolves against the VM's local mirror.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare bubblewrap (unrestrict userns)
+        run: bash scripts/prepare-ci-bubblewrap.sh
+
+      - name: Run complete unsharded primary Node CI serially
+        env:
+          DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
+          DSH_COVERAGE_MAX_WORKERS: '1'
+          DSH_E2E_MAX_WORKERS: '1'
+          DSH_ESLINT_CACHE: '1'
+          DSH_GATE_CONCURRENCY: '1'
+          DSH_PUBLINT_CONCURRENCY: '1'
+          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
+        run: pnpm run check:ci
+
   serial-macos:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: serial / macos
@@ -876,8 +963,16 @@ jobs:
   # 'cancelled' and 'skipped'.
   all-checks-passed:
     name: all checks passed
-    # This bookkeeping-only verdict must not depend on custom-pool provisioning.
-    runs-on: ubuntu-latest
+    # This bookkeeping-only verdict must not depend on custom-pool
+    # provisioning (master's #734 moved it to ubuntu-latest) — and under
+    # failover it follows the same selector as the worker jobs it
+    # aggregates, so a standard-hosted outage cannot strand the
+    # branch-protection verdict either (observed 2026-07-27).
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || 'ubuntu-latest' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
