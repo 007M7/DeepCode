@@ -27,6 +27,19 @@ import css from './WorkspaceBrowser.module.css'
 const EXPAND_SLIDE_MS = 300
 /** Pause between the latest keystroke and a Host content-search request. */
 const SEARCH_DEBOUNCE_MS = 250
+/** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
+const SEARCH_QUERY_MAX_CODE_UNITS = 500
+
+/** Keep controlled input and RPC payload inside the session.search wire contract. */
+function sanitizeSearchQuery(value: string): string {
+  const withoutNul = value.replaceAll('\0', '')
+  if (withoutNul.length <= SEARCH_QUERY_MAX_CODE_UNITS) return withoutNul
+  let end = SEARCH_QUERY_MAX_CODE_UNITS
+  const last = withoutNul.charCodeAt(end - 1)
+  const next = withoutNul.charCodeAt(end)
+  if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) end--
+  return withoutNul.slice(0, end)
+}
 
 const GROUP_BY_ITEMS = [
   { type: 'label' as const, id: 'group-by', text: 'Group by' },
@@ -255,7 +268,7 @@ function SearchResults({
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label="搜索结果">
+      <div className={css.list} role="tree" aria-label="Search results">
         {results.items.map(result => (
           <SearchResultItem
             key={result.id}
@@ -265,18 +278,18 @@ function SearchResults({
           />
         ))}
         {pending && (
-          <div className={css.searchStatus} role="status">正在搜索历史…</div>
+          <div className={css.searchStatus} role="status">Searching session history…</div>
         )}
         {failed && (
           <div className={css.searchWarning} role="status">
-            历史内容搜索暂时不可用，仍显示名称匹配。
+            Content search is temporarily unavailable. Showing name matches.
           </div>
         )}
         {!pending && results.items.length === 0 && (
-          <div className={css.empty}>没有匹配结果</div>
+          <div className={css.empty}>No matching sessions</div>
         )}
         {results.hasMore && (
-          <div className={css.searchStatus}>仅显示前 20 项，请缩小搜索范围。</div>
+          <div className={css.searchStatus}>Showing the first 20 results. Narrow your search.</div>
         )}
       </div>
       <span className={css.fade} />
@@ -308,7 +321,7 @@ export function WorkspaceBrowser({
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
-  const normalizedQuery = query.trim()
+  const normalizedQuery = sanitizeSearchQuery(query).trim()
   const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({
     query: '',
     status: 'idle',
@@ -439,11 +452,11 @@ export function WorkspaceBrowser({
       {/* Expanded: the row is a click-to-focus field (the leading icon is
           decorative). Rail: the icon is the region's search control. */}
       <div className={css.search} onClick={() => { if (wide) searchInput.current?.focus() }}>
-        <Tooltip label="搜索" disabled={wide}>
+        <Tooltip label="Search" disabled={wide}>
           <button
             type="button"
             className={css.searchButton}
-            aria-label="搜索会话"
+            aria-label="Search sessions"
             tabIndex={wide ? -1 : 0}
             onClick={() => { if (!wide) { setSearchOnExpand(true); expandSidebar() } }}
           >
@@ -455,16 +468,17 @@ export function WorkspaceBrowser({
             ref={searchInput}
             className={clsx(css.searchInput, css.wide)}
             type="text"
-            placeholder="搜索名称或关键词…"
+            placeholder="Search names or content…"
+            maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
             value={query}
-            onChange={(e) => { setQuery(e.target.value) }}
+            onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
           />
         )}
         {wide && query !== '' && (
           <button
             type="button"
             className={clsx(css.clearButton, css.wide)}
-            aria-label="清除搜索"
+            aria-label="Clear search"
             onClick={() => { setQuery('') }}
           >
             <IconCloseFill14 />

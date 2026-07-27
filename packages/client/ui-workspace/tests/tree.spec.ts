@@ -155,11 +155,13 @@ describe('deriveSearchResults', () => {
       [
         workspace('a', ['title-hit'], 'Alpha'),
         workspace('b', ['workspace-hit'], 'Needle Workspace'),
+        workspace('duplicate-owner', ['title-hit'], 'Ignored duplicate owner'),
       ],
       ' NEEDLE ',
       {
         items: [
           { sessionId: contentHit.id, snippet: 'body needle excerpt' },
+          { sessionId: contentHit.id, snippet: 'ignored duplicate excerpt' },
           { sessionId: titleHit.id, snippet: 'title session body excerpt' },
           { sessionId: sid('unknown'), snippet: 'not in session.list' },
         ],

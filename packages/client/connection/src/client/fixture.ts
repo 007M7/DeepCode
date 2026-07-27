@@ -307,33 +307,95 @@ function searchEventText(event: SessionEvent): string {
   return event.data.content.flatMap(searchBlockText).map(part => part.trim()).filter(Boolean).join('\n')
 }
 
+interface FixtureSearchToken {
+  value: string
+  /** Inclusive code-point offset in the whitespace-normalized display text. */
+  start: number
+  /** Exclusive code-point offset in the whitespace-normalized display text. */
+  end: number
+}
+
 /**
  * Browser-safe approximation of SQLite FTS5 unicode61 token boundaries.
  * Keeping phrase matching token-based prevents the development fixture from
  * promising arbitrary within-token substring behavior that production lacks.
  */
-function searchTokens(value: string): string[] {
-  return value
-    .normalize('NFD')
-    .replace(/\p{M}+/gu, '')
-    .toLowerCase()
-    .match(/[\p{L}\p{N}\p{Co}]+/gu) ?? []
-}
-
-/** Count exact contiguous token-phrase occurrences in one fixture document. */
-function phraseMatchCount(document: readonly string[], phrase: readonly string[]): number {
-  if (phrase.length === 0 || phrase.length > document.length) return 0
-  let count = 0
-  for (let start = 0; start <= document.length - phrase.length; start++) {
-    if (phrase.every((token, offset) => document[start + offset] === token)) count++
+function searchTokenSpans(value: string): { text: string; tokens: FixtureSearchToken[] } {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(text)
+  const tokens: FixtureSearchToken[] = []
+  let start: number | undefined
+  let raw = ''
+  const flush = (end: number): void => {
+    if (start !== undefined) {
+      const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+      if (folded !== '') tokens.push({ value: folded, start, end })
+    }
+    start = undefined
+    raw = ''
   }
-  return count
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] as string
+    const tokenBase = character.normalize('NFD').replace(/\p{M}+/gu, '')
+    if (tokenBase === '') {
+      if (start !== undefined) raw += character
+      continue
+    }
+    if (/^[\p{L}\p{N}\p{Co}]+$/u.test(tokenBase)) {
+      start ??= index
+      raw += character
+    } else {
+      flush(index)
+    }
+  }
+  flush(characters.length)
+  return { text, tokens }
 }
 
-/** One-line fixture excerpt, bounded so the sidebar remains readable. */
-function searchSnippet(value: string): string {
-  const oneLine = value.replace(/\s+/gu, ' ').trim()
-  return oneLine.length <= 120 ? oneLine : `${oneLine.slice(0, 117)}…`
+interface FixturePhraseMatch {
+  count: number
+  start: number
+  end: number
+}
+
+/** Count exact contiguous token-phrase occurrences and retain the first display span. */
+function phraseMatch(document: readonly FixtureSearchToken[], phrase: readonly string[]): FixturePhraseMatch {
+  if (phrase.length === 0 || phrase.length > document.length) return { count: 0, start: 0, end: 0 }
+  let count = 0
+  let firstStart = 0
+  let firstEnd = 0
+  for (let start = 0; start <= document.length - phrase.length; start++) {
+    if (!phrase.every((token, offset) => document[start + offset]?.value === token)) continue
+    count++
+    if (count === 1) {
+      firstStart = document[start]?.start ?? 0
+      firstEnd = document[start + phrase.length - 1]?.end ?? firstStart
+    }
+  }
+  return { count, start: firstStart, end: firstEnd }
+}
+
+/** Match-centered fixture excerpt, bounded by Unicode code points for the sidebar. */
+function searchSnippet(value: string, matchStart: number, matchEnd: number): string {
+  const characters = Array.from(value)
+  if (characters.length <= 120) return value
+  const boundedStart = Math.min(Math.max(0, matchStart), characters.length - 1)
+  const boundedEnd = Math.min(
+    characters.length,
+    Math.max(boundedStart + 1, matchEnd),
+  )
+  const center = Math.floor((boundedStart + boundedEnd) / 2)
+  let start = Math.min(
+    characters.length - 118,
+    Math.max(0, center - Math.floor(118 / 2)),
+  )
+  let end = start + 118
+  if (start === 0) {
+    end = 119
+  } else if (end === characters.length) {
+    start = characters.length - 119
+  }
+  return `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`
 }
 
 interface FixtureSearchCandidate {
@@ -342,6 +404,8 @@ interface FixtureSearchCandidate {
   time: number
   text: string
   matchCount: number
+  matchStart: number
+  matchEnd: number
   documentLength: number
 }
 
@@ -628,21 +692,24 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             details: {},
           })
         }
-        const query = searchTokens(request.payload.query)
+        const query = searchTokenSpans(request.payload.query).tokens.map(token => token.value)
         const matches = sessions.flatMap((summary) => {
           const log = logs.get(summary.sessionId) ?? []
           const current = new Set(foldSurface(log).nodes)
           const best = log.flatMap((event): FixtureSearchCandidate[] => {
             if (!current.has(event.seq)) return []
             const eventText = searchEventText(event)
-            const matchCount = phraseMatchCount(searchTokens(eventText), query)
-            if (matchCount === 0) return []
+            const document = searchTokenSpans(eventText)
+            const match = phraseMatch(document.tokens, query)
+            if (match.count === 0) return []
             return [{
               sessionId: summary.sessionId,
               seq: event.seq,
               time: event.time,
-              text: eventText,
-              matchCount,
+              text: document.text,
+              matchCount: match.count,
+              matchStart: match.start,
+              matchEnd: match.end,
               documentLength: Array.from(eventText).length,
             }]
           }).sort(compareSearchCandidates)[0]
@@ -651,7 +718,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, {
           items: matches.slice(0, 20).map(match => ({
             sessionId: match.sessionId,
-            snippet: searchSnippet(match.text),
+            snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
           })),
           hasMore: matches.length > 20,
         })

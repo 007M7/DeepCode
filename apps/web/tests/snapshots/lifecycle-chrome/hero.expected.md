@@ -8,9 +8,9 @@
   - img
 - button "Create workspace":
   - img
-- button "搜索会话":
+- button "Search sessions":
   - img
-- textbox "搜索名称或关键词…"
+- textbox "Search names or content…"
 - tree "Sessions":
   - treeitem "workspace 1 session" [expanded]:
     - img

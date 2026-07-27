@@ -93,18 +93,18 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
-    const search = page.getByPlaceholder('搜索名称或关键词', { exact: false })
+    const search = page.getByPlaceholder('Search names or content', { exact: false })
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
     await search.fill('zzzqx-no-such-session')
-    await page.getByText('没有匹配结果').waitFor({ timeout: 30_000 })
+    await page.getByText('No matching sessions').waitFor({ timeout: 30_000 })
     await expect.poll(
-      () => page.getByRole('tree', { name: '搜索结果' }).getByRole('treeitem').count(),
+      () => page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem').count(),
       { timeout: 10_000 },
     ).toBe(0)
 
     await search.fill('WATERFALL')
-    const resultTree = page.getByRole('tree', { name: '搜索结果' })
+    const resultTree = page.getByRole('tree', { name: 'Search results' })
     const result = resultTree.getByRole('treeitem')
     await expect.poll(() => result.count(), { timeout: 30_000 }).toBe(1)
     await expect.poll(() => result.getByText('WATERFALL', { exact: false }).count(), {
@@ -120,7 +120,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('WATERFALL')
     await expect.poll(() => page.getByText('FIRST_DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByRole('heading', { name: 'Navigation Summary' }).count(), { timeout: 15_000 }).toBe(1)
-    await page.getByRole('button', { name: '清除搜索' }).click()
+    await page.getByRole('button', { name: 'Clear search' }).click()
     await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 90_000)

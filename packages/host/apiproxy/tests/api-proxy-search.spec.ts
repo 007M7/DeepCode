@@ -225,16 +225,70 @@ describe('session.search', () => {
     expect(searchSessions.mock.calls[1]?.[0]).toMatchObject({ cursor: 'page-2' })
   })
 
-  it('fails closed after 100 provider calls with distinct continuation cursors', async () => {
+  it('learns a provider maxLimit of 10 and collects the 20-item result plus lookahead', async () => {
+    const ctx = await baseContext()
+    const items = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
+    for (const item of items) {
+      ctx.sessions.create(item.header.id, { meta: item.header })
+    }
+    const invalidLimit = new SessionQueryError(
+      'provider accepts at most 10 items',
+      'SESSION_QUERY_INVALID_LIMIT',
+    )
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
+      const limit = providerRequest.limit
+      if (limit === undefined) throw new Error('Host search must request an explicit provider limit')
+      if (limit > 10) return Promise.reject(invalidLimit)
+      const offset = providerRequest.cursor === undefined
+        ? 0
+        : Number.parseInt(providerRequest.cursor.slice('offset-'.length), 10)
+      const end = Math.min(items.length, offset + limit)
+      return Promise.resolve({
+        items: items.slice(offset, end),
+        ...end < items.length ? { nextCursor: `offset-${end}` } : {},
+      })
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('adaptive-page-limit'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: { hasMore: true },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.items.map(item => item.sessionId))
+      .toEqual(items.slice(0, 20).map(item => item.header.id))
+    expect(searchSessions.mock.calls.map(([providerRequest]) => ({
+      limit: providerRequest.limit,
+      cursor: providerRequest.cursor,
+    }))).toEqual([
+      { limit: 20, cursor: undefined },
+      { limit: 10, cursor: undefined },
+      { limit: 10, cursor: 'offset-10' },
+      { limit: 10, cursor: 'offset-20' },
+    ])
+  })
+
+  it('counts a page-limit probe inside the 100-call budget', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
-    let pageNumber = 0
+    const invalidLimit = new SessionQueryError(
+      'provider accepts at most 10 items',
+      'SESSION_QUERY_INVALID_LIMIT',
+    )
     const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
-      pageNumber++
-      expect(providerRequest.limit).toBe(20)
+      if (searchSessions.mock.calls.length === 1) {
+        expect(providerRequest).toMatchObject({ limit: 20 })
+        return Promise.reject(invalidLimit)
+      }
+      expect(providerRequest.limit).toBe(10)
       return Promise.resolve({
         items: [],
-        nextCursor: `page-${pageNumber}`,
+        nextCursor: `page-${searchSessions.mock.calls.length}`,
       })
     })
     ctx.provide('sessionQuery', { searchSessions } as never)
@@ -251,7 +305,7 @@ describe('session.search', () => {
     expect(searchSessions).toHaveBeenCalledTimes(100)
   })
 
-  it('restarts a stale continuation from one fresh generation and keeps the visibility snapshot', async () => {
+  it('restarts a stale continuation with its learned limit and original visibility snapshot', async () => {
     const ctx = await baseContext()
     const oldOnly = hit('old-only', 0)
     const shared = hit('shared', 1)
@@ -265,25 +319,37 @@ describe('session.search', () => {
       'provider generation changed',
       'SESSION_QUERY_STALE_CURSOR',
     )
+    const invalidLimit = new SessionQueryError(
+      'provider accepts at most 10 items',
+      'SESSION_QUERY_INVALID_LIMIT',
+    )
     const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
       switch (searchSessions.mock.calls.length) {
         case 1:
+          expect(providerRequest).toMatchObject({ limit: 20 })
+          expect(providerRequest).not.toHaveProperty('cursor')
+          return Promise.reject(invalidLimit)
+        case 2:
+          expect(providerRequest).toMatchObject({ limit: 10 })
           expect(providerRequest).not.toHaveProperty('cursor')
           return Promise.resolve({
             items: [oldOnly, shared],
             nextCursor: 'old-cursor',
           })
-        case 2:
+        case 3:
+          expect(providerRequest).toMatchObject({ limit: 10 })
           expect(providerRequest.cursor).toBe('old-cursor')
           ctx.sessions.create(late.header.id, { meta: late.header })
           return Promise.reject(stale)
-        case 3:
+        case 4:
+          expect(providerRequest).toMatchObject({ limit: 10 })
           expect(providerRequest).not.toHaveProperty('cursor')
           return Promise.resolve({
             items: [freshFirst, shared],
             nextCursor: 'old-cursor',
           })
-        case 4:
+        case 5:
+          expect(providerRequest).toMatchObject({ limit: 10 })
           expect(providerRequest.cursor).toBe('old-cursor')
           return Promise.resolve({ items: [freshLast, late] })
         default:
@@ -308,7 +374,7 @@ describe('session.search', () => {
         hasMore: false,
       },
     })
-    expect(searchSessions).toHaveBeenCalledTimes(4)
+    expect(searchSessions).toHaveBeenCalledTimes(5)
   })
 
   it('counts continuous stale restarts against the 100-call budget', async () => {
@@ -394,6 +460,82 @@ describe('session.search', () => {
     expect(searchSessions).toHaveBeenCalledOnce()
   })
 
+  it('does not adapt an invalid-limit continuation failure', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: [], nextCursor: 'page-2' })
+      .mockRejectedValueOnce(new SessionQueryError(
+        'continuation limit is invalid',
+        'SESSION_QUERY_INVALID_LIMIT',
+      ))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('continuation-invalid-limit'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'internal' },
+    })
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+    expect(searchSessions.mock.calls.map(([providerRequest]) => (
+      providerRequest as SessionSearchRequest
+    ).limit))
+      .toEqual([20, 20])
+  })
+
+  it('stops page-limit adaptation at one item', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => Promise.reject(
+      new SessionQueryError(
+        `provider rejects ${providerRequest.limit}`,
+        'SESSION_QUERY_INVALID_LIMIT',
+      ),
+    ))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('minimum-page-limit'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'internal' },
+    })
+    expect(searchSessions.mock.calls.map(([providerRequest]) => providerRequest.limit))
+      .toEqual([20, 10, 5, 2, 1])
+  })
+
+  it('gives abort priority over a coincident invalid first-page limit', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const controller = new AbortController()
+    const searchSessions = vi.fn(() => {
+      controller.abort()
+      return Promise.reject(new SessionQueryError(
+        'provider rejects 20',
+        'SESSION_QUERY_INVALID_LIMIT',
+      ))
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('abort-invalid-limit'),
+      controller.signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
+    expect(searchSessions).toHaveBeenCalledOnce()
+  })
+
   it('rejects an oversized provider page before iterating its items', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
@@ -412,6 +554,36 @@ describe('session.search', () => {
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error).toMatchObject({ code: 'internal' })
     expect(response.result.error.message).toContain('returned 21 items; maximum is 20')
+    expect(iterate).not.toHaveBeenCalled()
+  })
+
+  it('uses the learned provider limit for the overproduction guard', async () => {
+    const ctx = await baseContext()
+    ctx.sessions.create(sid('visible'), { meta: header('visible') })
+    const oversized = new Array<SessionSearchHit>(11)
+    const iterate = vi.fn(() => oversized.values())
+    Object.defineProperty(oversized, Symbol.iterator, { value: iterate })
+    const searchSessions = vi.fn((providerRequest: SessionSearchRequest) => {
+      if (providerRequest.limit === 20) {
+        return Promise.reject(new SessionQueryError(
+          'provider accepts at most 10 items',
+          'SESSION_QUERY_INVALID_LIMIT',
+        ))
+      }
+      return Promise.resolve({ items: oversized })
+    })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('adapted-oversized-page'),
+      new AbortController().signal,
+    )
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error).toMatchObject({ code: 'internal' })
+    expect(response.result.error.message).toContain('returned 11 items; maximum is 10')
+    expect(searchSessions).toHaveBeenCalledTimes(2)
     expect(iterate).not.toHaveBeenCalled()
   })
 

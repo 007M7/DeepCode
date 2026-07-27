@@ -132,6 +132,14 @@ describe('sessions domain schemas', () => {
       items: [{ sessionId: 's1', snippet: 'matching text' }],
       hasMore: true,
     })
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(240) }],
+      hasMore: false,
+    }).items[0]?.snippet).toBe('😀'.repeat(240))
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(241) }],
+      hasMore: false,
+    })).toThrow(/240 Unicode code points/)
     expect(() => sessionSearchValueSchema.parse({
       items: [{ sessionId: '', snippet: 'matching text' }],
       hasMore: false,

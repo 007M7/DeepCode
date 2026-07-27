@@ -243,14 +243,27 @@ function ciPrimaryGates(): Gate[] {
 }
 
 function nodeCompatGates(): Gate[] {
+  const typecheck = flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK')
+    ? []
+    : [pnpmScript('typecheck', 'typecheck')]
+  if (runningNodeMajor() !== 22) {
+    return [...typecheck, ...nodeCompatSmokeGates()]
+  }
   return [
-    ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
-    ...nodeCompatSmokeGates(),
+    ...typecheck,
+    pnpmScript('build', 'build', {
+      ...typecheck.length === 0 ? {} : { needs: ['typecheck'] },
+    }),
+    pnpmScript('build:web', 'build:web', {
+      label: 'Web frontend build',
+      needs: ['build'],
+    }),
+    ...nodeCompatSmokeGates({ cliSmoke: true }),
   ]
 }
 
-function nodeCompatSmokeGates(): Gate[] {
-  return [
+function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
+  const gates: Gate[] = [
     pnpmExec('source-worker-smoke', [
       'vitest',
       'run',
@@ -261,12 +274,30 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
-    pnpmExec('session-query-lazy-open-smoke', [
-      'vitest',
-      'run',
-      'packages/session-query/session-query-sqlite/tests/lazy-open.compat.spec.ts',
-    ], { label: 'session-query lazy-open smoke' }),
   ]
+  if (options.cliSmoke) {
+    gates.push(
+      pnpmExec('cli-lazy-search-startup-smoke', [
+        'vitest',
+        'run',
+        'apps/cli/tests/lazy-search-startup.compat.spec.ts',
+      ], {
+        label: 'CLI lazy-search startup smoke',
+        env: { DSH_REQUIRE_BUILT_CLI_SMOKE: '1' },
+        needs: ['build:web'],
+      }),
+    )
+  }
+  return gates
+}
+
+/** Active Node major used to scope version-specific compatibility contracts. */
+function runningNodeMajor(): number {
+  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10)
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(`run-gates: cannot parse Node version ${JSON.stringify(process.versions.node)}.`)
+  }
+  return major
 }
 
 function ciStaticGates(): Gate[] {

@@ -101,6 +101,20 @@ describe('unary round trip', () => {
     })
   })
 
+  it('rejects an overlong session-search snippet at the client value boundary', async () => {
+    const api = scriptedApi({
+      sessions: {
+        search: request => ok(request, {
+          items: [{ sessionId: sid('s1'), snippet: '😀'.repeat(241) }],
+          hasMore: false,
+        }),
+      },
+    })
+
+    await expect(client(api).sessions.search({ query: 'message' }))
+      .rejects.toThrow(/240 Unicode code points/)
+  })
+
   it('routes workspace rename and insertSessionBefore through the wire', async () => {
     const api = scriptedApi()
     const c = client(api)

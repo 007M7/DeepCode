@@ -199,7 +199,7 @@ describe('WorkspaceBrowser', () => {
     b.store.actions.setGroupBy('flat')
     rerender(b, {})
     expect(screen.getAllByText('New Session')).toHaveLength(1)
-    fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'new session' } })
+    fireEvent.change(screen.getByPlaceholderText('Search names or content…'), { target: { value: 'new session' } })
     expect(screen.getAllByText('New Session')).toHaveLength(1)
   })
 
@@ -214,17 +214,17 @@ describe('WorkspaceBrowser', () => {
         useSessions: hook(sessions),
         useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
       })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称或关键词…')
+      const input = screen.getByPlaceholderText<HTMLInputElement>('Search names or content…')
       fireEvent.change(input, { target: { value: 'needle' } })
-      expect(screen.getByRole('tree', { name: '搜索结果' })).toBeTruthy()
+      expect(screen.getByRole('tree', { name: 'Search results' })).toBeTruthy()
       expect(screen.getByText('Needle row')).toBeTruthy()
       expect(screen.queryByText('Other row')).toBeNull()
-      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+      expect(screen.getByText('Searching session history…')).toBeTruthy()
 
       fireEvent.change(input, { target: { value: 'zzz' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
-      expect(screen.getByText('没有匹配结果')).toBeTruthy()
-      fireEvent.click(screen.getByRole('button', { name: '清除搜索' }))
+      expect(screen.getByText('No matching sessions')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
       expect(input.value).toBe('')
       expect(screen.getByRole('tree', { name: 'Sessions' })).toBeTruthy()
       // Clicking the field row focuses the input (wide mode).
@@ -253,9 +253,9 @@ describe('WorkspaceBrowser', () => {
         open,
         searchSessions,
       })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称或关键词…')
+      const input = screen.getByPlaceholderText<HTMLInputElement>('Search names or content…')
       fireEvent.change(input, { target: { value: 'waterfall token' } })
-      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+      expect(screen.getByText('Searching session history…')).toBeTruthy()
       expect(screen.queryByText('Research notes')).toBeNull()
 
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
@@ -264,10 +264,35 @@ describe('WorkspaceBrowser', () => {
       expect(screen.getByText('Research notes')).toBeTruthy()
       expect(screen.getByText('Research Workspace')).toBeTruthy()
       expect(screen.getByText('…the waterfall token appears here…')).toBeTruthy()
-      expect(screen.getByText('仅显示前 20 项，请缩小搜索范围。')).toBeTruthy()
+      expect(screen.getByText('Showing the first 20 results. Narrow your search.')).toBeTruthy()
       fireEvent.click(screen.getByRole('treeitem'))
       expect(open).toHaveBeenCalledWith(sid('body-hit'))
       expect(input.value).toBe('waterfall token')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds programmatic search input to a schema-valid request without splitting an astral character', async () => {
+    vi.useFakeTimers()
+    try {
+      const searchSessions = vi.fn(async () => ({ items: [], hasMore: false }))
+      mount({ searchSessions })
+      const input = screen.getByPlaceholderText<HTMLInputElement>('Search names or content…')
+      expect(input.maxLength).toBe(500)
+      fireEvent.change(input, { target: { value: 'y'.repeat(501) } })
+      expect(input.value).toBe('y'.repeat(500))
+      const expected = `prefix${'x'.repeat(493)}`
+      fireEvent.change(input, {
+        target: { value: `prefix\0${'x'.repeat(493)}😀tail` },
+      })
+
+      expect(input.value).toBe(expected)
+      expect(input.value.length).toBe(499)
+      expect(input.value).not.toContain('\0')
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(searchSessions).toHaveBeenCalledOnce()
+      expect(searchSessions).toHaveBeenCalledWith(expected, expect.any(AbortSignal))
     } finally {
       vi.useRealTimers()
     }
@@ -284,14 +309,14 @@ describe('WorkspaceBrowser', () => {
         useWorkspaces: hook(workspaceState([workspace('alpha', ['local-hit'])])),
         searchSessions,
       })
-      fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), {
+      fireEvent.change(screen.getByPlaceholderText('Search names or content…'), {
         target: { value: 'needle' },
       })
       expect(screen.getByText('Needle title')).toBeTruthy()
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       expect(screen.getByText('Needle title')).toBeTruthy()
-      expect(screen.getByText('历史内容搜索暂时不可用，仍显示名称匹配。')).toBeTruthy()
-      expect(screen.queryByText('没有匹配结果')).toBeNull()
+      expect(screen.getByText('Content search is temporarily unavailable. Showing name matches.')).toBeTruthy()
+      expect(screen.queryByText('No matching sessions')).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -321,7 +346,7 @@ describe('WorkspaceBrowser', () => {
         ])),
         searchSessions,
       })
-      const input = screen.getByPlaceholderText('搜索名称或关键词…')
+      const input = screen.getByPlaceholderText('Search names or content…')
       fireEvent.change(input, { target: { value: 'first' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       const firstSignal = searchSessions.mock.calls[0]?.[1] as AbortSignal
@@ -346,6 +371,30 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('ignores a rejected request after it has been superseded', async () => {
+    vi.useFakeTimers()
+    try {
+      let rejectFirst!: (reason: Error) => void
+      const first = new Promise<never>((_resolve, reject) => { rejectFirst = reject })
+      const searchSessions = vi.fn((query: string) => query === 'first'
+        ? first
+        : Promise.resolve({ items: [], hasMore: false }))
+      mount({ searchSessions })
+      const input = screen.getByPlaceholderText('Search names or content…')
+      fireEvent.change(input, { target: { value: 'first' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+
+      fireEvent.change(input, { target: { value: 'second' } })
+      await act(async () => {
+        rejectFirst(new Error('stale failure'))
+        await Promise.resolve()
+      })
+      expect(screen.queryByText('Content search is temporarily unavailable. Showing name matches.')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows the no-sessions empty state in both modes and resolves an empty search', async () => {
     vi.useFakeTimers()
     try {
@@ -354,10 +403,10 @@ describe('WorkspaceBrowser', () => {
       b.store.actions.setGroupBy('flat')
       rerender(b, {})
       expect(screen.getByText('No sessions yet')).toBeTruthy()
-      fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'x' } })
-      expect(screen.getByText('正在搜索历史…')).toBeTruthy()
+      fireEvent.change(screen.getByPlaceholderText('Search names or content…'), { target: { value: 'x' } })
+      expect(screen.getByText('Searching session history…')).toBeTruthy()
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
-      expect(screen.getByText('没有匹配结果')).toBeTruthy()
+      expect(screen.getByText('No matching sessions')).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
@@ -370,16 +419,16 @@ describe('WorkspaceBrowser', () => {
       const b = mount({ wide: false, expandSidebar })
       // No wide chrome in rail state.
       expect(screen.queryByText('Workspaces')).toBeNull()
-      expect(screen.queryByPlaceholderText('搜索名称或关键词…')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+      expect(screen.queryByPlaceholderText('Search names or content…')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
       expect(expandSidebar).toHaveBeenCalledTimes(1)
       // The wide flip mounts the input and focuses it after the slide.
       rerender(b, { wide: true })
-      const input = screen.getByPlaceholderText('搜索名称或关键词…')
+      const input = screen.getByPlaceholderText('Search names or content…')
       act(() => { vi.advanceTimersByTime(300) })
       expect(document.activeElement).toBe(input)
       // Wide search button is decorative (tabIndex -1, no expand call).
-      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
       expect(expandSidebar).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
@@ -590,7 +639,7 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessions),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-a'])])),
     })
-    fireEvent.change(screen.getByPlaceholderText('搜索名称或关键词…'), { target: { value: 'needle' } })
+    fireEvent.change(screen.getByPlaceholderText('Search names or content…'), { target: { value: 'needle' } })
     const row = screen.getByText('Needle A').closest('[role="treeitem"]') as HTMLElement
     expect(row.hasAttribute('draggable')).toBe(false)
   })

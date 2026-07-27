@@ -62,6 +62,23 @@ describe('createFixtureApi', () => {
     if (!phrase.result.ok) throw new Error('search failed')
     expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
 
+    timing().appendUser(
+      'fx-alpha',
+      `${'leading context '.repeat(20)}late café token${' trailing context'.repeat(20)}`,
+    )
+    const late = await api.sessions.search(req({ query: 'LATE CAFE TOKEN' }), signal)
+    if (!late.result.ok) throw new Error('late search failed')
+    const lateSnippet = late.result.value.items[0]?.snippet ?? ''
+    expect(lateSnippet).toContain('late café token')
+    expect(lateSnippet.startsWith('…')).toBe(true)
+    expect(lateSnippet.endsWith('…')).toBe(true)
+    expect(Array.from(lateSnippet).length).toBeLessThanOrEqual(120)
+
+    timing().appendUser('fx-alpha', 'Greek final sigma: ος')
+    const finalSigma = await api.sessions.search(req({ query: 'ΟΣ' }), signal)
+    if (!finalSigma.result.ok) throw new Error('final sigma search failed')
+    expect(finalSigma.result.value.items[0]?.snippet).toContain('ος')
+
     const substring = await api.sessions.search(req({ query: 'ixtur' }), signal)
     expect(substring.result).toEqual({
       ok: true,

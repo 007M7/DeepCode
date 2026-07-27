@@ -674,6 +674,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const seenCursors = new Set<SessionSearchCursor>()
           let cursor: SessionSearchCursor | undefined
           let providerCallCount = 0
+          let providerPageLimit = SESSION_SEARCH_LIMIT
           while (authorized.length <= SESSION_SEARCH_LIMIT) {
             if (isAborted(signal)) return cancelled()
             if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
@@ -683,6 +684,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
             providerCallCount++
             const requestedCursor = cursor
+            const requestedPageLimit = providerPageLimit
             let page
             try {
               page = await sessionQuery.searchSessions({
@@ -691,11 +693,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                   { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
                   { kind: 'surface', values: ['current'] },
                 ],
-                limit: SESSION_SEARCH_LIMIT,
+                limit: requestedPageLimit,
                 ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
               }, { signal })
             } catch (error: unknown) {
               if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor === undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+                && requestedPageLimit > 1
+              ) {
+                providerPageLimit = Math.max(1, Math.floor(requestedPageLimit / 2))
+                continue
+              }
               if (
                 requestedCursor !== undefined
                 && error instanceof SessionQueryError
@@ -711,9 +722,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
             if (isAborted(signal)) return cancelled()
             const providerItemCount = page.items.length
-            if (providerItemCount > SESSION_SEARCH_LIMIT) {
+            if (providerItemCount > requestedPageLimit) {
               throw new Error(
-                `session search provider returned ${providerItemCount} items; maximum is ${SESSION_SEARCH_LIMIT}`,
+                `session search provider returned ${providerItemCount} items; maximum is ${requestedPageLimit}`,
               )
             }
             // Host visibility is the authorization boundary. Consume the
