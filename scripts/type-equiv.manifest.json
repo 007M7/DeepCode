@@ -1564,6 +1564,129 @@
       "doc": "docs/subsystems/typert.md",
       "symbol": "TypeRTClientRemote",
       "source": "packages/typert/type-meta/src/types.ts"
+      "doc": "docs/subsystems/permission.md",
+      "symbol": "PresetSpec",
+      "source": "packages/interaction/permission/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/permission.md",
+      "symbol": "Config",
+      "source": "packages/interaction/permission/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/permission.md",
+      "symbol": "PresetOption",
+      "source": "packages/interaction/permission/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/plan.md",
+      "symbol": "PlanModeConfig",
+      "source": "packages/plan/plan-mode/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/invariants.md",
+      "symbol": "Config",
+      "source": "packages/support/invariants/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/invariants.md",
+      "symbol": "InvariantFailure",
+      "source": "packages/support/invariants/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/invariants.md",
+      "symbol": "InvariantInstaller",
+      "source": "packages/support/invariants/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/http-server.md",
+      "symbol": "WebRouteKind",
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/http-server.md",
+      "symbol": "WebRoute",
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/http-server.md",
+      "symbol": "Config",
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "StorageForms",
+      "source": "packages/storage/storage/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "StorageBackend",
+      "source": "packages/storage/storage/src/backend.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "DomainSpec",
+      "source": "packages/storage/storage-domain/src/spec.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "Domain",
+      "source": "packages/storage/storage-domain/src/domain.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "DomainChangedBase",
+      "source": "packages/storage/storage-domain/src/events.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "DomainChanged",
+      "source": "packages/storage/storage-domain/src/events.ts"
+    },
+    {
+      "doc": "docs/subsystems/tui.md",
+      "symbol": "TuiOverlayRequest",
+      "source": "packages/interaction/tui/src/extension.ts"
+    },
+    {
+      "doc": "docs/subsystems/tui.md",
+      "symbol": "TuiOverlayHost",
+      "source": "packages/interaction/tui/src/extension.ts"
+    },
+    {
+      "doc": "docs/subsystems/tui.md",
+      "symbol": "TuiOverlaySession",
+      "source": "packages/interaction/tui/src/extension.ts"
+    },
+    {
+      "doc": "docs/subsystems/tui.md",
+      "symbol": "TuiOverlayCloseReason",
+      "source": "packages/interaction/tui/src/extension.ts"
+    },
+    {
+      "doc": "docs/subsystems/tui.md",
+      "symbol": "TuiOverlayOutcome",
+      "source": "packages/interaction/tui/src/extension.ts"
+    },
+    {
+      "doc": "docs/subsystems/workspace.md",
+      "symbol": "WorkspaceId",
+      "source": "packages/workspace/workspace/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/workspace.md",
+      "symbol": "Workspace",
+      "source": "packages/workspace/workspace/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/client-modules.md",
+      "symbol": "WebBootEntry",
+      "source": "packages/client/modules/src/client/manifest.ts"
+    },
+    {
+      "doc": "docs/subsystems/client-modules.md",
+      "symbol": "WebBootGraph",
+      "source": "packages/client/modules/src/client/manifest.ts"
     }
   ]
 }

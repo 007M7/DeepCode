@@ -152,11 +152,11 @@ describe.skip('gen-cordis-catalog collectEvents', { timeout: 60_000 }, () => {
 
   it('accepts linked, foundation, generic-parameter, and explicitly exempt signature types', () => {
     const events = collectEvents(make(
-      '    /**\n     * Carry linked and foundation types.\n     * @param value - the linked value.\n     * @param preset - deployment metadata outside the core catalog.\n     * @param signal - cancellation.\n     * @mode parallel\n     */\n    \'fix/typed\'<T extends SessionEvent>(value: Readonly<T>, preset: PresetSpec, signal: AbortSignal): Promise<T>',
+      '    /**\n     * Carry linked and foundation types.\n     * @param value - the linked value.\n     * @param assembly - assembly result documented outside the subsystems catalog.\n     * @param signal - cancellation.\n     * @mode parallel\n     */\n    \'fix/typed\'<T extends SessionEvent>(value: Readonly<T>, assembly: PromptAssembly, signal: AbortSignal): Promise<T>',
     ))
     expect(events).toHaveLength(1)
     expect(renderEvents(events)).toContain('Types: [SessionEvent](../subsystems/core.md)')
-    expect(renderEvents(events)).not.toContain('[PresetSpec]')
+    expect(renderEvents(events)).not.toContain('[PromptAssembly]')
   })
 
   it('aggregates every unclassified signature type with its source and remediation', () => {

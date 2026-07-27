@@ -46,6 +46,14 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [web.md](web.md) | the web access seam: `WebSearchRequest`/`Result`, `WebFetchRequest`/`Result`, `WebFetchBody`, provider availability, `WebError` |
 | [spill.md](spill.md) | the spill storage seam: `SaveTextSpill`, `SpillOwner`/`SpillSource`, `SpillRef`, the branded `SpillLocator` |
 | [workflow.md](workflow.md) | the workflow seam: `WorkflowStartRequest`, `WorkflowMeta`, `WorkflowRun`/`Result`, the `workflow/*` event payloads, `WorkflowError` fatality |
+| [permission.md](permission.md) | the permission-preset layer: `PresetSpec`/`PresetOption`, the derived `custom` state, the log-only `permission/preset` event |
+| [plan.md](plan.md) | plan mode: the log-only `plan/mode` state, pending-selection flush, `PlanModeConfig`, the `exit_plan_mode` review arc |
+| [invariants.md](invariants.md) | the runtime-invariant registry: selection `Config`, `InvariantInstaller`/`InvariantFailure`, the empty-companion contract |
+| [http-server.md](http-server.md) | the HTTP carrier: `WebRouteKind`/`WebRoute`, match order, the static dist fallback, index taps |
+| [storage.md](storage.md) | the storage subsystem: the backend seam (`StorageBackend`), `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` |
+| [tui.md](tui.md) | the terminal-extension seam: `TuiOverlayRequest`/`Host`/`Session`, close reasons and outcomes, the modal queue |
+| [workspace.md](workspace.md) | the workspace registry: `Workspace`/`WorkspaceId`, registration and resolution, the session `cwd` relationship |
+| [client-modules.md](client-modules.md) | the web plugin table: `dshClient` declarations, `WebBootGraph` wire composition, the bundle route and index tap |
 
 > Type declarations and their JSDoc on these pages are source-equivalent and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Ordinary blocks preserve complete declarations; `public-api` blocks preserve body-stripped public class declarations. Cordis services use the generated [service catalog](../cordis-catalog/services.md).
 

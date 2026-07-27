@@ -389,6 +389,8 @@ A domain record or the global singleton changed, emitted once per write strictly
 'domain/changed'(change: DomainChanged): void
 ```
 
+Types: [DomainChanged](../subsystems/storage.md)
+
 Source: [`packages/storage/storage-domain/src/events.ts:46`](../../packages/storage/storage-domain/src/events.ts)
 
 ## `fs/*`
