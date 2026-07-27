@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-02-tool-render-intent-union.md: 84423e9000526848a111591c1bb2ab92067bbe50
-2026-07-02-tool-render-intent-union.zh.md: 43873c622fc8483b4a7033d17b4b4fab1342a56b
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md
+2026-07-02-tool-render-intent-union.md: d82141f519bff66df000f1316093aacd38b8e42b
+2026-07-02-tool-render-intent-union.zh.md: 71fe81ba8f87cb707512cf7880126c006321c799
