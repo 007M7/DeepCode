@@ -19,6 +19,12 @@ harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE�
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; off | high | max — omitted ⇒ high
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
+    retryPolicy:             # optional; omission uses bounded normal defaults
+      mode: always           # normal | always
+      backoff:
+        initialDelayMs: 500
+        maxDelayMs: 10000
+        jitterRatio: 0.1
     defaultContextWindow: 256000 # optional positive-integer fallback for models without an exact value
     models:                  # optional; defaults to V4 Flash and V4 Pro
       - id: deepseek-v4-flash
@@ -28,7 +34,7 @@ harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE�
         contextWindow: 64000
 ```
 
-该插件注册唯一提供方路由 `deepseek`。请求使用 `provider: deepseek` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash` 和 `deepseek-v4-pro`，两者的上下文窗口均为 128,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek')` 公开给 UI selector 与部署自省，但仍只提供建议：未列出模型 id 仍原样传递。省略配置项 name 默认为其 id。
+该插件注册唯一提供方路由 `deepseek`，同时注册解析后的 `retryPolicy`。请求使用 `provider: deepseek` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash` 和 `deepseek-v4-pro`，两者的上下文窗口均为 128,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek')` 公开给 UI selector 与部署自省，但仍只提供建议：未列出模型 id 仍原样传递。省略配置项 name 默认为其 id。
 
 `contextWindow` 对每个已配置模型都可选，不会通过建议 catalog 公开。`ctx.llm.resolveModelInfo('deepseek', model).context` 先返回精确模型值，再对不含容量的配置项或未列出原样传递 id 返回 `defaultContextWindow`。两者都不存在时，`context` 字段缺失但不会使路由失效。因此，压力敏感插件可以获得部署拥有的容量，不会将模型 selector 视为权威。为 `deepseek` 注册另一个适配器会抛出 `LlmError('DUPLICATE_ADAPTER')`。
 
@@ -36,7 +42,7 @@ harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE�
 
 `thinking: disabled` 是部署锁定：它只公布 `off`，并以 `off` 为默认值。省略 `reasoningEffort` 或将其配置为 `off` 均有效；配置 `high` 或 `max` 会使插件加载失败，直接按请求启用思考也会在网络 I/O 前失败。携带 `GenerateOptions.purpose: 'session-title'` 的请求也会强制禁用思考并省略已解析的推理强度，将有界输出保留给可见标题文本，不改变会话或压缩默认值。
 
-`streamIdleTimeoutMs` 会限制每次未完成提供方读取，包括初始 `fetch`，但不计入消费方在 chunk 间花费的时间。一个稳定 abort 信号会在整个调用中达到请求与 body reader；过期会停止传输并抛出 `LlmError('TIMEOUT')`，较早的调用方 abort 则抛出 `LlmError('ABORTED')`。适配器每次 `stream()` 调用精确发起一次提供方请求；agent 级重试是独立插件策略。
+`streamIdleTimeoutMs` 会限制每次未完成提供方读取，包括初始 `fetch`，但不计入消费方在 chunk 间花费的时间。一个稳定 abort 信号会在整个调用中达到请求与 body reader；过期会停止传输并抛出 `LlmError('TIMEOUT')`，较早的调用方 abort 则抛出 `LlmError('ABORTED')`。适配器每次 `stream()` 调用精确发起一次提供方请求；它把已配置策略注册为提供方元数据，再由 `dsh-llm-retry` 在持久 agent 步骤边界单独执行该策略。
 
 ## 应用归因
 

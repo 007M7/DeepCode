@@ -2386,8 +2386,9 @@ export function createTuiChat(
       }
       case 'llm/retry': {
         clearStreaming()
+        const retryLimit = event.data.mode === 'always' ? '∞' : String(event.data.maxRetries)
         appendNotice(
-          `Retrying model request (${event.data.retry}/${event.data.maxRetries}) in ${event.data.delayMs}ms: ${event.data.failure.message}`,
+          `Retrying model request (${event.data.retry}/${retryLimit}) in ${event.data.delayMs}ms: ${event.data.failure.message}`,
           'warning',
         )
         break

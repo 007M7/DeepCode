@@ -1,8 +1,7 @@
 # Keyless replay for the retry overlay: disable the key-requiring DeepSeek
-# adapter, insert `llm-replay`, and restate the app config with the same
-# deterministic 1 ms zero-jitter retry policy as the live sibling. A config
-# patch replaces the whole app config, so the base fields are restated
-# verbatim (raw JSONL persistence so the harness can harvest the log).
+# adapter, insert `llm-replay`, and give its provider the same deterministic
+# 1 ms zero-jitter retry policy as the live sibling. The app patch still
+# restates its whole config for raw JSONL persistence and the recorded model.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
@@ -20,11 +19,6 @@
           persistenceCompression: none
           workspaceContext:
             maxBytes: 65536
-          llmRetry:
-            maxTransientRetries: 2
-            initialDelayMs: 1
-            maxDelayMs: 1
-            jitterRatio: 0
           persona: |
             You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
@@ -36,6 +30,13 @@
               providers:
                 - id: deepseek
                   name: DeepSeek
+                  retryPolicy:
+                    mode: normal
+                    maxRetries: 2
+                    backoff:
+                      initialDelayMs: 1
+                      maxDelayMs: 1
+                      jitterRatio: 0
                   models:
                     - id: deepseek-v4-flash
                     - id: deepseek-v4-pro
