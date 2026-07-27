@@ -2,15 +2,13 @@
  * Construct, inspect, and run local and CI quality-gate plans with bounded scheduling.
  *
  * Package scripts own public aggregate names; this runner owns their validated
- * dependency graphs, scheduler environment, replay diagnostics, and private logs.
+ * dependency graphs, scheduler environment, and replay diagnostics.
  * @see ../.agents/notes/implemented/process/2026-07-27-replayable-gate-plans.md
  */
 import { spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { lstat } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { pathToFileURL } from 'node:url'
 
@@ -74,8 +72,6 @@ export interface GateResult {
   exitCode: number | null
   signalCode: NodeJS.Signals | null
   error?: string
-  logPath?: string
-  logError?: string
 }
 
 interface GateOutputChunk {
@@ -102,12 +98,6 @@ interface RunRequest {
   only?: string
 }
 
-interface CleanLogsRequest {
-  kind: 'clean-logs'
-}
-
-type CliRequest = RunRequest | CleanLogsRequest
-
 interface ListedEnvironmentOverride {
   operation: GateEnvironmentOverride['operation']
   value?: string
@@ -132,41 +122,10 @@ interface ListedPlan {
   gates: ListedGate[]
 }
 
-interface GateLogDirectoryIdentity {
-  dev: string
-  ino: string
-}
-
-interface GateLogPathComponent {
-  name: string
-  identity: GateLogDirectoryIdentity | null
-}
-
-interface GateLogPathPlan {
-  repositoryIdentity: GateLogDirectoryIdentity
-  pathComponents: GateLogPathComponent[]
-}
-
-type GateLogHelperRequest =
-  | { operation: 'write'; filename: string; content: string; retention: number }
-  | { operation: 'prune'; retain: number }
-  | { operation: 'clean' }
-
-interface GateLogHelperResult {
-  directory?: GateLogDirectoryIdentity
-  filename?: string
-  removed: string[]
-}
-
 type GateExecutor = (gate: Gate) => Promise<GateResult>
-type ResultObserver = (result: GateResult) => Promise<void> | void
+type ResultObserver = (result: GateResult) => void
 
 const root = resolve(import.meta.dirname, '..')
-const gateLogRoot = resolve(root, '.cache/gates')
-const gateLogHelper = resolve(import.meta.dirname, 'gate-log-helper.mjs')
-const GATE_LOG_RETENTION = 20
-const GATE_LOG_MAX_BYTES = 1_048_576
-const MIN_GATE_LOG_MAX_BYTES = 128
 const MODE_SCRIPTS: Record<Mode, string> = {
   'ci-primary': 'check:ci',
   'ci-static': 'check:ci:static',
@@ -187,12 +146,6 @@ if (isMainModule()) process.exitCode = await main(process.argv.slice(2))
 
 async function main(args: string[]): Promise<number> {
   const request = parseCliRequest(args)
-  if (request.kind === 'clean-logs') {
-    await cleanGateFailureLogs()
-    console.log('run-gates: cleared retained logs in .cache/gates/.')
-    return 0
-  }
-
   const completePlan = gatePlanForMode(request.mode)
   validateGatePlan(completePlan)
   if (request.list) {
@@ -212,8 +165,7 @@ async function main(args: string[]): Promise<number> {
   const startedAt = performance.now()
   console.log(`run-gates: ${request.mode} running ${plan.gates.length} gate(s) with ${maxConcurrency} worker(s) from ${concurrencySource}.`)
 
-  const results = await executeGatePlan(plan, maxConcurrency, runGate, async (result) => {
-    await attachFailureLog(completePlan, result)
+  const results = await executeGatePlan(plan, maxConcurrency, runGate, (result) => {
     printResult(completePlan, result)
   })
   printSummary(completePlan, results, performance.now() - startedAt)
@@ -240,14 +192,9 @@ export function isMainModule(entry: string | undefined = process.argv[1]): boole
 /**
  * Parse one runner invocation without constructing or starting its plan.
  * @param args - command-line arguments after the script entrypoint.
- * @returns the validated run or cleanup request.
+ * @returns the validated run request.
  */
-export function parseCliRequest(args: readonly string[]): CliRequest {
-  if (args[0] === '--clean-logs') {
-    if (args.length !== 1) throw new Error('run-gates: --clean-logs does not accept other arguments.')
-    return { kind: 'clean-logs' }
-  }
-
+export function parseCliRequest(args: readonly string[]): RunRequest {
   const mode = parseMode(args[0])
   let list = false
   let json = false
@@ -946,7 +893,7 @@ export function resolveGateEnvironment(gate: Gate, inherited: NodeJS.ProcessEnv)
  * @param plan - complete or diagnostic plan to execute.
  * @param maxActive - maximum concurrent child count.
  * @param execute - child-process executor.
- * @param observe - serialized result observer.
+ * @param observe - result observer invoked when each gate settles.
  * @returns results in canonical plan order.
  */
 export async function executeGatePlan(
@@ -963,358 +910,6 @@ export async function executeGatePlan(
     throw new Error(`run-gates: max concurrency ${maxActive} exceeds the ${plan.mode} plan ceiling ${plan.maxWorkers}.`)
   }
   return runGates(plan.gates, maxActive, execute, observe)
-}
-
-/**
- * Format one private failure log without consulting or enumerating the inherited environment.
- * @param plan - complete owning plan.
- * @param result - failed child outcome.
- * @returns attributable metadata and interleaved output.
- */
-export function formatGateFailureLog(plan: GatePlan, result: GateResult): string {
-  const gate = listedGate(result.gate)
-  const lines = [
-    'run-gates failure log',
-    `mode: ${plan.mode}`,
-    `gate: ${gate.id}`,
-    `status: ${result.status}`,
-    `blocking: ${gate.blocking}`,
-    `command: ${gate.command}`,
-    `replay: ${replayCommand(plan, gate.id)}`,
-    `scheduler environment: ${JSON.stringify(gate.env)}`,
-    `exit code: ${result.exitCode === null ? 'none' : result.exitCode}`,
-    `signal: ${result.signalCode ?? 'none'}`,
-  ]
-  if (result.error !== undefined) lines.push(`error: ${result.error}`)
-  lines.push('', 'interleaved output:')
-  for (const chunk of result.output) lines.push(`[${chunk.stream}]`, chunk.text)
-  return `${lines.join('\n')}\n`
-}
-
-/**
- * Explain why retained logs are unavailable on a platform.
- * @param platform - host platform to evaluate.
- * @returns the console-fallback diagnostic, or `undefined` when POSIX retention is supported.
- */
-export function failureLogUnavailableReason(platform: NodeJS.Platform = process.platform): string | undefined {
-  return platform === 'win32'
-    ? 'retained failure logs are disabled on Windows because POSIX owner-only permissions are unavailable; complete output remains on the console'
-    : undefined
-}
-
-/**
- * Bound a UTF-8 failure log while retaining its beginning, end, and explicit truncation metadata.
- * @param content - complete formatted failure log.
- * @param maxBytes - maximum encoded byte length.
- * @returns the original log when it fits, otherwise a bounded prefix and suffix around a marker.
- */
-export function limitGateFailureLog(content: string, maxBytes: number): string {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < MIN_GATE_LOG_MAX_BYTES) {
-    throw new Error(`run-gates: failure-log byte limit must be an integer of at least ${MIN_GATE_LOG_MAX_BYTES}, got ${JSON.stringify(maxBytes)}.`)
-  }
-  const originalBytes = Buffer.byteLength(content)
-  if (originalBytes <= maxBytes) return content
-
-  const marker = `\n[run-gates log truncated: original-bytes=${originalBytes}; max-bytes=${maxBytes}]\n`
-  const available = maxBytes - Buffer.byteLength(marker)
-  if (available < 0) throw new Error('run-gates: failure-log truncation marker exceeds the configured byte limit.')
-  const prefixBytes = Math.ceil(available / 2)
-  const suffixBytes = available - prefixBytes
-  return `${utf8Prefix(content, prefixBytes)}${marker}${utf8Suffix(content, suffixBytes)}`
-}
-
-function utf8Prefix(content: string, maxBytes: number): string {
-  const encoded = Buffer.from(content)
-  if (encoded.length <= maxBytes) return content
-  let end = maxBytes
-  while (end > 0) {
-    const byte = encoded[end]
-    if (byte === undefined || (byte & 0xc0) !== 0x80) break
-    end -= 1
-  }
-  return encoded.subarray(0, end).toString('utf8')
-}
-
-function utf8Suffix(content: string, maxBytes: number): string {
-  const encoded = Buffer.from(content)
-  if (encoded.length <= maxBytes) return content
-  let start = encoded.length - maxBytes
-  while (start < encoded.length) {
-    const byte = encoded[start]
-    if (byte === undefined || (byte & 0xc0) !== 0x80) break
-    start += 1
-  }
-  return encoded.subarray(start).toString('utf8')
-}
-
-/**
- * Write one exclusive owner-only POSIX failure log and keep only the newest bounded set.
- * @param plan - complete owning plan.
- * @param result - failed child outcome.
- * @param options - injectable storage, bound, clock, identity, and platform seams.
- * @returns the absolute log path.
- */
-export async function writeGateFailureLog(
-  plan: GatePlan,
-  result: GateResult,
-  options: {
-    directory?: string
-    repositoryRoot?: string
-    retention?: number
-    maxBytes?: number
-    unique?: string
-    now?: Date
-    platform?: NodeJS.Platform
-    beforeHelper?: () => Promise<void> | void
-  } = {},
-): Promise<string> {
-  const directory = options.directory ?? gateLogRoot
-  const repositoryRoot = options.repositoryRoot ?? root
-  const retention = options.retention ?? GATE_LOG_RETENTION
-  const maxBytes = options.maxBytes ?? GATE_LOG_MAX_BYTES
-  const unique = options.unique ?? randomUUID()
-  const now = options.now ?? new Date()
-  const unavailable = failureLogUnavailableReason(options.platform)
-  if (unavailable !== undefined) throw new Error(`run-gates: ${unavailable}.`)
-  if (!Number.isSafeInteger(retention) || retention < 1) {
-    throw new Error(`run-gates: log retention must be a positive integer, got ${JSON.stringify(retention)}.`)
-  }
-  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
-  const timestamp = now.toISOString().replaceAll(/[:.]/g, '-')
-  const safeUnique = unique.replaceAll(/[^a-zA-Z0-9-]/g, '')
-  if (safeUnique === '') throw new Error('run-gates: failure-log unique suffix is empty after sanitization.')
-  const safeGateId = result.gate.id.replaceAll(/[^a-zA-Z0-9-]/g, '-')
-  const filename = `${timestamp}-${plan.mode}-${safeGateId}-${safeUnique}.log`
-  const helperResult = await runGateLogHelper(
-    directory,
-    repositoryRoot,
-    repositoryIdentity,
-    pathComponents,
-    {
-      operation: 'write',
-      filename,
-      content: limitGateFailureLog(formatGateFailureLog(plan, result), maxBytes),
-      retention,
-    },
-    options.beforeHelper,
-  )
-  if (helperResult.filename !== filename) throw new Error('run-gates: gate-log helper returned the wrong filename.')
-  return resolve(directory, filename)
-}
-
-async function inspectRepoLocalLogPath(
-  repositoryRoot: string,
-  target: string,
-): Promise<GateLogPathPlan> {
-  const relativeTarget = relative(repositoryRoot, target)
-  if (relativeTarget === '' || relativeTarget === '..' || relativeTarget.startsWith(`..${sep}`) || isAbsolute(relativeTarget)) {
-    throw new Error(`run-gates: gate-log path must be below the repository root: ${target}`)
-  }
-
-  const rootMetadata = await lstat(repositoryRoot, { bigint: true })
-  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
-    throw new Error(`run-gates: repository root is not a real directory: ${repositoryRoot}`)
-  }
-  const components: GateLogPathComponent[] = []
-  let current = repositoryRoot
-  let missing = false
-  for (const component of relativeTarget.split(sep)) {
-    current = resolve(current, component)
-    if (missing) {
-      components.push({ name: component, identity: null })
-      continue
-    }
-    let metadata
-    try {
-      metadata = await lstat(current, { bigint: true })
-    } catch (error: unknown) {
-      if (hasErrorCode(error, 'ENOENT')) {
-        missing = true
-        components.push({ name: component, identity: null })
-        continue
-      }
-      throw error
-    }
-    const shown = relative(repositoryRoot, current).split(sep).join('/')
-    if (metadata.isSymbolicLink()) {
-      throw new Error(`run-gates: gate-log path component is a symbolic link: ${shown}`)
-    }
-    if (!metadata.isDirectory()) {
-      throw new Error(`run-gates: gate-log path component is not a directory: ${shown}`)
-    }
-    components.push({ name: component, identity: { dev: String(metadata.dev), ino: String(metadata.ino) } })
-  }
-  return {
-    repositoryIdentity: { dev: String(rootMetadata.dev), ino: String(rootMetadata.ino) },
-    pathComponents: components,
-  }
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
-}
-
-async function readDirectoryIdentity(directory: string): Promise<GateLogDirectoryIdentity | undefined> {
-  let metadata
-  try {
-    metadata = await lstat(directory, { bigint: true })
-  } catch (error: unknown) {
-    if (hasErrorCode(error, 'ENOENT')) return undefined
-    throw error
-  }
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-    throw new Error(`run-gates: gate-log path is not a real directory: ${directory}`)
-  }
-  return { dev: String(metadata.dev), ino: String(metadata.ino) }
-}
-
-async function runGateLogHelper(
-  directory: string,
-  repositoryRoot: string,
-  repositoryIdentity: GateLogDirectoryIdentity,
-  pathComponents: GateLogPathComponent[],
-  request: GateLogHelperRequest,
-  beforeHelper: (() => Promise<void> | void) | undefined,
-): Promise<GateLogHelperResult> {
-  await beforeHelper?.()
-  const payload = JSON.stringify({
-    ...request,
-    repository: {
-      root: repositoryRoot,
-      relative: relative(repositoryRoot, directory),
-      identity: repositoryIdentity,
-      components: pathComponents,
-    },
-  })
-  const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolveResult, reject) => {
-    const child = spawn(process.execPath, [gateLogHelper], {
-      cwd: repositoryRoot,
-      env: {},
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
-    })
-    child.on('error', reject)
-    child.on('close', (status) => {
-      resolveResult({ status, stdout, stderr })
-    })
-    child.stdin.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code !== 'EPIPE') reject(error)
-    })
-    child.stdin.end(payload)
-  })
-  if (result.status !== 0) {
-    throw new Error(`run-gates: gate-log helper failed: ${result.stderr.trim() || `exit status ${String(result.status)}`}`)
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(result.stdout)
-  } catch {
-    throw new Error(`run-gates: gate-log helper returned invalid JSON: ${JSON.stringify(result.stdout)}`)
-  }
-  if (!isGateLogHelperResult(parsed)) throw new Error('run-gates: gate-log helper returned an invalid result.')
-  await inspectRepoLocalLogPath(repositoryRoot, directory)
-  const currentRepositoryIdentity = await readDirectoryIdentity(repositoryRoot)
-  if (
-    currentRepositoryIdentity === undefined
-    || currentRepositoryIdentity.dev !== repositoryIdentity.dev
-    || currentRepositoryIdentity.ino !== repositoryIdentity.ino
-  ) {
-    throw new Error('run-gates: repository root identity changed while the gate-log helper was running.')
-  }
-  if (parsed.directory !== undefined) {
-    const currentDirectoryIdentity = await readDirectoryIdentity(directory)
-    if (
-      currentDirectoryIdentity === undefined
-      || currentDirectoryIdentity.dev !== parsed.directory.dev
-      || currentDirectoryIdentity.ino !== parsed.directory.ino
-    ) {
-      throw new Error('run-gates: gate-log directory identity changed while the helper was running.')
-    }
-  } else if (request.operation === 'write') {
-    throw new Error('run-gates: gate-log helper did not return the created directory identity.')
-  }
-  return parsed
-}
-
-function isGateLogHelperResult(value: unknown): value is GateLogHelperResult {
-  if (typeof value !== 'object' || value === null || !('removed' in value) || !Array.isArray(value.removed)) return false
-  if (!value.removed.every(entry => typeof entry === 'string')) return false
-  if ('filename' in value && value.filename !== undefined && typeof value.filename !== 'string') return false
-  return !('directory' in value)
-    || value.directory === undefined
-    || isGateLogDirectoryIdentity(value.directory)
-}
-
-function isGateLogDirectoryIdentity(value: unknown): value is GateLogDirectoryIdentity {
-  return typeof value === 'object'
-    && value !== null
-    && 'dev' in value
-    && typeof value.dev === 'string'
-    && 'ino' in value
-    && typeof value.ino === 'string'
-}
-
-/** Clear retained logs through a subprocess that pins the repository and each path component before use. */
-export async function cleanGateFailureLogs(
-  directory = gateLogRoot,
-  repositoryRoot = root,
-  beforeHelper?: () => Promise<void> | void,
-): Promise<void> {
-  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
-  await runGateLogHelper(
-    directory,
-    repositoryRoot,
-    repositoryIdentity,
-    pathComponents,
-    { operation: 'clean' },
-    beforeHelper,
-  )
-}
-
-/**
- * Remove older scheduler log files until at most `retain` remain.
- * @param directory - private log directory.
- * @param retain - number of newest log files to preserve.
- * @param repositoryRoot - repository boundary containing the log directory.
- * @param beforeHelper - test seam invoked after identity capture and before subprocess spawn.
- */
-export async function pruneGateLogs(
-  directory: string,
-  retain: number,
-  repositoryRoot = root,
-  beforeHelper?: () => Promise<void> | void,
-): Promise<void> {
-  if (!Number.isSafeInteger(retain) || retain < 0) {
-    throw new Error(`run-gates: retained log count must be a non-negative integer, got ${JSON.stringify(retain)}.`)
-  }
-  const { pathComponents, repositoryIdentity } = await inspectRepoLocalLogPath(repositoryRoot, directory)
-  await runGateLogHelper(
-    directory,
-    repositoryRoot,
-    repositoryIdentity,
-    pathComponents,
-    { operation: 'prune', retain },
-    beforeHelper,
-  )
-}
-
-async function attachFailureLog(plan: GatePlan, result: GateResult): Promise<void> {
-  if (result.status !== 'failed') return
-  try {
-    const path = await writeGateFailureLog(plan, result)
-    result.logPath = relative(root, path).split(sep).join('/')
-  } catch (error: unknown) {
-    result.logError = error instanceof Error ? error.message : String(error)
-  }
 }
 
 async function runGates(
@@ -1355,7 +950,7 @@ async function runGates(
         }
         states.set(gate.id, 'skipped')
         results.set(gate.id, result)
-        await observe(result)
+        observe(result)
       }
       break
     }
@@ -1365,7 +960,7 @@ async function runGates(
       running.splice(running.indexOf(settled.item), 1)
       states.set(settled.item.gate.id, settled.result.status)
       results.set(settled.item.gate.id, settled.result)
-      await observe(settled.result)
+      observe(settled.result)
     }
   }
 
@@ -1477,11 +1072,6 @@ function printResult(plan: GatePlan, result: GateResult): void {
     console.error(`command: ${result.gate.displayCommand}`)
     if (Object.keys(environment).length > 0) console.error(`scheduler environment: ${JSON.stringify(environment)}`)
     console.error(`replay: ${replayCommand(plan, result.gate.id)}`)
-    if (result.logPath !== undefined) {
-      console.error(`full log: ${result.logPath} (private; newest ${GATE_LOG_RETENTION} retained)`)
-      console.error('cleanup: pnpm exec tsx scripts/run-gates.ts --clean-logs')
-    }
-    if (result.logError !== undefined) console.error(`full log unavailable: ${result.logError}`)
   }
   printOutput(result.output)
   if (result.error !== undefined) console.error(result.error)
@@ -1504,7 +1094,6 @@ function printSummary(plan: GatePlan, results: GateResult[], durationMs: number)
     const disposition = result.gate.allowFailure === true ? 'NON-BLOCKING ' : ''
     console.error(`  - ${disposition}${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
     console.error(`    replay: ${replayCommand(plan, result.gate.id)}`)
-    if (result.logPath !== undefined) console.error(`    full log: ${result.logPath}`)
   }
 }
 

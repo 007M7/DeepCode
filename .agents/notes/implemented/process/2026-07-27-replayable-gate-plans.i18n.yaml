@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-27-replayable-gate-plans.md
-2026-07-27-replayable-gate-plans.md: 0b052352f54c98506c135077a471ffaf35c50009
-2026-07-27-replayable-gate-plans.zh.md: 0c9f20d72361ab84a648094256e6d5cd9f4c77c5
+2026-07-27-replayable-gate-plans.md: a312481a4da68f0d990e28c07cced4511c922b9b
+2026-07-27-replayable-gate-plans.zh.md: c213068f5413110a2c5952ac05ebc326de12682c

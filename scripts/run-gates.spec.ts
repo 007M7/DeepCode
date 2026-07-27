@@ -1,24 +1,14 @@
 import {
-  existsSync,
-  mkdirSync,
   mkdtempSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
   rmSync,
-  statSync,
   symlinkSync,
-  writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  cleanGateFailureLogs,
   executeGatePlan,
-  failureLogUnavailableReason,
-  formatGateFailureLog,
   formatGatePlanJson,
   formatGatePlanList,
   formatGateResultReason,
@@ -27,15 +17,12 @@ import {
   gatePlanForMode,
   isMainModule,
   listedGatePlan,
-  limitGateFailureLog,
   parseCliRequest,
-  pruneGateLogs,
   replayCommand,
   resolveGateEnvironment,
   resolvePlanConcurrency,
   runGate,
   validateGatePlan,
-  writeGateFailureLog,
   type Gate,
   type GatePlan,
   type GateResult,
@@ -77,34 +64,10 @@ function resultFor(subject: Gate, status: GateResult['status'] = 'passed'): Gate
   }
 }
 
-function temporaryRoot(prefix = 'dsh-gate-logs-'): string {
+function temporaryRoot(prefix = 'dsh-run-gates-'): string {
   const root = mkdtempSync(join(tmpdir(), prefix))
   temporaryRoots.push(root)
   return root
-}
-
-function invokeGateLogOperation(
-  operation: 'write' | 'prune' | 'clean',
-  subjectGate: Gate,
-  directory: string,
-  root: string,
-  beforeHelper: () => void,
-): Promise<unknown> {
-  switch (operation) {
-    case 'write':
-      return writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
-        directory,
-        repositoryRoot: root,
-        retention: 1,
-        unique: operation,
-        platform: 'linux',
-        beforeHelper,
-      })
-    case 'prune':
-      return pruneGateLogs(directory, 0, root, beforeHelper)
-    case 'clean':
-      return cleanGateFailureLogs(directory, root, beforeHelper)
-  }
 }
 
 function withPnpmEntrypoint<T>(action: () => T): T {
@@ -167,6 +130,31 @@ describe('gate plan validation', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it('reports a settled failure before an unrelated gate finishes', async () => {
+    const first = gate('first')
+    const second = gate('second')
+    const settle = new Map<string, (result: GateResult) => void>()
+    const observed: string[] = []
+    const execution = executeGatePlan(
+      plan([first, second]),
+      2,
+      subject => new Promise(resolve => settle.set(subject.id, resolve)),
+      result => observed.push(`${result.gate.id}:${result.status}`),
+    )
+
+    const settleFirst = settle.get(first.id)
+    const settleSecond = settle.get(second.id)
+    if (settleFirst === undefined || settleSecond === undefined) throw new Error('expected both gates to start')
+    settleFirst(resultFor(first, 'failed'))
+    await vi.waitFor(() => {
+      expect(observed).toEqual(['first:failed'])
+    })
+    settleSecond(resultFor(second))
+
+    await expect(execution).resolves.toHaveLength(2)
+    expect(observed).toEqual(['first:failed', 'second:passed'])
+  })
+
   it('selects a target with its transitive dependencies in canonical plan order', () => {
     const subject = plan([
       gate('prepare'),
@@ -182,14 +170,13 @@ describe('gate plan validation', () => {
 })
 
 describe('gate plan inspection and replay', () => {
-  it('parses package-script separators, list JSON, focused runs, and cleanup', () => {
+  it('parses package-script separators, list JSON, and focused runs', () => {
     expect(parseCliRequest(['check-all', '--', '--list', '--json'])).toEqual({
       kind: 'run', mode: 'check-all', list: true, json: true,
     })
     expect(parseCliRequest(['check-all', '--only', 'snapshot'])).toEqual({
       kind: 'run', mode: 'check-all', list: false, json: false, only: 'snapshot',
     })
-    expect(parseCliRequest(['--clean-logs'])).toEqual({ kind: 'clean-logs' })
     expect(() => parseCliRequest(['check-all', '--json'])).toThrow('--json requires --list')
     expect(() => parseCliRequest(['pre-push'])).toThrow('expected mode')
   })
@@ -307,288 +294,6 @@ describe('gate plan inspection and replay', () => {
     expect(result.exitCode).toBeNull()
     expect(result.signalCode).toBe('SIGTERM')
     expect(formatGateResultReason(result)).toBe('signal SIGTERM')
-    expect(formatGateFailureLog(plan([subjectGate]), result)).toContain('signal: SIGTERM')
-  })
-})
-
-describe('gate failure logs', () => {
-  it('records attributable scheduler metadata without inherited secrets', () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-secret')
-    const subjectGate = gate('snapshot', {
-      env: {
-        DSH_EXAMPLE_MODE: { operation: 'set', value: 'lib' },
-        ACCESS_TOKEN: { operation: 'set', value: 'scheduler-secret' },
-      },
-    })
-    const subject = plan([subjectGate])
-    const failure: GateResult = {
-      ...resultFor(subjectGate, 'failed'),
-      output: [{ stream: 'stderr', text: 'failure details\n' }],
-      stderr: 'failure details\n',
-    }
-    const log = formatGateFailureLog(subject, failure)
-    expect(log).toContain('replay: pnpm run check:all -- --only snapshot')
-    expect(log).toContain('DSH_EXAMPLE_MODE')
-    expect(log).toContain('<redacted>')
-    expect(log).toContain('[stderr]\nfailure details')
-    expect(log).not.toContain('ambient-secret')
-    expect(log).not.toContain('scheduler-secret')
-  })
-
-  it.skipIf(process.platform === 'win32')('uses private exclusive files and bounds retention', async () => {
-    const repositoryRoot = temporaryRoot()
-    const directory = join(repositoryRoot, '.cache/gates')
-    const subjectGate = gate('subject')
-    const subject = plan([subjectGate])
-    const failure = resultFor(subjectGate, 'failed')
-
-    const first = await writeGateFailureLog(subject, failure, {
-      directory, repositoryRoot, retention: 2, unique: 'first', now: new Date('2026-07-27T00:00:00Z'), platform: 'linux',
-    })
-    const second = await writeGateFailureLog(subject, failure, {
-      directory, repositoryRoot, retention: 2, unique: 'second', now: new Date('2026-07-27T00:00:01Z'), platform: 'linux',
-    })
-    const third = await writeGateFailureLog(subject, failure, {
-      directory, repositoryRoot, retention: 2, unique: 'third', now: new Date('2026-07-27T00:00:02Z'), platform: 'linux',
-    })
-
-    expect(readdirSync(directory).sort()).toEqual([second, third].map(path => path.slice(directory.length + 1)).sort())
-    expect(readFileSync(third, 'utf8')).toContain('run-gates failure log')
-    expect(statSync(directory).mode & 0o777).toBe(0o700)
-    expect(statSync(third).mode & 0o777).toBe(0o600)
-    expect(() => statSync(first)).toThrow()
-    await expect(writeGateFailureLog(subject, failure, {
-      directory, repositoryRoot, retention: 3, unique: 'third', now: new Date('2026-07-27T00:00:02Z'), platform: 'linux',
-    })).rejects.toThrow('EEXIST')
-    await cleanGateFailureLogs(directory, repositoryRoot)
-    expect(readdirSync(directory)).toEqual([])
-  })
-
-  it.skipIf(process.platform === 'win32')('uses cross-platform filenames for replay-safe gate ids', async () => {
-    const repositoryRoot = temporaryRoot()
-    const directory = join(repositoryRoot, '.cache/gates')
-    const subjectGate = gate('build:web')
-    const path = await writeGateFailureLog(
-      plan([subjectGate]),
-      resultFor(subjectGate, 'failed'),
-      {
-        directory, repositoryRoot, retention: 1, unique: 'unique', now: new Date('2026-07-27T00:00:00Z'), platform: 'linux',
-      },
-    )
-    expect(path.slice(directory.length + 1)).toContain('-build-web-')
-    expect(path.slice(directory.length + 1)).not.toContain(':')
-  })
-
-  it.skipIf(process.platform === 'win32')('bounds retained UTF-8 output with explicit truncation metadata', async () => {
-    const repositoryRoot = temporaryRoot()
-    const directory = join(repositoryRoot, '.cache/gates')
-    const subjectGate = gate('subject')
-    const failure: GateResult = {
-      ...resultFor(subjectGate, 'failed'),
-      output: [{ stream: 'stderr', text: `${'界'.repeat(200)}\nlast detail\n` }],
-    }
-    const path = await writeGateFailureLog(plan([subjectGate]), failure, {
-      directory,
-      repositoryRoot,
-      retention: 1,
-      maxBytes: 256,
-      unique: 'bounded',
-      now: new Date('2026-07-27T00:00:00Z'),
-      platform: 'linux',
-    })
-    const content = readFileSync(path, 'utf8')
-
-    expect(Buffer.byteLength(content)).toBeLessThanOrEqual(256)
-    expect(content).toContain('[run-gates log truncated: original-bytes=')
-    expect(content).toContain('max-bytes=256')
-    expect(content).toContain('last detail')
-    expect(content).not.toContain('\uFFFD')
-    expect(limitGateFailureLog('x'.repeat(256), 256)).toBe('x'.repeat(256))
-  })
-
-  it.skipIf(process.platform === 'win32')('accepts the worst-case JSON expansion of a bounded log', async () => {
-    const repositoryRoot = temporaryRoot()
-    const directory = join(repositoryRoot, '.cache/gates')
-    const subjectGate = gate('subject')
-    const failure: GateResult = {
-      ...resultFor(subjectGate, 'failed'),
-      output: [{ stream: 'stderr', text: '\0'.repeat(400_000) }],
-    }
-    const path = await writeGateFailureLog(plan([subjectGate]), failure, {
-      directory,
-      repositoryRoot,
-      retention: 1,
-      maxBytes: 400_000,
-      unique: 'control-heavy',
-      platform: 'linux',
-    })
-
-    expect(statSync(path).size).toBeLessThanOrEqual(400_000)
-    expect(readFileSync(path, 'utf8')).not.toContain('\uFFFD')
-  })
-
-  it('rejects symlinked repository cache components before writing, pruning, or cleanup', async () => {
-    const auditRoot = temporaryRoot('dsh-gate-symlink-')
-    const repositoryRoot = join(auditRoot, 'repository')
-    const external = join(auditRoot, 'external')
-    const directory = join(repositoryRoot, '.cache/gates')
-    mkdirSync(repositoryRoot)
-    mkdirSync(join(external, 'gates'), { recursive: true })
-    const victim = join(external, 'gates/victim.log')
-    writeFileSync(victim, 'keep\n')
-    symlinkSync(external, join(repositoryRoot, '.cache'), process.platform === 'win32' ? 'junction' : 'dir')
-    const subjectGate = gate('subject')
-    const message = 'gate-log path component is a symbolic link: .cache'
-
-    await expect(writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
-      directory, repositoryRoot, retention: 1, unique: 'safe', platform: 'linux',
-    })).rejects.toThrow(message)
-    await expect(pruneGateLogs(directory, 0, repositoryRoot)).rejects.toThrow(message)
-    await expect(cleanGateFailureLogs(directory, repositoryRoot)).rejects.toThrow(message)
-    expect(existsSync(victim)).toBe(true)
-  })
-
-  it.skipIf(process.platform === 'win32')('pins write, prune, and cleanup before a concurrent ancestor swap', async () => {
-    const subjectGate = gate('subject')
-
-    for (const operation of ['write', 'prune', 'clean'] as const) {
-      const auditRoot = temporaryRoot(`dsh-gate-${operation}-swap-`)
-      const repositoryRoot = join(auditRoot, 'repository')
-      const external = join(auditRoot, 'external')
-      const cache = join(repositoryRoot, '.cache')
-      const directory = join(cache, 'gates')
-      const displacedCache = join(repositoryRoot, '.cache-pinned')
-      mkdirSync(directory, { recursive: true })
-      mkdirSync(external)
-      writeFileSync(join(directory, 'old.log'), 'old private log\n')
-      const victim = operation === 'write' ? undefined : join(external, 'gates/victim.log')
-      if (victim !== undefined) {
-        mkdirSync(join(external, 'gates'))
-        writeFileSync(victim, 'keep\n')
-      }
-      const swapAncestor = (): void => {
-        renameSync(cache, displacedCache)
-        symlinkSync(external, cache, 'dir')
-      }
-
-      const invocation = invokeGateLogOperation(
-        operation,
-        subjectGate,
-        directory,
-        repositoryRoot,
-        swapAncestor,
-      )
-
-      await expect(invocation).rejects.toThrow('gate-log helper')
-      if (victim === undefined) {
-        expect(existsSync(join(external, 'gates'))).toBe(false)
-      } else {
-        expect(readFileSync(victim, 'utf8')).toBe('keep\n')
-        expect(readdirSync(join(external, 'gates'))).toEqual(['victim.log'])
-      }
-      expect(readFileSync(join(displacedCache, 'gates/old.log'), 'utf8')).toBe('old private log\n')
-    }
-  })
-
-  it.skipIf(process.platform === 'win32')('rejects a real-directory ancestor moved into place after validation', async () => {
-    const subjectGate = gate('subject')
-
-    for (const operation of ['write', 'prune', 'clean'] as const) {
-      const auditRoot = temporaryRoot(`dsh-gate-${operation}-real-swap-`)
-      const repositoryRoot = join(auditRoot, 'repository')
-      const external = join(auditRoot, 'external')
-      const cache = join(repositoryRoot, '.cache')
-      const directory = join(cache, 'gates')
-      const displacedCache = join(repositoryRoot, '.cache-pinned')
-      const externalCache = join(external, 'cache')
-      mkdirSync(directory, { recursive: true })
-      mkdirSync(join(externalCache, 'gates'), { recursive: true })
-      writeFileSync(join(directory, 'old.log'), 'old private log\n')
-      const victim = operation === 'write' ? undefined : join(externalCache, 'gates/victim.log')
-      if (victim !== undefined) writeFileSync(victim, 'keep\n')
-      const swapAncestor = (): void => {
-        renameSync(cache, displacedCache)
-        renameSync(externalCache, cache)
-      }
-
-      const invocation = invokeGateLogOperation(
-        operation,
-        subjectGate,
-        directory,
-        repositoryRoot,
-        swapAncestor,
-      )
-
-      await expect(invocation).rejects.toThrow('gate-log helper')
-      if (victim === undefined) {
-        expect(readdirSync(join(cache, 'gates'))).toEqual([])
-      } else {
-        expect(readFileSync(join(cache, 'gates/victim.log'), 'utf8')).toBe('keep\n')
-      }
-      expect(readFileSync(join(displacedCache, 'gates/old.log'), 'utf8')).toBe('old private log\n')
-    }
-  })
-
-  it.skipIf(process.platform === 'win32')('rejects a real directory introduced at a previously missing component', async () => {
-    const auditRoot = temporaryRoot('dsh-gate-missing-real-swap-')
-    const repositoryRoot = join(auditRoot, 'repository')
-    const externalCache = join(auditRoot, 'external-cache')
-    const cache = join(repositoryRoot, '.cache')
-    const directory = join(cache, 'gates')
-    mkdirSync(repositoryRoot)
-    mkdirSync(join(externalCache, 'gates'), { recursive: true })
-    const victim = join(externalCache, 'gates/victim.log')
-    writeFileSync(victim, 'keep\n')
-    const subjectGate = gate('subject')
-
-    const invocation = writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
-      directory,
-      repositoryRoot,
-      retention: 1,
-      unique: 'missing-swap',
-      platform: 'linux',
-      beforeHelper: () => {
-        renameSync(externalCache, cache)
-      },
-    })
-
-    await expect(invocation).rejects.toThrow('gate-log helper')
-    expect(readFileSync(join(cache, 'gates/victim.log'), 'utf8')).toBe('keep\n')
-    expect(readdirSync(join(cache, 'gates'))).toEqual(['victim.log'])
-  })
-
-  it.skipIf(process.platform === 'win32')('rejects a repository root replaced after validation', async () => {
-    const auditRoot = temporaryRoot('dsh-gate-root-swap-')
-    const repositoryRoot = join(auditRoot, 'repository')
-    const externalRoot = join(auditRoot, 'external-repository')
-    const displacedRoot = join(auditRoot, 'repository-pinned')
-    const directory = join(repositoryRoot, '.cache/gates')
-    mkdirSync(directory, { recursive: true })
-    mkdirSync(join(externalRoot, '.cache/gates'), { recursive: true })
-    writeFileSync(join(directory, 'old.log'), 'old private log\n')
-    writeFileSync(join(externalRoot, '.cache/gates/victim.log'), 'keep\n')
-
-    const invocation = cleanGateFailureLogs(directory, repositoryRoot, () => {
-      renameSync(repositoryRoot, displacedRoot)
-      renameSync(externalRoot, repositoryRoot)
-    })
-
-    await expect(invocation).rejects.toThrow('gate-log helper')
-    expect(readFileSync(join(repositoryRoot, '.cache/gates/victim.log'), 'utf8')).toBe('keep\n')
-    expect(readFileSync(join(displacedRoot, '.cache/gates/old.log'), 'utf8')).toBe('old private log\n')
-  })
-
-  it('uses a console-only fallback on Windows before creating a retention directory', async () => {
-    const repositoryRoot = temporaryRoot()
-    const directory = join(repositoryRoot, '.cache/gates')
-    const subjectGate = gate('subject')
-    expect(failureLogUnavailableReason('win32')).toContain('complete output remains on the console')
-    expect(failureLogUnavailableReason('linux')).toBeUndefined()
-
-    await expect(writeGateFailureLog(plan([subjectGate]), resultFor(subjectGate, 'failed'), {
-      directory, repositoryRoot, platform: 'win32',
-    })).rejects.toThrow('retained failure logs are disabled on Windows')
-    expect(existsSync(directory)).toBe(false)
   })
 })
 
