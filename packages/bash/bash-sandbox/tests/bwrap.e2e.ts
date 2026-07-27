@@ -9,6 +9,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { bwrapProfileArgs } from '@deepseek-ai/dsh-sandbox-local/src/profiles.ts'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 
 /**
  * Keyless integration of the real provider and executor through public run/start paths. With
@@ -42,6 +43,7 @@ async function sandboxedBash(workspace: string, mode: 'read-only' | 'workspace-w
   ctx = new Context()
   await ctx.plugin(LocalSandboxProvider, {})
   await ctx.plugin(SandboxPolicyService, { mode, workspaceRoot: workspace })
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(SandboxBashExecutor, { cwd: workspace, timeoutMs: 30_000 })
   return ctx.bash as SandboxBashExecutor
 }
