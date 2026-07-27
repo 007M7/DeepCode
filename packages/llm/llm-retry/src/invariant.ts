@@ -13,6 +13,34 @@ export const name = 'llm-retry-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
+/** Find the first turn in the structured-failure retry chain containing `turn`. */
+function retryChainStart(history: readonly SessionEvent[], turn: number): number {
+  let startIndex = history.findLastIndex(
+    event => event.type === 'turn/start' && event.data.turn === turn,
+  )
+  while (startIndex >= 0) {
+    const start = history[startIndex]
+    if (start?.type !== 'turn/start' || start.data.trigger.kind !== 'retry') break
+
+    let endIndex = startIndex - 1
+    while (endIndex >= 0 && history[endIndex]?.type !== 'turn/end') endIndex -= 1
+    const end = history[endIndex]
+    if (end?.type !== 'turn/end'
+      || end.data.reason.kind !== 'error'
+      || end.data.reason.failure === undefined) break
+
+    const previousStart = history.findLastIndex(
+      (event, index) =>
+        index < endIndex
+        && event.type === 'turn/start'
+        && event.data.turn === end.data.turn,
+    )
+    if (previousStart < 0) break
+    startIndex = previousStart
+  }
+  return startIndex
+}
+
 /** Validate one retry record against the open turn and most recently closed step. */
 function validateRetry(
   history: readonly SessionEvent[],
@@ -59,14 +87,17 @@ function validateRetry(
     fail(`llm/retry names step ${step}, but the latest closed step is ${String(closedStep)}`)
   }
 
-  const priorRetries = currentTurnEvents
+  const chainStart = retryChainStart(history, turn)
+  const chain = history.slice(Math.max(chainStart, 0))
+  const lastSuccess = chain.findLastIndex(prior => prior.type === 'assistant/message')
+  const chainRetries = chain.slice(lastSuccess + 1)
     .filter((prior): prior is SessionEvent<'llm/retry'> => prior.type === 'llm/retry')
-  if (priorRetries.some(prior => prior.data.step === step)) {
+  if (chainRetries.some(prior => prior.data.turn === turn && prior.data.step === step)) {
     fail(`llm/retry duplicates the retry record for turn ${turn}/step ${step}`)
   }
-  const priorRetry = priorRetries[0]
-  if (priorRetry !== undefined && retry <= priorRetry.data.retry) {
-    fail(`llm/retry retry ${retry} must increase after retry ${priorRetry.data.retry}`)
+  const expectedRetry = chainRetries.length + 1
+  if (retry !== expectedRetry) {
+    fail(`llm/retry retry ${retry} must equal retry-chain position ${expectedRetry}`)
   }
 }
 

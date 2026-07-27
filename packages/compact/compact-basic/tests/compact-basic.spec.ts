@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 const SIGNAL = new AbortController().signal
@@ -76,7 +76,10 @@ function createContext(contextWindow = 1_000): Context {
 }
 
 function agent(session: Session, model?: string): Agent {
-  return { session, options: model === undefined ? {} : { provider: model, model } } as Agent
+  return {
+    session,
+    options: model === undefined ? {} : { provider: model, model },
+  } as Agent
 }
 
 /** Flatten every text fragment the summarizer received, recursing tool-result blocks. */
@@ -568,7 +571,7 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
-  it('counts the durable routed request envelope without putting its prefix on the surface', async () => {
+  it('counts the durable routed request envelope without putting it on the surface', async () => {
     const compact = service({
       auto: false,
       thresholdRatio: 0.9,
@@ -577,22 +580,15 @@ describe('pressure measurement and retention', () => {
     const session = conversation(2, 'x'.repeat(600))
     expect(await compactIfNeeded(compact, session)).toBeNull()
 
-    const prefix = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'p'.repeat(600) }] }]
     session.append('request/header', {
       header: {
         config: { provider: MODEL, model: MODEL },
-        system: 's'.repeat(600),
-        messagePrefix: prefix,
+        system: 's'.repeat(2_000),
       },
       reason: 'resume',
     })
     const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
-    expect(prefix).toHaveLength(1)
-    // The routed request prefix must not reach the surface as its own message
-    // (the compaction summary itself is an expected plugin-sourced checkpoint).
-    expect(session.events.some(event => event.type === 'user/message'
-      && event.data.content.some(block => block.type === 'text' && block.text.includes('p'.repeat(600))))).toBe(false)
   })
 
   it('uses the latest logged request envelope without an AgentOptions override', async () => {
@@ -822,13 +818,12 @@ describe('compaction region transaction', () => {
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
   })
 
-  it('replays the latest routed header prefix so the summarizer reuses the cache', async () => {
+  it('replays the latest routed header so the summarizer reuses the cache', async () => {
     const compact = service()
     const session = conversation(3)
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
-    const messagePrefix: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'SESSION PREFIX' }] }]
     session.append('request/header', {
-      header: { config: { provider: MODEL, model: MODEL }, system: 'CONVERSATION SYSTEM', tools, messagePrefix },
+      header: { config: { provider: MODEL, model: MODEL }, system: 'CONVERSATION SYSTEM', tools },
       reason: 'resume',
     })
     const nodes = session.surface.nodes
@@ -837,7 +832,6 @@ describe('compaction region transaction', () => {
     const { input } = compact.calls[0]!
     expect(input.system).toBe('CONVERSATION SYSTEM')
     expect(input.tools).toEqual(tools)
-    expect(input.messages[0]).toEqual(messagePrefix[0])
     expect(summarizedText(input)).toContain('fixture user 1')
   })
 
@@ -1289,22 +1283,21 @@ describe('default one-shot summarizer', () => {
 
 describe('automatic listener and loader composition', () => {
   function postStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
-    return agentEvents(ctx, owner).serial('agent/post-step', 1, 1, signal)
+    return agentEvents(ctx, owner).serial('agent/step', 1, 1, signal)
   }
 
   function recover(
     ctx: Context,
     owner: Agent,
     error: Error & { code?: string },
-    retryAttempt = 0,
     signal = SIGNAL,
-    next: () => Promise<{ action: 'fail' | 'retry' }> = () => Promise.resolve({ action: 'fail' }),
-  ): Promise<{ action: 'fail' | 'retry' }> {
+    next: () => Promise<RequestErrorAction> = () => Promise.resolve(undefined),
+  ): Promise<boolean> {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
-    const priorFailures = Object.freeze(Array.from({ length: retryAttempt }, () => failure))
+    const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
     return agentEvents(ctx, owner).waterfall(
-      'agent/request-error', 1, 1, error, failure, priorFailures, signal, next,
-    )
+      'agent/request-error', turn, 1, error, failure, signal, next,
+    ).then(action => action?.kind === 'retry')
   }
 
   function overflow(message = 'provider overflow'): Error & { code: string } {
@@ -1413,7 +1406,7 @@ describe('automatic listener and loader composition', () => {
     expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(threshold)
     const decision = await recover(ctx, agent(session, 'unconfigured-agent-fallback'), overflow())
 
-    expect(decision).toEqual({ action: 'retry' })
+    expect(decision).toBe(true)
     expect(session.surface.replaceGeneration).toBe(beforeGeneration + 1)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
     expect(session.surface.nodes).toContain(retainedSeq)
@@ -1432,7 +1425,7 @@ describe('automatic listener and loader composition', () => {
     })
     const session = oversizedToolResult()
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
     expect(session.surface.replaceGeneration).toBe(1)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
     expect(compact.calls).toHaveLength(0)
@@ -1451,7 +1444,7 @@ describe('automatic listener and loader composition', () => {
     })
     const session = toolConversation()
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
     expect(compact.calls).toHaveLength(1)
     expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
@@ -1473,7 +1466,7 @@ describe('automatic listener and loader composition', () => {
     compact.error = new Error('summary unavailable after prune')
     const session = oversizedToolResult(3_000, true)
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
     expect(session.surface.replaceGeneration).toBe(1)
     expect(session.events.filter(event => event.type === 'tool/result')).toHaveLength(2)
     expect(session.events.findLast(event => event.type === 'compact/end')?.data)
@@ -1497,8 +1490,7 @@ describe('automatic listener and loader composition', () => {
     compact.error = new Error('summary cancelled after prune')
     const session = oversizedToolResult(3_000, true)
 
-    expect(await recover(ctx, agent(session, MODEL), overflow(), 0, controller.signal))
-      .toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow(), controller.signal)).toBe(false)
     expect(session.surface.replaceGeneration).toBe(1)
   })
 
@@ -1512,7 +1504,7 @@ describe('automatic listener and loader composition', () => {
     const newestAssistant = session.surface.nodes.at(-2)!
     const newestResult = session.surface.nodes.at(-1)!
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(true)
     const currentAssistant = session.surface.nodes.find(node => node === newestAssistant)
     const currentResult = session.surface.nodes.find(node => node === newestResult)
     expect(currentAssistant).toBeDefined()
@@ -1536,7 +1528,7 @@ describe('automatic listener and loader composition', () => {
     }
     vi.spyOn(compact, 'compactIfNeeded').mockResolvedValue(fakeResult)
 
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.surface.replaceGeneration).toBe(0)
   })
 
@@ -1551,7 +1543,6 @@ describe('automatic listener and loader composition', () => {
       ctx,
       agent(conversation(2), MODEL),
       overflow(),
-      0,
       SIGNAL,
       () => {
         calls += 1
@@ -1569,7 +1560,7 @@ describe('automatic listener and loader composition', () => {
     compact.error = new Error('summary unavailable')
     const original = overflow('original provider overflow')
 
-    expect(await recover(ctx, agent(conversation(3), MODEL), original)).toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(conversation(3), MODEL), original)).toBe(false)
     expect(original).toMatchObject({
       message: 'original provider overflow',
       code: CONTEXT_WINDOW_EXCEEDED_CODE,
@@ -1588,12 +1579,12 @@ describe('automatic listener and loader composition', () => {
     const original = overflow('original provider failure')
     let delegations = 0
 
-    const decision = await recover(ctx, agent(session, MODEL), original, 0, SIGNAL, () => {
+    const decision = await recover(ctx, agent(session, MODEL), original, SIGNAL, () => {
       delegations += 1
-      return Promise.resolve({ action: 'fail' })
+      return Promise.resolve(undefined)
     })
 
-    expect(decision).toEqual({ action: 'fail' })
+    expect(decision).toBe(false)
     expect(delegations).toBe(1)
     expect(session.surface.replaceGeneration).toBe(generation)
     expect(original).toMatchObject({
@@ -1612,7 +1603,7 @@ describe('automatic listener and loader composition', () => {
       reason: 'resume',
     })
     expect(await recover(ctx, agent(session, MODEL), overflow('unlisted-model overflow')))
-      .toEqual({ action: 'retry' })
+      .toBe(true)
   })
 
   it('delegates canonical overflow when no durable routed target exists', async () => {
@@ -1624,21 +1615,19 @@ describe('automatic listener and loader composition', () => {
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
 
-    await expect(recover(ctx, agent(session, MODEL), overflow())).resolves.toEqual({ action: 'fail' })
+    await expect(recover(ctx, agent(session, MODEL), overflow())).resolves.toBe(false)
   })
 
-  it('honors retry caps, non-context failures, and cancellation', async () => {
+  it('honors retry caps and ignores non-context failures', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, { maxOverflowRetries: 1 })
     const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
     const owner = agent(conversation(3), MODEL)
     expect(await recover(ctx, owner, Object.assign(new Error('rate limit'), { code: 'RATE_LIMIT' })))
-      .toEqual({ action: 'fail' })
-    expect(await recover(ctx, owner, overflow(), 1)).toEqual({ action: 'fail' })
-
-    const controller = new AbortController()
-    controller.abort('cancelled')
-    expect(await recover(ctx, owner, overflow(), 0, controller.signal)).toEqual({ action: 'fail' })
+      .toBe(false)
+    expect(await recover(ctx, owner, overflow())).toBe(true)
+    compactSpy.mockClear()
+    expect(await recover(ctx, owner, overflow())).toBe(false)
     expect(compactSpy).not.toHaveBeenCalled()
   })
 
@@ -1653,9 +1642,11 @@ describe('automatic listener and loader composition', () => {
       }],
     })
     const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
+    const owner = agent(conversation(3), MODEL)
 
-    expect(await recover(ctx, agent(conversation(3), MODEL), overflow(), 1))
-      .toEqual({ action: 'fail' })
+    expect(await recover(ctx, owner, overflow())).toBe(true)
+    compactSpy.mockClear()
+    expect(await recover(ctx, owner, overflow())).toBe(false)
     expect(compactSpy).not.toHaveBeenCalled()
   })
 
@@ -1667,8 +1658,7 @@ describe('automatic listener and loader composition', () => {
     const session = conversation(3)
     const generation = session.surface.replaceGeneration
 
-    expect(await recover(ctx, agent(session, MODEL), overflow(), 0, controller.signal))
-      .toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow(), controller.signal)).toBe(false)
     expect(session.surface.replaceGeneration).toBe(generation + 1)
   })
 
@@ -1683,7 +1673,7 @@ describe('automatic listener and loader composition', () => {
     await postStep(ctx, agent(session, MODEL))
     const summaries = session.events.filter(event => event.type === 'compact/summary').length
     expect(summaries).toBe(1)
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
     expect(session.events.filter(event => event.type === 'compact/summary')).toHaveLength(summaries)
   })
 
@@ -1697,7 +1687,7 @@ describe('automatic listener and loader composition', () => {
     const session = conversation(4)
     await postStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })
 
   it('loads and disposes the real zero-config service stack', async () => {
@@ -1726,6 +1716,6 @@ describe('automatic listener and loader composition', () => {
     const session = conversation(4)
     await postStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
-    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })
 })

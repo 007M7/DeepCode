@@ -8,6 +8,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import type { Agent, AgentMessage, AgentMessageId, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -382,7 +383,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
    * the mirror needs no consumption heuristics or sweeps beyond disposal.
    */
-  const queuedMirror = new Map<SessionId, Map<AgentMessageId, AgentMessage>>()
+  const queuedMirror = new Map<SessionId, Map<AgentMessageId, { message: AgentMessage; steering: boolean }>>()
   ctx.effect(() => {
     const retire = (agent: Agent, id: AgentMessageId): void => {
       const entries = queuedMirror.get(agent.id)
@@ -391,11 +392,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (entries.size === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage, placement) => {
         let entries = queuedMirror.get(agent.id)
-        if (entries === undefined) queuedMirror.set(agent.id, entries = new Map<AgentMessageId, AgentMessage>())
-        entries.set(message.id, message)
-        broadcast({ type: 'session/queued', sessionId: agent.id, content: message.content, source: message.source, steering: message.steering })
+        if (entries === undefined) {
+          entries = new Map<AgentMessageId, { message: AgentMessage; steering: boolean }>()
+          queuedMirror.set(agent.id, entries)
+        }
+        const steering = placement === 'steering'
+        entries.set(message.id, { message, steering })
+        broadcast({
+          type: 'session/queued',
+          sessionId: agent.id,
+          content: message.content,
+          source: message.source,
+          steering,
+        })
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
         retire(agent, message.id)
@@ -669,8 +680,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
-          if (mode === 'steer') agent.steer(content, { source })
-          else agent.followup(content, { source })
+          if (mode === 'steer') agent.steer({ content, source })
+          else agent.followup({ content, source })
         } catch (error: unknown) {
           // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
@@ -688,7 +699,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           }))
         }
-        agent.cancel()
+        agent.cancel({ kind: 'user' })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
     },
@@ -951,7 +962,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
           for (const entry of entries.values()) {
-            queue.push(frame({ type: 'session/queued', sessionId, content: entry.content, source: entry.source, steering: entry.steering }))
+            queue.push(frame({
+              type: 'session/queued',
+              sessionId,
+              content: entry.message.content,
+              source: entry.message.source,
+              steering: entry.steering,
+            }))
           }
         }
         // Per-session open-call table for result-view pairing. Bounded by the
@@ -1015,11 +1032,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
-            if (status === 'disposed') return
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
-          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: Error) => {
-            queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
+          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: unknown) => {
+            queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
           ctx.on('domain/changed', (change) => {
             if (change.domain !== 'workspace') return

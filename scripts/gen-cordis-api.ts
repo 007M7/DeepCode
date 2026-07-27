@@ -32,13 +32,16 @@ function quote(value: string): string {
 /**
  * Reduce an exported class to its type shape: drop method/constructor bodies
  * and property initializers so the catalog serves member signatures, not
- * implementation.
+ * implementation. An abstract class (e.g. `Agent`) is a public type consumers
+ * program against, so it belongs in the type closure alongside interfaces.
  */
 function classShape(node: ts.ClassDeclaration): ts.ClassDeclaration {
   const isNonPublic = (member: ts.ClassElement): boolean =>
     (ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined)?.some(m =>
       m.kind === ts.SyntaxKind.PrivateKeyword || m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false
   const members = node.members.flatMap((member): ts.ClassElement[] => {
+    // A model-facing type shape carries only the public surface — drop private,
+    // protected, and #private members, and strip every kept member's body.
     if (isNonPublic(member) || (ts.isPropertyDeclaration(member) && ts.isPrivateIdentifier(member.name))) return []
     if (ts.isMethodDeclaration(member)) {
       return [ts.factory.updateMethodDeclaration(
@@ -67,8 +70,9 @@ function classShape(node: ts.ClassDeclaration): ts.ClassDeclaration {
 }
 
 /**
- * Collect exported interface, type-alias, and body-stripped class shapes; omit
- * names declared in multiple packages rather than serve the wrong shape.
+ * Collect exported interface, type-alias, and (body-stripped) class shapes;
+ * omit names declared in multiple packages rather than risk serving the wrong
+ * package's shape.
  */
 function collectTypeDecls(scanRoot: string = root): Map<string, string> {
   const printer = ts.createPrinter({ removeComments: true })

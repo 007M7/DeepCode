@@ -489,11 +489,6 @@ describe('TUI terminal-state snapshots', () => {
           content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
           source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
         }, { surfaceOp: 'append' })
-        session.append('prompt/blocked', {
-          content: [{ type: 'text', text: 'blocked' }],
-          source: { kind: 'user' },
-          reason: `Unsafe policy ${CONTROL_PROBE}`,
-        })
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
           turn: 1,

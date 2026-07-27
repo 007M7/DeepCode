@@ -272,14 +272,16 @@ describe('headless stream-json snapshots', () => {
         const goalChanges = records.filter((record) => {
           if (record.type !== 'user/message') return false
           const data = record.data as JsonObject | undefined
-          const meta = data?.meta as JsonObject | undefined
-          return meta?.kind === 'goal/change'
+          const source = data?.source as JsonObject | undefined
+          const change = source?.change as JsonObject | undefined
+          return source?.kind === 'goal' && change?.kind === 'goal/change'
         })
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const meta = data?.meta as JsonObject | undefined
-        const goal = meta?.goal as JsonObject | undefined
-        expect(meta?.operation).toBe('create')
+        const source = data?.source as JsonObject | undefined
+        const change = source?.change as JsonObject | undefined
+        const goal = change?.goal as JsonObject | undefined
+        expect(change?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',

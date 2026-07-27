@@ -225,22 +225,28 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   let targetTurn: number | undefined
   let reason: TurnEndReason | undefined
   let result = ''
-  const usageByStep = new Map<number, TokenUsage>()
+  const usageByStep = new Map<string, TokenUsage>()
   let outputError: Error | undefined
   let resolveTurn!: () => void
   let rejectTurn!: (error: Error) => void
-  let settled = false
+  let firstTurnEnded = false
   const turnEnded = new Promise<void>((resolve, reject) => {
     resolveTurn = resolve
     rejectTurn = reject
   })
 
   const settleResolved = (): void => {
-    settled = true
+    if (firstTurnEnded) return
+    firstTurnEnded = true
     resolveTurn()
   }
   const settleRejected = (error: Error): void => {
-    settled = true
+    // The once-registered abort listener is the only rejecter, and a settled
+    // prompt makes targetTurn defined so onAbort skips rejection entirely;
+    // kept for symmetry with settleResolved.
+    /* v8 ignore next -- unreachable second settlement, see above */
+    if (firstTurnEnded) return
+    firstTurnEnded = true
     rejectTurn(error)
   }
   const observe = (sessionId: string, event: SessionEvent): void => {
@@ -254,20 +260,26 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   }
 
   const disposeListener = ctx.on('session/event', (session, event) => {
-    if (session !== agent.session || settled) return
+    if (session !== agent.session) return
     if (targetTurn === undefined) {
       if (event.type !== 'turn/start' || event.data.trigger.kind !== 'message') return
       targetTurn = event.data.turn
+    } else if (event.type === 'turn/start' && event.data.trigger.kind === 'retry'
+      && reason?.kind === 'error') {
+      targetTurn = event.data.turn
+      reason = undefined
     }
     observe(session.id, event)
     if (event.type === 'assistant/chunk'
       && event.data.turn === targetTurn
       && event.data.chunk.type === 'usage') {
-      usageByStep.set(event.data.step, event.data.chunk.usage)
+      usageByStep.set(`${event.data.turn}/${event.data.step}`, event.data.chunk.usage)
     }
     if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
       result = assistantText(event) ?? result
-      if (event.data.usage !== undefined) usageByStep.set(event.data.step, event.data.usage)
+      if (event.data.usage !== undefined) {
+        usageByStep.set(`${event.data.turn}/${event.data.step}`, event.data.usage)
+      }
     }
     if (event.type === 'turn/end' && event.data.turn === targetTurn) {
       reason = event.data.reason
@@ -289,14 +301,14 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
 
   try {
     /* v8 ignore next -- skips send only when cancellation wins the listener-registration race above */
-    if (!settled) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
-      agent.followup([{ type: 'text', text: options.task }])
+    if (!firstTurnEnded) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+      agent.followup({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } })
     }
     await turnEnded
   } finally {
     if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort)
-    disposeListener()
     await agent.whenIdle()
+    disposeListener()
   }
 
   /* v8 ignore next 3 -- turnEnded resolves only from the matching branch that assigns both values */
@@ -380,7 +392,6 @@ export function formatTurnFailure(reason: TurnEndReason): string {
     case 'error': return `failed at step ${reason.step}: ${'failure' in reason ? reason.failure.message : reason.message}`
     case 'disposed': return 'was disposed'
     case 'max-tokens': return 'reached the model output-token limit'
-    case 'rejected': return `was rejected: ${reason.reason}`
     case 'interrupted': return 'was interrupted during persistence recovery'
     default: return `ended with ${JSON.stringify(reason)}`
   }

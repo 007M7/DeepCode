@@ -39,7 +39,7 @@ Status: implemented
 
 成功调用的压力检查不能在步骤前运行，因为最终的 `agent/request` 路由、提供方输出、工具结果、缓冲上下文与 steering 当时尚不存在。串行的 `agent/post-step(agent, turn, step, signal)` 会在这些事实持久化后、`step/end` 之前触发。`dsh-compact-basic` 通过 `ctx.tokenMeter` 测量规范的已记录请求，因此下一个请求无需推测性覆盖信封即可看到任何替换。压力达到条件后，可选的 `ctx.toolResultPrune` 重写在摘要范围选择前运行；compact-basic 重新测量持久 surface，如果修剪恢复到安全压力便跳过摘要生成。
 
-规范的提供方上下文溢出走另一条路径。失败步骤先关闭，`agent/request-error` 接收原始请求错误与连续重试次数，compact-basic 在强制执行一次有效且平衡的缩减前先修剪。仅当 `session.surface.replaceGeneration` 增加时，它才返回 retry；这包括没有摘要范围时仅修剪取得的进展。随后循环开启新的编号步骤，并从持久日志重建请求。没有替换、任何替换前的恢复失败、取消、耗尽的上限或无关错误都会保留原始提供方失败。如果修剪已经推进 generation，而后续摘要工作失败，恢复会从该持久的已修剪 surface 重试，除非取消或资源释放胜出。完整生命周期决策见[调用后恢复 Agent Note](../architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)。
+规范的提供方上下文溢出走另一条路径。失败步骤先关闭，`agent/request-error` 接收原始请求错误。compact-basic 自行持有按 agent 计的溢出次数，在强制执行一次有效且平衡的缩减前先修剪，且仅当 `session.surface.replaceGeneration` 增加时才返回 `{ kind: 'retry' }`；这包括没有摘要范围时仅修剪取得的进展。随后循环关闭失败轮次，开启新的编号重试轮次，并从持久日志重建请求。没有替换、任何替换前的恢复失败、取消、耗尽的上限或无关错误都会保留原始提供方失败。如果修剪已经推进 generation，而后续摘要工作失败，恢复会从该持久的已修剪 surface 重试，除非取消或资源释放胜出。完整生命周期决策见[调用后恢复 Agent Note](../architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)。
 
 ```
 assistant/message → tool/result/context/steering

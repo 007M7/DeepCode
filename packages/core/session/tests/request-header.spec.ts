@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId, canonicalHeader, foldRequestHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const CONFIG = { provider: 'mock', model: 'm' }
@@ -12,20 +12,16 @@ function tool(name: string, description = 'd'): ToolSchema {
   return { name, description, parameters: { type: 'object' } }
 }
 
-function msg(text: string): Message {
-  return { role: 'user', content: [{ type: 'text', text }] }
-}
-
 describe('canonicalHeader', () => {
   it('normalizes empty optional fields to absence and preserves populated fields', () => {
-    expect(canonicalHeader({ config: CONFIG, system: '', tools: [], messagePrefix: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
-    expect(full).toEqual({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
+    expect(canonicalHeader({ config: CONFIG, system: '', tools: [] })).toEqual({ config: CONFIG })
+    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')] })
+    expect(full).toEqual({ config: CONFIG, system: 's', tools: [tool('a')] })
   })
 })
 
 describe('headerEquals', () => {
-  const base = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')], messagePrefix: [msg('p')] })
+  const base = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')] })
 
   it('compares every canonical field and preserves tool order', () => {
     expect(headerEquals(base, structuredClone(base))).toBe(true)
@@ -35,14 +31,13 @@ describe('headerEquals', () => {
       config: { ...base.config, reasoningEffort: ReasoningEffortId('high') },
     })).toBe(false)
     expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
-    expect(headerEquals(base, { ...base, messagePrefix: [msg('other')] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [tool('a', 'changed')] })).toBe(false)
     expect(headerEquals({ config: CONFIG, tools: [tool('a'), tool('b')] }, { config: CONFIG, tools: [tool('b'), tool('a')] })).toBe(false)
   })
 
-  it('treats absent and empty prefix/tool arrays as equivalent canonical absence', () => {
-    expect(headerEquals({ config: CONFIG }, { config: CONFIG, tools: [], messagePrefix: [] })).toBe(true)
+  it('treats absent and empty tool arrays as equivalent canonical absence', () => {
+    expect(headerEquals({ config: CONFIG }, { config: CONFIG, tools: [] })).toBe(true)
   })
 })
 

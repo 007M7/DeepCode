@@ -365,13 +365,15 @@ describe('approval policy (the approval/policy fold)', () => {
     const agent = {
       id,
       session,
-      inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
+      inject: (input: { content: Array<{ type: string; text: string }> }) => {
+        injected.push(input.content[0]?.text ?? '')
+      },
     } as unknown as Agent
     return { agent, session, injected }
   }
 
   const preStep = (ctx: Context, agent: Agent): Promise<void> =>
-    agentEvents(ctx, agent).serial('agent/pre-step', 1, 1, new AbortController().signal)
+    agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
 
   /** Append a `request/header` snapshot whose system text is exactly `system`. */
   function appendHeader(session: Session, system: string): void {

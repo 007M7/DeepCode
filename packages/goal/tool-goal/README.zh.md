@@ -14,7 +14,7 @@
 
 3 个规范值都与已经渲染给 Native 调用方的紧凑 JSON 一致：`{ goal: null }` 或 `{ goal: { id, revision, objective, phase, roundsStarted, maxGoalRounds, blockedReason? }, activation }`。因此，编程消费方无需解析渲染后的 JSON，即可收到相同领域结构。
 
-自主 goal round 成功报告 `complete` 或 `blocked` 时，会为该物理轮次贡献现有终结 `agent/turn-stop` 决策。用户直接变更绝不会贡献该停止决策：assistant 可以确认变更，并发的用户 steering 仍可进入循环。
+自主 goal round 成功报告 `complete` 或 `blocked` 时，会用 `concludeTurn()` 标记该次工具执行，使物理轮次在该步骤后停止。用户直接变更绝不会贡献该停止决策：assistant 可以确认变更，并发的用户 steering 仍可进入循环。
 
 ## 权限
 

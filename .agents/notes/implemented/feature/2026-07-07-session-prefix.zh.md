@@ -2,6 +2,8 @@
 
 Status: implemented
 
+下文所述的仅请求前缀 seam 后来已被[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)移除。当前的生产方在 `agent/step` 时注入持久的带来源 `user/message` 上下文；本记录保留了早先的设计及其权衡。
+
 [English](2026-07-07-session-prefix.md) | 中文
 
 ## 问题
@@ -12,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-`agent/session-prefix` 是 agent 事件映射上的一个 waterfall（瀑布式事件）（[`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)）：监听器接收一个冻结的空种子并返回扩展（规范的贡献方式是前置插入 `[mine, ...await next()]`，在协议格式上产生注册顺序）。agent loop（智能体循环）（[`packages/core/agent-loop/src/loop.ts`](../../../../packages/core/agent-loop/src/loop.ts)）在每个循环实例中触发一次，惰性地在实例首次 `agent/pre-step` 之前执行；组合后的列表被深拷贝、深冻结、缓存在实例上，并在该实例发出的每个请求中置于整个派生历史之前——紧接在提供方的 system 槽位之后（[协议格式顺序](../../../../docs/core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)）。
+`agent/session-prefix` 是 agent 事件映射上的一个 waterfall（瀑布式事件）（[`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)）：监听器接收一个冻结的空种子并返回扩展（规范的贡献方式是前置插入 `[mine, ...await next()]`，在协议格式上产生注册顺序）。agent loop（智能体循环）（[agent-loop 源码](../../../../packages/core/agent-loop/src/)）在每个循环实例中触发一次，惰性地在实例首次 `agent/pre-step` 之前执行；组合后的列表被深拷贝、深冻结、缓存在实例上，并在该实例发出的每个请求中置于整个派生历史之前——紧接在提供方的 system 槽位之后（[协议格式顺序](../../../../docs/core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)）。
 
 三个属性承载了这一设计：
 

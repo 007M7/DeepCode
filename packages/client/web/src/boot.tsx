@@ -150,8 +150,8 @@ export class AppWebEntry {
   /** Prefetch the immediately tier (factory registration only; failures defer to the import path). */
   private async prefetchImmediateTier(): Promise<void> {
     await Promise.all(this.manifest.plugins
-      .filter((row) => row.immediately)
-      .map((row) => this.modules.prefetch(row.id).catch(() => {
+      .filter(row => row.immediately)
+      .map(row => this.modules.prefetch(row.id).catch(() => {
         // Import refetches and reports this loudly per entry; swallowing
         // here keeps one failing prefetch from masking the others.
       })))
@@ -186,7 +186,7 @@ export class AppWebEntry {
     // its wrapper apply reads the kernel slot and provides ctx.modules (the
     // provide lives on the plugin face; see MODULES_ID for why the row loop
     // must then skip it).
-    const rows = [MODULES_ID, ...this.manifest.plugins.map((row) => row.id).filter((id) => id !== MODULES_ID), APP_SHELL_ID]
+    const rows = [MODULES_ID, ...this.manifest.plugins.map(row => row.id).filter(id => id !== MODULES_ID), APP_SHELL_ID]
     // Entry creation order carries no semantics (fiber inject waiting owns
     // activation order); creating concurrently lets non-prefetched bundle
     // fetches parallelize. The app-shell assembly entry is appended by the
@@ -225,7 +225,7 @@ export class AppWebEntry {
       const state = STATE_LABELS[entry.fiber.state]
       if (state === 'active') continue
       if (state === 'pending') {
-        const missing = Object.keys(entry.fiber.inject).filter((service) => ctx.get(service) === undefined)
+        const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
         failures.push(`${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
       } else {
         failures.push(`${name}: ${state}`)
