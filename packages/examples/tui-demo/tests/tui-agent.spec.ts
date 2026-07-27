@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
-import type { Context } from 'cordis'
+import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as tuiAgent from '../src/index.ts'

@@ -377,6 +377,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
+        signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
+        jsDoc: '/**\n * Resolve the retry policy captured when one provider route was registered.\n * @param provider - registered provider route to inspect.\n * @returns the provider-owned policy, with normal defaults already resolved.\n */',
+      },
+      {
         signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
         jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
       },
@@ -430,7 +434,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'set(agent: Agent, active: boolean): void',
-        jsDoc: '/**\n * Select whether plan mode should be active from the next turn boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
+        jsDoc: '/**\n * Select whether plan mode should be active from the next request boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
       },
     ],
   },
@@ -1065,8 +1069,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
-    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener returns `{ kind: \'retry\' }`\n * without calling `next()` when it owns the error, or calls `next()` to\n * delegate. The default `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener returns `{ kind: \'retry\' }`\n * without calling `next()` when it owns the error, or calls `next()` to\n * delegate. The default `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another\n * retry turn in this consecutive sequence.\n * @param retryPolicy - immutable policy of the adapter registration that served\n * the failed request, or `undefined` if no final adapter served it.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Handle a model-request failure after its failed step has closed but before the failed turn closes.',
   },
   {
@@ -1751,7 +1755,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmAdapter',
-    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmCallConfig',
@@ -1928,6 +1932,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RequestHeaderReason',
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'ResolvedAlwaysRetryPolicy',
+    declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
+  },
+  {
+    name: 'ResolvedNormalRetryPolicy',
+    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
+  },
+  {
+    name: 'ResolvedRetryBackoff',
+    declaration: 'export interface ResolvedRetryBackoff {\n    readonly initialDelayMs: number;\n    readonly maxDelayMs: number;\n    readonly jitterRatio: number;\n}',
+  },
+  {
+    name: 'ResolvedRetryPolicy',
+    declaration: 'export type ResolvedRetryPolicy = ResolvedNormalRetryPolicy | ResolvedAlwaysRetryPolicy;',
   },
   {
     name: 'ResumeAgentOptions',

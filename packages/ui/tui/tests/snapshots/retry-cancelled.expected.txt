@@ -15,7 +15,7 @@ buffer
   style 0-2 fg=bright-blue bold underline
 5| "Start then cancel.                                                                              "
 6| <blank>
-7| "Retrying model request (1/2) in 1000ms: temporary transport failure                             "
+7| "Retrying model request (1/∞) in 1000ms: temporary transport failure                             "
   style 0-66 fg=yellow
 8| <blank>
 9| "Turn cancelled.                                                                                 "

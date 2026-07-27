@@ -27,9 +27,9 @@ import type {
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
-  BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
+  BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, llmRetryPolicyOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -39,7 +39,7 @@ import { executeToolCalls } from './tool-calls.ts'
 /** One completed step or a final-adapter failure eligible for recovery. */
 type StepOutcome =
   | { kind: 'completed'; continueTurn: boolean; concluded: boolean; maxTokens: boolean }
-  | { kind: 'request-failed'; error: RequestError; failure: LlmFailure }
+  | { kind: 'request-failed'; error: RequestError; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined }
 
 /**
  * The concrete {@link Agent}: each `run()` owns one turn and repeats model
@@ -303,6 +303,7 @@ export class ReactLoopAgent implements Agent {
     trigger: TurnTrigger,
     admitted: UserMessageData[] = [],
     inheritedOutboxLength = 0,
+    priorFailures: readonly LlmFailure[] = Object.freeze([]),
   ): Promise<void> {
     // Both entries hold the invariant: kick() clears the admission slot before
     // awaiting run(), and a retry is entered only after the prior run clears it.
@@ -317,8 +318,9 @@ export class ReactLoopAgent implements Agent {
     let opened = false
     let reason: TurnEndReason = { kind: 'completed' }
     let settleReason: SettleReason = { kind: 'completed' }
-    let retry = false
-    const cancelRetry = (): void => { retry = false }
+    let requestFailureHistory = priorFailures
+    let retryFailures: readonly LlmFailure[] | undefined
+    const cancelRetry = (): void => { retryFailures = undefined }
     signal.addEventListener('abort', cancelRetry, { once: true })
 
     try {
@@ -344,6 +346,7 @@ export class ReactLoopAgent implements Agent {
         const outcome = await this.step(turn, step, signal)
         switch (outcome.kind) {
           case 'completed':
+            requestFailureHistory = Object.freeze([])
             if (outcome.maxTokens) reason = { kind: 'max-tokens' }
             // A concluding tool result is terminal: steering already in the
             // log waits for the next turn's request instead of reopening this
@@ -361,10 +364,13 @@ export class ReactLoopAgent implements Agent {
               try {
                 const action = await this.loopCtx.waterfall(
                   agentCarrier(this), 'agent/request-error', this, turn, step, outcome.error,
-                  outcome.failure, signal,
+                  outcome.failure, requestFailureHistory, outcome.retryPolicy, signal,
                   () => Promise.resolve<RequestErrorAction>(undefined),
                 )
-                retry = action?.kind === 'retry' && !signal.aborted
+                // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+                if (action?.kind === 'retry' && !signal.aborted) {
+                  retryFailures = Object.freeze([...requestFailureHistory, outcome.failure])
+                }
               } catch (recoveryError: unknown) {
                 this.loopCtx.logger.warn(
                   `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
@@ -411,7 +417,7 @@ export class ReactLoopAgent implements Agent {
           this.session.append('turn/end', { turn, reason })
         }
       } catch (error: unknown) {
-        retry = false
+        retryFailures = undefined
         this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(error)}`)
         emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       }
@@ -422,8 +428,8 @@ export class ReactLoopAgent implements Agent {
       signal.removeEventListener('abort', cancelRetry)
     }
 
-    if (retry) {
-      await this.run({ kind: 'retry' })
+    if (retryFailures !== undefined) {
+      await this.run({ kind: 'retry' }, [], 0, retryFailures)
     } else {
       // agent/settled names only committed turns: a run aborted or rejected
       // before turn/start has no durable turn/end for consumers to settle
@@ -483,7 +489,7 @@ export class ReactLoopAgent implements Agent {
     } catch (error: unknown) {
       const facts = llmFailureOf(stream, error)
       if (facts !== undefined && error instanceof Error) {
-        return { kind: 'request-failed', error, failure: facts }
+        return { kind: 'request-failed', error, failure: facts, retryPolicy: llmRetryPolicyOf(stream) }
       }
       throw error
     }
@@ -493,7 +499,7 @@ export class ReactLoopAgent implements Agent {
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
       const error = new LlmError(finish.failure.message, finish.failure.code, finish.failure)
-      return { kind: 'request-failed', error, failure: finish.failure }
+      return { kind: 'request-failed', error, failure: finish.failure, retryPolicy: llmRetryPolicyOf(stream) }
     }
 
     // Truncated (max-tokens) output cannot owe tool calls.

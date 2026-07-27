@@ -308,6 +308,9 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('llm/retry', {
         turn: 1,
         step: 1,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: '["normal",2,["RATE_LIMIT"],1,10000,0]',
         retry: 1,
         maxRetries: 2,
         delayMs: 500,
@@ -334,8 +337,10 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('llm/retry', {
         turn: 1,
         step: 1,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: '["always",1,10000,0]',
         retry: 1,
-        maxRetries: 2,
         delayMs: 1_000,
         failure: { message: 'temporary transport failure', code: 'TRANSPORT' },
       })

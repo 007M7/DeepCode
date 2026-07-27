@@ -25,7 +25,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 | `file` | string | `$DSH_SNAPSHOT_FILE` | Path to the primary (parent) `session.jsonl` fixture. Required (config or env). |
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | Optional `ReplayOverrideDoc` sidecar for the primary session: a bare `ReplayEntry[]` replaces its derived script, while `{ patches }` augments it by call index. |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | Recorded subagent child-session logs for a nested scenario; empty for a single-session scenario. |
-| `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
+| `providers` | `ReplayProviderConfig[]` | — | Optional replay-only provider and model catalog. Each provider may set `retryPolicy`, and each model may publish `contextWindow`; configured routes dispatch through the replay adapter and never perform provider I/O. |
 | `paceMs` | number | — (burst) | Optional per-chunk delay in ms so downstream transports (e.g. the web SSE mux observed by a real browser) see genuinely incremental delivery. A realism knob only — tests must not depend on it for correctness. Non-negative integer; abort during a pace wait cancels the stream promptly. |
 
 ```yaml
@@ -35,6 +35,12 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
     providers:
       - id: deepseek
         name: DeepSeek
+        retryPolicy:
+          mode: normal
+          backoff:
+            initialDelayMs: 1
+            maxDelayMs: 1
+            jitterRatio: 0
         models:
           - id: deepseek-v4-flash
             contextWindow: 128000
