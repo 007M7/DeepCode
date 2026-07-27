@@ -34,6 +34,8 @@
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
+        "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
+        "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
@@ -173,6 +175,16 @@
       ]
     },
     "packages/sandbox/sandbox-local": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/telemetry/session-telemetry-otel": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
