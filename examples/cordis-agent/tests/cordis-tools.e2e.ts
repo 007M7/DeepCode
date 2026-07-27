@@ -42,11 +42,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Use cordis_mount to mount a plugin that listens to the \'agent/status\' '
         + 'cordis event and logs every change with console.log. Reply "mounted" once done.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // The WORLD check: the turn's own running→idle transition must have driven
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     })
     expect(resultText(mid)).toContain('dyn-')
 
-    agent.followup([{ type: 'text', text: 'Now unmount the plugin you just mounted.' }])
+    agent.followup({ content: [{ type: 'text', text: 'Now unmount the plugin you just mounted.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
@@ -72,14 +72,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Give yourself a new tool: use cordis_mount to mount a plugin with '
         + 'inject ["tools"] that calls harness.registerTool(ctx, harness.defineTool({...})) '
         + 'to register a tool named reverse_text with one required string parameter '
         + '"text", returning the text reversed. Then CALL reverse_text with the '
         + 'exact text "harness" and report its exact output.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // World checks: the tool exists in the registry, was invoked as a real tool call, and its
@@ -119,7 +119,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Mount TWO separate plugins with cordis_mount. First a provider: apply calls '
         + 'ctx.provide(\'shouter\', { shout: (s) => s.toUpperCase() }). Second a consumer with '
@@ -127,7 +127,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
         + 'a tool named shout_text with one required string parameter "text" whose execute returns '
         + 'ctx.shouter.shout(args.text) as a text content block. Then CALL shout_text with "quiet" '
         + 'and report the exact output.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // World checks: the service is really in the store, the tool really ran.
@@ -144,7 +144,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
       .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
     expect(shoutResults.some(text => text.includes('QUIET'))).toBe(true)
 
-    agent.followup([{ type: 'text', text: 'Now unmount ONLY the provider plugin (the one that provided shouter).' }])
+    agent.followup({ content: [{ type: 'text', text: 'Now unmount ONLY the provider plugin (the one that provided shouter).' }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
 
     // The consumer must have been parked by cordis itself: service gone,

@@ -24,10 +24,13 @@ class SnapshotAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    const prompt = options.messages.at(-1)
-    if (prompt?.role !== 'user' || prompt.content.length !== 3
-      || prompt.content[1]?.type !== 'text' || prompt.content[1].text !== '\n\n## My request:\n') {
-      throw new Error('session reference did not reach the model as one prefixed user message')
+    // The snapshot rides the prompt's admission: the loop appends the
+    // prompt first, then its additional contexts (the branch-wide ordering
+    // for plugin-sourced context).
+    const [prompt, context] = options.messages.slice(-2)
+    if (context?.role !== 'user' || prompt?.role !== 'user'
+      || prompt.content[0]?.type !== 'text' || prompt.content[0].text !== 'Use @Source session') {
+      throw new Error('session reference context did not follow the direct user message')
     }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: 'Combined reference request accepted.' }
@@ -113,22 +116,17 @@ describe('TUI session-reference snapshot', () => {
     expect(request).toContain('Recent retained question.')
     expect(request).not.toContain('SHADOWED OLD USER')
     expect(request).not.toContain('SHADOWED OLD ASSISTANT')
-    const user = target.session.events.find(event => event.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
-      displayContent: [{ type: 'text', text: 'Use @Source session' }],
-      prefixContexts: [{
-        source: { kind: 'plugin', plugin: 'session-reference' },
-        meta: {
-          kind: 'session-reference',
-          references: [{ sessionId: 'source-session', compacted: true }],
-        },
-      }],
+    const context = target.session.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'session-reference')
+    expect(context?.type === 'user/message' && context.data.source).toMatchObject({
+      kind: 'session-reference',
+      references: [{ sessionId: 'source-session', compacted: true }],
     })
-    expect(user?.type === 'user/message' && user.data.content[1]).toEqual({
-      type: 'text',
-      text: '\n\n## My request:\n',
-    })
-    expect(target.session.events.some(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toBe(false)
+    const user = target.session.events.find(event =>
+      event.type === 'user/message' && event.data.source.kind === 'user')
+    expect(user?.type === 'user/message' && user.data.content).toEqual([
+      { type: 'text', text: 'Use @Source session' },
+    ])
 
     const snapshot = await terminal.snapshot({ includeScrollback: true })
     if (REFRESHING) {

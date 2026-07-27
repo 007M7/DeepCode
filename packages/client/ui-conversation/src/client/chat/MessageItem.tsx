@@ -153,7 +153,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
     case 'context':
       return (
         <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, meta: node.meta }} />
+          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
         </div>
       )
     default:

@@ -12,8 +12,9 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { UserMessageData } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
@@ -122,11 +123,12 @@ export function apply(ctx: Context, config: Config): void {
   /**
    * Run every command hook configured for `point` whose matcher selects
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
-   * Writes a `hook/invoked`/`hook/result` pair per hook into the session when one
-   * is available (the mid-turn points always have an open turn). Returns the
-   * merged outcome (a neutral, already-most-restrictive view) for the caller to
-   * map onto its seam decision. `matchQuery` is the event's matcher subject
-   * (tool name, session source, …); `''` for events that ignore matchers.
+   * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
+   * an open turn. Pre-turn `UserPromptSubmit` and detached lifecycle points
+   * omit the pair. Returns the merged outcome (a neutral,
+   * already-most-restrictive view) for the caller to map onto its seam
+   * decision. `matchQuery` is the event's matcher subject (tool name, session
+   * source, …); `''` for events that ignore matchers.
    */
   async function runPoint(
     point: string,
@@ -182,15 +184,15 @@ export function apply(ctx: Context, config: Config): void {
 
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
-  /** Build a HookContext from accumulated additionalContext strings, or undefined when none. */
-  function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
+  /** Build additional model context from hook output, or return undefined when empty. */
+  function contextFrom(merged: MergedHookOutcome): UserMessageData | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
     return { content, source: PLUGIN_SOURCE }
   }
 
   /** Prepend one context without flattening downstream provenance or metadata. */
-  function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  function prependContext(ours: UserMessageData, theirs: UserMessageData[] | undefined): UserMessageData[] {
     return [ours, ...theirs ?? []]
   }
 
@@ -201,7 +203,7 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context) agent.inject(context.content, { source: context.source })
+        if (context) agent.inject({ content: context.content, source: context.source })
       })
       .catch((error: unknown) => {
         ctx.logger.warn(`hooks-claude: SessionStart hook failed: ${String(error)}`)
@@ -211,8 +213,7 @@ export function apply(ctx: Context, config: Config): void {
   // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
   ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
-    const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn, signal })
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
@@ -258,16 +259,16 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
-  // A blocking Stop hook forces continuation with its reason.
+  // A blocking Stop hook steers at the stopping boundary, which makes the
+  // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-continuation', async (agent, turn, _default, signal, next): Promise<ContinuationDecision> => {
+  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
       const text = merged.reason ?? 'continue: blocked by Stop hook'
-      return { action: 'continue', reason: { content: [{ type: 'text', text }], source: PLUGIN_SOURCE } }
+      agent.steer({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
     }
-    return next()
   })
 
   // SubagentStart may inject child context; SubagentStop only observes. Both
@@ -277,7 +278,7 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context && child) child.inject(context.content, { source: context.source })
+        if (context && child) child.inject({ content: context.content, source: context.source })
       })
       .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) }))
   })
@@ -301,13 +302,11 @@ const SUBAGENT_TYPE = 'general-purpose'
 // --- Per-event stdin payloads (the CC DIALECT shape). Field names match CC's
 // hook input schema; this is the part a bridge owns. ---
 
-/** The last (open or just-closed) turn number in the agent's log, or 0. */
+/** The last open turn number in the agent's log, or 0 without an agent. */
 function lastTurn(agent: Agent | undefined): number {
   if (!agent) return 0
   const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
-  /* v8 ignore next -- the `: 0` arm is a defensive fallback: lastTurn is only
-     called from the mid-turn seams (prompt-submit/pre-/post-execute/continuation),
-     which always run inside an open turn, so `last` is always a turn/start here. */
+  /* v8 ignore next -- agent-present callers are tool/stop seams inside an open turn. */
   return last?.type === 'turn/start' ? last.data.turn : 0
 }
 

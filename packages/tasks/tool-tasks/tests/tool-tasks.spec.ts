@@ -456,10 +456,10 @@ describe('completion notices', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
-    expect(inject).toHaveBeenCalledWith(
-      [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
-      { source: { kind: 'plugin', plugin: 'tool-tasks' } },
-    )
+    expect(inject).toHaveBeenCalledWith({
+      content: [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
+      source: { kind: 'plugin', plugin: 'tool-tasks' },
+    })
   })
 
   it('preserves task ids and collection guidance in bounded completion notices', async () => {
@@ -478,8 +478,10 @@ describe('completion notices', () => {
 
     expect(inject).toHaveBeenNthCalledWith(
       1,
-      [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
-      { source: { kind: 'plugin', plugin: 'tool-tasks' } },
+      {
+        content: [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
+        source: { kind: 'plugin', plugin: 'tool-tasks' },
+      },
     )
 
     const second = producer({
@@ -492,7 +494,7 @@ describe('completion notices', () => {
     second.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
     await tick()
 
-    const content = inject.mock.calls[1]?.[0] as Array<{ type: string; text?: string }> | undefined
+    const content = (inject.mock.calls[1]?.[0] as { content?: Array<{ type: string; text?: string }> } | undefined)?.content
     const notice = content?.[0]?.text ?? ''
     expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(80)
     expect(notice).toContain('background task subagent-2 (subagent: xxxx')
@@ -519,7 +521,7 @@ describe('completion notices', () => {
     target.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
     await tick()
 
-    const content = inject.mock.calls[0]?.[0] as Array<{ type: string; text?: string }> | undefined
+    const content = (inject.mock.calls[0]?.[0] as { content?: Array<{ type: string; text?: string }> } | undefined)?.content
     const notice = content?.[0]?.text ?? ''
     expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(64)
     expect(notice).toBe('background task pty-send-100\nDone; task_output.')
@@ -538,8 +540,8 @@ describe('completion notices', () => {
     short.settle({ status: 'completed' })
     await tick()
 
-    const tinyNotice = (inject.mock.calls[0]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? ''
-    const shortNotice = (inject.mock.calls[1]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? ''
+    const tinyNotice = (inject.mock.calls[0]?.[0] as { content?: Array<{ text?: string }> } | undefined)?.content?.[0]?.text ?? ''
+    const shortNotice = (inject.mock.calls[1]?.[0] as { content?: Array<{ text?: string }> } | undefined)?.content?.[0]?.text ?? ''
     expect(Buffer.byteLength(tinyNotice)).toBeLessThanOrEqual(8)
     expect(tinyNotice).toBe('_output.')
     expect(Buffer.byteLength(shortNotice)).toBeLessThanOrEqual(32)
@@ -572,27 +574,21 @@ describe('completion notices', () => {
     expect(inject).not.toHaveBeenCalled()
   })
 
-  it('drops the notice for unowned tasks and for a disposed owner (benign race)', async () => {
+  it('drops the notice for unowned tasks without throwing', async () => {
     const { ctx } = await setup()
     // Unowned: settles with nobody to notify — nothing throws.
     const unowned = producer()
     ctx.tasks.start(unowned.spec)
     unowned.settle({ status: 'completed' })
     await tick()
-
-    // Disposed owner: inject throws the disposed message — contained.
-    const inject = vi.fn(() => { throw new Error('agent "sess-1" is disposed') })
-    const owner = fakeAgent(ctx, 'sess-1', inject)
-    const p = producer({ owner })
-    ctx.tasks.start(p.spec)
-    p.settle({ status: 'completed' })
-    await tick()
-    expect(inject).toHaveBeenCalledTimes(1)
   })
 
   it('does not route an old owner completion notice to a same-session replacement', async () => {
     const { ctx } = await setup()
-    const oldInject = vi.fn(() => { throw new Error('agent "shared" is disposed') })
+    // Delivery into a tearing-down owner is a plain inject: the loop has no
+    // terminal state, so the notice lands in the old owner's (detached)
+    // session instead of throwing or re-routing.
+    const oldInject = vi.fn()
     const oldOwner = fakeAgent(ctx, 'shared', oldInject)
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)
@@ -607,7 +603,7 @@ describe('completion notices', () => {
     expect(replacementInject).not.toHaveBeenCalled()
   })
 
-  it('propagates a non-disposed inject failure (a real bug must surface)', async () => {
+  it('surfaces an inject failure through listener containment (a real bug must be visible)', async () => {
     const { ctx } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const owner = fakeAgent(ctx, 'sess-1', () => { throw new Error('unexpected inject bug') })

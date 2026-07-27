@@ -46,7 +46,7 @@ The hooks themselves run in the agent's session workspace: for the agent-scoped 
 | `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `block` (exit 2) → `PromptDecision.block`; additionalContext-only → delegate via `next()` then prepend a separately sourced context to downstream `additionalContexts` |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `block` → `PreToolDecision.deny` (no `allow`/`ask`) |
 | `PostToolUse` | `tools/post-execute` (waterfall) | `block` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
-| `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue` with the reason as next-step steering |
+| `Stop` | `agent/turn-stopping` (serial) | a blocking Stop hook feeds its reason through `steer()`, forcing another step |
 
 A tool call's payload carries the real `tool_name` (the same value the matcher tests) and Codex's `tool_input: { command }` shape (the `command` arg when present, else `''`). The matcher subject is the tool name (`PreToolUse`/`PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit`/`Stop` ignore matchers.
 
