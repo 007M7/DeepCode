@@ -18,7 +18,7 @@ When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`
 
 ## Completion notices
 
-An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
+An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice. An owner-disposal race needs no special handling: the loop has no terminal state, so a notice injected during teardown appends as idle context — persisted for resume while the session is still attached, dropped with the detached log afterwards.
 
 ## Config
 

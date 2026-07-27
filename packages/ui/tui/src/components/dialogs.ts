@@ -411,7 +411,6 @@ function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
     case 'error': return `turn ${event.data.turn}: error`
     case 'disposed': return `turn ${event.data.turn}: disposed`
     case 'max-tokens': return `turn ${event.data.turn}: max tokens`
-    case 'rejected': return `turn ${event.data.turn}: rejected`
     case 'interrupted': return `turn ${event.data.turn}: interrupted`
     default: return `turn ${event.data.turn}: unknown result`
   }

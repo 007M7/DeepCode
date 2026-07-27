@@ -269,8 +269,8 @@ describe('events frame schemas', () => {
   })
 
   it('rejects a queued frame missing its members', () => {
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [{ type: 'text' }], source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' }, steering: false })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' } })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: { kind: 'user' } })).toThrow()
     expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
   })
 

@@ -53,12 +53,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile

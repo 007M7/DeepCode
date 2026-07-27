@@ -5,7 +5,7 @@
 pre-commit:
   jobs:
     - name: lint (staged)
-      glob: '*.{ts,mts,cts,mjs}'
+      glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:
         - 'vendor/*/src/**'
       run: node_modules/.bin/eslint --fix {staged_files}

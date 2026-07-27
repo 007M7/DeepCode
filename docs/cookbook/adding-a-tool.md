@@ -46,7 +46,7 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 - **Throwing or returning an invalid value means `isError`.** The registry catches throws and contains schema, renderer, metadata-projector, and lossless-JSON failures before observers run. Throw for infrastructure failures. Represent a successful domain outcome in the canonical value even when its Native renderer explains a non-ideal state, such as a non-zero process exit.
 - **Honor `exec.signal`.** Cancel in-flight work when it fires.
 - **Project durable card data with `presentationMeta` (optional).** `output.presentationMeta(args, value)` derives replayable JSON from the same canonical value. The core persists it on `tool/result` and hands it to `presentResult`, so a card that needs result-time facts—such as `write`/`edit` applied hunks—survives replay without persisting the canonical value. The projector is skipped for nested Code dispatches because they have no cards.
-- **Use `exec.agent` for async notifications.** `agent.inject(content, {source: {kind: 'plugin', plugin: '<name>'}})` appends durable context the NEXT model request sees — it is not a wake-up (an idle agent stays idle). Guard against disposed agents (try/catch).
+- **Use `exec.agent` for async notifications.** `agent.inject({ content, source: { kind: 'plugin', plugin: '<name>' } })` appends durable context the NEXT model request sees — it is not a wake-up (an idle agent stays idle). Guard against disposed agents (try/catch).
 
 ## Long-running work
 

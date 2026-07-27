@@ -132,10 +132,10 @@ function decodeRef(value: unknown): GoalRef {
 }
 
 /**
- * Decode metadata that declares itself as a goal change. Unrelated metadata
- * returns `undefined`; malformed goal metadata fails replay loudly.
- * @param value - context-message metadata.
- * @returns validated goal change or `undefined` for another metadata kind.
+ * Decode a value that declares itself as a goal change. Unrelated values
+ * return `undefined`; malformed goal changes fail replay loudly.
+ * @param value - candidate source change.
+ * @returns validated goal change or `undefined` for another value kind.
  */
 export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
   if (!isRecord(value) || value['kind'] !== 'goal/change') return undefined
@@ -311,19 +311,27 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
 
 /**
  * Decode and verify one model-visible goal state change without folding it. A
- * goal state change is a round-zero goal-sourced `user/message` carrying
- * `goal/change` metadata; any other user message returns `undefined`. Goal
- * metadata on a non-goal source, or a mismatched attribution or rendered body,
+ * goal state change is a round-zero goal-sourced `user/message` carrying the
+ * complete change in its source; any other user message returns `undefined`.
+ * A mismatched attribution, source change, or rendered body
  * fails replay loudly.
- * @param event - user message whose metadata and rendered content must agree.
+ * @param event - user message whose source and rendered content must agree.
  * @returns validated change, or `undefined` when the message is not a goal state change.
  */
 export function decodeGoalEvent(event: UserMessageEvent): GoalChangeMeta | undefined {
-  const change = decodeGoalChange(event.data.meta)
-  if (change === undefined) return undefined
   const source = goalSource(event.data.source)
+  if (source === undefined) {
+    const [block] = event.data.content
+    if (block?.type === 'text' && block.text.startsWith('<goal_state>')) {
+      throw new Error(`goal change at session event ${event.seq} has mismatched source attribution`)
+    }
+    return undefined
+  }
+  if (source.round !== 0) return undefined
+  const change = decodeGoalChange(source.change)
+  if (change === undefined) throw new Error(`goal change at session event ${event.seq} lacks source change data`)
   const ref = goalChangeRef(change)
-  if (source === undefined || source.goalId !== ref.id || source.revision !== ref.revision || source.round !== 0) {
+  if (source.goalId !== ref.id || source.revision !== ref.revision) {
     throw new Error(`goal change at session event ${event.seq} has mismatched source attribution`)
   }
   if (JSON.stringify(event.data.content) !== JSON.stringify(renderGoalChange(change))) {
@@ -340,7 +348,7 @@ export function decodeGoalEvent(event: UserMessageEvent): GoalChangeMeta | undef
  */
 export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): GoalChangeMeta | undefined {
   if (event.type === 'user/message') {
-    // A goal state change carries `goal/change` metadata (round zero).
+    // A goal state change carries a complete source change (round zero).
     const change = decodeGoalEvent(event)
     if (change !== undefined) {
       applyGoalChange(state, change)
@@ -348,10 +356,13 @@ export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): GoalC
     }
     const source = goalSource(event.data.source)
     if (source === undefined) return undefined
-    // A goal-sourced message without change metadata must be a positive-round
-    // admitted continuation prompt; round zero owes durable change metadata.
+    // A goal-sourced message without a change must be a positive-round
+    // admitted continuation prompt; round zero owes a durable source change.
+    /* v8 ignore next 3 -- decodeGoalEvent returns the change or fails loud for every
+       round-zero goal source, so only positive rounds reach here; the guard keeps
+       replay fail-loud against a decoder change */
     if (source.round === 0) {
-      throw new Error(`goal source at session event ${event.seq} lacks goal change metadata`)
+      throw new Error(`goal source at session event ${event.seq} lacks goal change data`)
     }
     const current = state.goal
     if (current === undefined || current.phase !== 'active' || source.goalId !== current.id

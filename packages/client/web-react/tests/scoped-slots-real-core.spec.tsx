@@ -28,10 +28,10 @@ type FrameSlots = PropsRenderSlots<'spec.single' | 'spec.list'>
 function hostOver(core: SlotCore): SlotRendererHost {
   return {
     subscribe: (key, fn) => core.subscribe(key, fn),
-    getVersion: (key) => core.getVersion(key),
-    entriesOf: (key) => core.entries(key),
-    specOf: (key) => core.specDynamic(key),
-    isLive: (entry) => core.isLive(entry),
+    getVersion: key => core.getVersion(key),
+    entriesOf: key => core.entries(key),
+    specOf: key => core.specDynamic(key),
+    isLive: entry => core.isLive(entry),
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
@@ -61,7 +61,7 @@ function mountFrame(core: SlotCore, body: (renderSlot: FrameSlots['renderSlot'])
 describe('createSlotRenderer over the real SlotCore', () => {
   it('renders registrations live through real microtask batching: register, dispose back to fallback', async () => {
     const core = new SlotCore()
-    const { view } = mountFrame(core, (renderSlot) =>
+    const { view } = mountFrame(core, renderSlot =>
       renderSlot('spec.single', {}, { fallback: <i>none</i> }))
     expect(view.container.textContent).toBe('none')
     let dispose = () => {}
@@ -78,7 +78,7 @@ describe('createSlotRenderer over the real SlotCore', () => {
     const core = new SlotCore()
     const notified = vi.fn()
     core.subscribe('spec.list', notified)
-    const { view } = mountFrame(core, (renderSlot) => renderSlot('spec.list', {}))
+    const { view } = mountFrame(core, renderSlot => renderSlot('spec.list', {}))
     await act(async () => {
       core.register({ name: 'spec.list', id: 'two', order: 2 }, () => <span>2</span>)
       core.register({ name: 'spec.list', id: 'one', order: 1 }, () => <span>1</span>)

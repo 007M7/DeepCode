@@ -15,6 +15,8 @@ export function JsonBlock({ label, payload, defaultOpen = false }: {
     if (!open) return ''
     let s: string
     try {
+      // lib typing hides stringify's undefined arm (undefined/function/symbol payloads).
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       s = JSON.stringify(payload, null, 2) ?? String(payload)
     } catch {
       s = String(payload)
@@ -23,7 +25,7 @@ export function JsonBlock({ label, payload, defaultOpen = false }: {
   }, [open, payload])
   return (
     <div className={css.root}>
-      <button type="button" className={css.toggle} onClick={() => setOpen((v) => !v)}>
+      <button type="button" className={css.toggle} onClick={() => { setOpen(v => !v) }}>
         {open ? '▾' : '▸'} {label}
       </button>
       {open && <pre className={css.body}>{body}</pre>}

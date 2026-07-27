@@ -15,7 +15,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from '@earendil-works/pi-tui'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 /** Editor that shows a placeholder without making it editable content. */
 export class HintEditor extends Editor {
@@ -109,13 +109,13 @@ export function activeToolCallIds(session: Session, active: ReadonlySet<number>)
 }
 
 /**
- * Read a session-reference context card's display labels from event meta.
- * @param meta - envelope-context meta to inspect.
- * @returns per-reference labels, or `undefined` when meta is not a reference card.
+ * Read a session-reference context card's display labels from an event source.
+ * @param source - event source to inspect.
+ * @returns per-reference labels, or `undefined` when the source is not a reference card.
  */
-export function sessionReferenceCard(meta: unknown): string[] | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const record = meta as Record<string, unknown>
+export function sessionReferenceCard(source: unknown): string[] | undefined {
+  if (typeof source !== 'object' || source === null) return undefined
+  const record = source as Record<string, unknown>
   if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
   const references = record['references'] as unknown[]
   const labels: string[] = []
@@ -128,20 +128,6 @@ export function sessionReferenceCard(meta: unknown): string[] | undefined {
     labels.push(label === sessionId ? sessionId : `${label} (${sessionId})`)
   }
   return labels
-}
-
-/**
- * Session-reference cards attached to a prompt or steering message envelope.
- * @param event - the user or steering message event to read.
- * @returns per-envelope-context reference-label lists, empty when none.
- */
-export function promptReferenceCards(
-  event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>,
-): string[][] {
-  return event.data.envelope?.prefixContexts.flatMap((context) => {
-    const card = sessionReferenceCard(context.meta)
-    return card === undefined ? [] : [card]
-  }) ?? []
 }
 
 /** Milliseconds between banner sweep-reveal frames (~60 fps). */

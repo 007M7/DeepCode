@@ -14,7 +14,7 @@ ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 s
 
 发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose 请求了取消，则以 `aborted` 兑现。
 
-`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，关闭 stdin，并等待 `disposeEofGraceMs`。随后 POSIX 先升级到 SIGTERM，等待 `disposeGraceMs` 后再使用 SIGKILL；Windows 会直接强制终止，因为 Node 会把两个信号都映射到 `TerminateProcess`。强制终止后，各平台最多再等待 `disposeGraceMs` 以确认退出；若信号出错或未退出，则拒绝。每次运行都使用全新进程；尚未实现进程池。
+`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），最后进行有界的整树退出等待；若仍有存活进程，则拒绝。每次运行都使用全新进程；尚未实现进程池。
 
 ## 能力与上下文
 
@@ -57,7 +57,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程环境由 [`buildChildEnv`](../subagent-subprocess/README.md) 构建：先移除名称形似凭据的环境变量，再应用显式 `config.env` 值。ACP 协议是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除名称形似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 以 inherit 方式直通父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
 本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
