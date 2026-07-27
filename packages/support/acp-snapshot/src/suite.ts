@@ -524,6 +524,7 @@ function preserveNormalizedVolatiles(
   existing: unknown,
   normalizedFresh: unknown,
   normalizedExisting: unknown,
+  stringMappings: ReadonlyMap<string, string>,
 ): unknown {
   if (
     Array.isArray(fresh)
@@ -541,6 +542,7 @@ function preserveNormalizedVolatiles(
       existing[index],
       normalizedFresh[index],
       normalizedExisting[index],
+      stringMappings,
     ))
   }
   if (
@@ -559,9 +561,20 @@ function preserveNormalizedVolatiles(
           existing[key],
           normalizedFresh[key],
           normalizedExisting[key],
+          stringMappings,
         )
         : value,
     ]))
+  }
+  if (
+    typeof fresh === 'string'
+    && typeof existing === 'string'
+    && typeof normalizedFresh === 'string'
+    && normalizedFresh === normalizedExisting
+  ) {
+    return stringMappings.get(JSON.stringify([normalizedFresh, fresh])) === existing
+      ? existing
+      : fresh
   }
   return Object.is(normalizedFresh, normalizedExisting) ? existing : fresh
 }
@@ -575,13 +588,123 @@ function normalizedRefreshRecord(
 }
 
 /**
+ * Add normalized-equivalent string replacements to a bijection.
+ * Structural differences are fresh-owned and therefore contribute no mapping.
+ */
+function collectNormalizedStringMappings(
+  fresh: unknown,
+  existing: unknown,
+  normalizedFresh: unknown,
+  normalizedExisting: unknown,
+  forward: Map<string, string>,
+  reverse: Map<string, string>,
+): boolean {
+  if (
+    Array.isArray(fresh)
+    && Array.isArray(existing)
+    && Array.isArray(normalizedFresh)
+    && Array.isArray(normalizedExisting)
+  ) {
+    if (
+      fresh.length !== existing.length
+      || fresh.length !== normalizedFresh.length
+      || fresh.length !== normalizedExisting.length
+    ) return true
+    return fresh.every((value, index) => collectNormalizedStringMappings(
+      value,
+      existing[index],
+      normalizedFresh[index],
+      normalizedExisting[index],
+      forward,
+      reverse,
+    ))
+  }
+  if (
+    isRecord(fresh)
+    && isRecord(existing)
+    && isRecord(normalizedFresh)
+    && isRecord(normalizedExisting)
+  ) {
+    return Object.entries(fresh).every(([key, value]) =>
+      !Object.hasOwn(existing, key)
+      || !Object.hasOwn(normalizedFresh, key)
+      || !Object.hasOwn(normalizedExisting, key)
+      || collectNormalizedStringMappings(
+        value,
+        existing[key],
+        normalizedFresh[key],
+        normalizedExisting[key],
+        forward,
+        reverse,
+      ))
+  }
+  if (
+    typeof fresh !== 'string'
+    || typeof existing !== 'string'
+    || typeof normalizedFresh !== 'string'
+    || normalizedFresh !== normalizedExisting
+    || fresh === existing
+  ) return true
+  const freshKey = JSON.stringify([normalizedFresh, fresh])
+  const existingKey = JSON.stringify([normalizedFresh, existing])
+  const mappedExisting = forward.get(freshKey)
+  const mappedFresh = reverse.get(existingKey)
+  if (
+    mappedExisting !== undefined && mappedExisting !== existing
+    || mappedFresh !== undefined && mappedFresh !== fresh
+  ) return false
+  forward.set(freshKey, existing)
+  reverse.set(existingKey, fresh)
+  return true
+}
+
+/**
+ * Build a log-wide bijection for normalized-equivalent strings.
+ * Any unexplained record mismatch or conflicting replacement disables reuse.
+ */
+function normalizedStringMappings(
+  records: Record<string, unknown>[],
+  existingRecords: Record<string, unknown>[],
+  context: NormalizeContext,
+): Map<string, string> | undefined {
+  const forward = new Map<string, string>()
+  const reverse = new Map<string, string>()
+  let existingIndex = 0
+  for (const record of records) {
+    const existingRecord = existingRecords[existingIndex]
+    const memberCount = packedTimes(record)?.length ?? 1
+    if (record.type === 'session/title' && existingRecord?.type !== 'session/title') continue
+    if (memberCount > 1) {
+      const existingMembers = existingRecords.slice(existingIndex, existingIndex + memberCount)
+      if (
+        existingMembers.length !== memberCount
+        || existingMembers.some(member => member.type !== 'assistant/chunk')
+      ) return undefined
+    } else {
+      if (existingRecord === undefined || existingRecord.type !== record.type) return undefined
+      if (!collectNormalizedStringMappings(
+        record,
+        existingRecord,
+        normalizedRefreshRecord(record, context),
+        normalizedRefreshRecord(existingRecord, context),
+        forward,
+        reverse,
+      )) return undefined
+    }
+    existingIndex += memberCount
+  }
+  return existingIndex === existingRecords.length ? forward : undefined
+}
+
+/**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
  * existing fixture lends normalized-equivalent values, including ids, paths,
- * creation/event times, spill locators, and hook durations, where records
- * still align. Packed timing envelopes expand for alignment, so packing does
- * not shift later records; fresh semantic values and fragment arrays remain
- * authoritative.
+ * creation/event times, spill locators, and hook durations, only when the
+ * complete record layout aligns and volatile strings form a consistent
+ * bijection. Ambiguous layouts or mappings keep fresh strings. Packed timing
+ * envelopes expand for alignment, so packing does not shift later records;
+ * fresh semantic values and fragment arrays remain authoritative.
  *
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.
@@ -594,6 +717,7 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
   const context = fixtureContext(existing)
+  const stringMappings = normalizedStringMappings(records, existingRecords, context)
   let existingIndex = 0
   let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
@@ -606,12 +730,18 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
       if (typeof previousEventTime !== 'number') throw new Error('acp-snapshot: inserted title has no preceding event time')
       record.time = previousEventTime
     } else {
-      if (memberCount === 1 && existingRecord !== undefined && existingRecord.type === record.type) {
+      if (
+        stringMappings !== undefined
+        && memberCount === 1
+        && existingRecord !== undefined
+        && existingRecord.type === record.type
+      ) {
         record = preserveNormalizedVolatiles(
           record,
           existingRecord,
           normalizedRefreshRecord(record, context),
           normalizedRefreshRecord(existingRecord, context),
+          stringMappings,
         ) as Record<string, unknown>
         records[i] = record
       }

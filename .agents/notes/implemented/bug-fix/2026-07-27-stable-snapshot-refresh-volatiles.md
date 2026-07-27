@@ -12,7 +12,9 @@ ACP snapshot comparison normalizes generated UUIDs, cwd aliases, spill locators,
 
 Refresh write-back uses `normalizeSessionLog` as its sole volatile-value authority. After existing record alignment, it recursively compares fresh and existing leaves through their normalized records: normalized-equivalent leaves retain the existing raw value, while normalized-distinct leaves retain the fresh semantic value.
 
-Object fields align by key. Array elements align only when all corresponding arrays have the same length; otherwise the fresh array wins. Records must retain the same type, and strings remain atomic leaves. Existing packed-chunk timing alignment and inserted-title handling remain separate because they align logical events rather than values inside one record.
+Before reuse, the complete logical-record layout must align, apart from the existing packed-chunk and inserted-title equivalences. Normalized-equivalent changed strings form a log-wide bijection: one fresh string maps to exactly one existing string and vice versa, so repeated IDs remain correlated across records. An unexplained record mismatch or conflicting mapping disables normalized string reuse for that log.
+
+Object fields align by key. Array elements align only when all corresponding arrays have the same length; otherwise the fresh array wins. Strings remain atomic leaves. Existing packed-chunk timing alignment and inserted-title handling remain separate because they align logical events rather than values inside one record.
 
 ## Alternatives considered
 
@@ -24,6 +26,6 @@ Object fields align by key. Array elements align only when all corresponding arr
 
 ## Consequences
 
-Repeated refreshes no longer rewrite aligned fixture values solely because the normalizer classifies them as volatile, and new volatile categories added to the normalizer automatically inherit the write-back behavior. Structural ambiguity remains conservative: changed record types, resized arrays, and strings containing both semantic and volatile changes use fresh values rather than risk reusing misaligned data.
+Repeated refreshes no longer rewrite aligned fixture values solely because the normalizer classifies them as volatile, and new volatile categories added to the normalizer automatically inherit the write-back behavior. Structural ambiguity remains conservative: unmatched records, conflicting string mappings, resized arrays, and strings containing both semantic and volatile changes use fresh values rather than risk reusing misaligned data.
 
-Focused unit coverage pins recursive object/array behavior, volatile strings, and fresh semantic fields. Keyless refresh coverage proves approval UUIDs, cwd aliases, spill paths, and event-read volatility leave their committed fixtures byte-identical.
+Focused unit coverage pins recursive object/array behavior, correlated IDs, ambiguous-layout fallback, conflicting mappings, volatile strings, and fresh semantic fields. Keyless refresh coverage proves approval UUIDs, cwd aliases, spill paths, and event-read volatility leave their committed fixtures byte-identical.

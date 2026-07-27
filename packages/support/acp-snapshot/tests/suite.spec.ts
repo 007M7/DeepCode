@@ -695,4 +695,102 @@ describe('stabilizeRefreshLog', () => {
       },
     ])
   })
+
+  it('preserves one correlated volatile id through a consistent log-wide mapping', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: freshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: freshId, outcome: 'allowed-once' } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId, outcome: 'rejected' } }),
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId, outcome: 'allowed-once' } }),
+      '',
+    ].join('\n'))
+  })
+
+  it('keeps fresh correlated ids when record alignment is structurally ambiguous', () => {
+    const firstFreshId = '11111111-1111-4111-8111-111111111111'
+    const secondFreshId = '22222222-2222-4222-8222-222222222222'
+    const existingId = '33333333-3333-4333-8333-333333333333'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: firstFreshId } }),
+      JSON.stringify({ type: 'approval/asked', data: { id: secondFreshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: firstFreshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: secondFreshId } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId } }),
+      '',
+    ].join('\n')
+
+    const ids = stabilizeRefreshLog(fresh, existing, []).trim().split('\n').slice(1)
+      .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
+    expect(ids).toEqual([firstFreshId, secondFreshId, firstFreshId, secondFreshId])
+  })
+
+  it('keeps fresh ids when existing records remain unmatched', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: freshId } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId } }),
+      '',
+    ].join('\n')
+
+    const output = stabilizeRefreshLog(fresh, existing, []).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(output[1]).toEqual({ type: 'approval/asked', data: { id: freshId } })
+  })
+
+  it.each([
+    {
+      name: 'one fresh id would map to two existing ids',
+      fresh: ['a', 'b', 'b', 'a'],
+      existing: ['x', 'y', 'x', 'y'],
+    },
+    {
+      name: 'two fresh ids would map to one existing id',
+      fresh: ['a', 'b'],
+      existing: ['x', 'x'],
+    },
+  ])('keeps fresh ids when $name', ({ fresh: freshNames, existing: existingNames }) => {
+    const ids = {
+      a: '11111111-1111-4111-8111-111111111111',
+      b: '22222222-2222-4222-8222-222222222222',
+      x: '33333333-3333-4333-8333-333333333333',
+      y: '44444444-4444-4444-8444-444444444444',
+    } as const
+    const types = ['approval/asked', 'approval/asked', 'approval/decided', 'approval/decided']
+    const log = (names: string[]): string => [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      ...names.map((name, index) => JSON.stringify({ type: types[index], data: { id: ids[name as keyof typeof ids] } })),
+      '',
+    ].join('\n')
+
+    const outputIds = stabilizeRefreshLog(log(freshNames), log(existingNames), []).trim().split('\n').slice(1)
+      .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
+    expect(outputIds).toEqual(freshNames.map(name => ids[name as keyof typeof ids]))
+  })
 })
