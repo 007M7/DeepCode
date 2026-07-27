@@ -68,7 +68,41 @@ describe('createFixtureApi', () => {
     // Unknown session: empty page, not an error (history of a bare id).
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false })
+    expect(empty.result.value).toEqual({
+      events: [],
+      hasMore: false,
+    })
+  })
+
+  it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {
+    const api = createFixtureApi()
+    const sessionId = sid('fx-alpha')
+    const catalog = await api.sessions.models(req({ sessionId }))
+    if (!catalog.result.ok) throw new Error('models failed')
+    expect(catalog.result.value.groups.map(group => group.name)).toEqual(['DeepSeek', 'OpenAI'])
+    expect(catalog.result.value.groups[0]?.models.map(model => model.id))
+      .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+
+    const selected = await api.sessions.selectModel(req({
+      sessionId,
+      provider: 'openai',
+      model: 'gpt-5',
+    }))
+    if (!selected.result.ok) throw new Error('selection failed')
+    expect(selected.result.value.selected).toEqual({ provider: 'openai', model: 'gpt-5' })
+    const history = await api.sessions.history(req({ sessionId }))
+    if (!history.result.ok) throw new Error('history failed')
+
+    const prompt = await api.sessions.prompt(req({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'report model' }],
+    }))
+    expect(prompt.result.ok).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const after = await api.sessions.history(req({ sessionId }))
+    if (!after.result.ok) throw new Error('history failed')
+    expect(JSON.stringify(after.result.value.events)).toContain('openai/gpt-5')
   })
 
   it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {

@@ -9,9 +9,8 @@ updates:
       # This independently locked pnpm workspace has its own update entry below.
       - "native/landlock-run/**"
     schedule:
-      interval: "weekly"
-      day: "friday"
-      time: "00:01"
+      interval: "cron"
+      cronjob: "0 4 * * *"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -22,9 +21,8 @@ updates:
   - package-ecosystem: "npm"
     directory: "/native/landlock-run"
     schedule:
-      interval: "weekly"
-      day: "friday"
-      time: "00:01"
+      interval: "cron"
+      cronjob: "0 4 * * *"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -35,9 +33,8 @@ updates:
   - package-ecosystem: "uv"
     directory: "/python/sdk"
     schedule:
-      interval: "weekly"
-      day: "friday"
-      time: "00:01"
+      interval: "cron"
+      cronjob: "0 4 * * *"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30
@@ -48,9 +45,8 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "friday"
-      time: "00:01"
+      interval: "cron"
+      cronjob: "0 4 * * *"
       timezone: "Asia/Shanghai"
     cooldown:
       default-days: 30

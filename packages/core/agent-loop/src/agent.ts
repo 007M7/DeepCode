@@ -190,7 +190,7 @@ export class ReactLoopAgent implements Agent {
     // but the waiter must not gamble quiescence on that: a future escape
     // still counts as settled activity.
     /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
-    while (this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
+    while (this.busy || this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
       await this.done.catch(() => undefined)
     }
   }
@@ -426,6 +426,15 @@ export class ReactLoopAgent implements Agent {
       // is still this run's controller here.
       this.abort = undefined
       signal.removeEventListener('abort', cancelRetry)
+    }
+
+    if (opened) {
+      try {
+        await this.loopCtx.sessions.flush(this.session)
+      } catch (error: unknown) {
+        this.loopCtx.logger.warn(`agent "${this.id}": session/flush failed at turn ${turn}: ${errorChain(error)}`)
+        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
+      }
     }
 
     if (retryFailures !== undefined) {

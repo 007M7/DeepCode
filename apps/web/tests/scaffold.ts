@@ -68,7 +68,11 @@ const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
 // catch-all would leave resolveModelInfo unroutable and compact-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
-const REPLAY_PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
+const REPLAY_PROVIDERS = [{
+  id: 'deepseek',
+  name: 'DeepSeek',
+  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
+}]
 
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
