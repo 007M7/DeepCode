@@ -41,7 +41,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 - **以 `write-file-atomic` 承担 fs-local/storage-json 的原子写**：这些包缺少私有 0700 暂存目录、Win32 DACL 复制/`ReplaceFileW`、AbortSignal 支持和父目录 fsync——每一项都正是手写实现的意义所在。koffi Win32 绑定本身由 [Windows 持久发布决策](../../implemented/architecture/2026-07-05-windows-jsonl-durable-publish.md)提供依据。
 - **以 `fzstd`/原生 zstd 包承担 JSONL 帧扫描**：`node:zlib` 内置的 zstd 已经负责压缩（[zstd 决策](../../implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md)，其中明确否决了外部原生依赖）；剩下的 `scanZstdFrames` 为撕裂尾部修复*不做解压*地定位 RFC 8878 帧边界，没有任何包公开这项能力。
-- **以 `picomatch`/`tinyglobby`/`ignore` 承担 fs 搜索**：根本不存在 glob 引擎——依照 [bash 承载的发现工具决策](../../implemented/feature/2026-07-09-bash-backed-grep-glob-discovery.md)，两个发现类工具都通过 shell 调用 ripgrep。
+- **以 `picomatch`/`tinyglobby`/`ignore` 承担 fs 搜索**：根本不存在 glob 引擎——依照 [bash 承载的发现工具决策](../../archived/feature/2026-07-09-bash-backed-grep-glob-discovery.md)，两个发现类工具都通过 shell 调用 ripgrep。
 - **以 `istextorbinary`/`chardet` 承担文本检测**：手写实现是约 15 行的 NUL 采样加 fatal 模式的 `TextDecoder`；启发式包体量更大，还会改变模型能读到哪些文件（模型可见的 `FS_NOT_TEXT` 漂移）。
 - **以 `shell-quote` 承担 POSIX 单引号包裹**：两个各 1 行、测试详尽的引号辅助函数，对上一个处于维护模式、有 CVE 历史、转义输出还不一样的包——安全边界不是省一行代码的地方。
 - **以 `strip-ansi` 承担 pty 净化**：pty 净化器是一台流式状态机，带跨分片的断裂序列续接和 OSC `133;D` 提示符标记提取（shell 就绪信号）；无状态的剥离器只能替掉约 20 行内层代码，全部状态机构件原样保留。`stripVTControlCharacters` 还被实证会泄漏未终止的 OSC 载荷，会话标题归一化器必须剥除它们（反欺骗）。
