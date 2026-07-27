@@ -796,7 +796,7 @@ export function formatGatePlanJson(plan: GatePlan): string {
  * @param gateId - gate to replay with its dependencies.
  * @returns a shell-independent pnpm command.
  */
-export function replayCommand(plan: GatePlan, gateId: string): string {
+function replayCommand(plan: GatePlan, gateId: string): string {
   validateGatePlan(plan)
   if (!plan.gates.some(gate => gate.id === gateId)) {
     throw new Error(`run-gates: ${plan.mode} has no gate ${JSON.stringify(gateId)}.`)
@@ -810,7 +810,7 @@ export function replayCommand(plan: GatePlan, gateId: string): string {
  * @param gateId - selected diagnostic gate.
  * @returns the partial-evidence notice.
  */
-export function formatOnlyNotice(plan: GatePlan, gateId: string): string {
+function formatOnlyNotice(plan: GatePlan, gateId: string): string {
   return `run-gates: --only ${gateId} is partial diagnostic evidence; the complete owning mode is pnpm run ${plan.script}.`
 }
 

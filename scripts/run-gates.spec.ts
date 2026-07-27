@@ -8,12 +8,10 @@ import {
   formatGatePlanJson,
   formatGatePlanList,
   formatGateResultReason,
-  formatOnlyNotice,
   gateDependencyClosure,
   gatePlanForMode,
   listedGatePlan,
   parseCliRequest,
-  replayCommand,
   resolvePlanConcurrency,
   runGate,
   validateGatePlan,
@@ -284,12 +282,25 @@ describe('gate plan inspection and replay', () => {
     }
   })
 
-  it('renders a cross-platform scheduler replay and labels focused evidence', () => {
-    const subject = plan([gate('snapshot')])
-    expect(replayCommand(subject, 'snapshot')).toBe('pnpm run check:all -- --only snapshot')
-    expect(formatOnlyNotice(subject, 'snapshot')).toBe(
-      'run-gates: --only snapshot is partial diagnostic evidence; the complete owning mode is pnpm run check:all.',
-    )
+  it('prints focused-run context and replay through a real failure block', () => {
+    const result = spawnSync(process.execPath, [
+      '--import',
+      'tsx',
+      join(repositoryRoot, 'scripts/run-gates.ts'),
+      'ci-lint',
+      '--only',
+      'duplication',
+    ], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: { ...process.env, npm_execpath: join(repositoryRoot, 'scripts/missing-pnpm-entrypoint.cjs') },
+      timeout: 10_000,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('partial diagnostic evidence; the complete owning mode is pnpm run check:ci:lint')
+    expect(result.stderr).toContain('outcome: exit 1')
+    expect(result.stderr).toContain('replay: pnpm run check:ci:lint -- --only duplication')
   })
 
   it('applies append and set operations through the child spawn environment', async () => {
