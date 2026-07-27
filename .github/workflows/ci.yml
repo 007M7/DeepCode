@@ -52,14 +52,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack and install dependencies
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
 
       - name: Run static gates
         env:
@@ -98,13 +98,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack, install dependencies, and prepare bubblewrap
+      - name: Install dependencies and prepare bubblewrap
         run: |
-          corepack enable
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
@@ -158,13 +159,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack, install dependencies, and prepare bubblewrap
+      - name: Install dependencies and prepare bubblewrap
         run: |
-          corepack enable
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
@@ -291,17 +293,17 @@ jobs:
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
 
+      - uses: pnpm/action-setup@v4
+
+      # Extracting the many-file pnpm store cache is slower than a clean install,
+      # and saving it adds more latency after gates, so this job runs cache-less.
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      # Extracting the many-file pnpm store cache is slower than a clean install,
-      # and saving it adds more latency after gates.
-      - name: Enable corepack and install (immutable)
+      - name: Install (immutable)
         shell: pwsh
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run blocking and observational Windows gates concurrently
         shell: pwsh
@@ -374,12 +376,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -406,13 +407,11 @@ jobs:
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack (pnpm)
-        shell: pwsh
-        run: corepack enable
 
       # Master refreshes the small cache that pull requests restore without
       # putting package-store extraction back on the Windows critical path.
