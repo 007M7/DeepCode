@@ -728,6 +728,26 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('an approval-only baseline also pins the seed boundary (the other baseline arm)', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // The boundary guard triggers off EITHER baseline: a stored header
+        // with only approvalPolicy (no sandboxMode, no seedLength) must still
+        // reject a live twin whose boundary differs.
+        await ctx.sessionPersistence.create({ ...meta('approval-boundary-conflict', WORK), approvalPolicy: 'never' })
+        await ctx.sessionPersistence.append(SessionId('approval-boundary-conflict'), oneTurnLog())
+        const live = ctx.sessions.create(SessionId('approval-boundary-conflict'), {
+          seed: oneTurnLog(),
+          meta: { cwd: WORK, approvalPolicy: 'never', seedLength: 2 },
+        })
+        await expect(ctx.sessions.flush(live)).rejects.toThrow(/seed boundary|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('a no-cwd ownerless state cannot be claimed by a live session WITH a cwd (cwd scope, undefined side)', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

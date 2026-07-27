@@ -268,6 +268,22 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('resolves an observation read normally when its signal never aborts', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        // The abort observer must not swallow an ordinary success: a signal
+        // that stays quiet leaves the queued operation's resolution intact.
+        const m = meta('signal-quiet-inspect', '/work')
+        await persistence.create(m)
+        await persistence.append(m.id, oneTurnLog())
+        const controller = new AbortController()
+        await expect(persistence.inspect(m.id, controller.signal))
+          .resolves.toMatchObject({ meta: { id: m.id } })
+      } finally {
+        await dispose()
+      }
+    })
+
     it('rejects pre-aborted observation reads with the exact cancellation reason', async () => {
       const { persistence, dispose } = await make()
       try {
