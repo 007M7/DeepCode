@@ -71,6 +71,21 @@ describe('createFixtureApi', () => {
     expect(empty.result.value).toEqual({ events: [], hasMore: false })
   })
 
+  it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
+    const api = createFixtureApi()
+    const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
+    if (!tail.result.ok) throw new Error('history failed')
+    const events = tail.result.value.events.map(e => e.event)
+    const todoAt = events.findIndex(e => e.type === 'todo/write')
+    expect(todoAt).toBeGreaterThan(0)
+    // Production ordering (the tool appends mid-execution): call → snapshot → result.
+    expect(events[todoAt - 1]?.type).toBe('tool/call')
+    expect(events[todoAt + 1]?.type).toBe('tool/result')
+    const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
+    expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
+    expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
+  })
+
   it('create adds a session and pushes host/session-added to open host streams', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
@@ -363,6 +378,31 @@ describe('createFixtureApi', () => {
     if (!noop.result.ok) throw new Error('no-op move failed')
     expect(noop.result.value.workspace.sessionIds).toEqual(['fx-gamma', 'fx-beta', 'fx-alpha'])
     expect(noop.result.value.workspace.updatedAt).toBe(before)
+  })
+
+  it('workspace.delete removes only the Workspace row and emits the removal frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const missing = await api.workspace.delete(req({ workspaceId: 'fx-ws-void' as WorkspaceId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const deleted = await api.workspace.delete(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    await consuming
+    expect(seen).toEqual([{ type: 'host/workspace-removed', workspaceId: 'fx-ws-fixture' }])
+    const list = await api.workspace.list(req({}))
+    if (!list.result.ok) throw new Error('workspace list failed')
+    expect(list.result.value.items.some(workspace => workspace.workspaceId === 'fx-ws-fixture')).toBe(false)
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
   })
 
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {

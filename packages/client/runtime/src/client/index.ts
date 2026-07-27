@@ -32,7 +32,7 @@ export type {
   AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
   ConversationContext, ConversationContextOriginKind, ConversationNode, ConversationPromptSnapshot,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
-  SteeringMessageNode, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'

@@ -23,6 +23,7 @@ import {
 } from '../api/sessions.schema.ts'
 import {
   workspaceCreateValueSchema,
+  workspaceDeleteValueSchema,
   workspaceInsertSessionBeforeValueSchema,
   workspaceListValueSchema,
   workspaceRenameValueSchema,
@@ -60,6 +61,7 @@ export interface IApiClient {
     list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
     create(payload: RequestPayload<'workspace.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.create'>>>
     rename(payload: RequestPayload<'workspace.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.rename'>>>
+    delete(payload: RequestPayload<'workspace.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.delete'>>>
     insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
   }
   commands: {
@@ -91,6 +93,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.list': workspaceListValueSchema,
   'workspace.create': workspaceCreateValueSchema,
   'workspace.rename': workspaceRenameValueSchema,
+  'workspace.delete': workspaceDeleteValueSchema,
   'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
   'command.list': commandListValueSchema,
   'command.execute': commandExecuteValueSchema,
@@ -285,6 +288,7 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('workspace.list', payload, signal),
     create: (payload, signal) => this.callUnary('workspace.create', payload, signal),
     rename: (payload, signal) => this.callUnary('workspace.rename', payload, signal),
+    delete: (payload, signal) => this.callUnary('workspace.delete', payload, signal),
     insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
   }
 

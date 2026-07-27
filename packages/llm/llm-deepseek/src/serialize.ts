@@ -6,13 +6,49 @@
  * @module dsh-llm-deepseek/serialize
  */
 
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { WireMessage, WireRequest, WireTool } from './types.ts'
 
 /** Adapter-level request defaults (from plugin config). */
 export interface RequestDefaults {
   thinking?: 'enabled' | 'disabled' | undefined
-  reasoningEffort?: 'high' | 'max' | undefined
+  reasoningEffort?: 'off' | 'high' | 'max' | undefined
+}
+
+interface ResolvedThinking {
+  thinking?: 'enabled' | 'disabled'
+  reasoningEffort?: 'high' | 'max'
+}
+
+/** Validate the adapter-owned effort before resolving its DeepSeek wire fields. */
+function reasoningEffort(effort: NonNullable<GenerateOptions['reasoningEffort']>): 'off' | 'high' | 'max' {
+  if (effort === 'off' || effort === 'high' || effort === 'max') {
+    return effort as 'off' | 'high' | 'max'
+  }
+  throw new LlmError(
+    `DeepSeek does not support reasoning effort "${effort}"`,
+    'UNSUPPORTED_REASONING_EFFORT',
+  )
+}
+
+/** Resolve one legal thinking/effort pair without exposing `off` as a wire effort. */
+function resolveThinking(options: GenerateOptions, defaults: RequestDefaults): ResolvedThinking {
+  if (options.purpose === 'session-title') return { thinking: 'disabled' }
+  const effort = options.reasoningEffort === undefined
+    ? defaults.reasoningEffort
+    : reasoningEffort(options.reasoningEffort)
+  if (defaults.thinking === 'disabled' && effort !== undefined && effort !== 'off') {
+    throw new LlmError(
+      `DeepSeek deployment does not support reasoning effort "${effort}"`,
+      'UNSUPPORTED_REASONING_EFFORT',
+    )
+  }
+  if (effort === 'off') return { thinking: 'disabled' }
+  if (effort === 'high' || effort === 'max') {
+    return { thinking: 'enabled', reasoningEffort: effort }
+  }
+  return defaults.thinking === undefined ? {} : { thinking: defaults.thinking }
 }
 
 /** Join the text blocks of a message (used for user/tool-result content). */
@@ -120,16 +156,17 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
   }))
   // A short title budget must produce visible text; conversation and
   // compaction calls continue to inherit the adapter's thinking defaults.
-  const thinking = options.purpose === 'session-title' ? 'disabled' : defaults.thinking
-  const reasoningEffort = options.purpose === 'session-title' ? undefined : defaults.reasoningEffort
+  const resolvedThinking = resolveThinking(options, defaults)
 
   return {
     model: options.model,
     messages,
     stream: true,
     stream_options: { include_usage: true },
-    ...thinking !== undefined ? { thinking: { type: thinking } } : {},
-    ...reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {},
+    ...resolvedThinking.thinking !== undefined ? { thinking: { type: resolvedThinking.thinking } } : {},
+    ...resolvedThinking.reasoningEffort !== undefined
+      ? { reasoning_effort: resolvedThinking.reasoningEffort }
+      : {},
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
     ...options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {},
