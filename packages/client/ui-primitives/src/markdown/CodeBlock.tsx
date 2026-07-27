@@ -18,16 +18,22 @@ export interface CodeBlockProps {
   className?: string | undefined
 }
 
-async function writeClipboard(text: string): Promise<void> {
+/** @returns true only when the host accepted the write. */
+async function writeClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Denied permissions / iframe policy — do not claim success.
+      return false
+    }
   }
   // jsdom and older hosts: best-effort execCommand path when present.
   const exec = typeof document.execCommand === 'function'
     ? document.execCommand.bind(document)
     : undefined
-  if (exec === undefined) return
+  if (exec === undefined) return false
   const el = document.createElement('textarea')
   el.value = text
   el.setAttribute('readonly', '')
@@ -36,12 +42,12 @@ async function writeClipboard(text: string): Promise<void> {
   document.body.appendChild(el)
   el.select()
   try {
-    exec('copy')
+    return exec('copy')
   } catch {
-    // Clipboard unavailable (sandboxed iframe / denied permission); UI still
-    // flips to the ok label so the gesture is acknowledged.
+    return false
+  } finally {
+    el.remove()
   }
-  el.remove()
 }
 
 export function CodeBlock({ code, lang, className }: CodeBlockProps) {
@@ -55,9 +61,11 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
     /* v8 ignore next -- both arms always mount a <pre>; trimmed is the
        typed fallback if the DOM shape ever diverges. */
     const text = rootRef.current?.querySelector('pre')?.textContent ?? trimmed
-    void writeClipboard(text)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1000)
+    void writeClipboard(text).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1000)
+    })
   }, [copied, trimmed])
 
   const body = html === undefined

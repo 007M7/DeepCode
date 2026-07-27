@@ -6,7 +6,7 @@
 // alongside the rest of the markdown family.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CodeBlock } from '../src/markdown/CodeBlock.tsx'
 import { highlightToHtml } from '../src/markdown/highlight.ts'
 
@@ -65,6 +65,10 @@ describe('CodeBlock', () => {
     expect(screen.getByText('ts')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('const a = 1')
+    // Flush the clipboard promise under fake timers before asserting the label.
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(screen.getByRole('button', { name: '复制成功' })).toBeTruthy()
     // While the ok label is showing, further clicks are no-ops.
     fireEvent.click(screen.getByRole('button', { name: '复制成功' }))
@@ -73,7 +77,22 @@ describe('CodeBlock', () => {
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
   })
 
-  it('falls back to execCommand when clipboard.writeText is unavailable', () => {
+  it('does not claim success when clipboard.writeText rejects', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    render(<CodeBlock code="plain body" />)
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '复制成功' })).toBeNull()
+  })
+
+  it('falls back to execCommand when clipboard.writeText is unavailable', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: undefined,
@@ -86,9 +105,10 @@ describe('CodeBlock', () => {
     render(<CodeBlock code="plain body" />)
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(exec).toHaveBeenCalledWith('copy')
+    expect(await screen.findByRole('button', { name: '复制成功' })).toBeTruthy()
   })
 
-  it('still acknowledges copy when execCommand throws', () => {
+  it('does not claim success when execCommand throws or is absent', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: undefined,
@@ -99,22 +119,20 @@ describe('CodeBlock', () => {
         throw new Error('denied')
       },
     })
-    render(<CodeBlock code="plain body" />)
-    fireEvent.click(screen.getByRole('button', { name: '复制' }))
-    expect(screen.getByRole('button', { name: '复制成功' })).toBeTruthy()
-  })
+    const denied = render(<CodeBlock code="plain body" />)
+    fireEvent.click(denied.getByRole('button', { name: '复制' }))
+    await Promise.resolve()
+    expect(denied.getByRole('button', { name: '复制' })).toBeTruthy()
+    denied.unmount()
 
-  it('acknowledges copy when neither clipboard API nor execCommand exists', () => {
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: undefined,
-    })
     Object.defineProperty(document, 'execCommand', {
       configurable: true,
       value: undefined,
     })
-    render(<CodeBlock code="plain body" />)
-    fireEvent.click(screen.getByRole('button', { name: '复制' }))
-    expect(screen.getByRole('button', { name: '复制成功' })).toBeTruthy()
+    const absent = render(<CodeBlock code="plain body" />)
+    fireEvent.click(absent.getByRole('button', { name: '复制' }))
+    await Promise.resolve()
+    expect(absent.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(absent.queryByRole('button', { name: '复制成功' })).toBeNull()
   })
 })

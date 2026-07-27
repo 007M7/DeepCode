@@ -30,9 +30,14 @@ function contentText(content: readonly unknown[]): { text: string; rest: unknown
   return { text: texts.join(''), rest }
 }
 
+/** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
 async function writeClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Denied permissions / iframe policy.
+    }
     return
   }
   const exec = typeof document.execCommand === 'function'

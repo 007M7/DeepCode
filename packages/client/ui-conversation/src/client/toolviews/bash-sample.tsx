@@ -19,10 +19,21 @@ function leadingFor(state: ToolRowState) {
   }
 }
 
+/** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
+function stateStatus(state: ToolRowState): string | null {
+  switch (state) {
+    case 'running': return '运行中'
+    case 'error': return '失败'
+    case 'stopped': return '已停止'
+    default: return null
+  }
+}
+
 /** Bash row: icon + Bash · {description}, matching the shared ToolRow chrome. */
 export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
+  const status = stateStatus(model.state)
   return (
     <div
       className={css.root}
@@ -33,6 +44,7 @@ export function BashRow({ toolName, block, openDetails, sessionId, useSessions }
       onClick={openDetails}
     >
       <span className={css.leading}>{leadingFor(model.state)}</span>
+      {status !== null && <span className={css.visuallyHidden}>{status}</span>}
       {isChild && <span className={css.scopeBadge}>scoped</span>}
       <span className={css.title}>{model.title}</span>
       <span className={css.sep} aria-hidden />

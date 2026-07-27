@@ -10,7 +10,7 @@ The chat user bubble had no under-bubble action chrome. The Harness design (figm
 
 ## Decision
 
-`MessageItem` owns the actions for `kind: 'user'` only. Layout is a column (`align-items: flex-end`, 6px gap): bubble, then a 28px action row with 10px gaps and 28px circular icon buttons (`IconCopyOutline16`, `IconBranchOutline16`, `IconEditOutline16`). Tooltips carry Chinese labels. The row stays `opacity: 0` until the user row is hovered or focus-within, per the [web styling](../../../../docs/web-styling.md) message action-bar rule.
+`MessageItem` owns the actions for `kind: 'user'` only. Layout is a column (`align-items: flex-end`, 6px gap): bubble, then a 28px action row with 10px gaps and 28px circular icon buttons (`IconCopyOutline16`, `IconBranchOutline16`, `IconEditOutline16`). Tooltips carry Chinese labels. Actions stay visible by default; `@media (hover: hover)` hides them until the row is hovered or focus-within, so touch / `hover: none` devices keep discoverable controls (opacity alone still hit-tests).
 
 Copy writes the bubble's joined text blocks to the clipboard (`navigator.clipboard.writeText`, with an `execCommand` fallback). Branch and edit are present chrome with no handlers yet — they reserve the design seats without inventing session-fork or edit-resubmit behavior.
 
@@ -20,7 +20,7 @@ Steering bubbles keep the badge-only form and do not show these actions.
 
 **Wire branch/edit to real session fork and draft-edit now.** Rejected for this change: those product flows are not specified; shipping inert buttons matches the requested scope and avoids half-built mutation paths.
 
-**Always-visible actions (no hover fade).** Rejected against the standing action-bar rule; the figma node shows the resting chrome, not the idle-hidden state the style guide requires.
+**Always hide with `opacity: 0` outside hover.** Rejected for touch: without `@media (hover: hover)`, idle opacity still hit-tests while looking empty. Hover-capable pointers keep the fade; others keep the actions visible.
 
 ## Consequences
 

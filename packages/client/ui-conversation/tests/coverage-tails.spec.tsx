@@ -113,9 +113,11 @@ describe('tails', () => {
     const errorView = render(<BashRow {...props(errorResult)} />)
     expect(errorView.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
     expect(errorView.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(errorView.getByText('失败')).toBeTruthy()
     errorView.unmount()
 
     const stoppedView = render(<BashRow {...props(stoppedResult)} />)
     expect(stoppedView.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    expect(stoppedView.getByText('已停止')).toBeTruthy()
   })
 })

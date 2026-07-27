@@ -25,14 +25,20 @@
   align-items: center;
   gap: 10px;
   height: 28px;
-  /* Hidden until the row is hovered/focused (web-styling message action bar). */
-  opacity: 0;
-  transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
 }
 
-.userRow:hover .actions,
-.userRow:focus-within .actions {
-  opacity: 1;
+/* Hover-capable pointers: hide until the row is hovered/focused. Touch /
+   hover:none keeps actions visible (opacity:0 still hit-tests). */
+@media (hover: hover) {
+  .actions {
+    opacity: 0;
+    transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+
+  .userRow:hover .actions,
+  .userRow:focus-within .actions {
+    opacity: 1;
+  }
 }
 
 .action {

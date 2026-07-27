@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-仅当 `kind: 'user'` 时，`MessageItem` 拥有这些操作。布局为纵向列（`align-items: flex-end`，间距 6px）：先是气泡，再是高度 28px 的操作行；行内间距 10px，圆形图标按钮尺寸为 28px（`IconCopyOutline16`、`IconBranchOutline16`、`IconEditOutline16`）。Tooltip 承载中文标签。按 [Web 样式](../../../../docs/web-styling.md) 的消息操作栏规则，该行保持 `opacity: 0`，直到用户行被悬停或处于 focus-within 状态。
+仅当 `kind: 'user'` 时，`MessageItem` 拥有这些操作。布局为纵向列（`align-items: flex-end`，间距 6px）：先是气泡，再是高度 28px 的操作行；行内间距 10px，圆形图标按钮尺寸为 28px（`IconCopyOutline16`、`IconBranchOutline16`、`IconEditOutline16`）。Tooltip 承载中文标签。操作默认保持可见；`@media (hover: hover)` 下在悬停或 focus-within 前隐藏，以便触摸／`hover: none` 设备仍能发现控件（仅靠 opacity 仍会命中测试）。
 
 复制将气泡内拼接后的文本块写入剪贴板（`navigator.clipboard.writeText`，并以 `execCommand` 作为回退）。分支与编辑目前仅有外观、尚无处理函数——它们预留设计席位，但不发明会话 fork 或编辑重提交流程。
 
@@ -20,7 +20,7 @@ steering（中途引导）气泡保持仅徽章形态，不展示这些操作。
 
 **现在就把分支／编辑接到真实的会话 fork 与草稿编辑。**本次变更不予采纳：这些产品流程尚未定稿；交付无行为按钮符合请求范围，也避免半成品的变更路径。
 
-**操作始终可见（无悬停淡入）。**与现行操作栏规则冲突，不予采纳；figma 节点展示的是静止态外观，而非样式指南要求的空闲隐藏状态。
+**在悬停外始终以 `opacity: 0` 隐藏。**因触摸不予采纳：若无 `@media (hover: hover)`，空闲 opacity 看起来空白但仍会命中测试。具备悬停能力的指针保留淡入；其他设备保持操作可见。
 
 ## 后果
 
