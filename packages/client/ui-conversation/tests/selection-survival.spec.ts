@@ -20,13 +20,15 @@ function bench(): Bench {
   const ctx = new Context()
   ctx.provide('sessions', {
     list: createSnapshotStore<SessionListState>({
-      ids: [], byId: {}, current: undefined, intent: undefined, phase: 'ready',
+      ids: [], byId: {}, current: undefined, phase: 'ready',
     }),
-    cell: () => undefined,
+    provideInfo: () => undefined,
+    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    provide: () => () => {},
   })
   ctx.provide('workspaces', {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], intent: undefined, state: 'idle', phase: 'ready', error: null,
+      items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
   })
@@ -40,17 +42,20 @@ function bench(): Bench {
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
+      'conversation.session': { kind: 'single', scope: 'session' },
       'details': { kind: 'single', scope: 'session' },
     },
   }, (_p: { renderSlot?: unknown }) => null)
-  slots.register({ name: 'conversation', store: chat }, () => null)
+  // apply.ts mounts the shared chat handle only under session-scope slots
+  // (the session-maybe 'conversation' shell carries no store).
+  slots.register({ name: 'conversation.session', store: chat }, () => null)
   slots.register({ name: 'details', store: chat }, () => null)
   return { slots, chat }
 }
 
 /** Resolve the store instance the renderer would hand a slot's component for a session. */
-function storeFor(b: Bench, slot: 'conversation' | 'details', sessionId: SessionId) {
+function storeFor(b: Bench, slot: 'conversation.session' | 'details', sessionId: SessionId) {
   const host = renderHost(b)
   const entry = host.entriesOf(slot)[0]!
   return host.storeOf(entry, sessionId)! as ReturnType<ReturnType<typeof createChatStore>['create']>
@@ -79,7 +84,7 @@ describe('selection survives on the store seat', () => {
   it('one session, two slots: conversation writes, details reads the SAME instance', () => {
     const b = bench()
 
-    const conv = storeFor(b, 'conversation', sid('s1'))
+    const conv = storeFor(b, 'conversation.session', sid('s1'))
     const details = storeFor(b, 'details', sid('s1'))
     conv.actions.select({ turnSeq: 3, callId: 'c1' })
     expect(details.store.getSnapshot().selection).toEqual({ turnSeq: 3, callId: 'c1' })
@@ -90,8 +95,8 @@ describe('selection survives on the store seat', () => {
   it('sessions are isolated: s2 selection never bleeds into s1', () => {
     const b = bench()
 
-    const one = storeFor(b, 'conversation', sid('s1'))
-    const two = storeFor(b, 'conversation', sid('s2'))
+    const one = storeFor(b, 'conversation.session', sid('s1'))
+    const two = storeFor(b, 'conversation.session', sid('s2'))
     expect(two).not.toBe(one)
     one.actions.select({ turnSeq: 1, callId: 'a' })
     two.actions.select({ turnSeq: 9, callId: 'z' })
@@ -104,14 +109,14 @@ describe('selection survives on the store seat', () => {
     const id = sid('s1')
     const projection = createSnapshotStore({ displayTitle: 's1' })
 
-    const store = storeFor(b, 'conversation', id)
+    const store = storeFor(b, 'conversation.session', id)
     store.actions.select({ turnSeq: 3, callId: 'c1' })
     store.actions.setDraft('half-typed')
 
     projection.set({ displayTitle: 'proj-a' })
     expect(projection.getSnapshot().displayTitle).toBe('proj-a')
 
-    const after = storeFor(b, 'conversation', id)
+    const after = storeFor(b, 'conversation.session', id)
     expect(after).toBe(store)
     expect(after.store.getSnapshot().selection).toEqual({ turnSeq: 3, callId: 'c1' })
     expect(after.store.getSnapshot().draft).toBe('half-typed')
@@ -120,7 +125,7 @@ describe('selection survives on the store seat', () => {
   it('session death buries the instance and its persisted draft', () => {
     const b = bench()
 
-    const doomed = storeFor(b, 'conversation', sid('s1'))
+    const doomed = storeFor(b, 'conversation.session', sid('s1'))
     doomed.actions.setDraft('to be buried')
     doomed.actions.select({ turnSeq: 1 })
     expect(localStorage.getItem('dsh.conversation.chat.s1')).not.toBeNull()
@@ -131,7 +136,7 @@ describe('selection survives on the store seat', () => {
     // Persisted residue is gone with the session...
     expect(localStorage.getItem('dsh.conversation.chat.s1')).toBeNull()
     // ...and a re-created same-id session starts from a FRESH instance.
-    const reborn = storeFor(b, 'conversation', sid('s1'))
+    const reborn = storeFor(b, 'conversation.session', sid('s1'))
     expect(reborn).not.toBe(doomed)
     expect(reborn.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null })
   })

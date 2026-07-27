@@ -37,7 +37,6 @@ const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
-const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
@@ -76,10 +75,10 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
-  // Authored from the real PACKED_CHUNKS_SOURCE recording under the same app
-  // composition. The contract below pins decoded equality and all three row
-  // kinds; replay additionally proves the assembled app re-packs identically.
-  { name: 'packed-chunks', hasModelTurn: true, recorded: false, configPath: PACKED_CHUNKS_CONFIG },
+  // Authored from the real PACKED_CHUNKS_SOURCE recording under the ordinary
+  // app composition. The contract below pins decoded equality and all three
+  // row kinds; replay additionally proves the assembled app re-packs identically.
+  { name: 'packed-chunks', hasModelTurn: true, recorded: false },
   // The fs overlay only adds the spill stack (the sandboxed filesystem tools
   // live in the base tree), so these scenarios share the default header class.
   {
@@ -282,5 +281,9 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   })
 
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
-  expect([packed[0], ...packed.slice(1).flatMap(record => decodeStorageRecord(record))]).toStrictEqual(source)
+  const logicalRecords = (records: readonly unknown[]): unknown[] => [
+    records[0],
+    ...records.slice(1).flatMap(record => decodeStorageRecord(record)),
+  ]
+  expect(logicalRecords(packed)).toStrictEqual(logicalRecords(source))
 })

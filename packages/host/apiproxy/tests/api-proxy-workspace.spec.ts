@@ -217,7 +217,8 @@ describe('Host Workspace increments', () => {
       increments.push(next.value.payload)
     }
     expect(increments.find(increment => increment.type === 'host/session-added')).toMatchObject({
-      type: 'host/session-added', sessionId, cwd: workspace.path,
+      // A just-created session has no events: the frame constantly carries blank:true.
+      type: 'host/session-added', sessionId, blank: true, cwd: workspace.path,
     })
     const workspaceChanged = increments.find(
       (increment): increment is Extract<HostFrame, { type: 'host/workspace-changed' }> =>

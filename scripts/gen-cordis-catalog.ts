@@ -207,6 +207,10 @@ const FOUNDATION_TYPE_NAMES = new Set([
 /** Project types deliberately documented outside the core-data catalog. */
 const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
+  BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
+  InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
+  ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
+  InsertTextRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   AgentHandle: 'agent ownership handle is owned by packages/core/agent/README.md',
   BashEnvContributor: 'service-local extension type is owned by packages/bash/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
@@ -389,7 +393,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
       const where = `event '${name}' (${src})`
       checkTypeLinks(where, member, sf, typeLinkViolations)
       if (!mode) {
-        violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
+        violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial|bail' to its JSDoc (see AGENTS.md).`)
       }
       // Conclusive structural check: a trailing `next: () => …` parameter is a
       // waterfall. (emit vs parallel vs serial is not structurally
@@ -580,7 +584,7 @@ export function renderEvents(events: EventEntry[]): string {
     '',
     'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).',
     '',
-    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
+    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`), **bail** (synchronous in-order dispatch until one listener returns a bail value; the scoped input-mutation events use it for an applied/not-applied answer).',
     '',
   ]
   const scopes = [...new Set(events.map(e => e.scope))].sort()

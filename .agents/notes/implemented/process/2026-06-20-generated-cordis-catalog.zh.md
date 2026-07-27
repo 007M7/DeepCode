@@ -25,7 +25,7 @@ Status: implemented
 - **指向数据结构目录的交叉链接。** 签名中由仓库拥有的每个类型名（`GenerateOptions`、`StreamChunk`、`ToolDefinition`……）都会通过人工维护的映射链接到其主要核心数据结构页面。AST 遍历采用失败关闭策略：每个参数、泛型约束/默认值和返回类型引用都必须已映射、是签名自身的类型参数、是点名的 TypeScript/Cordis 基础类型，或带有点名的例外及其非目录文档归属。违规会连同源码位置汇总报告，并点明相应的归属列表。该映射不会复用 `type-equiv.manifest.json`，因为后者记录 `…Map` 符号，而签名引用派生的联合类型名，并且会在多个页面列出某些符号。
 - **专用围栏。** 签名块使用 ` ```ts cordis-catalog ` 信息字符串，并把原始事件或公共方法 JSDoc 直接放在其声明之前。`doc-typecheck` 会识别并跳过这些裸片段，将其排除在 opt-out 比例之外——与 `type-equiv` 块的处理相同。
 
-本决策**取代** [doc-sync 强制](2026-06-11-doc-sync-enforcement.md)中事件分类的那一半：`verify-event-taxonomy` 及其 `docs/architecture.md` 表格退役（architecture.md 的标题保留，正文改为指向目录；服务映射的角色表格作为人工行文保留）。doc-typecheck、verify-md-wrap、verify-md-links 和 verify-type-equiv 不受影响。
+本决策**取代** [doc-sync 强制](../../archived/process/2026-06-11-doc-sync-enforcement.md)中事件分类的那一半：`verify-event-taxonomy` 及其 `docs/architecture.md` 表格退役（architecture.md 的标题保留，正文改为指向目录；服务映射的角色表格作为人工行文保留）。doc-typecheck、verify-md-wrap、verify-md-links 和 verify-type-equiv 不受影响。
 
 ## 曾考虑的替代方案
 

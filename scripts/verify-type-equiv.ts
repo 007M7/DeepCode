@@ -12,6 +12,7 @@ import { globSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { partitionPairedMarkdownDerivatives } from './paired-markdown-derivatives.ts'
+import { isArchivedAgentNotePath } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -223,7 +224,10 @@ const keyOf = (x: { doc: string; symbol: string; projection?: 'public-api' }): s
 // as an orphan rather than silently skipped.
 const docSet = new Set<string>()
 for (const pattern of MARKDOWN_GLOBS) {
-  for (const match of globSync(pattern, { cwd: root })) docSet.add(match.split(sep).join('/'))
+  for (const match of globSync(pattern, { cwd: root })) {
+    const normalized = match.split(sep).join('/')
+    if (!isArchivedAgentNotePath(normalized)) docSet.add(normalized)
+  }
 }
 const extractedBlocks: EquivBlock[] = [...docSet].sort().flatMap(extractEquivBlocks)
 const { primary: blocks, derivatives } = partitionPairedMarkdownDerivatives(

@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-06-20-drop-unconsumed-llm-assembled-surfaces.md: 40fa71a7bcf00d8933165ee8d4594112fdb8c0a8
-2026-06-20-drop-unconsumed-llm-assembled-surfaces.zh.md: 00b3b907eed9cbbb37eac028f32ca5cf3f796ac5
