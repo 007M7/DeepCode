@@ -1,7 +1,6 @@
 # Agent Note: The session prefix — request-only messages in front of the derived history
 
 Status: implemented
-Archived: 2026-07-28
 
 English | [中文](2026-07-07-session-prefix.zh.md)
 

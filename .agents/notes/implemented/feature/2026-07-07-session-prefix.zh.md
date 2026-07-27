@@ -1,7 +1,6 @@
 # Agent Note: 会话前缀——派生历史之前的仅请求消息
 
 Status: implemented
-Archived: 2026-07-28
 
 [English](2026-07-07-session-prefix.md) | 中文
 

@@ -1,7 +1,6 @@
 # Agent Note: Code Mode sub-calls in the trajectory and waterfall views
 
 Status: implemented
-Archived: 2026-07-27
 
 English | [中文](2026-07-26-code-mode-trajectory-waterfall-spans.zh.md)
 
