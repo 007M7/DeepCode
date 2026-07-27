@@ -6,7 +6,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, GenericResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -153,6 +153,16 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       // synchronous, side-effect-only recorder.
       ctx.emit('fs/observed', target, info.version, exec)
       return outcome
+    },
+    presentResult(_args, result: ToolResult): GenericResultView | undefined {
+      if (result.isError) return undefined
+      const only = result.content.length === 1 ? result.content[0] : undefined
+      const text = only?.type === 'text' ? only.text : undefined
+      if (text === undefined) return undefined
+      // Group 1 always captures (possibly empty) when the envelope matches.
+      const body = /^<path>[^\n]*<\/path>\n<type>file<\/type>\n<content>\n([\s\S]*)\n<\/content>$/u.exec(text)?.[1]
+      if (body === undefined) return undefined
+      return { card: 'generic', content: [{ type: 'text', text: body }] }
     },
     // Pure display: a generic card titled by the file with the read window appended (`Read
     // foo.txt (5 - 8)`), `read` kind (icon), and a follow-along location whose line is the
