@@ -12,17 +12,12 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
-
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionMap {
-    /**
-     * The agent's current whole todo list (the latest `todo/write` snapshot),
-     * or `null` before the first write. Whole-value rule: every `todo/write`
-     * carries the complete replacement list, so the fold is last-wins.
-     */
-    todos: TodoItem[] | null
-  }
-}
+// The `todos` projection-key declaration lives in the client outlet (its one
+// home). A PLAIN side-effect import, not `import type`: declaration emit
+// elides type-only imports, and the aggregate programs resolve this package
+// through its emitted declarations — the merge must survive in index.d.ts.
+// The imported module is types-only, so the runtime edge is an empty module.
+import './client/types.ts'
 
 export const name = 'tool-todo'
 export const inject = ['tools']
