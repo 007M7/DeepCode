@@ -10,7 +10,7 @@ The three required Linux worker jobs in [CI](../../../../.github/workflows/ci.ym
 
 ## Decision
 
-Each of the three required Linux worker jobs — and the `all checks passed` verdict job, which would otherwise stay queued on the failed pool even after every worker passed — resolves its runner pool through the `DSH_CI_FAILOVER` repository variable. Unset (normal), they run on the hosted enterprise pools. Set to `selfhosted` by a repository admin, all four retarget onto the in-house self-hosted `vm-backup` pool, coverage and snapshot concurrency drop to shared-VM bounds, and the hosted-path pnpm cache restores are skipped. The switch is admin-only repository state, not a merge, so it works while every check is red. The in-house pool's readiness is continuously re-proven by the `serial / linux (self-hosted standby)` lane, which runs the complete unsharded aggregate on every master push.
+Each of the three required Linux worker jobs — and the `all checks passed` verdict job, which would otherwise stay queued on the failed pool even after every worker passed — resolves its runner pool through the `DSH_CI_FAILOVER` repository variable. Unset (normal), they run on the hosted enterprise pools. Set to `selfhosted` by any repository writer, all four retarget onto the in-house self-hosted `vm-backup` pool, coverage and snapshot concurrency drop to shared-VM bounds, and the hosted-path pnpm cache restores are skipped. The switch is writer-manageable repository state, not a merge, so it works while every check is red. The in-house pool's readiness is continuously re-proven by the `serial / linux (self-hosted standby)` lane, which runs the complete unsharded aggregate on every master push.
 
 ### What the in-house pool is
 
@@ -37,7 +37,7 @@ Delete the `DSH_CI_FAILOVER` variable (or set it to anything other than `selfhos
 
 ### Trust boundary
 
-The variable is repository-admin-only state: a pull request can neither set it nor read a different value into effect, and the expressions live in the base branch's workflow definition. This failover path therefore adds no PR-editable route to the self-hosted pool. Runner-side enforcement — an org-level runner group restricting these runners to the master-ref workflow — is tracked separately and composes with this mechanism.
+The variable is writer-manageable repository state; a pull request event itself can neither set it nor read a different value into effect, and the selector expressions live in workflow definitions. Note that under failover, `pull_request` runs execute the PR merge ref's own workflow definition — the boundary against untrusted code is repository membership (private, forking disabled, Dependabot excluded by the selectors), not the variable. Runner-side enforcement — an org-level runner group restricting these runners to the master-ref workflow — is tracked separately and composes with this mechanism.
 
 ## Alternatives considered
 

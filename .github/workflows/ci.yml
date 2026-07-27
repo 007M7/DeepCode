@@ -34,8 +34,9 @@ jobs:
   # FAILOVER: each Linux enterprise job resolves its pool through the
   # DSH_CI_FAILOVER repository variable. Unset (normal), the expressions
   # pick the hosted enterprise pools below. Setting the variable to
-  # 'selfhosted' (repo Settings → Actions → Variables; admin-only, not
-  # PR-editable, no merge required) retargets all three onto the in-house
+  # 'selfhosted' (repo Settings → Actions → Variables; writer-manageable
+  # repository state — not PR-editable, no merge required) retargets all
+  # three onto the in-house
   # vm-backup pool and re-running the failed jobs is the entire switch —
   # see .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md. The
   # in-house pool's readiness is re-proven on every master push by the
@@ -411,7 +412,7 @@ jobs:
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
   # continuously proving that environment can take over a required lane if
-  # the hosted pools degrade (the switch is then setting the admin-only
+  # the hosted pools degrade (the switch is then setting the writer-manageable
   # DSH_CI_FAILOVER variable — see the failover runbook, no merge required).
   # Push-triggered, so it always executes the base branch's own workflow
   # definition — no PR-editable path selects these runners. Non-blocking for
