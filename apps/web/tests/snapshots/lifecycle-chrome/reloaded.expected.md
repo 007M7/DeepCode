@@ -7,6 +7,12 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: Reply with the single word LIGHTHOUSE and stop.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.

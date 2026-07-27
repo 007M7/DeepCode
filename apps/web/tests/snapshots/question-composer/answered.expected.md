@@ -7,6 +7,12 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". After I answer, reply with the single word DONE and stop.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - button "Think The user wants me to use the ask_user_question tool to ask a specific question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and options labeled \"Blue\" and \"Green\". Let me do exactly that.":
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask a specific question with id "color", question "Which color do you prefer?", header "Pick one", and options labeled "Blue" and "Green". Let me do exactly that.

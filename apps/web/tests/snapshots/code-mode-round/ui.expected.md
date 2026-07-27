@@ -7,12 +7,20 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
 - button:
   - img
-- text: Code Run bash echo and catch missing file read Echo CODE_ROUND_OK
+- text: Code Run bash echo and catch missing file read
+- img
+- text: Bash Echo CODE_ROUND_OK
 - button
 - text: Read missing.txt
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":

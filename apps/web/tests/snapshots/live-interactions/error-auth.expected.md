@@ -7,6 +7,12 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: Reply with a one-sentence description of event sourcing, then stop.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - textbox "Message the agent"
 - button "Add attachment":
   - img

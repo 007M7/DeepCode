@@ -7,10 +7,17 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- text: Echo the test string
+- img
+- text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".

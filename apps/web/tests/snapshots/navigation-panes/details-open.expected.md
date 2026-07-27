@@ -1,5 +1,6 @@
 - text: bash
 - button "关闭详情"
-- text: Input
+- text: Input json
+- button "复制"
 - code: "{ \"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\" }"
 - text: Output NAVIGATION_OK
