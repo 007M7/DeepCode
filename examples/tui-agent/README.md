@@ -1,5 +1,7 @@
 # tui-agent
 
+English | [中文](README.zh.md)
+
 The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, plan mode (`/plan` enters and `exit_plan_mode` reviews the exit), timeout/spill policy, and JSONL persistence through [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), loaded from `cordis.yml`. The sibling [`headless-agent`](../headless-agent/README.md) runs the same capability class as a one-shot pipe-friendly task, and [`acp-agent`](../acp-agent/README.md) serves it over JSON-RPC.
 
 ## Run it

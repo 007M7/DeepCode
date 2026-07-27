@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-token-meter
 
+English | [中文](README.zh.md)
+
 Replay-aware token measurement through the singleton `ctx.tokenMeter` service. It advances one isolated fold per session from the durable log, so compaction and other pressure-sensitive plugins can share accounting without depending on `CompactService`.
 
 ## Configuration

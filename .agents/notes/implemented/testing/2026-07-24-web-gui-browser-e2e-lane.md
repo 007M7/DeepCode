@@ -10,7 +10,7 @@ The web GUI ships as a real assembled chain — chromium page → client plugin 
 
 ## Decision
 
-`pnpm run test:web` carries a keyless, deterministic browser e2e lane under `apps/web/tests/`: recorded session-log fixtures replayed through `@deepseek-ai/dsh-llm-replay` against the real in-process web composition, asserting a normalized conversation aria golden plus in-process world state. No new package; the product deltas are two additive `dsh-llm-replay` surfaces (`paceMs`, `ReplayHandle`).
+`pnpm run test:web` carries a keyless, deterministic browser e2e lane under `apps/web/tests/`: recorded session-log fixtures replay through `@deepseek-ai/dsh-llm-replay` against the real in-process web composition, with normalized aria goldens for user-visible states and in-process assertions for durable world state. The supporting product contracts are `dsh-llm-replay` pacing, consumption checks, and validated indexed override patches; cross-package `dsh-llm` failures retain validated provider facts through own data properties; and the shipped web composition mounts `llm-retry` for transient model failures.
 
 ### Scaffold: `apps/web/tests/scaffold.ts`
 
@@ -32,18 +32,17 @@ Every scenario fails on any pageerror and on the client's connection-loss/gap-re
 
 ### Expected outputs
 
-One committed golden per scenario: a normalized `ariaSnapshot()` of the conversation region (`ui.expected.md`) — uuid/cwd/workspace-basename/duration tokens normalized, captured poll-until-equal at the settled milestone — plus a few role/text anchor assertions that stay green under a semantics-preserving component rewrite while the golden churns reviewably. The aria tree is the mechanization of the client rule "assert what the user would see, never class names". World-state assertions ride root-context session events inline (which tool call produced which durable result, whether `turn/end` completed) instead of a second committed log golden: the persisted-log surface is pinned by the ACP/headless/TUI suites through the same loop and persistence, and re-pinning it here would double refresh cost against the tier discipline. `refresh` is the sole golden writer — a missing golden in replay mode fails with the healing command rather than self-bootstrapping.
+Scenarios with a stable owning region commit a normalized `ariaSnapshot()` for each distinct user-visible state; cross-region workspace-management states instead use semantic DOM assertions plus authoritative host-state checks. UUID, cwd, workspace basename, and duration volatility collapse to stable tokens; captures poll until consecutive normalized reads agree. Role and text anchors remain semantic guards around the reviewable goldens and own cross-region states directly. World-state assertions use root-context session events rather than a second committed log golden because the ACP, headless, and TUI suites already pin the persisted-log surface through the same loop and persistence. `refresh` is the sole golden writer; a missing replay golden fails with the regeneration command.
 
-The typecheck plane split is structural: the three files that boot the host spine (`scaffold`, `replay-round-trip.e2e`, and `seeded-history.e2e`) are excluded from the client-registered `apps/web` project. Those files and their shared `support.ts` are included file-by-file in `tsconfig.host.json` — one program cannot hold both sides of the cordis `Context` merges.
+The typecheck plane split is structural: the host scaffold, its support module, and every web spec that boots or inspects the host composition are excluded from the client-registered `apps/web` project and included file-by-file in `tsconfig.host.json`. One program cannot hold both sides of the Cordis `Context` merges.
 
 ### Modes and fixtures
 
-`DSH_SNAPSHOT` selects replay (default, keyless), record (with key), or refresh (keyless) as inline spec branches — the TUI shape, not a suite factory: at two scenarios the acp-snapshot factory machinery has no owner, and the genuinely shared parts are already exported (`scrubRequestHeaders`, `parseSessionLog`, `installLlmReplay`). Each spec splits into drive steps (type, send, `whenTurnSettled` — run in all modes, never waiting on model-content selectors, so record cannot hang on a live model answering differently) and assertion steps (replay/refresh only). Record = drive live through the real composer + harvest the in-memory `session.header`/`session.events` (the TUI `rawSessionLog` shape — no file decompression) + `scrubRequestHeaders` + `{{sessionId}}`/`{{cwd}}`/`{{rpcId}}` tokenization; a follow-up keyless refresh regenerates `ui.expected.md`. Both scenarios' fixtures were recorded against this assembly through this flow. A drift guard ties each spec's drive prompt to the fixture's recorded `user/message`. A fixture-inventory guard holds each scenario directory closed (exact file set, every JSONL a scrub fixed-point with no run-local `rpcId`). Web fixtures scrub headers everywhere and pin no header class, following the TUI precedent over the strict [pinned-header](2026-07-06-pin-request-header-content-in-one-scenario.md) reading — see Deferred.
+`DSH_SNAPSHOT` selects replay (default, keyless), record (with key), or refresh (keyless). Prompting specs separate drive steps shared by all modes from replay/refresh assertions; record mode drives the live composer, harvests the in-memory session header and events, scrubs request headers, and tokenizes run-local session, cwd, and RPC identities. A follow-up keyless refresh regenerates aria goldens. Each prompt is checked against its fixture's recorded `user/message`, and each scenario directory has a closed inventory whose JSONL files are scrub fixed points. Web fixtures scrub headers everywhere and pin no header class; see Deferred.
 
-### Scenarios
+### Coverage contract
 
-1. **`replay-round-trip`** — new session, prompt through the real composer, replay streams reasoning + a `bash` tool call that really executes in the temp workspace + final text (paced 15ms). Asserts settled markdown, the aria golden, and inline world state (the bash call's durable result is exactly `WEB_E2E_OK\n`, completed `turn/end`, >10 chunk events).
-2. **`seeded-history`** — a recorded session seeded cold; the sidebar lists it (group row → session row, collapsed by default), opening renders tool cards and text purely from the log through the implicit cold-resume attach inside `session.history` — zero model calls in replay, so no binding constraints; record mode drives the same turn live (real `read` tool against seeded workspace files) to produce the seed.
+The lane covers three behavior families. Live-turn scenarios pin ordinary tool execution, cancellation, non-retryable failure, transient retry, resident questions, and mid-turn steering; synchronization uses durable events, `whenIdle()`, or an explicit replay marker rather than delays. Cold-history scenarios seed through the real persistence API and cover history rendering, sidebar search, trajectory and waterfall views, and tool details without model calls. Browser-lifecycle scenarios cover first-send workspace materialization, reload recovery, layout persistence, theme and locale preferences, and workspace create/rename/view operations. Each family asserts the browser surface and the authoritative host state; a stray model call or under-consumed fixture fails teardown.
 
 ### CI stance
 
@@ -63,7 +62,7 @@ Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot 
 
 **Placeholder `DEEPSEEK_API_KEY` + replay interception instead of disabling the adapter row.** Rejected despite zero composition change and two in-tree precedents: it satisfies `llm-deepseek`'s fail-loud key check with a lie and leaves a dead adapter mounted-but-intercepted; the disabled row (the ACP overlay's move) is honest keylessness and fails loud at the earliest resolvable point.
 
-**A `packages/support/web-snapshot` package with a `defineWebSnapshotSuite` factory.** Rejected: chromium-driving source cannot honestly hold per-file 100% coverage on browserless coverage runners, and at two scenarios a factory generalizes from one consumer while the genuinely shared logic is already exported from gated packages. Re-entry trigger: a second web-shaped consumer or ≥6 scenarios with demonstrably drifting inline branches; the package boundary would then be drawn browser-free.
+**A `packages/support/web-snapshot` package with a `defineWebSnapshotSuite` factory.** Rejected: chromium-driving source cannot honestly hold per-file 100% coverage on browserless coverage runners, and the scenario-specific interactions have not produced a stable browser-free contract beyond the helpers already exported from gated packages and the local scaffold. Reconsider when a second web-shaped consumer or demonstrably repeated lifecycle code establishes that contract.
 
 **A committed normalized-session-log golden as a second expected surface.** Rejected: the log surface is pinned by the ACP/headless/TUI suites through the same loop and persistence; here it would double refresh cost and re-test lower tiers. Inline world-state assertions on root-context events keep the world-verification duty.
 
@@ -73,17 +72,20 @@ Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot 
 
 **Real-model browser tests as the keyless lane.** Rejected: nondeterministic by construction; the surveyed cautionary case (open-webui) grew unbounded timeouts and was deleted. The with-key W5 smoke stays as the live-model complement.
 
-**A client `data-dsh-busy` settled signal.** Deferred: the multi-condition settled polls proved sufficient at two scenarios and the host-side `whenIdle` barrier does the heavy lifting. Re-entry trigger: the first settled-poll flake, or a scenario needing a state the DOM does not expose.
+**A client `data-dsh-busy` settled signal.** Deferred: the host-side `whenIdle` barrier plus stable DOM polls cover the current scenarios. Reconsider after the first settled-poll flake or when a required state is not observable in the DOM.
 
 ## Testing
 
-The lane itself: `pnpm run test:web` runs both scenarios keylessly alongside the existing smoke pair; `DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` re-records a scenario's fixture against the live model; `DSH_SNAPSHOT=refresh` rewrites both aria goldens keylessly. `paceMs` validation, pacing floor, abort-during-pace, and both `assertConsumed` failure shapes are pinned in `packages/support/llm-replay/tests/llm-replay.spec.ts`.
+`pnpm run test:web` runs the lane keylessly. `DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` records a prompting scenario against the live model, and `DSH_SNAPSHOT=refresh` rewrites aria goldens keylessly. `dsh-llm-replay` unit coverage pins pacing, cancellation, consumption diagnostics, sidecar validation, indexed replacement, and the single append position.
 
 ## Deferred
 
 - **Web header-class pin**: web fixtures tokenize `{{system}}`/`{{tools}}` everywhere and no scenario pins the web composition's prompt/tool schemas (`TODO(web-header-pin)` — the scaffold `recordFixture` JSDoc marks it). Following the TUI scrub-everywhere precedent; revisit when the web assembly's header diverges from the repl composition it mirrors.
 - **CI browser provisioning**: reversal of the no-browser-in-CI ruling, staged criteria above (`TODO(ci-browser)`).
 - **Follow-up-prompt-after-resume scenario**: the history/live stitch path over the real wire; add as its own scenario when that code changes or regresses.
+- **Web error surface**: the client consumes no `agent/error` frames and a pre-chunk failure freezes no partial, so a non-retryable provider failure renders no error copy — the user sees the send simply stop. The AUTH scenario pins the current contract (no crash, composer recovers, turn logged `error`) and `FIXME(web-error-surface)` marks where visible error text gets asserted once the UI grows an error rendering.
+- **Composer steering gesture**: the input locks while running (stop-or-wait), so the steering scenario steers over the wire from the page; `TODO(web-steer-composer)` upgrades the drive step to a real composer gesture when the product grows one.
+- **Drag session reorder**: `workspace.insertSessionBefore` has no browser scenario; it needs two sessions materialized in one workspace plus synthesized HTML5 drag events. Add it when that surface changes or regresses. The inert session Rename/Fork/Delete and workspace Delete menu rows get scenarios when they gain behavior.
 
 ## Consequences
 

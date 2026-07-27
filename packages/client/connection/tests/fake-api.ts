@@ -2,7 +2,8 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  HostFrame, IApiClient, MuxFrame, RpcRequest, RpcResponse, SessionId,
+  CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, MuxFrame,
+  RpcRequest, RpcResponse, SessionId, SkillEntry,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -83,6 +84,24 @@ export class FakeApiClient implements IApiClient {
     insertSessionBefore: (payload: unknown) => this.record('workspace.insertSessionBefore', payload, Promise.resolve(ok({
       workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
     }))),
+  }
+
+  // Payloads stay `unknown` (lint-lane note above); response rows are the real
+  // wire shapes so cases can program catalogs and skill lists without casts.
+  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
+    = () => Promise.resolve(ok({ commands: [] }))
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>>
+    = () => Promise.resolve(ok({ matched: false }))
+  onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
+    = () => Promise.resolve(ok({ skills: [] }))
+
+  readonly commands: IApiClient['commands'] = {
+    list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
+    execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
+  }
+
+  readonly skills: IApiClient['skills'] = {
+    list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

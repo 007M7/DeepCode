@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-models
 
+English | [中文](README.zh.md)
+
 Models settings section plugin: registers the `models` nav entry into `settings.section` with an intentionally empty content column — model management lands in a later phase.
 
 ## Model Experience

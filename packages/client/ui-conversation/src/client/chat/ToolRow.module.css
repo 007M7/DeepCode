@@ -86,3 +86,10 @@ button.leading {
   word-break: break-word;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* The code variant's expanded body is the run_code program, rendered through
+   the shared CodeBlock (shiki-highlighted TypeScript); only indentation is
+   this row's concern. */
+.codeBody {
+  margin: 4px 0 4px 22px;
+}

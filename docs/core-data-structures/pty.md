@@ -1,5 +1,7 @@
 # Persistent PTY Sessions
 
+English | [中文](pty.zh.md)
+
 Types shared by PTY backends, `ctx.pty`, and the model-facing consumer. The [persistent PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) owns the rationale; this page records the cross-package vocabulary from [`packages/pty/pty/src/types.ts`](../../packages/pty/pty/src/types.ts).
 
 ## Identity and readiness

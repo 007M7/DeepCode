@@ -1,7 +1,7 @@
 /**
  * Pure parsing and structural helpers for the bilingual-document pairing
- * gate. Kept separate from the CLI so cutoff and signature behavior can be
- * regression-tested without reading or mutating the repository tree.
+ * gate. Kept separate from the CLI so corpus discovery and signature behavior
+ * can be regression-tested without reading or mutating the repository tree.
  */
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
@@ -11,31 +11,79 @@ import type { Nodes } from 'mdast'
 
 /** Validated shape of `scripts/translation-pairing.manifest.json`. */
 export interface TranslationPairingManifest {
-  required: string[]
+  /** Source documents exempt from pairing because they are generated, instructional, or bilingual by construction. */
   excluded: string[]
-  /** Date-named documents on or after this day must merge bilingual. */
-  requiredSince: string
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const DATED_DOCUMENT = /(?:^|\/)(\d{4}-\d{2}-\d{2})-[^/]*\.md$/
+const README_ARTIFACT = /(?:^|\/)readme(?:\.md|\.zh\.md|\.i18n\.yaml)$/i
+const NON_SOURCE_DIRECTORIES = new Set([
+  'node_modules',
+  'lib',
+  '.pnpm-store',
+  '.cache',
+  'coverage',
+  '.sessions',
+  '.storages',
+  'tmp',
+  'dist-exe',
+  '__pycache__',
+  '.pytest_cache',
+  '.artifacts',
+  'vendor',
+])
 
-/** Whether a string names one real calendar day in canonical ISO form. */
-export function isIsoDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+/** Glob traversal exclusions corresponding to the non-source path predicate. */
+export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
+  '.agents/notes/archived/**',
+  '**/node_modules/**',
+  '**/lib/**',
+  '**/.pnpm-store/**',
+  '**/.cache/**',
+  '**/coverage/**',
+  '**/.doc-typecheck-*/**',
+  '**/.node-next-types-*/**',
+  '**/.sessions/**',
+  '**/.storages/**',
+  '**/tmp/**',
+  '**/dist-exe/**',
+  '**/__pycache__/**',
+  '**/.pytest_cache/**',
+  'apps/web/dist/**',
+  '.artifacts/**',
+  'python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-*/**',
+  'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/**',
+  'vendor/**',
+]
+
+/** Whether a repository-relative path belongs to a dependency or generated tree. */
+function isTranslationSourceExcluded(file: string): boolean {
+  const segments = file.split('/')
+  return segments.some(segment => NON_SOURCE_DIRECTORIES.has(segment)
+      || segment.startsWith('.doc-typecheck-')
+    || segment.startsWith('.node-next-types-'))
+    || file.startsWith('apps/web/dist/')
+    || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-')
+    || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/')
 }
 
-/** Read one manifest string-array field or fail before enforcement starts. */
-function stringArrayField(record: Record<string, unknown>, field: 'required' | 'excluded'): string[] {
-  const value = record[field]
+/** Whether one discovered Markdown or sidecar path belongs to the bilingual source corpus. */
+export function isTranslationScopeFile(file: string): boolean {
+  return !file.startsWith('.agents/notes/archived/')
+    && !isTranslationSourceExcluded(file) && (README_ARTIFACT.test(file)
+    || file.startsWith('.agents/notes/')
+    || file.startsWith('docs/')
+    || file.startsWith('python/'))
+}
+
+/** Read the manifest exclusion list or fail before enforcement starts. */
+function excludedField(record: Record<string, unknown>): string[] {
+  const value = record.excluded
   if (!Array.isArray(value)) {
-    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+    throw new Error('translation-pairing.manifest.json: excluded must be an array of strings')
   }
   const entries: unknown[] = value
   if (!entries.every((entry): entry is string => typeof entry === 'string')) {
-    throw new Error(`translation-pairing.manifest.json: ${field} must be an array of strings`)
+    throw new Error('translation-pairing.manifest.json: excluded must be an array of strings')
   }
   return entries
 }
@@ -47,26 +95,71 @@ export function parseTranslationPairingManifest(content: string): TranslationPai
     throw new Error('translation-pairing.manifest.json: expected an object')
   }
   const record = value as Record<string, unknown>
-  const requiredSince = record.requiredSince
-  if (typeof requiredSince !== 'string' || !isIsoDate(requiredSince)) {
-    throw new Error(`translation-pairing.manifest.json: requiredSince must be a valid YYYY-MM-DD date; got ${JSON.stringify(requiredSince)}`)
+  const unsupported = Object.keys(record).filter(field => field !== 'excluded')
+  if (unsupported.length > 0) {
+    throw new Error(`translation-pairing.manifest.json: unsupported field(s): ${unsupported.join(', ')}; every in-scope document is required`)
   }
-  return {
-    required: stringArrayField(record, 'required'),
-    excluded: stringArrayField(record, 'excluded'),
-    requiredSince,
-  }
+  return { excluded: excludedField(record) }
 }
 
-/** Return the leading date of a `yyyy-mm-dd-*.md` basename, if present. */
-export function datedDocumentDate(file: string): string | undefined {
-  return DATED_DOCUMENT.exec(file)?.[1]
+/**
+ * Normalize one CLI pair argument to its English anchor path: any of the
+ * pair's three files (`foo.md`, `foo.zh.md`, `foo.i18n.yaml`) or the bare
+ * `foo` stem names the same pair, and platform separators are accepted.
+ *
+ * @param argument - Repo-relative path as passed on a command line.
+ * @returns The pair's `foo.md` anchor path with `/` separators.
+ */
+export function pairAnchorOfArgument(argument: string): string {
+  const normalized = argument.split('\\').join('/').replace(/^\.\//, '')
+  if (normalized.endsWith('.zh.md')) return `${normalized.slice(0, -'.zh.md'.length)}.md`
+  if (normalized.endsWith('.i18n.yaml')) return `${normalized.slice(0, -'.i18n.yaml'.length)}.md`
+  if (normalized.endsWith('.md')) return normalized
+  return `${normalized}.md`
 }
 
-/** Whether a date-named document falls on or after the pairing cutoff. */
-export function requiresPairByDate(file: string, requiredSince: string): boolean {
-  const date = datedDocumentDate(file)
-  return date !== undefined && date >= requiredSince
+/** A parsed `verify-translation-pairing` invocation. */
+export interface TranslationPairingCliRequest {
+  mode: 'check' | 'list' | 'write'
+  /** `corpus` runs discovery over the whole tree; `pairs` touches only the named anchors. */
+  scope: 'corpus' | 'pairs'
+  /** English anchor paths, empty for corpus scope. */
+  anchors: string[]
+}
+
+/**
+ * Parse and validate `verify-translation-pairing` CLI arguments.
+ *
+ * Check accepts optional pair paths; `--write` requires either pair paths or
+ * `--all` so a bulk re-record is always an explicit choice — a bare
+ * `--write` would silently bless every drifted pair in the tree, including
+ * ones the caller never confirmed. `--list` is corpus-only.
+ *
+ * @param argv - Arguments after the script name.
+ * @returns The validated request.
+ * @throws Error when flags or their combination are invalid.
+ */
+export function parseTranslationPairingCliArgs(argv: string[]): TranslationPairingCliRequest {
+  const flags = argv.filter(argument => argument.startsWith('--'))
+  const anchors = [...new Set(argv.filter(argument => !argument.startsWith('--')).map(pairAnchorOfArgument))].sort()
+  const unknown = flags.filter(flag => !['--list', '--write', '--all'].includes(flag))
+  if (unknown.length > 0) throw new Error(`unknown flag(s): ${unknown.join(', ')}`)
+  const listMode = flags.includes('--list')
+  const writeMode = flags.includes('--write')
+  const allMode = flags.includes('--all')
+  if (listMode && (writeMode || allMode || anchors.length > 0)) {
+    throw new Error('--list reports the whole corpus and takes no other flags or paths')
+  }
+  if (allMode && !writeMode) throw new Error('--all only applies to --write')
+  if (writeMode) {
+    if (anchors.length > 0 && allMode) throw new Error('--write takes either pair paths or --all, not both')
+    if (anchors.length === 0 && !allMode) {
+      throw new Error('--write requires the pair(s) you confirmed (any file of a pair), or --all to re-record every complete pair; recording pairs you did not review blesses unconfirmed content')
+    }
+    return { mode: 'write', scope: allMode ? 'corpus' : 'pairs', anchors }
+  }
+  if (listMode) return { mode: 'list', scope: 'corpus', anchors: [] }
+  return { mode: 'check', scope: anchors.length > 0 ? 'pairs' : 'corpus', anchors }
 }
 
 /** The structural surface compared between the two sides of a pair. */

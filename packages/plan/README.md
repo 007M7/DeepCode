@@ -1,5 +1,7 @@
 # plan/ — plan collaboration state
 
+English | [中文](README.zh.md)
+
 Plan mode is one logged, per-agent collaboration state. It is a single **product** package, not a generic mode registry or a capability-seam trio.
 
 | Package | Role | ctx key |
