@@ -8,6 +8,7 @@ import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
 import CommandService from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -220,6 +221,7 @@ async function mountScenarioContext(
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
   await ctx.plugin(TokenMeterService)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await ctx.plugin(SnapshotLocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)

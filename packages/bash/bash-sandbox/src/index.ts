@@ -34,7 +34,7 @@ export type Config = LocalConfig
  * mode; `result.sandbox` reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
-  static inject = ['sandbox', 'sandboxPolicy']
+  static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']
 
   // No own Config: the sandbox default (mode + workspaceRoot) moved to
   // ctx.sandboxPolicy, so this executor inherits LocalBashExecutor's Config
@@ -128,7 +128,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Wrap one shell command via the `ctx.sandbox` provider: hand over the
    * exact `['bash', '-c', command]` argv this executor would spawn, get back
    * the confined argv, and re-assemble it into the `exec …` command string
-   * the inherited spawn path runs (the outer `bash -c` that `runBash` spawns
+   * the inherited spawn path runs (the outer `bash -c` the subprocess service spawns
    * `exec`s into the runner, so no extra shell lingers). Provider errors
    * (fail-closed `SANDBOX_UNAVAILABLE`) propagate to the caller unchanged.
    */

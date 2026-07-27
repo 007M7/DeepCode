@@ -14,6 +14,8 @@ flowchart LR
   cfg --> plugin_acp_sandbox
   plugin_acp_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
   cfg --> plugin_acp_sandbox_policy
+  plugin_acp_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
+  cfg --> plugin_acp_subprocess
   plugin_acp_bash["bash<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_acp_bash
   plugin_acp_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
@@ -68,6 +70,7 @@ flowchart LR
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
 | `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
+| `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
