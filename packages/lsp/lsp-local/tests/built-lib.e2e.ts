@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { execa } from 'execa'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
@@ -57,12 +57,13 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
       console.log(JSON.stringify(result))
       await ctx.fiber.dispose()
     `
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: pkgDir, stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8') })
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
-    const exitCode = await new Promise<number | null>(resolve => child.on('close', resolve))
+    const { exitCode, stdout, stderr } = await execa(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: pkgDir,
+      stdin: 'ignore',
+      timeout: 55_000,
+      killSignal: 'SIGKILL',
+      reject: false,
+    })
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0)
     const lastLine = stdout.trim().split('\n').at(-1) ?? ''
