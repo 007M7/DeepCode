@@ -37,4 +37,4 @@ Status: implemented
 
 ## 后果
 
-现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。工具不再拒绝一种此前无效的快照形状，因此该改动兼容此前所有合法的调用；被移除的只是错误路径。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及固定 schema 的组装后快照 transcript（文本记录）。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此组装后的 web transcript 回放的是一个并行计划；若任一展示面退回单活跃项推导，它会再次失败。
+现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。工具不再拒绝一种此前无效的快照形状，因此该改动兼容此前所有合法的调用；被移除的只是错误路径。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个 `pinsHeader` 场景的 `tool-schemas.expected.json`（其中十个带有 todo schema）。master 每新增一个 pin 场景，就会自带一份该描述的副本，因此改动工具描述的分支必须刷新它分叉之后落地的那些 pin —— `pnpm run test:snapshot:refresh` 可以无 key 完成。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此组装后的 web transcript 回放的是一个并行计划；若任一展示面退回单活跃项推导，它会再次失败。
