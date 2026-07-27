@@ -664,13 +664,16 @@ function collectNormalizedStringMappings(
  */
 function normalizedStringMappings(
   records: Record<string, unknown>[],
+  freshRecords: Record<string, unknown>[],
   existingRecords: Record<string, unknown>[],
-  context: NormalizeContext,
+  freshContext: NormalizeContext,
+  existingContext: NormalizeContext,
 ): Map<string, string> | undefined {
   const forward = new Map<string, string>()
   const reverse = new Map<string, string>()
   let existingIndex = 0
-  for (const record of records) {
+  for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+    const record = records[recordIndex] as Record<string, unknown>
     const existingRecord = existingRecords[existingIndex]
     const memberCount = packedTimes(record)?.length ?? 1
     if (record.type === 'session/title' && existingRecord?.type !== 'session/title') continue
@@ -685,8 +688,8 @@ function normalizedStringMappings(
       if (!collectNormalizedStringMappings(
         record,
         existingRecord,
-        normalizedRefreshRecord(record, context),
-        normalizedRefreshRecord(existingRecord, context),
+        normalizedRefreshRecord(freshRecords[recordIndex] as Record<string, unknown>, freshContext),
+        normalizedRefreshRecord(existingRecord, existingContext),
         forward,
         reverse,
       )) return undefined
@@ -709,15 +712,28 @@ function normalizedStringMappings(
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.
  * @param replacements Cross-log literal replacements from {@link refreshFixtureReplacements}.
+ * @param freshContext The harvested run's ids, cwd, and every cwd alias.
  * @returns The stabilized JSONL content to write back.
  */
-export function stabilizeRefreshLog(fresh: string, existing: string, replacements: FixtureReplacement[]): string {
+export function stabilizeRefreshLog(
+  fresh: string,
+  existing: string,
+  replacements: FixtureReplacement[],
+  freshContext: NormalizeContext,
+): string {
+  const freshRecords = parseJsonlRecords(fresh)
   let stable = fresh
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
-  const context = fixtureContext(existing)
-  const stringMappings = normalizedStringMappings(records, existingRecords, context)
+  const existingContext = fixtureContext(existing)
+  const stringMappings = normalizedStringMappings(
+    records,
+    freshRecords,
+    existingRecords,
+    freshContext,
+    existingContext,
+  )
   let existingIndex = 0
   let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
@@ -739,8 +755,8 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
         record = preserveNormalizedVolatiles(
           record,
           existingRecord,
-          normalizedRefreshRecord(record, context),
-          normalizedRefreshRecord(existingRecord, context),
+          normalizedRefreshRecord(freshRecords[i] as Record<string, unknown>, freshContext),
+          normalizedRefreshRecord(existingRecord, existingContext),
           stringMappings,
         ) as Record<string, unknown>
         records[i] = record
@@ -864,12 +880,12 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ]
           const primary = (result.sessionLogs[0] as HarvestedLog).content
           await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(
-            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements) : primary,
+            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx) : primary,
           ))
           for (let i = 1; i < result.sessionLogs.length; i++) {
             const child = (result.sessionLogs[i] as HarvestedLog).content
             await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(
-              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements) : child,
+              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx) : child,
             ))
           }
           if (RECORDING) {

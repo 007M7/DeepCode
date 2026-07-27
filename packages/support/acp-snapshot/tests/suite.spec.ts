@@ -43,6 +43,15 @@ const AGENT = {
 }
 
 const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
+
+function stabilize(
+  fresh: string,
+  existing: string,
+  replacements: Parameters<typeof stabilizeRefreshLog>[2] = [],
+  freshContext: Parameters<typeof stabilizeRefreshLog>[3] = fixtureContext(fresh),
+): string {
+  return stabilizeRefreshLog(fresh, existing, replacements, freshContext)
+}
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
 // Replay pins explicit header classes; recording covers the default fallback.
@@ -477,7 +486,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+    expect(stabilize(fresh, existing)).toBe([
       '{"type":"session","id":"same","createdAt":100}',
       '{"type":"reasoning-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
       '{"type":"assistant/message","seq":5,"time":104,"data":{}}',
@@ -497,7 +506,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+    expect(stabilize(fresh, existing)).toBe([
       '{"type":"session","id":"same","createdAt":100}',
       '{"type":"text-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
       '',
@@ -522,10 +531,9 @@ describe('stabilizeRefreshLog', () => {
       time,
       data: {},
     }))
-    const output = stabilizeRefreshLog(
+    const output = stabilize(
       `${JSON.stringify({ type: 'session', id: 'same', createdAt: 200 })}\n${JSON.stringify(freshRow)}\n`,
       `${JSON.stringify({ type: 'session', id: 'same', createdAt: 100 })}\n${existingRows.map(row => JSON.stringify(row)).join('\n')}\n`,
-      [],
     ).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
 
     expect(output[1]).toStrictEqual({ ...freshRow, time0: expectedTime0 })
@@ -550,7 +558,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+    expect(stabilize(fresh, existing)).toBe([
       '{"type":"session","id":"same","createdAt":100}',
       '{"type":"turn/start","seq":0,"time":11}',
       '{"type":"user/message","seq":1,"time":12}',
@@ -579,7 +587,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [
+    expect(stabilize(fresh, existing, [
       { from: 'new-parent', to: 'old-parent' },
       { from: 'new-child', to: 'old-child' },
       { from: '/new', to: '/old' },
@@ -667,7 +675,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    const output = stabilizeRefreshLog(fresh, existing, []).trim().split('\n')
+    const output = stabilize(fresh, existing).trim().split('\n')
       .map(line => JSON.parse(line) as Record<string, unknown>)
     expect(output).toEqual([
       { type: 'session', id: 'same', createdAt: 100, cwd: '/old' },
@@ -696,6 +704,34 @@ describe('stabilizeRefreshLog', () => {
     ])
   })
 
+  it('normalizes fresh cwd aliases before reusing existing paths', () => {
+    const freshCwd = String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snap-cwd-new`
+    const freshAlias = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snap-cwd-new`
+    const existingCwd = String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snap-cwd-old`
+    const fresh = [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 200, cwd: freshCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${freshAlias}\\result.txt` } }),
+      '',
+    ].join('\n')
+    const existing = [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 100, cwd: existingCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${existingCwd}\\result.txt` } }),
+      '',
+    ].join('\n')
+    const freshContext = { ...fixtureContext(fresh), cwdAliases: [freshAlias] }
+
+    expect(stabilize(
+      fresh,
+      existing,
+      [{ from: freshCwd, to: existingCwd }],
+      freshContext,
+    )).toBe([
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 100, cwd: existingCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${existingCwd}\\result.txt` } }),
+      '',
+    ].join('\n'))
+  })
+
   it('preserves one correlated volatile id through a consistent log-wide mapping', () => {
     const freshId = '11111111-1111-4111-8111-111111111111'
     const existingId = '22222222-2222-4222-8222-222222222222'
@@ -712,7 +748,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+    expect(stabilize(fresh, existing)).toBe([
       '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
       JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
       JSON.stringify({ type: 'approval/decided', data: { id: existingId, outcome: 'allowed-once' } }),
@@ -739,7 +775,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    const ids = stabilizeRefreshLog(fresh, existing, []).trim().split('\n').slice(1)
+    const ids = stabilize(fresh, existing).trim().split('\n').slice(1)
       .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
     expect(ids).toEqual([firstFreshId, secondFreshId, firstFreshId, secondFreshId])
   })
@@ -759,7 +795,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    const output = stabilizeRefreshLog(fresh, existing, []).trim().split('\n')
+    const output = stabilize(fresh, existing).trim().split('\n')
       .map(line => JSON.parse(line) as Record<string, unknown>)
     expect(output[1]).toEqual({ type: 'approval/asked', data: { id: freshId } })
   })
@@ -789,7 +825,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    const outputIds = stabilizeRefreshLog(log(freshNames), log(existingNames), []).trim().split('\n').slice(1)
+    const outputIds = stabilize(log(freshNames), log(existingNames)).trim().split('\n').slice(1)
       .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
     expect(outputIds).toEqual(freshNames.map(name => ids[name as keyof typeof ids]))
   })

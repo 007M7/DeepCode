@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-27-stable-snapshot-refresh-volatiles.md
-2026-07-27-stable-snapshot-refresh-volatiles.md: 0fd38cabd103657410a468b49e30ab17aad9affb
-2026-07-27-stable-snapshot-refresh-volatiles.zh.md: aa2b129f4e1cc5286ff17067fe910dfc969838a1
+2026-07-27-stable-snapshot-refresh-volatiles.md: e2e951cd9f78b319a701a3e60afba48786633f03
+2026-07-27-stable-snapshot-refresh-volatiles.zh.md: 55302b509e28520f90f6cd820e4962be014318cc
