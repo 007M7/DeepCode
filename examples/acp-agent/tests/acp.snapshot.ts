@@ -40,6 +40,7 @@ const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
+const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -109,6 +110,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
+  // web_fetch markdown rendering end to end: the overlay's loopback fixture
+  // server supplies deterministic HTML (entities, a GFM table, nesting), the
+  // REAL local fetch provider retrieves it, and the tool result pins the
+  // turndown conversion. The fetched URL (fixed port) is part of the recorded
+  // transcript; replay re-executes the real fetch against the same fixture.
+  { name: 'web-fetch', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'web', configPath: WEB_CONFIG },
   {
     name: 'workspace-edit',
     hasModelTurn: true,

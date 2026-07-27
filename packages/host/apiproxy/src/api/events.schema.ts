@@ -11,7 +11,7 @@ import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
 import { contentBlockSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema } from './sessions.schema.ts'
-import { workspaceViewSchema } from './workspace.schema.ts'
+import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
 /** Question shape validated strictly against core dsh-user-interaction. */
 export const askUserQuestionItemSchema = z.object({
@@ -47,6 +47,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),
   z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
+  z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
   z.object({ type: z.literal('host/commands-changed') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>
