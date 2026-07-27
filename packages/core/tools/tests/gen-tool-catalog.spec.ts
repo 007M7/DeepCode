@@ -43,10 +43,15 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(status?.enum).toEqual(['pending', 'in_progress', 'completed'])
   })
 
-  it('attributes each package with a source pointer that names its index', async () => {
+  it('attributes each harvested tool with its registering plugin source', async () => {
     const catalog = await collectToolCatalog()
     const bash = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-bash')
-    expect(bash?.source).toBe('packages/bash/tool-bash/src/index.ts')
+    expect(bash?.sources.bash).toBe('packages/bash/tool-bash/src/index.ts')
+    const control = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent-control')
+    expect(control?.sources).toEqual({
+      list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
+      send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+    })
   })
 
   it('harvests search tools without depending on the generator process PATH', async () => {
@@ -90,7 +95,7 @@ describe('gen-tool-catalog render', () => {
     const catalog: ToolCatalog = [
       {
         pkg: '@deepseek-ai/dsh-tool-demo',
-        source: 'packages/demo/tool-demo/src/index.ts',
+        sources: { demo: 'packages/demo/tool-demo/src/index.ts' },
         requires: ['ctx.tools'],
         writes: ['tool/result'],
         schemas: [{ name: 'demo', description: 'A demo tool.', parameters: { type: 'object', properties: {} } }],

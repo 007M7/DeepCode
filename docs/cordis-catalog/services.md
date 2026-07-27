@@ -1949,7 +1949,7 @@ Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/stora
 
 ## `ctx.subagents` — `SubagentService`
 
-Named provider registry with one-shot runs and continuable-child operations.
+Named provider registry with one-shot runs, durable discovery, and continuable-child operations.
 
 ```ts cordis-catalog
 /**
@@ -1993,21 +1993,24 @@ async followup( parent: Agent, childId: SessionId, content: ContentBlock[], opti
 async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 
 /**
- * Enumerate one session's direct continuable children from the durable,
- * live-preferred corpus without loading or resuming an Agent. The lineage
- * trace supplies stable candidate order and live status; each candidate is
- * then inspected independently for exactly one supported descriptor in its
- * own suffix. Listing is storage-read-only: session query resolves persisted
- * candidates through the non-mutating `inspect()` read, so no catalog,
- * descriptor, or repair event is written. Session-query reads take no signal,
- * so cancellation is cooperative: the scan rechecks `signal` before and
- * after the initial trace and after every other un-signalled await instead of
- * draining a slow or large catalog after the caller has gone.
- * @param parentSessionId - parent whose direct children are listed.
- * @param signal - caller-owned cancellation observed between query awaits.
- * @returns child and diagnostic entries in lineage-trace order.
+ * Enumerate the parent's direct continuable children from the live-preferred
+ * session corpus without loading or resuming an Agent. Session query supplies
+ * lineage, candidate order, event reads, and live state; this service
+ * interprets descriptors, status, and per-child diagnostics without consulting
+ * Agent registrations, Activations, or providers.
+ *
+ * The trace and exact descriptor read receive `signal`; the full event-list
+ * read has no signal parameter, so the scan rechecks cancellation around
+ * every await and between candidates. Query rejections that settle after an
+ * abort become a stable `SubagentError` with code `CANCELLED`.
+ * @param parentSessionId - parent session whose direct children are listed.
+ * @param signal - caller-owned cancellation forwarded where supported and
+ *   observed around every query await.
+ * @returns children and per-child diagnostics in stable trace order.
+ * @throws {@link SubagentError} when session query is unavailable or the
+ *   caller cancels the scan.
  */
-async listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
+listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
@@ -2045,7 +2048,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:169`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:147`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

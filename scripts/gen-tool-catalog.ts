@@ -124,8 +124,12 @@ interface ToolPackage {
   pkg: string
   /** The `packages/<group>/<dir>` leaf name — matched by the completeness guard. */
   dir: string
-  /** Repo-relative source path linked from the catalog entry. */
-  source: string
+  /**
+   * Repo-relative implementation source linked per harvested tool. Packages
+   * whose tools share one plugin may use a string; split plugins map each tool
+   * name to its own source.
+   */
+  source: string | Readonly<Record<string, string>>
   /** Services or owning runtime surfaces the package requires at execution time. */
   requires: string[]
   /** Session events or other visible state the tools write or affect. */
@@ -386,7 +390,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
     dir: 'tool-subagent-control',
-    source: 'packages/subagent/tool-subagent-control/src/index.ts',
+    source: {
+      list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
+      send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+    },
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionQuery (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
@@ -464,7 +471,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
 /** One package's contribution to the catalog: its schemas plus attribution. */
 interface CatalogPackage {
   pkg: string
-  source: string
+  sources: Readonly<Record<string, string>>
   requires: string[]
   writes: string[]
   shippedNames?: string[]
@@ -519,7 +526,10 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
       const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
       catalog.push({
         pkg: entry.pkg,
-        source: entry.source,
+        sources: Object.fromEntries(schemas.map(schema => [
+          schema.name,
+          toolSource(entry, schema.name),
+        ])),
         requires: entry.requires,
         writes: entry.writes,
         schemas,
@@ -531,6 +541,18 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     }
   }
   return catalog
+}
+
+/** Resolve one harvested tool to the plugin source that registered it. */
+function toolSource(entry: ToolPackage, toolName: string): string {
+  if (typeof entry.source === 'string') return entry.source
+  const source = entry.source[toolName]
+  if (source === undefined) {
+    throw new Error(
+      `gen-tool-catalog: ${entry.pkg} has no source mapping for harvested tool ${toolName}`,
+    )
+  }
+  return source
 }
 
 /** Render one tool's entry: name, description, JSON-Schema parameters, source. */
@@ -575,7 +597,11 @@ export function render(catalog: ToolCatalog): string {
   ]
   for (const entry of catalog) {
     lines.push(`## \`${entry.pkg}\``, '')
-    for (const schema of entry.schemas) lines.push(...renderTool(schema, entry.source))
+    for (const schema of entry.schemas) {
+      // Collection validated that every harvested schema has a source.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      lines.push(...renderTool(schema, entry.sources[schema.name]!))
+    }
     if (entry.note) lines.push(entry.note, '')
   }
   return lines.join('\n')

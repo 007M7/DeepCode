@@ -19,7 +19,9 @@
  * resident. Continuable children never become a {@link SubagentRun}: the
  * continuation manager holds their `AgentHandle` directly and orders every turn
  * through the child's own inbox, so providers contribute only the detached
- * creation spec and see no handle, turn, or teardown.
+ * creation spec and see no handle, turn, or teardown. Direct-child discovery
+ * independently interprets the optional session-query corpus and does not
+ * require that continuation runtime.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -36,11 +38,6 @@ import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import {
-  assertSessionHeadersCompatible,
-  SessionQueryError,
-} from '@deepseek-ai/dsh-session-query'
-import type { SessionQueryService, SessionRecord } from '@deepseek-ai/dsh-session-query'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -52,7 +49,6 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentError } from './error.ts'
-import { foldSubagentDescriptor } from './descriptor.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
 import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
@@ -62,6 +58,8 @@ import type {
   ContinuableStartSpec,
   SubagentFollowupOptions,
 } from './continuation.ts'
+import { listChildren as listSubagentChildren } from './list-children.ts'
+import type { SubagentListEntry } from './list-children.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
@@ -100,29 +98,8 @@ export type {
   CoordinatorMessageSource,
   SubagentFollowupOptions,
 } from './continuation.ts'
+export type { SubagentListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
-
-/**
- * One direct-child enumeration result. Descriptor-less ordinary children are
- * omitted; a per-child inspection failure remains visible as a diagnostic.
- */
-export type SubagentListEntry =
-  | {
-    readonly kind: 'child'
-    /** Durable child session id, stable across Activations. */
-    readonly id: SessionId
-    /** Durable creation label from the child's descriptor. */
-    readonly label: string
-    /** Whether the child is currently live or exists only in persistence. */
-    readonly status: 'running' | 'complete'
-  }
-  | {
-    readonly kind: 'diagnostic'
-    /** Traced candidate session id. */
-    readonly id: SessionId
-    /** Fixed reason the candidate could not be returned as a child. */
-    readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
-  }
 
 declare module 'cordis' {
   interface Context {
@@ -165,7 +142,7 @@ declare module 'cordis' {
   }
 }
 
-/** Named provider registry with one-shot runs and continuable-child operations. */
+/** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
@@ -247,93 +224,25 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Enumerate one session's direct continuable children from the durable,
-   * live-preferred corpus without loading or resuming an Agent. The lineage
-   * trace supplies stable candidate order and live status; each candidate is
-   * then inspected independently for exactly one supported descriptor in its
-   * own suffix. Listing is storage-read-only: session query resolves persisted
-   * candidates through the non-mutating `inspect()` read, so no catalog,
-   * descriptor, or repair event is written. Session-query reads take no signal,
-   * so cancellation is cooperative: the scan rechecks `signal` before and
-   * after the initial trace and after every other un-signalled await instead of
-   * draining a slow or large catalog after the caller has gone.
-   * @param parentSessionId - parent whose direct children are listed.
-   * @param signal - caller-owned cancellation observed between query awaits.
-   * @returns child and diagnostic entries in lineage-trace order.
+   * Enumerate the parent's direct continuable children from the live-preferred
+   * session corpus without loading or resuming an Agent. Session query supplies
+   * lineage, candidate order, event reads, and live state; this service
+   * interprets descriptors, status, and per-child diagnostics without consulting
+   * Agent registrations, Activations, or providers.
+   *
+   * The trace and exact descriptor read receive `signal`; the full event-list
+   * read has no signal parameter, so the scan rechecks cancellation around
+   * every await and between candidates. Query rejections that settle after an
+   * abort become a stable `SubagentError` with code `CANCELLED`.
+   * @param parentSessionId - parent session whose direct children are listed.
+   * @param signal - caller-owned cancellation forwarded where supported and
+   *   observed around every query await.
+   * @returns children and per-child diagnostics in stable trace order.
+   * @throws {@link SubagentError} when session query is unavailable or the
+   *   caller cancels the scan.
    */
-  async listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]> {
-    const query = this.ctx.get('sessionQuery')
-    if (query === undefined) {
-      throw new SubagentError(
-        'listing subagents requires session query (load a dsh-session-query backend)',
-        'SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE',
-      )
-    }
-    assertListingNotCancelled(signal)
-    const trace = await query.traceSession(parentSessionId)
-    assertListingNotCancelled(signal)
-    const entries: SubagentListEntry[] = []
-    for (const node of trace.descendants) {
-      const entry = await this.inspectChild(query, parentSessionId, node.session, signal)
-      // Recheck after the inspection settles, not only inside it: a mapped
-      // per-child failure during an abort becomes a diagnostic and skips the
-      // inspection's own checkpoints, and a cancelled scan must not return a
-      // successful result or start another candidate read.
-      assertListingNotCancelled(signal)
-      if (entry !== undefined) entries.push(entry)
-    }
-    return entries
-  }
-
-  /** Inspect one traced candidate without materializing its Agent. */
-  private async inspectChild(
-    query: SessionQueryService,
-    parentSessionId: SessionId,
-    candidate: SessionRecord,
-    signal?: AbortSignal,
-  ): Promise<SubagentListEntry | undefined> {
-    const childId = candidate.header.id
-    try {
-      const records = await query.listEvents(childId)
-      assertListingNotCancelled(signal)
-      // Fork seeds replay ancestor events, so only this child's suffix owns its descriptor.
-      const seedLength = candidate.header.seedLength ?? 0
-      const descriptorSeqs = records
-        .filter(record => record.seq >= seedLength && record.type === 'subagent/descriptor')
-        .map(record => record.seq)
-      if (descriptorSeqs.length === 0) return undefined
-      if (descriptorSeqs.length > 1) {
-        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
-      }
-      // The length-one branch proves this index exists.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const seq = descriptorSeqs[0]!
-      const window = await query.readEvent({ sessionId: childId, seq })
-      assertListingNotCancelled(signal)
-      assertSessionHeadersCompatible(window.session, candidate.header)
-      if (window.session.parentSession !== parentSessionId || window.target.type !== 'subagent/descriptor') {
-        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
-      }
-      let descriptor: ReturnType<typeof foldSubagentDescriptor>
-      try {
-        descriptor = foldSubagentDescriptor([window.target])
-      } catch {
-        return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
-      }
-      if (descriptor === undefined) {
-        return { kind: 'diagnostic', id: childId, reason: 'unsupported' }
-      }
-      return {
-        kind: 'child',
-        id: childId,
-        label: descriptor.label,
-        status: candidate.live ? 'running' : 'complete',
-      }
-    } catch (error: unknown) {
-      const reason = perChildDiagnosticReason(error)
-      if (reason === undefined) throw error
-      return { kind: 'diagnostic', id: childId, reason }
-    }
+  listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]> {
+    return listSubagentChildren(this.ctx, parentSessionId, signal)
   }
 
   /**
@@ -467,26 +376,3 @@ export class SubagentService extends Service {
 }
 
 export default SubagentService
-
-/** Stop a cooperative listing scan at its next cancellation checkpoint. */
-function assertListingNotCancelled(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    throw new SubagentError('subagent listing was cancelled', 'CANCELLED')
-  }
-}
-
-/** Map isolated session-query failures to the fixed child diagnostic taxonomy. */
-function perChildDiagnosticReason(error: unknown): 'corrupt' | 'unavailable' | undefined {
-  if (!(error instanceof SessionQueryError)) return undefined
-  switch (error.code) {
-    case 'SESSION_QUERY_SESSION_NOT_FOUND':
-    case 'SESSION_QUERY_EVENT_NOT_FOUND':
-    case 'SESSION_QUERY_PERSISTENCE_FAILED':
-      return 'unavailable'
-    case 'SESSION_QUERY_INVALID_SURFACE':
-    case 'SESSION_QUERY_SOURCE_CONFLICT':
-      return 'corrupt'
-    default:
-      return undefined
-  }
-}

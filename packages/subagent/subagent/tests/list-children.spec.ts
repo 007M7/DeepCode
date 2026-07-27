@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
@@ -102,6 +102,29 @@ function descriptorPayload(label: string, version = SUBAGENT_DESCRIPTOR_VERSION)
 }
 
 describe('SubagentService.listChildren', () => {
+  it('lists through session query without the Activation continuation runtime', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(TestSessionQueryService)
+    expect(ctx.get('tasks')).toBeUndefined()
+    expect(ctx.get('agents')).toBeUndefined()
+
+    const parentId = SessionId('query-only-parent')
+    ctx.sessions.create(parentId)
+    const childId = SessionId('query-only-child')
+    const child = ctx.sessions.create(childId, { meta: { parentSession: parentId } })
+    child.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    child.append('subagent/descriptor', descriptorPayload('query-only child'))
+
+    await expect(ctx.subagents.listChildren(parentId)).resolves.toEqual([
+      { kind: 'child', id: childId, label: 'query-only child', status: 'running' },
+    ])
+  })
+
   it('fails loud before any work when session query is not loaded', async () => {
     const { ctx, parent } = await setup([], { sessionQuery: false })
     await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow(
@@ -408,6 +431,49 @@ describe('SubagentService.listChildren', () => {
     expect(inspected).toBe(1)
   })
 
+  it('forwards cancellation to the initial trace and reports the stable subagent error', async () => {
+    const { ctx, parent } = await setup([])
+    const controller = new AbortController()
+    const query = ctx.get('sessionQuery')!
+    const entered = Promise.withResolvers<undefined>()
+    query.traceSession = (_sessionId, signal) => {
+      entered.resolve(undefined)
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('query trace aborted'))
+        }, { once: true })
+      })
+    }
+    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
+    await entered.promise
+    controller.abort()
+    await expect(listing).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
+  it('forwards cancellation to the exact descriptor read and reports the stable subagent error', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    await startChild(ctx, parent, 'cancelled exact read')
+    const controller = new AbortController()
+    const query = ctx.get('sessionQuery')!
+    const entered = Promise.withResolvers<undefined>()
+    query.readEvent = (_request, signal) => {
+      entered.resolve(undefined)
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('query read aborted'))
+        }, { once: true })
+      })
+    }
+    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
+    await entered.promise
+    controller.abort()
+    await expect(listing).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
   it('stops after a per-child read when the signal aborts mid-inspection', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     await startChild(ctx, parent, 'cancelled mid-read')
@@ -436,8 +502,8 @@ describe('SubagentService.listChildren', () => {
     const query = ctx.get('sessionQuery')!
     query.listEvents = () => {
       // The read fails with a diagnostic-mapped code while the caller aborts:
-      // the loop's post-inspection checkpoint must fail the scan rather than
-      // return a one-diagnostic success.
+      // cancellation normalization must fail the scan rather than return a
+      // one-diagnostic success.
       controller.abort()
       return Promise.reject(new SessionQueryError('backend read failed', 'SESSION_QUERY_PERSISTENCE_FAILED'))
     }

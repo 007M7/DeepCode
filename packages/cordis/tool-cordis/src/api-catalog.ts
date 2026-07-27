@@ -882,7 +882,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry with one-shot runs and continuable-child operations.',
+    summary: 'Named provider registry with one-shot runs, durable discovery, and continuable-child operations.',
     methods: [
       {
         signature: 'async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>',
@@ -897,8 +897,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all scoped branches settle when any failed.\n */',
       },
       {
-        signature: 'async listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
-        jsDoc: '/**\n * Enumerate one session\'s direct continuable children from the durable,\n * live-preferred corpus without loading or resuming an Agent. The lineage\n * trace supplies stable candidate order and live status; each candidate is\n * then inspected independently for exactly one supported descriptor in its\n * own suffix. Listing is storage-read-only: session query resolves persisted\n * candidates through the non-mutating `inspect()` read, so no catalog,\n * descriptor, or repair event is written. Session-query reads take no signal,\n * so cancellation is cooperative: the scan rechecks `signal` before and\n * after the initial trace and after every other un-signalled await instead of\n * draining a slow or large catalog after the caller has gone.\n * @param parentSessionId - parent whose direct children are listed.\n * @param signal - caller-owned cancellation observed between query awaits.\n * @returns child and diagnostic entries in lineage-trace order.\n */',
+        signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
+        jsDoc: '/**\n * Enumerate the parent\'s direct continuable children from the live-preferred\n * session corpus without loading or resuming an Agent. Session query supplies\n * lineage, candidate order, event reads, and live state; this service\n * interprets descriptors, status, and per-child diagnostics without consulting\n * Agent registrations, Activations, or providers.\n *\n * The trace and exact descriptor read receive `signal`; the full event-list\n * read has no signal parameter, so the scan rechecks cancellation around\n * every await and between candidates. Query rejections that settle after an\n * abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded where supported and\n *   observed around every query await.\n * @returns children and per-child diagnostics in stable trace order.\n * @throws {@link SubagentError} when session query is unavailable or the\n *   caller cancels the scan.\n */',
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
