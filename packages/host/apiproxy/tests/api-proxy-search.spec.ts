@@ -235,7 +235,7 @@ describe('session.search', () => {
       list: () => Promise.resolve(cold),
       locate: () => undefined,
     } as never)
-    const searchSessions = vi.fn(() => Promise.resolve({
+    const searchSessions = vi.fn((_request: SessionSearchRequest) => Promise.resolve({
       items: [hit('cold-32750')],
     }))
     ctx.provide('sessionQuery', { searchSessions } as never)
