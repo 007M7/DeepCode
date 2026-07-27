@@ -17,10 +17,10 @@ const text = (t: string): ContentBlock[] => [{ type: 'text', text: t }]
 const rid = (id: string): RpcId => id as RpcId
 
 /** session/queued frame with the wire-sourced rpcId key (the host prompt path). */
-function queuedFrame(body: string, rpcId: string, steering = false): MuxFrame {
+function queuedFrame(body: string, rpcId: string): MuxFrame {
   return {
     type: 'session/queued', sessionId: SID, content: text(body),
-    source: { kind: 'user', rpcId: rid(rpcId) } as never, steering,
+    source: { kind: 'user', rpcId: rid(rpcId) } as never,
   }
 }
 
@@ -41,7 +41,7 @@ describe('queue intake', () => {
     session.handleMuxEnvelope(rid('env-2'), {
       type: 'session/queued', sessionId: SID,
       content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
-      source: { kind: 'plugin', plugin: 'loop' }, steering: false,
+      source: { kind: 'plugin', plugin: 'loop' },
     })
     expect(session.getSnapshot().queue).toEqual([{ key: 'f:env-2', preview: 'hi [image]' }])
   })
@@ -85,22 +85,29 @@ describe('queue retirement (host queuedMirror rules)', () => {
 
   it('steering/message drains the source-matched steering row only', () => {
     const session = makeSession()
-    session.handleMuxEnvelope(rid('e1'), queuedFrame('普通', 'p-1'))
-    session.handleMuxEnvelope(rid('e2'), queuedFrame('插话', 'p-2', true))
+    session.handleMuxEnvelope(rid('e1'), queuedFrame('普通', 'p-1')) // idle → non-steering
+    // Injection-triggered turn/start opens the turn without claiming a row, so
+    // the next queued frame is derived steering (arrived mid-turn).
+    const injection = {
+      ...ev.turnStart(0, 0),
+      data: { turn: 0, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'x' } } },
+    } as never
+    session.handleMuxEnvelope(rid('e2'), { type: 'session/event', sessionId: SID, event: injection })
+    session.handleMuxEnvelope(rid('e3'), queuedFrame('插话', 'p-2')) // turn open → steering
     // Loop-authored steering (different source) must not consume the user entry.
     const foreignSteering = {
       seq: 0, time: 1,
       type: 'steering/message', surfaceOp: 'append',
       data: { turn: 0, content: text('loop'), source: { kind: 'plugin', plugin: 'loop' } },
     } as never
-    session.handleMuxEnvelope(rid('e3'), { type: 'session/event', sessionId: SID, event: foreignSteering })
+    session.handleMuxEnvelope(rid('e4'), { type: 'session/event', sessionId: SID, event: foreignSteering })
     expect(session.getSnapshot().queue).toHaveLength(2)
     const matchedSteering = {
       seq: 1, time: 2,
       type: 'steering/message', surfaceOp: 'append',
       data: { turn: 0, content: text('插话'), source: { kind: 'user', rpcId: rid('p-2') } },
     } as never
-    session.handleMuxEnvelope(rid('e4'), { type: 'session/event', sessionId: SID, event: matchedSteering })
+    session.handleMuxEnvelope(rid('e5'), { type: 'session/event', sessionId: SID, event: matchedSteering })
     expect(session.getSnapshot().queue.map(r => r.key)).toEqual(['p-1'])
   })
 
@@ -108,7 +115,7 @@ describe('queue retirement (host queuedMirror rules)', () => {
     const session = makeSession()
     session.handleRunning(true)
     session.handleMuxEnvelope(rid('e1'), queuedFrame('一', 'p-1'))
-    session.handleMuxEnvelope(rid('e2'), queuedFrame('二', 'p-2', true))
+    session.handleMuxEnvelope(rid('e2'), queuedFrame('二', 'p-2'))
     session.handleRunning(false)
     expect(session.getSnapshot().queue).toEqual([])
   })

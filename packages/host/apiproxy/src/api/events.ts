@@ -72,7 +72,7 @@ export type MuxFrame =
    * source carries the prompt's rpcId when the message came over this wire
    * (the client's provisional-echo reconciliation key).
    */
-  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
+  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource }
   | { type: 'stream/error'; error: RpcError }
 
 /**

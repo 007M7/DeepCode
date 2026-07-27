@@ -384,7 +384,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) queuedMirror.set(agent.id, entries = new Map<AgentMessageId, AgentMessage>())
         entries.set(message.id, message)
-        broadcast({ type: 'session/queued', sessionId: agent.id, content: message.content, source: message.source, steering: message.steering })
+        broadcast({ type: 'session/queued', sessionId: agent.id, content: message.content, source: message.source })
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
         retire(agent, message.id)
@@ -907,7 +907,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
           for (const entry of entries.values()) {
-            queue.push(frame({ type: 'session/queued', sessionId, content: entry.content, source: entry.source, steering: entry.steering }))
+            queue.push(frame({ type: 'session/queued', sessionId, content: entry.content, source: entry.source }))
           }
         }
         // Per-session open-call table for result-view pairing. Bounded by the

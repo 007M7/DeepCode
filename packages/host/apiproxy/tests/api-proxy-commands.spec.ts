@@ -238,14 +238,11 @@ describe('host/commands-changed frame', () => {
 })
 
 /** Build one frozen inbox message for the live `agent/inbox/*` events. */
-function inboxMessage(id: string, text: string, steering: boolean, rpcId?: string): AgentMessage {
+function inboxMessage(id: string, text: string, rpcId?: string): AgentMessage {
   return Object.freeze({
     id: AgentMessageId(id),
     content: [{ type: 'text' as const, text }],
     source: rpcId === undefined ? { kind: 'user' as const } : { kind: 'user' as const, rpcId: RpcId(rpcId) },
-    contexts: [],
-    steering,
-    wakeup: true,
   })
 }
 
@@ -259,15 +256,15 @@ describe('session/queued frames', () => {
     // subscribed baseline + 2 queued frames
     const liveCollected = collect<MuxFrame>(liveStream, 3, live)
 
-    const queued = inboxMessage('m-1', 'queued prompt', false)
-    const steering = inboxMessage('m-2', 'queued prompt', true)
+    const queued = inboxMessage('m-1', 'queued prompt')
+    const steering = inboxMessage('m-2', 'queued prompt')
     ctx.emit('agent/inbox/enqueue', agent, queued)
     ctx.emit('agent/inbox/enqueue', agent, steering)
 
     const liveFrames = (await liveCollected).filter(f => f.type === 'session/queued')
     expect(liveFrames).toEqual([
-      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' }, steering: false },
-      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' }, steering: true },
+      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' } },
+      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' } },
     ])
 
     // A fresh mux connection replays the still-pending entries as its baseline.
@@ -281,8 +278,8 @@ describe('session/queued frames', () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
-    const queued = inboxMessage('m-3', 'x', false)
-    const steering = inboxMessage('m-4', 'x', true, 'r-1')
+    const queued = inboxMessage('m-3', 'x')
+    const steering = inboxMessage('m-4', 'x', 'r-1')
     ctx.emit('agent/inbox/enqueue', agent, queued)
     ctx.emit('agent/inbox/enqueue', agent, steering)
     ctx.emit('agent/inbox/dequeue', agent, queued)
@@ -298,8 +295,8 @@ describe('session/queued frames', () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
-    const doomed = inboxMessage('m-5', 'doomed', false)
-    const survivor = inboxMessage('m-6', 'survivor', false)
+    const doomed = inboxMessage('m-5', 'doomed')
+    const survivor = inboxMessage('m-6', 'survivor')
     ctx.emit('agent/inbox/enqueue', agent, doomed)
     ctx.emit('agent/inbox/enqueue', agent, survivor)
     ctx.emit('agent/inbox/discard', agent, [doomed])
