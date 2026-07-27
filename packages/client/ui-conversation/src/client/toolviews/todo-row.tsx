@@ -11,8 +11,8 @@ import type { Context } from 'cordis'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
-import type { PlanItemLike } from '../contract/todo-plan-model.ts'
-import { planSummary } from '../contract/todo-plan-model.ts'
+import type { PlanItemLike } from './plan-summary.ts'
+import { planSummary } from './plan-summary.ts'
 import css from './todo-row.module.css'
 
 function isItem(value: unknown): value is PlanItemLike {

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
- * Todo display acceptance: the shared plan model (counts plus the two halves of
- * the one-line active hint — the named task and the `+N` count that parallel
- * work adds, kept apart so neither surface ellipsizes the count away), the
- * TodoPanel plan strip (empty-hidden, status rows, collapse with active
- * hint), its TodoDock adapter (selects the plan off the session snapshot and
- * follows changes), and the todo_write toolview row (progress summary from
- * args, generic fallback on malformed JSON, error badge, keyboard activation).
+ * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status rows
+ * including several `in_progress` at once, collapse), its TodoDock adapter
+ * (selects the plan off the session snapshot and follows changes), the row's
+ * plan summary (counts plus the two halves of the active summary — the named
+ * task and the `+N` count that parallel work adds, kept apart so the row never
+ * ellipsizes the count away), and the todo_write toolview row (progress summary
+ * from args, generic fallback on malformed JSON, error badge, keyboard
+ * activation).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +19,7 @@ import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/clien
 import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
-import { planSummary } from '../src/client/contract/todo-plan-model.ts'
+import { planSummary } from '../src/client/toolviews/plan-summary.ts'
 
 afterEach(cleanup)
 
@@ -44,7 +45,7 @@ describe('planSummary', () => {
 
   it('reports the extra active count separately when several items are in progress', () => {
     // Parallel work marks several: naming one and hiding the rest would lose
-    // them, and the count stays unjoined so neither surface can ellipsize it.
+    // them, and the count stays unjoined so the row cannot ellipsize it.
     expect(planSummary(PARALLEL)).toEqual({ done: 1, total: 5, activeContent: '写组件', activeExtra: 2 })
   })
 
@@ -73,50 +74,47 @@ describe('TodoPanel', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('shows progress, one row per item with its status, and strikes done items', () => {
+  it('shows progress, one row per item with its status glyph', () => {
     render(<TodoPanel todos={LIST} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
-    expect(screen.getByText('1/3')).toBeTruthy()
+    expect(screen.getByText('To-dos')).toBeTruthy()
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
     expect(screen.getByText('搭骨架')).toBeTruthy()
     expect(screen.getByText('写组件')).toBeTruthy()
+    // Each status row carries an SVG glyph (not a text bullet).
+    expect(items.every(li => li.querySelector('svg') !== null)).toBe(true)
   })
 
-  it('collapse hides the list and surfaces the active item in the header; expand restores', () => {
+  it('collapse hides the list; expand restores; header keeps the count summary', () => {
     render(<TodoPanel todos={LIST} />)
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
-    // Collapsed header carries the in-progress content as the one-line hint.
-    expect(screen.getByText('写组件')).toBeTruthy()
+    // Collapsed header is title + progress only (no in-progress content hint).
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.queryByText('写组件')).toBeNull()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
-  it('shows every parallel active item expanded, and counts the extra ones collapsed', () => {
+  it('marks every parallel active item, and counts them all in the header', () => {
     render(<TodoPanel todos={PARALLEL} />)
-    // Expanded: one row per item, all three active ones carrying the ● glyph.
+    // The cap this branch removes made this list unreachable: three items carry
+    // the in-progress glyph at once, and the header counts all three.
     const statuses = screen.getAllByRole('listitem').map(li => li.getAttribute('data-status'))
     expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)
     expect(screen.getByText('跑后台构建')).toBeTruthy()
     expect(screen.getByText('读源码')).toBeTruthy()
-    // Collapsed: the hint reports the other two rather than dropping them, and
-    // the count lives in its own element — the task-name span is the one that
-    // ellipsizes, so a joined "写组件 +2" would lose the count on a narrow view.
-    fireEvent.click(screen.getByRole('button', { expanded: true }))
-    expect(screen.queryByRole('list')).toBeNull()
-    const name = screen.getByText('写组件')
-    const extra = screen.getByText('+2')
-    expect(extra).not.toBe(name)
-    expect(name.contains(extra)).toBe(false)
+    expect(screen.getByText('1/5 tasks · 3 in progress')).toBeTruthy()
   })
 
-  it('collapsed header omits the hint when nothing is in progress', () => {
+  it('collapsed header still shows zero in-progress when nothing is active', () => {
     render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} />)
     fireEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByText('都完了')).toBeNull()
-    expect(screen.getByText('1/1')).toBeTruthy()
+    expect(screen.getByText('1/1 tasks · 0 in progress')).toBeTruthy()
   })
 })
 
@@ -131,7 +129,7 @@ describe('TodoDock', () => {
     render(<TodoDock {...dockProps(store)} />)
     expect(screen.queryByTestId('todo-panel')).toBeNull()
     act(() => { store.set({ todos: LIST }) })
-    expect(screen.getByText('1/3')).toBeTruthy()
+    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
     // A rollback to the empty list retires the strip (the panel owns no data).
     act(() => { store.set({ todos: [] }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()

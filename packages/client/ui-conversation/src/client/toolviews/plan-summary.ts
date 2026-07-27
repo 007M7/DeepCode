@@ -1,16 +1,16 @@
 /**
- * Pure plan derivation shared by the two todo surfaces: the plan strip header
- * (skeleton domain) and the todo_write row (toolviews domain). Both need the
- * same done/total counts and the same one-line active hint, and several items
+ * Pure plan derivation for the todo_write row's one-line summary. Several items
  * may be `in_progress` at once — parallel work runs concurrent tasks, so a
- * hint built from one active item would silently drop the rest.
+ * summary built from one active item would silently drop the rest. The plan
+ * strip header derives its own `<done>/<total> tasks · <n> in progress` counts
+ * inline and shares nothing with this, so this stays inside the toolviews
+ * domain rather than in `contract/` (the inter-domain face).
  * @module
  */
 
 /**
- * One list item as either surface sees it: the typed `TodoItem` off the session
- * snapshot, or unvalidated model JSON parsed from a call's args (any field may
- * be missing or mistyped).
+ * One list item as the row sees it: unvalidated model JSON parsed from a call's
+ * args, so any field may be missing or mistyped.
  */
 export interface PlanItemLike {
   content?: unknown
@@ -18,11 +18,11 @@ export interface PlanItemLike {
 }
 
 /**
- * Counts plus the two halves of the one-line hint, deliberately NOT pre-joined:
- * both surfaces ellipsize the hint, and a count concatenated onto the end of
- * the task name is the first thing a narrow viewport clips — exactly when it
- * carries information. Each surface renders `activeExtra` in its own
- * non-shrinking span beside the truncatable `activeContent`.
+ * Counts plus the two halves of the summary, deliberately NOT pre-joined: the
+ * row ellipsizes its summary text, and a count concatenated onto the end of the
+ * task name is the first thing a narrow row clips — exactly when it carries
+ * information. The row renders `activeExtra` in its own non-shrinking span
+ * beside the truncatable text.
  */
 export interface PlanSummary {
   done: number
@@ -34,14 +34,14 @@ export interface PlanSummary {
 }
 
 /**
- * Derive the counts and the active hint from a whole-list snapshot. The hint
- * names the first `in_progress` item and counts the remaining active ones, so a
+ * Derive the counts and the active summary from a whole-list snapshot. It names
+ * the first `in_progress` item and counts the remaining active ones, so a
  * parallel plan reports how many tasks are running rather than naming one and
  * hiding the others. `activeContent` is null when nothing is in progress, or
  * when the first active item carries no usable content — model JSON may, and
  * the caller then falls back to its own summary.
  * @param todos - the whole list, in model order.
- * @returns the done/total counts and the two hint halves.
+ * @returns the done/total counts and the two summary halves.
  */
 export function planSummary(todos: readonly PlanItemLike[]): PlanSummary {
   const active = todos.filter(t => t.status === 'in_progress')

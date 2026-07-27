@@ -5,13 +5,7 @@
 // surfaces: the dedicated TodoRow in the chat flow (keyed toolview, summary
 // derived from the call args) and the TodoPanel plan strip riding the
 // 'conversation.input.dock' slot (fed by ConversationSnapshot.todos, seeded
-// by the tail history page), including the collapse interaction. The sample
-// plan runs two items in_progress at once, so both surfaces are pinned against
-// a parallel plan — the collapsed one-line hint must account for the second
-// active item instead of naming the first and dropping it. The `+1` reads
-// against the task name with no space because it is a separate non-shrinking
-// span (spaced by the flex `gap`), kept outside the ellipsized text so a narrow
-// viewport clips the task name rather than the count.
+// by the tail history page), including the collapse interaction.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -139,6 +133,10 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   const panel = document.querySelector('[data-testid="todo-panel"]')
   if (panel === null) throw new Error('todo panel missing from the input dock')
 
+  // Header spans are adjacent inline nodes; textContent joins "To-dos" +
+  // "1/4…" with no space (visual gap is CSS gap: 10px, not a text node).
+  // The fixture runs two items in_progress at once, so this pins both the
+  // panel's parallel count and the row's `+1` outside its ellipsized text.
   expect({
     row: visibleText(row),
     rowState: row.getAttribute('data-state'),
@@ -149,23 +147,23 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
     })),
   }).toMatchInlineSnapshot(`
     {
-      "panelHeader": "Plan1/4",
+      "panelHeader": "To-dos1/4 tasks · 2 in progress",
       "panelItems": [
         {
           "status": "completed",
-          "text": "✓梳理需求",
+          "text": "梳理需求",
         },
         {
           "status": "in_progress",
-          "text": "●实现 fixture 样本",
+          "text": "实现 fixture 样本",
         },
         {
           "status": "in_progress",
-          "text": "●跑后台构建",
+          "text": "跑后台构建",
         },
         {
           "status": "pending",
-          "text": "○浏览器验收",
+          "text": "浏览器验收",
         },
       ],
       "row": "☰更新任务清单1/4 已完成 · 实现 fixture 样本+1",
@@ -174,7 +172,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   `)
 })
 
-it('collapses the plan strip to the in-progress hint and restores it', async () => {
+it('collapses the plan strip to the count summary and restores it', async () => {
   boot()
   await openFixtureSession()
 
@@ -189,7 +187,7 @@ it('collapses the plan strip to the in-progress hint and restores it', async () 
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
-      "collapsedHeader": "Plan1/4实现 fixture 样本+1",
+      "collapsedHeader": "To-dos1/4 tasks · 2 in progress",
       "listGone": true,
     }
   `)
