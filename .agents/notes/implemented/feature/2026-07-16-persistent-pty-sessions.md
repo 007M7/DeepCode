@@ -154,7 +154,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 - Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
 - Linux process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
-- Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
+- Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT` after deliberately delayed child readiness under scenario-owned timing bounds, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, core data structures, generated catalogs, and the website API describe the same shipped surface.
 - The repository CI-equivalent sequence owns type, lint, coverage, snapshot, documentation, build, hygiene, demo, and built-entry verification.
