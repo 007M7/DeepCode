@@ -667,16 +667,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ...cursor === undefined ? {} : { cursor },
             }, { signal })
             if (isAborted(signal)) return cancelled()
-            if (page.items.length > SESSION_SEARCH_LIMIT) {
+            const providerItemCount = page.items.length
+            if (providerItemCount > SESSION_SEARCH_LIMIT) {
               throw new Error(
-                `session search provider returned ${page.items.length} items; maximum is ${SESSION_SEARCH_LIMIT}`,
+                `session search provider returned ${providerItemCount} items; maximum is ${SESSION_SEARCH_LIMIT}`,
               )
             }
             // Host visibility is the authorization boundary. Consume the
             // provider's globally ranked stream rather than binding every
             // visible id into one SQLite statement, then re-check complete
-            // provenance before emitting any snippet.
-            for (const hit of page.items) {
+            // provenance before emitting any snippet. Inspect exactly the
+            // declared array entries so a custom iterator cannot overproduce.
+            for (let itemIndex = 0; itemIndex < providerItemCount; itemIndex++) {
+              const hit = page.items[itemIndex]
+              if (hit === undefined) {
+                throw new Error(`session search provider omitted item at index ${itemIndex}`)
+              }
+              if (authorized.length > SESSION_SEARCH_LIMIT) continue
               if (
                 !visibleIds.has(hit.header.id)
                 || hit.bestMatch.sessionId !== hit.header.id
@@ -689,14 +696,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 sessionId: hit.header.id,
                 snippet: hit.bestMatch.snippet,
               })
-              if (authorized.length > SESSION_SEARCH_LIMIT) break
             }
-            if (authorized.length > SESSION_SEARCH_LIMIT || page.nextCursor === undefined) break
-            if (seenCursors.has(page.nextCursor)) {
-              throw new Error('session search provider repeated a continuation cursor')
+            const nextCursor = page.nextCursor
+            if (nextCursor !== undefined) {
+              if (seenCursors.has(nextCursor)) {
+                throw new Error('session search provider repeated a continuation cursor')
+              }
+              seenCursors.add(nextCursor)
             }
-            seenCursors.add(page.nextCursor)
-            cursor = page.nextCursor
+            if (authorized.length > SESSION_SEARCH_LIMIT || nextCursor === undefined) break
+            cursor = nextCursor
           }
           return ok(request, {
             items: authorized.slice(0, SESSION_SEARCH_LIMIT),

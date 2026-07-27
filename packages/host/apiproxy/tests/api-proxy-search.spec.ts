@@ -272,6 +272,33 @@ describe('session.search', () => {
     expect(iterate).not.toHaveBeenCalled()
   })
 
+  it('inspects only numerically stored items when a compliant page overrides iteration', async () => {
+    const ctx = await baseContext()
+    const visible = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
+    for (const item of visible) {
+      ctx.sessions.create(item.header.id, { meta: item.header })
+    }
+    const stored = visible.slice(0, 1)
+    const iterate = vi.fn(() => visible.values())
+    Object.defineProperty(stored, Symbol.iterator, { value: iterate })
+    const searchSessions = vi.fn(() => Promise.resolve({ items: stored }))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('custom-iterator'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'visible-0', snippet: 'match 0' }],
+        hasMore: false,
+      },
+    })
+    expect(iterate).not.toHaveBeenCalled()
+  })
+
   it('fails closed when the provider repeats a continuation cursor', async () => {
     const ctx = await baseContext()
     ctx.sessions.create(sid('visible'), { meta: header('visible') })
@@ -288,6 +315,32 @@ describe('session.search', () => {
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error).toMatchObject({ code: 'internal' })
+    expect(response.result.error.message).toContain('repeated a continuation cursor')
+    expect(searchSessions).toHaveBeenCalledTimes(2)
+  })
+
+  it('validates a repeated cursor before accepting the authorized lookahead', async () => {
+    const ctx = await baseContext()
+    const items = Array.from({ length: 21 }, (_, index) => hit(`visible-${index}`, index))
+    for (const item of items) {
+      ctx.sessions.create(item.header.id, { meta: item.header })
+    }
+    const searchSessions = vi.fn()
+      .mockResolvedValueOnce({ items: items.slice(0, 20), nextCursor: 'repeated' })
+      .mockResolvedValueOnce({ items: items.slice(20), nextCursor: 'repeated' })
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('repeated-lookahead-cursor'),
+      new AbortController().signal,
+    )
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'internal' },
+    })
+    expect(response.result).not.toHaveProperty('value')
+    if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error.message).toContain('repeated a continuation cursor')
     expect(searchSessions).toHaveBeenCalledTimes(2)
   })
