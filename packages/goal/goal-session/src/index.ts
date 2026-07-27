@@ -37,7 +37,6 @@ interface RoundAttempt extends RoundIdentity {
   phase: 'queued' | 'admitted'
   turn: number | undefined
   reason: TurnEndReason | undefined
-  rejectedReason: string | undefined
   stale: boolean
 }
 
@@ -106,7 +105,7 @@ export function apply(ctx: Context): void {
 
   /** Read only when the exact Agent remains live. */
   function currentGoal(state: DriverState): GoalView | undefined {
-    if (ctx.agents.get(state.agent.id) !== state.agent || state.agent.status === 'disposed') return undefined
+    if (ctx.agents.get(state.agent.id) !== state.agent) return undefined
     return ctx.goals.get(state.agent)
   }
 
@@ -177,6 +176,9 @@ export function apply(ctx: Context): void {
 
     const attempt = state.attempt
     if (attempt !== undefined) {
+      // Still unsettled: a contained turn-close failure reaches idle with the
+      // attempt's turn open in the log and no terminal reason recorded, so
+      // the drive pass must yield rather than misread it as settled.
       if (attempt.reason === undefined) return
       state.attempt = undefined
       const turn = attempt.turn
@@ -186,12 +188,18 @@ export function apply(ctx: Context): void {
       const goal = currentGoal(state)
       if (goal !== undefined && goal.id === attempt.goalId && goal.revision === attempt.revision
         && goal.phase === 'active' && goal.activation === 'armed') {
-        const outcome = attempt.phase === 'queued' && attempt.rejectedReason !== undefined && !attempt.stale
-          ? { kind: 'blocked', code: 'prompt-rejected', message: attempt.rejectedReason } as const
-          : classifyGoalRound(attempt.reason, durable)
+        const outcome = classifyGoalRound(attempt.reason, durable)
         if (!attempt.stale) applyOutcome(state, goal, outcome)
       }
       if (!readyToDrive(state)) return
+      // The loop's persistence is eager write-behind with no turn-end flush,
+      // so this driver owns the round's durability barrier: checkpoint the
+      // settled round before reserving another (re-entering drive through
+      // the flush path above), disarming on failure instead of queueing an
+      // autonomous round on state that was never persisted.
+      state.needsCheckpoint = true
+      state.requested = true
+      return
     }
 
     const goal = currentGoal(state)
@@ -214,14 +222,11 @@ export function apply(ctx: Context): void {
       phase: 'queued',
       turn: undefined,
       reason: undefined,
-      rejectedReason: undefined,
       stale: false,
     }
     state.attempt = reservation
     try {
-      agent.followup(content, {
-        source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
-      })
+      agent.followup({ content: content, source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round } })
     } catch (error: unknown) {
       state.attempt = undefined
       ctx.logger.warn(`goal-session: could not queue round ${round} for agent "${agent.id}": ${renderThrown(error)}`)
@@ -297,10 +302,6 @@ export function apply(ctx: Context): void {
     })
     ctx.on('agent/status', (agent, status) => {
       const state = stateFor(agent)
-      if (status === 'disposed') {
-        state.stopping = true
-        return
-      }
       if (status === 'idle') {
         state.competingQueued = false
         requestDrive(state)
@@ -316,7 +317,6 @@ export function apply(ctx: Context): void {
     ctx.on('agent/cancel-requested', (agent, cause) => {
       const state = stateFor(agent)
       const attempt = state.attempt
-      state.attempt = undefined
       state.competingQueued = false
       const goal = currentGoal(state)
       if (goal?.phase === 'active' && goal.activation === 'armed') {
@@ -324,6 +324,12 @@ export function apply(ctx: Context): void {
           disarm(state)
           return
         }
+        // An admitted round closes durably as aborted; retain it so the normal
+        // turn outcome path appends pause after cancellation reaches idle.
+        // Pausing here would stage context into the active outbox only for this
+        // same cancel() call to discard it.
+        if (attempt.turn !== undefined || attempt.phase === 'admitted') return
+        state.attempt = undefined
         try {
           applyOutcome(state, goal, { kind: 'pause', reason: cause.kind })
         } catch (error: unknown) {
@@ -352,6 +358,17 @@ export function apply(ctx: Context): void {
                 state.attempt.turn = event.data.turn
               }
               return
+            case 'retry':
+              // A recovery policy (llm-retry) closed the round's failed turn
+              // and reopened its history: the attempt rides the retry turn,
+              // and the failed turn's provisional reason no longer settles
+              // the round — the retry's own outcome does.
+              if (state.attempt !== undefined && state.attempt.reason !== undefined
+                && state.attempt.reason.kind === 'error') {
+                state.attempt.turn = event.data.turn
+                state.attempt.reason = undefined
+              }
+              return
             default:
               // Injection and merge-extensible plugin triggers cannot admit a queued goal message.
               return
@@ -362,15 +379,6 @@ export function apply(ctx: Context): void {
             state.attempt.phase = 'admitted'
             /* v8 ignore next -- this driver's admitted message always follows its observed turn/start */
             if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
-          }
-          return
-        case 'prompt/blocked':
-          if (state.attempt !== undefined && state.attempt.phase === 'queued'
-          && isGoalRoundSource(event.data.source) && sameRound(event.data.source, state.attempt)) {
-          /* v8 ignore next -- this driver's rejected message always follows its observed turn/start */
-            if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
-            state.attempt.rejectedReason = event.data.reason
-            if (event.data.reason === STALE_ROUND_REASON) state.attempt.stale = true
           }
           return
         case 'turn/end':
@@ -411,11 +419,41 @@ export function apply(ctx: Context): void {
       }
       if (!valid) {
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) attempt.stale = true
+        if (attempt !== undefined && sameRound(source, attempt)) {
+          attempt.stale = true
+          state.attempt = undefined
+        }
+        requestDrive(state)
         return { kind: 'block', reason: STALE_ROUND_REASON }
       }
-      const decision = await next()
-      if (decision.kind === 'block') return decision
+      let decision: PromptDecision
+      try {
+        decision = await next()
+      } catch (error: unknown) {
+        // A throwing downstream hook drops the whole admission: the loop
+        // returns to idle without a turn, so a still-queued reservation would
+        // starve every later drive pass. Clear it and let the driver
+        // reschedule the round.
+        const attempt = state.attempt
+        if (attempt !== undefined && sameRound(source, attempt) && attempt.turn === undefined) {
+          state.attempt = undefined
+          requestDrive(state)
+        }
+        throw error
+      }
+      if (decision.kind === 'block') {
+        const attempt = state.attempt
+        if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
+        const goal = currentGoal(state)
+        if (goal !== undefined && goal.id === source.goalId && goal.revision === source.revision
+          && goal.phase === 'active' && goal.activation === 'armed') {
+          ctx.goals.block(agent, goalRef(goal), {
+            code: 'prompt-rejected',
+            message: decision.reason,
+          })
+        }
+        return decision
+      }
       try {
         valid = validReservation(state, content, source)
       } catch (error: unknown) {
@@ -425,7 +463,11 @@ export function apply(ctx: Context): void {
       }
       if (!valid) {
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) attempt.stale = true
+        if (attempt !== undefined && sameRound(source, attempt)) {
+          attempt.stale = true
+          state.attempt = undefined
+        }
+        requestDrive(state)
         return { kind: 'block', reason: STALE_ROUND_REASON }
       }
       return decision

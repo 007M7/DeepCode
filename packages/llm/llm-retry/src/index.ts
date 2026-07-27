@@ -1,13 +1,13 @@
 /**
- * Bounded transient model-request retry policy on the agent loop's closed-step
- * recovery seam. Each scheduled retry is durable before its cancellable wait.
+ * Bounded transient model-request retry policy on the agent request-recovery
+ * seam. Each scheduled retry is durable before its cancellable wait.
  *
  * @module @deepseek-ai/dsh-llm-retry
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, RequestError, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -145,7 +145,8 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   const resolved = resolveConfig(config)
   const random = internals.random ?? Math.random
   const lifetime = new AbortController()
-  const active = new Set<Promise<RequestErrorDecision>>()
+  const active = new Set<Promise<RequestErrorAction>>()
+  const retries = new WeakMap<Agent, number>()
 
   async function backoff(
     agent: Agent,
@@ -155,9 +156,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     retry: number,
     delayMs: number,
     signal: AbortSignal,
-  ): Promise<RequestErrorDecision> {
+  ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-    if (fusedSignal.aborted) return { action: 'fail' }
+    if (fusedSignal.aborted) return
     agent.session.append('llm/retry', {
       turn,
       step,
@@ -166,9 +167,22 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       delayMs,
       failure,
     })
-    if (!await cancellableDelay(delayMs, fusedSignal)) return { action: 'fail' }
-    return { action: 'retry' }
+    retries.set(agent, retry)
+    if (!await cancellableDelay(delayMs, fusedSignal)) return
+    return { kind: 'retry' }
   }
+
+  ctx.on('agent/settled', (agent) => {
+    retries.delete(agent)
+  })
+
+  // A completed model response ends the consecutive-failure sequence even
+  // when its tool calls keep the turn running into another request.
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'assistant/message') return
+    const agent = ctx.agents.get(session.id)
+    if (agent?.session === session) retries.delete(agent)
+  })
 
   const disposeListener = ctx.on('agent/request-error', (
     agent: Agent,
@@ -176,19 +190,18 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     step: number,
     _error: RequestError,
     failure: LlmFailure,
-    priorFailures: readonly LlmFailure[],
     signal: AbortSignal,
-    next: () => Promise<RequestErrorDecision>,
+    next: () => Promise<RequestErrorAction>,
   ) => {
     // A waterfall may have captured this callback before its registration was
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
-    if (lifetime.signal.aborted) return Promise.resolve<RequestErrorDecision>({ action: 'fail' })
+    if (lifetime.signal.aborted) return Promise.resolve<RequestErrorAction>(undefined)
     if (!resolved.retryableCodes.has(failure.code)) return next()
-    const priorTransientFailures = priorFailures.filter(item => resolved.retryableCodes.has(item.code)).length
-    if (priorTransientFailures >= resolved.maxTransientRetries) return next()
+    const priorRetries = retries.get(agent) ?? 0
+    if (priorRetries >= resolved.maxTransientRetries) return next()
 
-    const retry = priorTransientFailures + 1
+    const retry = priorRetries + 1
     let delayMs: number
     if (failure.providerRetryAfterMs !== undefined
       && Number.isFinite(failure.providerRetryAfterMs)

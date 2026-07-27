@@ -6,7 +6,7 @@ English | [中文](2026-07-21-compaction-summary-prefix-cache-reuse.zh.md)
 
 ## Problem
 
-Automatic compaction fires mid-conversation, right after the loop has warmed the provider's KV cache with the last routed request (`system` + `tools` + `messagePrefix` + derived history). The default summarizer then issued a *separate* auxiliary request whose prefix shared nothing with that warm request: a bespoke summarizer `system` prompt followed by the older history flattened to a single rendered transcript string. A provider caches on the request's leading token sequence, so a first token that differs — a different system prompt — invalidates the entire cached prefix. Every compaction therefore paid full prompt-processing cost for the whole replayed history twice: once for the conversation request that tripped pressure, and again for the summarization call, defeating the cache exactly when the conversation is largest.
+Automatic compaction fires mid-conversation, right after the loop has warmed the provider's KV cache with the last routed request (`system` + `tools` + derived history). The default summarizer then issued a *separate* auxiliary request whose prefix shared nothing with that warm request: a bespoke summarizer `system` prompt followed by the older history flattened to a single rendered transcript string. A provider caches on the request's leading token sequence, so a first token that differs — a different system prompt — invalidates the entire cached prefix. Every compaction therefore paid full prompt-processing cost for the whole replayed history twice: once for the conversation request that tripped pressure, and again for the summarization call, defeating the cache exactly when the conversation is largest.
 
 ## Decision
 
@@ -14,7 +14,7 @@ The summarization directive moves from the **front** of the request (a fresh `sy
 
 ### `SummarizationInput` carries the replayed prefix, not a rendered string
 
-`summarize()` (and the internal `summarizeWithLlm`) take a `SummarizationInput` — `{ system?, tools?, messages }` — instead of a flat transcript string. `region.ts` builds it from `session.requestHeader()` (the durable `system`, `tools`, and `messagePrefix`) plus the shadowed region mapped through `session.deriveEventMessage`, which yields byte-identical `Message` objects to what `deriveMessages()` folded into the routed request. `summarizeWithLlm` forwards `system` and `tools` onto `GenerateOptions` and sends `[...input.messages, { role: 'user', content: COMPACTION_INSTRUCTION }]`. `tools` ride along even though the summarizer never calls one: dropping them would shorten the token sequence and break alignment with the cached request.
+`summarize()` (and the internal `summarizeWithLlm`) take a `SummarizationInput` — `{ system?, tools?, messages }` — instead of a flat transcript string. `region.ts` builds it from `session.requestHeader()` (the durable `system` and `tools`) plus the shadowed region mapped through `session.deriveEventMessage`, which yields byte-identical `Message` objects to what `deriveMessages()` folded into the routed request. `summarizeWithLlm` forwards `system` and `tools` onto `GenerateOptions` and sends `[...input.messages, { role: 'user', content: COMPACTION_INSTRUCTION }]`. `tools` ride along even though the summarizer never calls one: dropping them would shorten the token sequence and break alignment with the cached request.
 
 ### The instruction is a trailing user message
 
@@ -27,7 +27,7 @@ Auto-compaction always anchors at the surface head, so the shadowed region is th
 ## Alternatives considered
 
 - **Keep the summarizer system prompt but reuse the rest** — rejected: the system slot is the very first token region a provider caches on, so a distinct summarizer system prompt invalidates the whole prefix regardless of what follows. Only moving the directive off the front recovers the cache.
-- **Send only the shadowed region without the `system`/`tools`/`messagePrefix` head** — rejected: a shorter or differently-headed sequence still diverges from the cached request at the first token, so it caches no better while losing the framing the summary needs.
+- **Send only the shadowed region without the `system`/`tools` head** — rejected: a differently-headed sequence still diverges from the cached request at the first token, so it caches no better while losing the framing the summary needs.
 - **Omit `tools` from the summarization request** (the model never calls one) — rejected: tool schemas are part of the cached token sequence; omitting them misaligns every following token and defeats reuse.
 - **A dedicated `assistant/chunk`-emitting summarization sub-session for snapshot replay** — out of scope here; the replay gap predates this change and is tracked in the [compaction-seam note](../feature/2026-06-18-compaction-capability-seam.md).
 

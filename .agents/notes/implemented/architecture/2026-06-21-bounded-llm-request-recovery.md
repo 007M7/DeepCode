@@ -6,9 +6,9 @@ English | [中文](2026-06-21-bounded-llm-request-recovery.zh.md)
 
 ## Problem
 
-`dsh-llm` can report provider failures either by throwing during adapter dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary tags thrown failures so `dsh-agent-loop` can distinguish them from middleware and result-processing defects, and the loop normalizes both delivery forms into `agent/request-error` after closing the failed step. The default decision is `fail`; `dsh-compact-basic` is the only shipped recovery listener, and it retries a canonical context-window overflow only after compaction proves that the durable surface shrank.
+`dsh-llm` can report provider failures either by throwing during adapter dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary tags thrown failures so `dsh-agent-loop` can distinguish them from middleware and result-processing defects, and the loop normalizes both delivery forms into `agent/request-error` after closing the failed step. An unhandled failure is terminal; a handling listener repairs policy-owned state, returns `{ kind: 'retry' }`, and stops waterfall delegation. The [retry-action decision](../simplification/2026-07-27-request-error-retry-action.md) owns this return contract.
 
-That boundary is already safe for another request attempt. Raw `assistant/chunk` events carry the failed `turn` and `step`, message derivation ignores them unless a successful `assistant/message` cites them, tool calls are dispatched only after a successful terminal finish and assembly, and a retry opens a new numbered step from the durable log. The harness therefore does not need a second response lifecycle or tentative-output protocol to keep two attempts separate.
+That boundary is already safe for another request attempt. Raw `assistant/chunk` events carry the failed `turn` and `step`, message derivation ignores them unless a successful `assistant/message` cites them, tool calls are dispatched only after a successful terminal finish and assembly, and a retry opens a new numbered turn from the durable log. The harness therefore does not need a second response lifecycle or tentative-output protocol to keep two attempts separate.
 
 The prior boundary left three narrower gaps.
 
@@ -50,7 +50,7 @@ The shared transient-code set is intentionally small: adapter mappings for `RATE
 
 `@deepseek-ai/dsh-llm-retry` is a function plugin that listens to `agent/request-error`. It introduces no service or new loop branch; the agent-loop package changes only the data carried through its existing failed-step recovery control flow.
 
-The `agent/request-error` seam carries the current `LlmFailure` and an immutable list of prior failures that led to another request attempt in this consecutive recovery sequence. `dsh-llm-retry` counts only prior failures whose codes are in its configured transient set, while `dsh-compact-basic` counts only prior context-overflow failures. A successful model request clears the history. Alternating transient and context-overflow failures therefore consume their owning policy budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
+The `agent/request-error` seam carries only the current `LlmFailure`; the loop owns no retry policy or attempt history. Each recovery plugin keeps a private per-agent counter for its own handled failures and clears it at terminal `agent/settled`. Alternating transient and context-overflow failures therefore consume the `dsh-llm-retry` and compact-basic budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
 
 The plugin resolves and validates this deployment configuration at load:
 
@@ -68,13 +68,13 @@ The defaults are two transient retries, a 500 millisecond initial delay, a 10 se
 
 For an eligible failure with budget remaining, the one-based transient retry count uses bounded exponential backoff. A valid `providerRetryAfterMs` replaces exponential backoff only when it does not exceed `maxDelayMs`; a longer provider delay causes delegation instead of an earlier retry that violates the provider instruction. Local backoff multiplies by an injected random factor in `[1 - jitterRatio, 1 + jitterRatio]` and clamps the final value to `maxDelayMs`; provider delay is not jittered.
 
-The plugin owns a lifetime `AbortController` and tracks every active backoff callback. Each wait fuses the waterfall's turn signal with that lifetime signal. Effect cleanup first unregisters the listener, then aborts and awaits the active callbacks; a captured callback whose lifetime signal aborts returns `fail` and can neither retry nor enter the rest of its captured waterfall after disposal. This makes HMR disposal quiescent even though Cordis has already captured the listener.
+The plugin owns a lifetime `AbortController` and tracks every active backoff callback. Each wait fuses the waterfall's turn signal with that lifetime signal. Effect cleanup first unregisters the listener, then aborts and awaits the active callbacks; a captured callback whose lifetime signal aborts returns without retrying or entering the rest of its captured waterfall. This makes HMR disposal quiescent even though Cordis has already captured the listener.
 
 Before sleeping, `dsh-llm-retry` appends one non-surface `llm/retry` session event containing the turn, failed step, one-based transient retry number, configured maximum, scheduled delay, and `LlmFailure`. The plugin owns the `SessionEventMap` augmentation; `dsh-session` remains generic persistence and does not absorb the optional policy's vocabulary. The event says what was scheduled, not that the next request completed; cancellation during the delay is subsequently visible on `turn/end`. The event ships only with a production renderer and replay/snapshot coverage, because its purpose is operational state rather than trace collection.
 
-The listener calls `next()` for a non-transient code, an exhausted policy budget, or an over-cap provider delay. This preserves composition with context-overflow recovery and later policy plugins. It returns `{ action: 'retry' }` only after the delay completes under both signals; turn cancellation and plugin disposal return `fail`, after which the loop's cancellation/disposal checks remain authoritative.
+The listener calls `next()` for a non-transient code, an exhausted policy budget, or an over-cap provider delay. This preserves composition with context-overflow recovery and later policy plugins. For an owned failure it records and awaits the delay, then returns `{ kind: 'retry' }` without delegating. Turn cancellation and plugin disposal end the wait without returning a retry; the loop's cancellation/disposal checks remain authoritative.
 
-The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot CLI, and ACP example compositions use the same bounded policy. Library consumers retain explicit plugin composition: omitting the plugin leaves `agent/request-error` at its current fail default.
+The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot CLI, and ACP example compositions use the same bounded policy. Library consumers retain explicit plugin composition: omitting the plugin leaves request failures terminal.
 
 ### Make one layer own visible attempts
 
@@ -92,7 +92,7 @@ Boundary tests prove termination at both actual transports. The hand-written ada
 
 ### Keep attempts separate in the existing log
 
-A failed attempt may leave `assistant/chunk` events in its closed step, but it never appends `assistant/message` and never dispatches a tool. A retry opens the next numbered step, reconstructs the request from the durable surface, and produces its own chunks. UIs may render live chunks while a step is open, then mark or clear that transient view when `llm/retry` identifies the failed step or `turn/end` records terminal failure; message derivation continues to ignore the failed chunks.
+A failed attempt may leave `assistant/chunk` events in its closed step, but it never appends `assistant/message` and never dispatches a tool. A retry closes the failed turn, opens the next numbered turn, reconstructs the request from the durable surface, and produces its own chunks. UIs may render live chunks while a step is open, then mark or clear that transient view when `llm/retry` identifies the failed step or `turn/end` records failure; message derivation continues to ignore the failed chunks.
 
 If recovery is exhausted, the final failure is stored once on `turn/end.reason` with the structured facts. If transient recovery continues, `llm/retry` is the durable home for that attempt's failure and delay. No standalone final-error event or response-id vocabulary is added.
 
@@ -120,9 +120,9 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 - An adapter-thrown `Error` reaches `agent/request-error` as the exact same object while its sidecar `LlmFailure` reaches the adjacent argument; tests retain the existing identity assertion for extensible and frozen third-party errors.
 - DeepSeek and pi-ai adapter tests cover representative 400, 401/403, 429, 5xx, connection, malformed/truncated stream, timeout, abort, retry-after seconds/date, request-id, and unknown-SDK-error paths without recovery policy parsing message text.
 - Pi-ai pins the SDK option to zero retries and performs one observed wire attempt for a retryable provider response; separate tests make removing either boundary fail.
-- `agent/request-error` carries current failure facts plus immutable prior-retried failure facts; a success clears that history, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.
+- `agent/request-error` carries only current failure facts; each plugin clears its private per-agent counter at terminal idle, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.
 - `dsh-llm-retry` validates every config field at Loader startup, delegates all ineligible paths with `next()`, and makes at most `maxTransientRetries + 1` provider requests when no other policy applies.
-- HMR-during-backoff tests prove disposal unregisters the listener, aborts and awaits its captured callbacks, emits no retry decision after disposal, and leaves no timer or promise alive.
+- HMR-during-backoff tests prove disposal unregisters the listener, aborts and awaits its captured callbacks, makes no retry request after disposal, and leaves no timer or promise alive.
 - Pure unit tests cover transient-code selection, exponential backoff and jitter bounds, valid and over-cap `Retry-After`, exhausted budgets, deterministic timer/random seams, and abort during backoff.
 - Real agent-loop tests cover failure before chunks, partial chunks then failure, thrown and in-band failures, retry to success in a new step, exhaustion to structured `turn/end.reason`, and composition with `dsh-compact-basic` context-overflow recovery.
 - The partial-chunk integration test proves failed chunks remain attributed to the failed step, no assistant message or tool side effect is committed for that step, and the successful retry has distinct provenance.
@@ -132,7 +132,7 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 
 ## Consequences
 
-- Every transient recovery attempt is visible as a closed step plus `llm/retry`, and the bounded policy prevents hidden SDK retries from multiplying cost. A retry can still duplicate provider billing even when no chunk arrived; the finite attempt budget limits but cannot remove that risk.
+- Every transient recovery attempt is visible as a closed failed turn plus `llm/retry`, and the bounded policy prevents hidden SDK retries from multiplying cost. A retry can still duplicate provider billing even when no chunk arrived; the finite attempt budget limits but cannot remove that risk.
 - Provider SDKs may hide status or retry headers. Those adapters retain the stable facts they expose and otherwise use a coarse code rather than letting recovery policy parse fragile text.
 - Durable retry events expand the session protocol and UI state machine. Shipping the event and its consumer together prevents an unused telemetry vocabulary, but later schema changes still require persistence and replay work.
 - Clearing a failed step's live chunks can visibly retract output. That is preferable to presenting discarded text or partial tool JSON as committed history, and snapshots pin the transition.

@@ -42,10 +42,10 @@ import z from 'schemastery'
 import {
   installAgentLlmTarget,
   type Agent,
+  type AgentMessageId,
   type AgentLlmTarget,
   type AgentLlmTargetRef,
   type AgentStatus,
-  type HookContext,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -61,13 +61,13 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
-  displayPromptContent,
   SessionId,
   type JsonValue,
   type Session,
   type SessionEvent,
   type SessionHeader,
   type TodoItem,
+  type UserMessageData,
 } from '@deepseek-ai/dsh-session'
 import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
 import {
@@ -1389,7 +1389,6 @@ function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
     case 'error': return `turn ${event.data.turn}: error`
     case 'disposed': return `turn ${event.data.turn}: disposed`
     case 'max-tokens': return `turn ${event.data.turn}: max tokens`
-    case 'rejected': return `turn ${event.data.turn}: rejected`
     case 'interrupted': return `turn ${event.data.turn}: interrupted`
     default: return `turn ${event.data.turn}: unknown result`
   }
@@ -1904,9 +1903,9 @@ function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
 }
 
-function sessionReferenceCard(meta: unknown): string[] | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const record = meta as Record<string, unknown>
+function sessionReferenceCard(source: unknown): string[] | undefined {
+  if (typeof source !== 'object' || source === null) return undefined
+  const record = source as Record<string, unknown>
   if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
   const references = record['references'] as unknown[]
   const labels: string[] = []
@@ -1919,13 +1918,6 @@ function sessionReferenceCard(meta: unknown): string[] | undefined {
     labels.push(label === sessionId ? sessionId : `${label} (${sessionId})`)
   }
   return labels
-}
-
-function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
-  return event.data.envelope?.prefixContexts.flatMap((context) => {
-    const card = sessionReferenceCard(context.meta)
-    return card === undefined ? [] : [card]
-  }) ?? []
 }
 
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
@@ -1972,16 +1964,10 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages queued during the running turn (`agent/inbox/enqueue`
-  // with `info.steering`) that the loop has not yet drained, shown as a badge on
-  // the status line. Each entry is the queued message's serialized source: a
-  // drain (`steering/message`) removes one MATCHING entry, so a loop-authored
-  // continuation reason (which enqueues and drains under its own source) pushes
-  // and pops its own slot and cannot consume a pending user message's slot.
-  // Cleared on leaving `running`, which also absorbs a cancellation that
-  // discards the queue without logging drains; the status line exists only
-  // while running, so idle carries no badge to keep current.
-  const pendingSteering: string[] = []
+  // TUI steering submissions that the inbox has not yet claimed or discarded.
+  // Correlation ids avoid guessing whether a running-state submission actually
+  // joined steering or fell back to the queued-turn FIFO during turn close.
+  const pendingSteering = new Set<AgentMessageId>()
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   // Optional: skills mount conditionally, so read the global service store
@@ -2243,7 +2229,7 @@ export function createTuiChat(
   const renderStatus = (running: RunningStatus): void => {
     const at = now()
     running.loader.setMessage(
-      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.length),
+      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.size),
     )
   }
 
@@ -2271,7 +2257,7 @@ export function createTuiChat(
       const phase = prior?.phase ?? 'waiting'
       const phaseStartedAt = prior?.phaseStartedAt ?? at
       const stepStartedAt = prior?.stepStartedAt ?? at
-      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.length)
+      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.size)
       const loader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), message)
       statusContainer.addChild(loader)
       const running: RunningStatus = {
@@ -2349,7 +2335,7 @@ export function createTuiChat(
         // boolean avoids narrowing `source`, so the label keeps its full union.
         const source = event.data.source
         if (source.kind !== 'user') {
-          const references = sessionReferenceCard(event.data.meta)
+          const references = sessionReferenceCard(event.data.source)
           if (references !== undefined) {
             chat.addChild(new Spacer(1))
             chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
@@ -2367,33 +2353,22 @@ export function createTuiChat(
           }
           break
         }
-        const text = displayText(contentText(displayPromptContent(event.data)).trim())
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
-        for (const references of promptReferenceCards(event)) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-        }
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(displayPromptContent(event.data)).trim())
+        const text = displayText(contentText(event.data.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
         }
-        for (const references of promptReferenceCards(event)) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
-        }
         break
       }
-      case 'prompt/blocked':
-        appendNotice(`Prompt blocked: ${event.data.reason}`, 'warning')
-        break
       case 'assistant/chunk':
         if (options.renderChunks) {
           if (streaming === undefined) {
@@ -2453,8 +2428,6 @@ export function createTuiChat(
           appendNotice('Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
           appendNotice('The model reached its output-token limit.', 'warning')
-        } else if (event.data.reason.kind === 'rejected') {
-          appendNotice(`Turn rejected: ${event.data.reason.reason}`, 'warning')
         } else if (event.data.reason.kind === 'interrupted') {
           appendNotice('The previous process ended during this turn.', 'warning')
         }
@@ -2915,19 +2888,82 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
-    if (agent.status === 'disposed') {
+  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessageData): void => {
+    if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
-    } else if (agent.status === 'running') {
-      agent.steer(content, { contexts })
-    } else {
-      agent.followup(content, { contexts })
+      return
     }
+    if (agent.acceptsNextStep) {
+      // Steering is never subject to prompt admission; an attached snapshot
+      // drains beside it at the same step boundary through the outbox.
+      if (attachedContext !== undefined) {
+        agent.inject({ content: attachedContext.content, source: attachedContext.source })
+      }
+      pendingSteering.add(agent.steer({ content, source: { kind: 'user' } }))
+      refreshStatus()
+      return
+    }
+    if (attachedContext === undefined) {
+      agent.followup({ content, source: { kind: 'user' } })
+      return
+    }
+    // Idle: the snapshot rides the prompt's admission transaction so a
+    // blocking hook discards both together.
+    let cleanedUp = false
+    let acceptedId: AgentMessageId | undefined
+    let acceptedContent: ContentBlock[] | undefined
+    const enqueued = new Map<AgentMessageId, ContentBlock[]>()
+    const discarded = new Set<AgentMessageId>()
+    const cleanup = (): void => {
+      // Every completion path detaches all three listeners. Keep this
+      // idempotent so later cleanup paths cannot double-release them.
+      /* v8 ignore next -- unreachable idempotence guard, see above */
+      if (cleanedUp) return
+      cleanedUp = true
+      detachEnqueue()
+      detachSubmit()
+      detachDiscard()
+    }
+    // send() snapshots input before publishing it, and publishes enqueue
+    // before returning its id. Capture that snapshot by id so admission can
+    // use exact reference identity without depending on caller-owned input.
+    const detachEnqueue = ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject === agent) enqueued.set(message.id, message.content)
+    })
+    // Prepended so this wrapper is outermost: it observes the admission
+    // whether a downstream hook allows or blocks, and detaches either way.
+    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _source, _signal, next) => {
+      if (subject !== agent || submitted !== acceptedContent) return next()
+      cleanup()
+      const decision = await next()
+      if (decision.kind !== 'allow') return decision
+      return { ...decision, additionalContexts: [...decision.additionalContexts ?? [], attachedContext] }
+    }, { prepend: true })
+    // Installed before followup(): an enqueue listener can synchronously
+    // cancel and discard before followup() returns its id.
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+      if (subject !== agent) return
+      for (const message of messages) discarded.add(message.id)
+      if (acceptedId !== undefined && discarded.has(acceptedId)) cleanup()
+    })
+    // followup() accepts any typed input and contains listener failures;
+    // this guards a future synchronous throw so the wrapper cannot leak.
+    /* v8 ignore start -- future-proofing guard, see above */
+    try {
+      acceptedId = agent.followup({ content, source: { kind: 'user' } })
+      acceptedContent = enqueued.get(acceptedId) ?? content
+      detachEnqueue()
+      if (discarded.has(acceptedId)) cleanup()
+    } catch (error: unknown) {
+      cleanup()
+      throw error
+    }
+    /* v8 ignore stop */
   }
 
   /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
   const deliver = (payload: string): void => {
-    dispatchMessage([{ type: 'text', text: payload }], [])
+    dispatchMessage([{ type: 'text', text: payload }])
   }
 
   /** Load a manually invoked skill and deliver its rendered body as a user turn, reporting lookup outcomes as notices. */
@@ -3187,7 +3223,7 @@ export function createTuiChat(
     if (parsed.references.length === 0) {
       editor.addToHistory(text)
       editor.setText('')
-      dispatchMessage([{ type: 'text', text: parsed.text }], [])
+      dispatchMessage([{ type: 'text', text: parsed.text }])
       return
     }
     const sessionReferences = ctx.get('sessionReferences')
@@ -3208,7 +3244,9 @@ export function createTuiChat(
       if (disposed) return
       editor.addToHistory(text)
       if (editor.getText() === value) editor.setText('')
-      dispatchMessage(prepared.content, prepared.contexts)
+      // The snapshot travels with the prompt so a blocking admission hook
+      // discards them together — see dispatchMessage's attached-context path.
+      dispatchMessage(prepared.content, prepared.additionalContext)
     }, (error: unknown) => {
       if (!disposed && !controller.signal.aborted) {
         restoreSubmittedInput()
@@ -3263,17 +3301,6 @@ export function createTuiChat(
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
-    if (event.type === 'steering/message') {
-      // A queued steering message reached the model as it drained; drop its
-      // entry from the badge. Matching by source keeps a loop-authored
-      // continuation reason popping its own enqueued slot rather than a pending
-      // user message's slot.
-      const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
-      if (drained >= 0) {
-        pendingSteering.splice(drained, 1)
-        refreshStatus()
-      }
-    }
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return
@@ -3281,17 +3308,24 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const disposeQueued = ctx.on('agent/inbox/enqueue', (subject, info) => {
-    if (subject !== agent || !info.steering) return
-    pendingSteering.push(JSON.stringify(info.source))
-    refreshStatus()
+  const settlePendingSteering = (id: AgentMessageId): void => {
+    if (pendingSteering.delete(id)) refreshStatus()
+  }
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
+    if (subject === agent) settlePendingSteering(message.id)
+  })
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
+    if (subject !== agent) return
+    let changed = false
+    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
+    if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
     // Leaving 'running' ends the turn's status line; clear any badge so the
     // next running turn starts from zero (and a cancellation, which discards
     // the queue without logging drains, cannot strand a stale count).
-    if (status !== 'running') pendingSteering.length = 0
+    if (status !== 'running') pendingSteering.clear()
     setStatus(status)
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
@@ -3303,6 +3337,11 @@ export function createTuiChat(
   })
   const disposeAgent = ctx.on('agent/disposed', (subject) => {
     if (subject !== agent) return
+    // The agent left the registry (e.g. an agent-loop-only reload) while the
+    // TUI stays mounted. Retained agents accept deliveries after detachment, so
+    // without this a later send would drive a zombie agent/session; mark
+    // disposed so dispatchMessage reports it instead.
+    disposed = true
     clearStatus()
     appendNotice(`Agent "${agent.id}" was disposed.`, 'warning')
   })
@@ -3314,7 +3353,8 @@ export function createTuiChat(
     disposeCommandChanges()
     stopBannerReveal()
     disposeSessionEvents()
-    disposeQueued()
+    disposeDequeued()
+    disposeDiscarded()
     disposeStatus()
     disposeError()
     disposeAgent()

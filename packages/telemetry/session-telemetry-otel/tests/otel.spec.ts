@@ -181,18 +181,19 @@ describe('TelemetryOtel wire', () => {
     expect(types).toContain('turn/start')
   })
 
-  it('maps the warn severity and leaves the seam flush hint unimplemented', async () => {
+  it('maps warn severity from record policy and leaves the seam flush hint unimplemented', async () => {
     const { url, captures } = await mockCollector()
     const { ctx, fiber } = await boot(url)
+    ctx.on('telemetry/record', (_record, next) => ({ ...next(), severity: 'warn' }))
     const session = ctx.sessions.create(SessionId('warn'), { meta: {} })
-    session.append('prompt/blocked', { content: [], source: { kind: 'user' }, reason: 'vetoed' })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     // No flush(): the coordinator's optional-call forwarding no-ops, and the
     // batch processor owns export cadence end to end (see the backend note).
     expect('flush' in ctx.telemetry && ctx.telemetry.flush !== undefined).toBe(false)
     await fiber.dispose()
-    const blocked = allRecords(captures).find(r =>
-      r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'prompt/blocked'))
-    expect(blocked?.record.severityNumber).toBe(13)
+    const start = allRecords(captures).find(r =>
+      r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'turn/start'))
+    expect(start?.record.severityNumber).toBe(13)
   })
 })
 

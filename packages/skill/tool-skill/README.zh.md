@@ -6,11 +6,11 @@
 
 需要 `ctx.tools` 和 `ctx.skills` （`inject: ['tools', 'skills']`）。
 
-## 会话前缀目录
+## 会话目录
 
-该插件贡献一个用户角色 `<system-reminder>` 目录，并通过 `agent/session-prefix` 提供它。它为调用会话的 cwd 解析 skill，将前缀中止信号转发到发现，并只列出已排序的 `name` 和 `description` 条目；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。如果没有模型可调用 skill，则省略目录；如果该 agent 的工具视图排除已发布的 `skill` 工具，或解析出一个同名作用域遮蔽，也会省略目录。这项精确定义检查使提示词指引、模型可见 schema 和可执行分派保持对齐。
+该插件在实时会话的第一个 `agent/step` 注入一条持久的用户角色 `<system-reminder>` 目录。它为调用会话的 cwd 解析 skill，将步骤中止信号转发到发现，并只列出已排序的 `name` 和 `description` 条目；skill 正文、路径、来源、提供方和 `whenToUse` 提示仍位于目录之外。如果没有模型可调用 skill，则省略目录；如果该 agent 的工具视图排除已发布的 `skill` 工具，或解析出一个同名作用域遮蔽，也会省略目录。这项精确定义检查使提示词指引、模型可见 schema 和可执行分派保持对齐。
 
-`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[会话前缀 Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) 定义了该消息仅存在于请求中、记录于 header 的生命周期。
+`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。目录是一条带来源的 `user/message`，在第一个请求前注入，并保留在普通会话历史中。
 
 ## 工具：`skill`
 
@@ -28,11 +28,11 @@
 
 ## 模型体验
 
-### 会话前缀
+### 会话目录
 
 #### 模型所见
 
-如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条数据依赖条目。该目录是冻结的用户角色会话前缀。
+如果存在模型可调用 skill，且该精确 `skill` 工具可见，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条数据依赖条目。该目录是一条持久的用户角色消息。
 
 ##### Skill 目录模板
 
@@ -54,7 +54,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 #### KV 缓存影响
 
-会话前缀组合完成后，在一个循环实例内前缀稳定。如果新建或恢复的实例具有不同提供方、skill、描述、可见性或目录上限，则可能从第一个变更目录 token 起使重用失效。
+仅追加，位于现有可重用前缀之后。如果新建或恢复的实例具有不同提供方、skill、描述、可见性或目录上限，则可能从新追加的目录位置起影响缓存重用。
 
 ### 工具 schema
 
