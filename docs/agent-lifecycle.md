@@ -38,7 +38,7 @@ sequenceDiagram
   alt final adapter or terminal in-band request failure
     Driver->>Session: <code>step/end</code>
     Driver->>Hooks: <code>agent/request-error</code> waterfall
-    Hooks-->>Driver: call agent.retry() or preserve the original error
+    Hooks-->>Driver: return retry action or preserve the original error
   else model request succeeded
   Driver->>Session: <code>assistant/message</code>
   Driver->>Tools: classify pending call by executionMode

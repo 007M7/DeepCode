@@ -255,21 +255,8 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
   })
 })
 
-describe('retry() edges', () => {
-  it('throws while a turn runs with no request-error window open', async () => {
-    const adapter = new MockAdapter(['hang'])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('retry-busy'), { provider: 'mock', model: 'mock' })
-
-    send(agent, 'go')
-    // Wait until the hung request is in flight (the run owns this.abort).
-    await new Promise(r => setTimeout(r, 30))
-    expect(() => { agent.retry() }).toThrow('cannot retry while busy')
-    agent.cancel({ kind: 'user' })
-    await agent.whenIdle()
-  })
-
-  it('ignores a retry request arriving after the recovery window was aborted', async () => {
+describe('request-error action edges', () => {
+  it('ignores a retry action returned after the turn was aborted', async () => {
     const { LlmError } = await import('@deepseek-ai/dsh-llm')
     const adapter = new MockAdapter([
       () => { throw new LlmError('busy', 'RATE_LIMIT') },
@@ -278,10 +265,8 @@ describe('retry() edges', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('retry-after-cancel'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/request-error', async (subject) => {
-      // Cancellation lands first; the window survives structurally but its
-      // signal is aborted, so the request must not arm a retry turn.
       subject.cancel({ kind: 'user' })
-      subject.retry()
+      return { kind: 'retry' }
     })
 
     send(agent, 'go')
@@ -302,11 +287,9 @@ describe('retry() edges', () => {
     const agent = ctx.agentLoop.create(SessionId('retry-raced'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, signal, next) => {
       await next()
-      // Recovery completes and requested the retry, but the turn signal
-      // aborts before the loop reads the window.
-      subject.retry()
       subject.cancel({ kind: 'user' })
       expect(signal.aborted).toBe(true)
+      return { kind: 'retry' }
     })
 
     send(agent, 'go')
@@ -348,29 +331,6 @@ describe('stream failure edges', () => {
 })
 
 describe('post-turn continuation edges', () => {
-  it('an agent/settled listener that starts a retry preempts continueOrIdle', async () => {
-    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('settled-preempt'), { provider: 'mock', model: 'mock' })
-    let injected = false
-    ctx.on('agent/settled', (subject) => {
-      if (subject !== agent || injected) return
-      expect(subject.status).toBe('running')
-      injected = true
-      // retry() installs the next run synchronously, so the following
-      // continueOrIdle() sees its abort owner and yields to it.
-      subject.retry()
-    })
-
-    send(agent, 'go')
-    await agent.whenIdle()
-
-    expect(adapter.requests).toHaveLength(2)
-    const starts = agent.session.events.filter(e => e.type === 'turn/start')
-    expect(starts).toHaveLength(2)
-    // The busy interval never broke between the turns: one running->idle cycle.
-  })
-
   it('whenIdle resolves for a waiter whose awaited run fails', async () => {
     const adapter = new MockAdapter([textResponse('unused')])
     const ctx = await harness(adapter)
@@ -472,8 +432,8 @@ describe('turn close failure containment', () => {
   })
 })
 
-describe('recovery without a retry request', () => {
-  it('a completed recovery that never calls retry() leaves the failed turn terminal', async () => {
+describe('recovery without a retry action', () => {
+  it('a completed recovery that returns no action leaves the failed turn terminal', async () => {
     const { LlmError } = await import('@deepseek-ai/dsh-llm')
     const adapter = new MockAdapter([
       () => { throw new LlmError('down', 'SERVICE_UNAVAILABLE') },

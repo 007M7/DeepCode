@@ -29,7 +29,6 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
     cancel() {},
-    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return Object.assign(agent, overrides)

@@ -117,11 +117,11 @@ idle inject:
 
 接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
-裁剪先于摘要；溢出重试必须取得持久进展。恢复会在失败步骤关闭后、轮次关闭前使用 `agent/request-error`。其策略调用 `agent.retry()` 安排一个重试轮次；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。恢复会在失败步骤关闭后、轮次关闭前使用 `agent/request-error`。其策略返回重试动作以安排一个重试轮次；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
 ### 失败边界
 
-适配器故障会先关闭步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和轮次信号。负责处理的监听器调用 `agent.retry()`；循环关闭失败轮次，并从持久历史开启另一个轮次，不发出空闲通知。重试耗尽后，失败的 `turn/end` 即为终态记录；失败分片不会提交消息或工具调用。
+适配器故障会先关闭步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和轮次信号。负责处理的监听器返回 `{ kind: 'retry' }`；循环关闭失败轮次，并从持久历史开启另一个轮次，不发出空闲通知。重试耗尽后，失败的 `turn/end` 即为终态记录；失败分片不会提交消息或工具调用。
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -151,7 +151,7 @@ idle inject:
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](core-data-structures/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会调用 `agent.retry()`。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[契约](core-data-structures/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[契约](core-data-structures/llm-streaming.md)）。
 
 ## 扩展与组合
 

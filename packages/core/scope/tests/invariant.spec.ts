@@ -56,7 +56,7 @@ describe('scoped-dispatch invariants', () => {
         new Error('request'),
         { message: 'request', code: 'UNKNOWN' },
         signal,
-        () => Promise.resolve(),
+        () => Promise.resolve(undefined),
       ],
       'agent/turn-stopping': [agent, 1, signal],
       'agent/settled': [agent, 1, { kind: 'completed' }],

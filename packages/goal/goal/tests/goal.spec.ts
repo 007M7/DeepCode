@@ -56,7 +56,6 @@ function stubAgentForSession(session: Session): StubAgent {
       return AgentMessageId('stub')
     },
     cancel() {},
-    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return {

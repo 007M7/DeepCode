@@ -1022,7 +1022,7 @@ function renderLifecycle(): string {
     '  alt final adapter or terminal in-band request failure',
     `    Driver->>Session: ${mermaidCode('step/end')}`,
     `    Driver->>Hooks: ${mermaidCode('agent/request-error')} waterfall`,
-    '    Hooks-->>Driver: call agent.retry() or preserve the original error',
+    '    Hooks-->>Driver: return retry action or preserve the original error',
     '  else model request succeeded',
     `  Driver->>Session: ${mermaidCode('assistant/message')}`,
     '  Driver->>Tools: classify pending call by executionMode',

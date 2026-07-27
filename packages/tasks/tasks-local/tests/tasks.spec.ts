@@ -30,7 +30,6 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     inject: () => AgentMessageId('stub'),
     send: () => AgentMessageId('stub'),
     cancel() {},
-    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })

@@ -23,6 +23,7 @@ import type {
   SettleReason,
   PromptDecision,
   RequestError,
+  RequestErrorAction,
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
@@ -58,8 +59,6 @@ export class ReactLoopAgent implements Agent {
   acceptsNextStep = false
   /** Abort owner for the current admission or turn. */
   private abort: AbortController | undefined
-  /** Coalesced retry capability scoped to the active request-error waterfall. */
-  private retryWindow: { requested: boolean } | undefined
   /** Resolves when the current admission and turn exit. */
   done: Promise<void> = Promise.resolve()
 
@@ -180,23 +179,8 @@ export class ReactLoopAgent implements Agent {
       this.outbox.length = 0
       if (discarded.length > 0) emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', discarded)
     }
-    if (this.retryWindow !== undefined) this.retryWindow.requested = false
     const reason = Object.freeze({ kind: cause.kind })
     this.abort?.abort(reason)
-  }
-
-  /**
-   * Re-open a turn on the current session log without a new prompt — the
-   * recovery verb. A request-error listener schedules the retry that follows
-   * its failed turn; an idle caller starts one immediately.
-   */
-  retry(): void {
-    if (this.abort !== undefined) {
-      if (this.retryWindow === undefined) throw new Error(`agent "${this.id}" cannot retry while busy`)
-      if (!this.abort.signal.aborted) this.retryWindow.requested = true
-      return
-    }
-    this.done = this.loopCtx.agents.withInitiator(this, () => this.run({ kind: 'retry' }))
   }
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
@@ -281,7 +265,7 @@ export class ReactLoopAgent implements Agent {
         }
       }
 
-      // cancel() aborts but never clears the slot, and kick()/run()/retry()
+      // cancel() aborts but never clears the slot, and kick()/run()
       // all refuse to install a new owner while one exists, so the admission
       // still owns the slot here and releasing it unconditionally is exact.
       this.abort = undefined
@@ -321,16 +305,12 @@ export class ReactLoopAgent implements Agent {
     inheritedOutboxLength = 0,
   ): Promise<void> {
     // Both entries hold the invariant: kick() clears the admission slot before
-    // awaiting run(), and retry() returns early whenever a slot owner exists.
+    // awaiting run(), and a retry is entered only after the prior run clears it.
     /* v8 ignore next -- unreachable guard: every caller clears or checks the abort slot first */
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
     this.abort = controller
     this.acceptsNextStep = true
-    if (!this.busy) {
-      this.busy = true
-      emitAgentEvent(this.loopCtx, this, 'agent/status', 'running')
-    }
     const signal = controller.signal
     const turn = this.lastTurn + 1
     let step = 0
@@ -378,30 +358,18 @@ export class ReactLoopAgent implements Agent {
             this.stepOpen = false
             this.session.append('step/end', { turn, step })
             if (!signal.aborted) {
-              const retryWindow = { requested: false }
-              this.retryWindow = retryWindow
-              let recoveryCompleted = false
               try {
-                await this.loopCtx.waterfall(
+                const action = await this.loopCtx.waterfall(
                   agentCarrier(this), 'agent/request-error', this, turn, step, outcome.error,
                   outcome.failure, signal,
-                  () => Promise.resolve(),
+                  () => Promise.resolve<RequestErrorAction>(undefined),
                 )
-                recoveryCompleted = true
+                retry = action?.kind === 'retry' && !signal.aborted
               } catch (recoveryError: unknown) {
                 this.loopCtx.logger.warn(
                   `agent "${this.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
                 )
-              } finally {
-                // Nothing else writes the window while the waterfall runs:
-                // cancel() only flips `requested` and a second run cannot
-                // start, so unconditional retirement is exact.
-                this.retryWindow = undefined
               }
-              // A requested retry implies the signal is still live: cancel()
-              // retires the window before it aborts, and retry() refuses to
-              // arm a window whose signal already aborted.
-              retry = recoveryCompleted && retryWindow.requested
             }
             const settlement = this.settle(turn, step, outcome.error, signal, outcome.failure)
             reason = settlement.reason
@@ -447,7 +415,6 @@ export class ReactLoopAgent implements Agent {
         this.loopCtx.logger.warn(`agent "${this.id}": closing turn ${turn} failed: ${errorChain(error)}`)
         emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
       }
-      this.retryWindow = undefined
       // cancel() aborts but never clears the slot, and no second run can
       // install a controller while this one is still unwinding, so the slot
       // is still this run's controller here.
@@ -727,7 +694,6 @@ export class ReactLoopAgent implements Agent {
 
   /** Continue with a waking prompt, or publish the idle status. */
   private continueOrIdle(): void {
-    if (this.abort !== undefined) return
     if (this.queued.some(item => item.wakeup)) {
       this.kick()
     } else {

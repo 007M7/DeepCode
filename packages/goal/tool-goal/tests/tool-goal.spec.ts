@@ -40,7 +40,6 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
       return AgentMessageId('stub')
     },
     cancel() {},
-    retry() {},
     whenIdle() { return Promise.resolve() },
   }
   return { agent, session, setStatus(value) { status = value } }

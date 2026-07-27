@@ -486,10 +486,10 @@ describe('same-session goal driving', () => {
     ])
     // The llm-retry shape: schedule one retry for the failed goal-round request.
     let retried = false
-    test.ctx.on('agent/request-error', async (subject) => {
+    test.ctx.on('agent/request-error', async (_subject) => {
       if (!retried) {
         retried = true
-        subject.retry()
+        return { kind: 'retry' }
       }
     })
     test.ctx.goals.create(test.agent, { objective: 'survive a transient failure', maxGoalRounds: 1 })
@@ -557,10 +557,10 @@ describe('same-session goal driving', () => {
       textResponse('goal round ran'),
     ])
     let retried = false
-    test.ctx.on('agent/request-error', async (subject) => {
+    test.ctx.on('agent/request-error', async (_subject) => {
       if (!retried) {
         retried = true
-        subject.retry()
+        return { kind: 'retry' }
       }
     })
     // A human prompt fails and retries while a goal is armed but its round

@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, RequestError } from '@deepseek-ai/dsh-agent'
+import type { Agent, RequestError, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -145,7 +145,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   const resolved = resolveConfig(config)
   const random = internals.random ?? Math.random
   const lifetime = new AbortController()
-  const active = new Set<Promise<void>>()
+  const active = new Set<Promise<RequestErrorAction>>()
   const retries = new WeakMap<Agent, number>()
 
   async function backoff(
@@ -156,7 +156,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     retry: number,
     delayMs: number,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
     if (fusedSignal.aborted) return
     agent.session.append('llm/retry', {
@@ -169,7 +169,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     })
     retries.set(agent, retry)
     if (!await cancellableDelay(delayMs, fusedSignal)) return
-    agent.retry()
+    return { kind: 'retry' }
   }
 
   ctx.on('agent/settled', (agent) => {
@@ -191,12 +191,12 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     _error: RequestError,
     failure: LlmFailure,
     signal: AbortSignal,
-    next: () => Promise<void>,
+    next: () => Promise<RequestErrorAction>,
   ) => {
     // A waterfall may have captured this callback before its registration was
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
-    if (lifetime.signal.aborted) return Promise.resolve()
+    if (lifetime.signal.aborted) return Promise.resolve<RequestErrorAction>(undefined)
     if (!resolved.retryableCodes.has(failure.code)) return next()
     const priorRetries = retries.get(agent) ?? 0
     if (priorRetries >= resolved.maxTransientRetries) return next()

@@ -317,7 +317,7 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
   })
 
-  it('keeps steering staged after a failed step until retry', async () => {
+  it('keeps steering staged after a failed step until the next admitted turn', async () => {
     const adapter = new MockAdapter([textResponse('recovered')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
@@ -336,9 +336,8 @@ describe('agent loop', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
 
-    const idle = waitForIdle(ctx, agent)
-    agent.retry()
-    await idle
+    send(agent, 'resume')
+    await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)

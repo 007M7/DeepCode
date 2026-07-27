@@ -230,7 +230,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     cancel(cause) {
       cancelled.push(cause)
     },
-    retry() {},
     whenIdle() {
       return Promise.resolve()
     },

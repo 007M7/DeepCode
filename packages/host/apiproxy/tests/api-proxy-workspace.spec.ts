@@ -50,7 +50,6 @@ function stubAgent(session: Session): Agent {
     inject: () => AgentMessageId('stub'),
     send: () => AgentMessageId('stub'),
     cancel() {},
-    retry() {},
     whenIdle: () => Promise.resolve(),
   }
 }

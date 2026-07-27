@@ -25,9 +25,9 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 
 是否继续和终止执行由数据表达，不再由返回的控制枚举表达。工具调用和已接受的 steering 要求再执行一个步骤。携带 `concludesTurn` 的工具结果会在其所属步骤终止工具循环。循环不再暴露通用的 `ContinuationDecision` 或终止停止返回通道。
 
-模型请求失败会先关闭当前步骤，再携带准确错误、标准化 `LlmFailure` 和仍有效的轮次信号进入 `agent/request-error`。负责恢复的监听器修复状态、调用 `agent.retry()`，并停止继续委托。循环会关闭失败轮次，并基于该状态开启一个重试轮次，中间不发布空闲通知；重试不是失败轮次内的另一个步骤。`agent/settled` 报告终态结果；对于需要脱离轮次结算单独报告失败的消费方，`agent/error` 仍作为实时错误通知保留。
+模型请求失败会先关闭当前步骤，再携带准确错误、标准化 `LlmFailure` 和仍有效的轮次信号进入 `agent/request-error`。负责恢复的监听器修复状态、返回 `{ kind: 'retry' }`，并停止继续委托。循环会关闭失败轮次，并基于该状态开启一个重试轮次，中间不发布空闲通知；重试不是失败轮次内的另一个步骤。`agent/settled` 报告终态结果；对于需要脱离轮次结算单独报告失败的消费方，`agent/error` 仍作为实时错误通知保留。[重试动作决策](2026-07-27-request-error-retry-action.md)取代了本设计中命令形式的部分。
 
-事件分类体系移除了 `agent/pre-step`、`agent/post-step`、`agent/session-prefix`、`agent/step-result`、`agent/turn-continuation` 和 `agent/turn-stop`。持久的轮次与步骤边界仍由会话事件记录。面向模型的新增内容使用有日志记录的消息通道，请求配置使用 `agent/request`，响应内容按组装后的原样记录，失败请求恢复使用 `agent/request-error` 加 `agent.retry()`，轮次结束时是否继续则使用 `agent/turn-stopping` 加 steering 表达。
+事件分类体系移除了 `agent/pre-step`、`agent/post-step`、`agent/session-prefix`、`agent/step-result`、`agent/turn-continuation` 和 `agent/turn-stop`。持久的轮次与步骤边界仍由会话事件记录。面向模型的新增内容使用有日志记录的消息通道，请求配置使用 `agent/request`，响应内容按组装后的原样记录，失败请求恢复使用 `agent/request-error` 返回动作，轮次结束时是否继续则使用 `agent/turn-stopping` 加 steering 表达。
 
 ## 考虑过的替代方案
 
@@ -35,7 +35,7 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 
 **将 dispose 表示为第三种 `AgentStatus`。** 这样会让仍被持有的句柄得到一个终止状态值，但也会重复表达 `agent/disposed` 已经体现的注册表生命周期。当前决策让 `AgentStatus` 只表示活动中 agent 的状态，并将注册生命周期作为独立维度。
 
-**让 `agent/request-error` 返回重试决策。** 返回指令会与现有的 `agent.retry()` 命令重复，还要求循环跨尝试携带策略历史。Waterfall 只需保留有序归属能力：未处理的监听器继续委托，负责处理的监听器完成可等待的修复、调用 `agent.retry()`，然后停止委托。
+**让 `agent/request-error` 返回重试决策。** 这一替代方案已由[重试动作决策](2026-07-27-request-error-retry-action.md)取代；新决策移除了重复命令，并将决策局限于 waterfall 的返回结果。
 
 **将持久的轮次与步骤边界映射为 agent 事件。** 这样会为同一事实向实时消费方提供第二条事件流。当前决策将会话日志保留为真源，仅暴露扩展检查点或持久事件流无法承载的纯实时事实。
 
@@ -45,7 +45,7 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 
 插件不再能够改写循环的每个阶段。不再提供仅用于请求的消息前缀、助手消息变换、步骤后检查点、通用的继续执行枚举、通用的终止停止结果或轮次内请求重试。扩展改用剩余的归属明确的通道，而不是重新构造这些阶段。
 
-负责继续执行的插件发布可持久化的 steering，而不是返回未记录到日志中的原因。恢复插件在失败步骤结束后处理错误，并通过 `agent.retry()` 显式安排另一个轮次。这样，每次尝试都会成为完整轮次，同时异步修复和策略归属集中在一个狭窄的 waterfall 边界。
+负责继续执行的插件发布可持久化的 steering，而不是返回未记录到日志中的原因。恢复插件在失败步骤结束后处理错误，并返回显式重试动作。这样，每次尝试都会成为完整轮次，同时异步修复和策略归属集中在一个狭窄的 waterfall 边界。
 
 收件箱生命周期用于补充持久会话日志，而非取代它。`AgentMessageId` 将接受操作与领取或丢弃操作关联起来；轮次编号与步骤编号、消息、工具活动和终止原因仍属于会话事实。
 

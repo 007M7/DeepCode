@@ -586,15 +586,6 @@ interface Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(input: UserMessageData): AgentMessageId
-
-  /**
-   * Re-open a turn on the current session log without a new prompt — the
-   * explicit resummon verb. During `agent/request-error`, this schedules one
-   * retry turn after the failed turn closes; while idle, it starts one
-   * immediately. Repeated calls before the scheduled retry coalesce.
-   * @throws while other agent work is running.
-   */
-  retry(): void
 }
 ```
 
@@ -628,7 +619,12 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener calls `agent.retry()` and returns without `next()`; repeated calls coalesce into one retry turn.
+`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
+
+```ts type-equiv
+/** Action returned by a listener that owns model-request recovery. */
+type RequestErrorAction = { kind: 'retry' } | undefined
+```
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */

@@ -54,7 +54,6 @@ function agentForCwd(cwd: string): Agent {
       return AgentMessageId('stub')
     },
     cancel() {},
-    retry() {},
     whenIdle: () => Promise.resolve(),
   }
 }

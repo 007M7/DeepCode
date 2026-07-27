@@ -133,6 +133,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "RequestErrorAction",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "RequestError",
       "source": "packages/core/agent/src/types.ts"
     },

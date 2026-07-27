@@ -594,15 +594,6 @@ interface Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(input: UserMessageData): AgentMessageId
-
-  /**
-   * Re-open a turn on the current session log without a new prompt — the
-   * explicit resummon verb. During `agent/request-error`, this schedules one
-   * retry turn after the failed turn closes; while idle, it starts one
-   * immediately. Repeated calls before the scheduled retry coalesce.
-   * @throws while other agent work is running.
-   */
-  retry(): void
 }
 ```
 
@@ -636,7 +627,12 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 调用 `agent.retry()` 并直接返回而不调用 `next()`；重复调用会合并成一个重试轮次。
+`agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。
+
+```ts type-equiv
+/** Action returned by a listener that owns model-request recovery. */
+type RequestErrorAction = { kind: 'retry' } | undefined
+```
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */

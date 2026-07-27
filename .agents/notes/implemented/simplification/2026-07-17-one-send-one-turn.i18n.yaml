@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-17-one-send-one-turn.md: d6c771a2b87e14c52b05c9cd8accaa44405fba16
-2026-07-17-one-send-one-turn.zh.md: a057ebce38208f0ed6be3b8b97dd4c434dd3e721
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md
+2026-07-17-one-send-one-turn.md: dcc6c0aa483a0e53205dbaeef4e2b903f5f6a215
+2026-07-17-one-send-one-turn.zh.md: 8c12481defe6608c13ee81132b432b4d8b17b681

@@ -117,11 +117,11 @@ Each step assembles ordered prompt sections, tool schemas, and variables; unknow
 
 Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
-Pruning precedes summaries; overflow retries require durable progress. Recovery uses `agent/request-error` after the failed step and before turn close. Its policy calls `agent.retry()` to schedule one retry turn; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
+Pruning precedes summaries; overflow retries require durable progress. Recovery uses `agent/request-error` after the failed step and before turn close. Its policy returns a retry action to schedule one retry turn; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-Adapter failures close the step before `agent/request-error` receives the exact `Error`, normalized `LlmFailure`, and turn signal. A handling listener calls `agent.retry()`; the loop closes the failed turn and opens another from durable history without idle notification. Exhaustion leaves the failed `turn/end` terminal; failed chunks commit neither message nor tool call.
+Adapter failures close the step before `agent/request-error` receives the exact `Error`, normalized `LlmFailure`, and turn signal. A handling listener returns `{ kind: 'retry' }`; the loop closes the failed turn and opens another from durable history without idle notification. Exhaustion leaves the failed `turn/end` terminal; failed chunks commit neither message nor tool call.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels asynchronous model-capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before queue clearing and abort; observers cannot veto; idle calls emit nothing. Durability records user or parent cancellation as `aborted`, teardown as `disposed`; teardown awaits quiescence. The cause affects reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
@@ -151,7 +151,7 @@ Durability is a plugin concern. Backends eagerly drain synchronous `session/even
 
 Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin calls `agent.retry()`. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](core-data-structures/llm-streaming.md)).
+Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](core-data-structures/llm-streaming.md)).
 
 ## Extension And Composition
 

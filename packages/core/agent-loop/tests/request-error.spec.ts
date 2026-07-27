@@ -47,7 +47,7 @@ describe('agent/request-error', () => {
     expect(adapter.requests).toHaveLength(0)
   })
 
-  it('lets each failed request schedule a retry before its turn closes', async () => {
+  it('lets each failed request return a retry action before its turn closes', async () => {
     const adapter = new MockAdapter([
       fail('busy', 'RATE_LIMIT'),
       fail('unavailable', 'SERVICE_UNAVAILABLE'),
@@ -71,8 +71,7 @@ describe('agent/request-error', () => {
         data: { turn, step },
       })
       seen.push({ turn, step, failure })
-      subject.retry()
-      subject.retry()
+      return { kind: 'retry' }
     })
 
     agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
@@ -104,13 +103,13 @@ describe('agent/request-error', () => {
     expect(settledTurns).toEqual([3])
   })
 
-  it('lets cancellation win over a retry request', async () => {
+  it('lets cancellation win over a retry action', async () => {
     const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('request-error-cancel'), { provider: 'mock', model: 'mock' })
     ctx.on('agent/request-error', async (subject) => {
-      subject.retry()
       subject.cancel({ kind: 'user' })
+      return { kind: 'retry' }
     })
 
     agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
@@ -124,15 +123,14 @@ describe('agent/request-error', () => {
     })
   })
 
-  it('does not honor a retry requested by a failing recovery listener', async () => {
+  it('does not retry when the recovery listener fails before returning its action', async () => {
     const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('request-error-recovery-failed'), {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/request-error', async (subject) => {
-      subject.retry()
+    ctx.on('agent/request-error', async () => {
       throw new Error('recovery failed')
     })
 

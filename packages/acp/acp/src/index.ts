@@ -78,9 +78,9 @@ interface SessionRecord {
     reject: (error: Error) => void
     turn: number | undefined
     /**
-     * A failed turn's terminal reason, held until quiescence: a retry turn
-     * (`agent.retry()` closes the failed turn and opens a successor) adopts
-     * the prompt instead, so rejecting at `turn/end` would race the recovery.
+     * A failed turn's terminal reason, held until quiescence: a retry action
+     * closes the failed turn and opens a successor that adopts the prompt, so
+     * rejecting at `turn/end` would race the recovery.
      */
     pendingError: Extract<TurnEndReason, { kind: 'error' }> | undefined
   } | undefined
@@ -172,7 +172,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
       } else if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
         if (event.data.reason.kind === 'error') {
-          // Hold the rejection: agent.retry() may adopt the prompt with a
+          // Hold the rejection: request recovery may adopt the prompt with a
           // successor turn; quiescence without one delivers this error.
           inflight.turn = undefined
           inflight.pendingError = event.data.reason

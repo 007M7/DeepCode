@@ -30,7 +30,7 @@ During prompt admission or an open turn, `inject()` stages context in the loop o
 
 Outside that window, `inject()` appends its `user/message` immediately. It does not increment turn numbering, emit `turn/start` or `turn/end`, change agent status, or run the model; persistence observes the append through `session/event`.
 
-If prompt admission blocks or fails, a caller-staged context-only batch appends immediately without a turn. Steering and context staged beside it remain in the outbox for `retry()` or a later admitted prompt; cancellation or disposal may discard them. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
+If prompt admission blocks or fails, a caller-staged context-only batch appends immediately without a turn. Steering and context staged beside it remain in the outbox for a later admitted prompt; cancellation or disposal may discard them. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
 
 The session invariant permits `user/message` between turns while continuing to require turn enclosure for execution events, steering, assistant output, tools, and package-added events by default. Persistence, recovery, resume, fork, and compaction treat a valid out-of-turn `user/message` as committed session history rather than an interrupted or discardable turn tail.
 

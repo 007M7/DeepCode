@@ -1047,8 +1047,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<void>): Promise<void>',
-    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener calls {@link Agent.retry} to\n * schedule one retry turn, returns without `next()` when it owns the error,\n * or calls `next()` to delegate. The default leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener returns `{ kind: \'retry\' }`\n * without calling `next()` when it owns the error, or calls `next()` to\n * delegate. The default `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Handle a model-request failure after its failed step has closed but before the failed turn closes.',
   },
   {
@@ -1330,7 +1330,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(input: UserMessageData, options: SendOptions): AgentMessageId;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(input: UserMessageData): AgentMessageId;\n    steer(input: UserMessageData): AgentMessageId;\n    inject(input: UserMessageData): AgentMessageId;\n    retry(): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(input: UserMessageData, options: SendOptions): AgentMessageId;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(input: UserMessageData): AgentMessageId;\n    steer(input: UserMessageData): AgentMessageId;\n    inject(input: UserMessageData): AgentMessageId;\n}',
   },
   {
     name: 'AgentCancelCause',

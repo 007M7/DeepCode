@@ -171,10 +171,10 @@ describe('ACP prompt lifecycle', () => {
     harness = await makeBridgeHarness({ script: [errorResponse('transient boom'), textResponse('recovered')] })
     // A recovery policy: schedule one retry for the failed request.
     let retried = false
-    harness.ctx.on('agent/request-error', async (subject) => {
+    harness.ctx.on('agent/request-error', async (_subject) => {
       if (!retried) {
         retried = true
-        subject.retry()
+        return { kind: 'retry' }
       }
     })
     const sessionId = await newSession(harness)

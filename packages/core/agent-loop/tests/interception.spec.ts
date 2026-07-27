@@ -286,7 +286,7 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-outbox'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
-    ctx.on('agent/prompt-submit', async () => {
+    const disposeBlock = ctx.on('agent/prompt-submit', async () => {
       entered.resolve(undefined)
       return decision.promise
     })
@@ -307,13 +307,17 @@ describe('agent/prompt-submit', () => {
     expect(events(agent)).toEqual([])
     expect(adapter.requests).toEqual([])
 
-    const retryIdle = waitForIdle(ctx, agent)
-    agent.retry()
-    await retryIdle
+    disposeBlock()
+    send(agent, 'resume')
+    await waitForIdle(ctx, agent)
 
     const staged = events(agent).filter(event =>
       event.type === 'user/message' || event.type === 'steering/message')
-    expect(staged.map(event => event.type)).toEqual(['user/message', 'steering/message'])
+    expect(staged.map(event => event.type)).toEqual([
+      'user/message',
+      'steering/message',
+      'user/message',
+    ])
     expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged context')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
@@ -408,7 +412,7 @@ describe('agent/prompt-submit', () => {
     })
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
-    ctx.on('agent/prompt-submit', async () => {
+    const disposeBlock = ctx.on('agent/prompt-submit', async () => {
       entered.resolve(undefined)
       return decision.promise
     })
@@ -425,9 +429,9 @@ describe('agent/prompt-submit', () => {
     expect(events(agent)).toEqual([])
     expect(warned).toHaveBeenCalledWith(expect.stringContaining('append unavailable'))
 
-    const idle = waitForIdle(ctx, agent)
-    agent.retry()
-    await idle
+    disposeBlock()
+    send(agent, 'resume')
+    await waitForIdle(ctx, agent)
 
     expect(events(agent).some(event => event.type === 'user/message'
       && JSON.stringify(event.data.content).includes('retained context'))).toBe(true)

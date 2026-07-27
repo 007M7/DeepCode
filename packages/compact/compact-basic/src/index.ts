@@ -200,8 +200,7 @@ export class BasicCompactService extends CompactService {
             + 'retrying from the replacement surface',
           )
           this.overflowRetries.set(agent, retries + 1)
-          agent.retry()
-          return
+          return { kind: 'retry' }
         }
         ctx.logger.warn(
           // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while recovery is awaited.
@@ -216,7 +215,7 @@ export class BasicCompactService extends CompactService {
         || agent.session.surface.replaceGeneration <= generation) return next()
       if (result !== null) logResult(result, 'context overflow recovery')
       this.overflowRetries.set(agent, retries + 1)
-      agent.retry()
+      return { kind: 'retry' }
     })
   }
 

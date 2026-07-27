@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 const SIGNAL = new AbortController().signal
@@ -79,7 +79,6 @@ function agent(session: Session, model?: string): Agent {
   return {
     session,
     options: model === undefined ? {} : { provider: model, model },
-    retry() {},
   } as Agent
 }
 
@@ -1292,15 +1291,13 @@ describe('automatic listener and loader composition', () => {
     owner: Agent,
     error: Error & { code?: string },
     signal = SIGNAL,
-    next: () => Promise<void> = () => Promise.resolve(),
+    next: () => Promise<RequestErrorAction> = () => Promise.resolve(undefined),
   ): Promise<boolean> {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
     const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
-    let retried = false
-    owner.retry = () => { retried = true }
     return agentEvents(ctx, owner).waterfall(
       'agent/request-error', turn, 1, error, failure, signal, next,
-    ).then(() => retried)
+    ).then(action => action?.kind === 'retry')
   }
 
   function overflow(message = 'provider overflow'): Error & { code: string } {
@@ -1584,7 +1581,7 @@ describe('automatic listener and loader composition', () => {
 
     const decision = await recover(ctx, agent(session, MODEL), original, SIGNAL, () => {
       delegations += 1
-      return Promise.resolve()
+      return Promise.resolve(undefined)
     })
 
     expect(decision).toBe(false)

@@ -25,9 +25,9 @@ The loop keeps five machine extension events. `agent/prompt-submit` admits, rewr
 
 Continuation and termination are data rather than returned control enums. Tool calls and accepted steering require another step. A tool result carrying `concludesTurn` ends the tool loop at its step. The loop does not expose general `ContinuationDecision` or terminal-stop return channels.
 
-A model-request failure closes its step, then enters `agent/request-error` with the exact error, normalized `LlmFailure`, and live turn signal. A listener that owns recovery repairs state, calls `agent.retry()`, and returns without delegating. The loop closes the failed turn and opens one retry turn over that state without an intervening idle notification; retry is not another step inside the failed turn. `agent/settled` reports the terminal outcome, and `agent/error` remains the live error notification for consumers that report failures independently of turn settlement.
+A model-request failure closes its step, then enters `agent/request-error` with the exact error, normalized `LlmFailure`, and live turn signal. A listener that owns recovery repairs state, returns `{ kind: 'retry' }`, and stops delegating. The loop closes the failed turn and opens one retry turn over that state without an intervening idle notification; retry is not another step inside the failed turn. `agent/settled` reports the terminal outcome, and `agent/error` remains the live error notification for consumers that report failures independently of turn settlement. The [retry-action decision](2026-07-27-request-error-retry-action.md) supersedes the command-shaped part of this design.
 
-The event taxonomy removes `agent/pre-step`, `agent/post-step`, `agent/session-prefix`, `agent/step-result`, `agent/turn-continuation`, and `agent/turn-stop`. Durable turn and step boundaries remain session events. Model-facing additions use logged message channels, request configuration uses `agent/request`, response content is recorded as assembled, failed-request recovery uses `agent/request-error` plus `agent.retry()`, and end-of-turn continuation uses `agent/turn-stopping` plus steering.
+The event taxonomy removes `agent/pre-step`, `agent/post-step`, `agent/session-prefix`, `agent/step-result`, `agent/turn-continuation`, and `agent/turn-stop`. Durable turn and step boundaries remain session events. Model-facing additions use logged message channels, request configuration uses `agent/request`, response content is recorded as assembled, failed-request recovery uses the `agent/request-error` return action, and end-of-turn continuation uses `agent/turn-stopping` plus steering.
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ The event taxonomy removes `agent/pre-step`, `agent/post-step`, `agent/session-p
 
 **Represent disposal as a third `AgentStatus`.** This gives retained handles a terminal status value but duplicates the registry lifecycle already expressed by `agent/disposed`. The decision keeps `AgentStatus` about live activity and makes registration lifetime a separate dimension.
 
-**Return a retry decision from `agent/request-error`.** A returned instruction duplicates the existing `agent.retry()` command and requires the loop to carry policy history across attempts. The waterfall remains useful for ordered ownership: an unhandled listener delegates, while a handling listener performs its awaited repair, calls `agent.retry()`, and stops delegation.
+**Return a retry decision from `agent/request-error`.** This alternative is superseded by the [retry-action decision](2026-07-27-request-error-retry-action.md), which removes the duplicate command and keeps the decision local to the waterfall result.
 
 **Mirror durable turn and step boundaries as agent events.** This gives live consumers a second event stream for the same facts. The decision keeps the session log as the source of truth and exposes only extension checkpoints or live-only facts that the durable stream cannot carry.
 
@@ -45,7 +45,7 @@ The observable machine is smaller and compositional: registration lifetime, acti
 
 Plugins no longer rewrite every phase of the loop. There is no request-only message prefix, assistant-message transform, post-step checkpoint, generic continuation enum, generic terminal-stop result, or in-turn request retry. Extensions use the remaining owned channels instead of recreating those phases.
 
-Continuation plugins publish durable steering rather than returning an unlogged reason. Recovery plugins act after the failed step and explicitly schedule another turn through `agent.retry()`. This makes every attempt a complete turn while keeping asynchronous repair and policy ownership at one narrow waterfall boundary.
+Continuation plugins publish durable steering rather than returning an unlogged reason. Recovery plugins act after the failed step and return an explicit retry action. This makes every attempt a complete turn while keeping asynchronous repair and policy ownership at one narrow waterfall boundary.
 
 The inbox lifecycle complements, rather than replaces, the durable session log. `AgentMessageId` correlates acceptance with claim or discard; turn and step numbers, messages, tool activity, and terminal reasons remain session facts.
 

@@ -116,6 +116,9 @@ export type PromptDecision =
 /** Model-request failure with an optional machine-routable provider code. */
 export type RequestError = Error & { code?: string }
 
+/** Action returned by a listener that owns model-request recovery. */
+export type RequestErrorAction = { kind: 'retry' } | undefined
+
 /**
  * Why a turn ended, reported live on `agent/settled` right after the turn's
  * durable `turn/end`. `error` carries the thrown value verbatim for observers;
@@ -226,15 +229,6 @@ export interface Agent {
    * @returns the accepted message's {@link AgentMessageId}.
    */
   inject(input: UserMessageData): AgentMessageId
-
-  /**
-   * Re-open a turn on the current session log without a new prompt — the
-   * explicit resummon verb. During `agent/request-error`, this schedules one
-   * retry turn after the failed turn closes; while idle, it starts one
-   * immediately. Repeated calls before the scheduled retry coalesce.
-   * @throws while other agent work is running.
-   */
-  retry(): void
 }
 
 declare module 'cordis' {
@@ -368,9 +362,9 @@ declare module 'cordis' {
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Handle a model-request failure after its failed step has closed but
-     * before the failed turn closes. A listener calls {@link Agent.retry} to
-     * schedule one retry turn, returns without `next()` when it owns the error,
-     * or calls `next()` to delegate. The default leaves the failure terminal.
+     * before the failed turn closes. A listener returns `{ kind: 'retry' }`
+     * without calling `next()` when it owns the error, or calls `next()` to
+     * delegate. The default `undefined` leaves the failure terminal.
      * @param agent - the agent whose request failed.
      * @param turn - the open turn number.
      * @param step - the failed step number.
@@ -380,7 +374,7 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<void>): Promise<void>
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
     /**
      * The turn is about to close: the model owes no response (no live tool
      * calls, no fresh steering). Awaited before the boundary commits — a

@@ -186,7 +186,6 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     },
     send: () => AgentMessageId('stub'),
     cancel() {},
-    retry() {},
     whenIdle: () => Promise.resolve(),
   }
 }

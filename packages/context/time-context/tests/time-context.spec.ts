@@ -51,7 +51,6 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     },
     send: () => AgentMessageId('stub'),
     cancel() {},
-    retry() {},
     whenIdle: () => Promise.resolve(),
   }
 }
