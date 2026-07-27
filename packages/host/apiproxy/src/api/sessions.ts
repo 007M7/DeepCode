@@ -143,6 +143,17 @@ export interface SessionSummary {
   parentSessionId?: SessionId
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
+  /**
+   * Whole current value per projection key, with zero log loads: attached
+   * sessions read the registry's live watermark cut; cold sessions read the
+   * persisted projection cache's stored rows — as stale as that session's
+   * last durable checkpoint, never wrong, superseded by the history tail
+   * baseline the moment the session is opened. Absent when no value is
+   * available (no registry, no cache row for a cold session, or a fail-soft
+   * cache read miss); a listing client treats absence as "no title yet",
+   * exactly like a blank session.
+   */
+  projections?: Partial<SessionProjectionMap>
 }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */

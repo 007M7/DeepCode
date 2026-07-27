@@ -281,6 +281,27 @@ export class SessionProjectionRegistry extends Service {
   }
 
   /**
+   * View a checkpoint's rows without any log read: for every registered
+   * unit whose row's `stateVersion` matches, serve the schema-validated
+   * `view` of the stored state; mismatched or absent rows leave their key
+   * absent (a cold or listing consumer treats it as not-yet-available and a
+   * fuller read path refolds it). The zero-I/O rung of the read ladder —
+   * values are as stale as their rows, never wrong.
+   * @param checkpoint - persisted rows for one session (possibly stale or empty).
+   * @returns whole values per key with a usable row; empty when none.
+   */
+  viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap> {
+    const values: Record<string, unknown> = {}
+    for (const registration of this.registrations.values()) {
+      const def = registration.def
+      const row = checkpoint[def.key]
+      if (row === undefined || row.stateVersion !== def.stateVersion) continue
+      values[def.key] = def.schema.parse(def.view(row.state))
+    }
+    return values as Partial<SessionProjectionMap>
+  }
+
+  /**
    * Cold read: fold every registered unit over a stored log suffix, seeding
    * each from its checkpoint row when usable — the one read recipe (cached
    * state + forward tail replay + `view`) applied without a live `Session`.

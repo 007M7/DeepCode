@@ -19,7 +19,7 @@ import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 // Empty type import: applies the package's cordis Context merge
 // (`ctx.sessionPersistence`), which this service reads on the cold path.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { ProjectionCheckpoint, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionCheckpoint, ProjectionSnapshot, SessionProjectionMap } from '@deepseek-ai/dsh-session-projection'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { projectionCacheDomainSpec } from './spec.ts'
 import type { CheckpointRecord } from './spec.ts'
@@ -96,6 +96,20 @@ export class SessionProjectionCache extends Service {
    */
   checkpointOf(id: SessionId): ProjectionCheckpoint {
     return this.requireTable().get(id)?.rows ?? {}
+  }
+
+  /**
+   * The zero-I/O listing read: whole values viewed straight from the stored
+   * rows (version-matching keys only), as stale as the last durable
+   * checkpoint but never wrong. Synchronous — a listing over every stored
+   * session touches no log. Fresher paths (the history tail baseline,
+   * {@link coldSnapshot}) supersede these values whenever a session is
+   * actually opened.
+   * @param id - the session whose cached values are viewed.
+   * @returns whole values per key with a usable row; empty when none stored.
+   */
+  cachedValues(id: SessionId): Partial<SessionProjectionMap> {
+    return this.ctx.sessionProjections.viewCheckpoint(this.checkpointOf(id))
   }
 
   /**

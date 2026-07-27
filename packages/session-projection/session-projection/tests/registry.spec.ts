@@ -267,6 +267,19 @@ describe('SessionProjectionRegistry drive', () => {
     expect(current.values['test/count']).toBe(5)
   })
 
+  it('viewCheckpoint serves version-matching rows without any log and skips mismatched keys', async () => {
+    const { ctx } = await harness()
+    ctx.sessionProjections.register(marksUnit())
+    ctx.sessionProjections.register(countUnit())
+    const values = ctx.sessionProjections.viewCheckpoint({
+      'test/marks': { stateVersion: 1, observedSeq: 4, state: { marks: ['stored'] } },
+      'test/count': { stateVersion: 99, observedSeq: 4, state: 5 }, // mismatched: absent
+    })
+    expect(values['test/marks']).toEqual({ marks: ['stored'] })
+    expect('test/count' in values).toBe(false)
+    expect(ctx.sessionProjections.viewCheckpoint({})).toEqual({})
+  })
+
   it('restore rejects a row claiming events past the supplied log end (shrunk log ⇒ re-read)', async () => {
     const { ctx } = await harness()
     ctx.sessionProjections.register(countUnit())

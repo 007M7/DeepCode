@@ -2685,6 +2685,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session-projection/session-projection
+      '@deepseek-ai/dsh-session-projection-cache':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection-cache
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
