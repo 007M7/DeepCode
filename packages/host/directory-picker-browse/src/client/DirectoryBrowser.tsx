@@ -112,6 +112,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const requestSeq = useRef(0)
+  // Bumped on every open/close edge: settlements from a previous open (a
+  // pending creation included) must never mutate a reopened dialog.
+  const openGeneration = useRef(0)
   // Deep ancestry overflows the trail; keep its tail (the current directory
   // and the edit zone beside it) in view whenever the chain changes.
   const crumbTrailRef = useRef<HTMLSpanElement | null>(null)
@@ -164,10 +167,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // Every open starts fresh at the Host home directory; closing invalidates
   // any in-flight response so a late arrival cannot repopulate a closed dialog.
   useEffect(() => {
+    openGeneration.current += 1
     if (open) {
       setParent(null)
       setSelected(null)
       setChild(null)
+      setCreatingFolder(false)
       navigate()
       return
     }
@@ -190,7 +195,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     if (name === '') return
     setCreatingFolder(true)
     setCreateError(null)
+    const generation = openGeneration.current
     createDirectory(targetPath, name).then((createdPath) => {
+      // A settlement from a closed (possibly reopened) flow must not touch
+      // the fresh dialog or issue a relist against the stale target.
+      if (generation !== openGeneration.current) return
       setCreatingFolder(false)
       setFolderDraft(null)
       // Land like a right-column pick (figma 802:57446 → 813:23278 flow): the
@@ -210,6 +219,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         setError(failureText(reason))
       })
     }, (reason: unknown) => {
+      if (generation !== openGeneration.current) return
       setCreatingFolder(false)
       setCreateError(failureText(reason))
     })
@@ -226,14 +236,20 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
 
   if (!open) return null
   const twoPane = selected !== null
+  // The nested create dialog owns the interaction while open: Modal has no
+  // focus trap, so every parent control goes inert (Shift-Tab or AT must not
+  // close, adopt, or retarget underneath the child).
+  const parentInert = busy || folderDraft !== null
 
   return (
     <Modal
       open={open}
       // Escape and mask reach every mounted Modal's document listener; while
-      // the nested create dialog is up, only that topmost dialog may close
-      // (its own guard keeps an in-flight creation open).
-      onClose={() => { if (folderDraft === null) onClose() }}
+      // the nested create dialog is up only that topmost dialog may close
+      // (its own guard keeps an in-flight creation open), and an in-flight
+      // adoption pins the flow — dismissing it would leave the owner's
+      // createWorkspace to land after an apparent cancel.
+      onClose={() => { if (folderDraft === null && !busy) onClose() }}
       title={t('browser.title')}
       className={clsx(css.dialog)}
       headless
@@ -251,7 +267,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                       <button
                         type="button"
                         className={css.crumb}
-                        disabled={busy}
+                        disabled={parentInert}
                         onClick={() => { navigate(crumb.path) }}
                       >
                         {crumb.name}
@@ -264,7 +280,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   type="button"
                   className={css.crumbEditZone}
                   aria-label={t('browser.editPath')}
-                  disabled={parent === null || busy}
+                  disabled={parent === null || parentInert}
                   /* v8 ignore next -- narrowing guard: the zone disables while the level is null. */
                   onClick={() => { if (parent !== null) setPathDraft(selected?.path ?? parent.path) }}
                 />
@@ -299,7 +315,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           <LevelColumn
             entries={parent.entries}
             selectedPath={selected?.path ?? null}
-            busy={busy}
+            busy={parentInert}
             onPick={select}
             wide={!twoPane}
           />
@@ -309,7 +325,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           <LevelColumn
             entries={child.entries}
             selectedPath={null}
-            busy={busy}
+            busy={parentInert}
             onPick={advance}
             wide={false}
           />
@@ -321,7 +337,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         <Button
           variant="outline"
           icon={<IconPlusOutline16 size={14} />}
-          disabled={parent === null || busy || loading || folderDraft !== null}
+          disabled={parent === null || loading || parentInert}
           onClick={() => {
             setFolderDraft('')
             setCreateError(null)
@@ -330,11 +346,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           {t('browser.newFolder')}
         </Button>
         <span className={css.footerGap} />
-        <Button variant="outline" className={clsx(css.footerAction)} disabled={busy} onClick={onClose}>{t('browser.cancel')}</Button>
+        <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>
         <Button
           variant="primary"
           className={clsx(css.footerAction)}
-          disabled={targetPath === null || loading || busy}
+          disabled={targetPath === null || loading || parentInert}
           /* v8 ignore next -- narrowing guard: Open disables while no target exists. */
           onClick={() => { if (targetPath !== null) onOpen(targetPath) }}
         >

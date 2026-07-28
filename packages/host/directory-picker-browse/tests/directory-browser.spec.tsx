@@ -264,6 +264,65 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(false)
   })
 
+  it('ignores dismissal while adoption is busy', async () => {
+    const b = mount({ busy: true })
+    await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(b.onClose).not.toHaveBeenCalled()
+  })
+
+  it('makes every parent control inert while the nested create dialog is open', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    // Modal traps no focus: Shift-Tab/AT reach the parent, so closing,
+    // adopting, and retargeting must all disable underneath the child. Both
+    // dialogs carry a cancel: the parent's disables, the child's stays live.
+    const cancels = screen.getAllByRole<HTMLButtonElement>('button', { name: 'browser.cancel' })
+    expect(cancels.map(button => button.disabled).sort()).toEqual([false, true])
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.editPath' }).disabled).toBe(true)
+    for (const row of screen.getAllByRole<HTMLButtonElement>('listitem')) {
+      expect(row.disabled).toBe(true)
+    }
+  })
+
+  it('drops a creation failure that lands after the flow closed and reopened', async () => {
+    let rejectCreate!: (reason: unknown) => void
+    const createDirectory = vi.fn(() => new Promise<string>((_settle, reject) => { rejectCreate = reject }))
+    const b = mount({ createDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'slow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
+    b.view.rerender(<DirectoryBrowser {...b.props} open />)
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // The stale failure must not surface an alert inside the fresh flow.
+    await act(async () => { rejectCreate(new Error('too late')) })
+    expect(screen.queryByText('too late')).toBeNull()
+  })
+
+  it('drops a creation that settles after the flow closed and reopened', async () => {
+    let settleCreate!: (path: string) => void
+    const createDirectory = vi.fn(() => new Promise<string>((settle) => { settleCreate = settle }))
+    const b = mount({ createDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'slow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
+    b.view.rerender(<DirectoryBrowser {...b.props} open />)
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    const listCallsBefore = b.listDirectory.mock.calls.length
+    // The stale settlement must not relist the old target or reopen the
+    // nested dialog's state inside the fresh flow.
+    await act(async () => { settleCreate(`${HOME}/slow`) })
+    expect(b.listDirectory.mock.calls.length).toBe(listCallsBefore)
+    expect(screen.queryByLabelText('browser.folderName')).toBeNull()
+    expect(screen.getByText('Documents')).toBeTruthy()
+  })
+
   it('creates a folder through the nested dialog and lands with it selected', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
