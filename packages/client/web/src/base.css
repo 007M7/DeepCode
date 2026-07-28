@@ -15,6 +15,10 @@ body,
 
 body {
   font-family: var(--dsw-font-family);
+  /* Grayscale antialiasing over subpixel rendering: WebKit/Blink and the
+     Firefox macOS equivalent; other engines ignore both lines. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
 }

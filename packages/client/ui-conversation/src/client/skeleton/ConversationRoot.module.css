@@ -54,8 +54,8 @@
   border: none;
   border-radius: 12px;
   background: transparent;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -70,13 +70,6 @@
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
   cursor: default;
-}
-
-.meta {
-  margin-left: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
