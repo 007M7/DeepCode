@@ -57,6 +57,7 @@ const CHECKPOINTS = [
   'resume-sessions',
   'status-diagnostics',
   'status-diagnostics-narrow',
+  'todo-plan-cleared',
 ] as const
 
 // Real-loop scenarios own their assertions in separate snapshot suites but
@@ -297,6 +298,34 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('step/end', { turn: 1, step: 1 })
     })
     await checkpoint('step-timing-completed', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
+    await disposeSnapshot(harness)
+  })
+
+  it('clears the plan strip when the next turn starts', async () => {
+    // Freeze Completed-at formatting: the first turn ends before the next starts,
+    // so the assistant timing line still appears without a Plan strip below it.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 14, 45, 0).getTime())
+    const harness = await setupSnapshot({
+      beforeMount(session) {
+        appendUser(session, 'Plan the work.')
+        appendAssistant(session, [{ type: 'text', text: 'Tracking the steps.' }])
+        session.append('todo/write', {
+          todos: [
+            { content: 'read code', status: 'completed' },
+            { content: 'write tests', status: 'in_progress' },
+          ],
+        })
+        session.append('step/end', { turn: 1, step: 1 })
+        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+        session.append('turn/start', {
+          turn: 2,
+          trigger: { kind: 'message', source: { kind: 'user' } },
+        })
+        appendUser(session, 'Next question.')
+      },
+    })
+    await checkpoint('todo-plan-cleared', harness.terminal)
     nowSpy.mockRestore()
     await disposeSnapshot(harness)
   })

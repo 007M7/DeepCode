@@ -78,17 +78,23 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = z.union([
 /** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` unit. */
 export function apply(ctx: Context): void {
   // The unit child activates only when a projection registry is composed
-  // (headless assemblies without the seam stay unaffected). Pure last-wins
-  // fold: state is the latest whole todo/write list, null before the first
-  // write; every other event returns the same reference (no downstream work).
+  // (headless assemblies without the seam stay unaffected). Standing-plan fold:
+  // latest whole todo/write list, cleared by the next turn/start (turn/end keeps
+  // the finished checklist visible); null before the first write or after a
+  // later turn begins; every other event returns the same state reference.
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
       key: 'todos',
       schema: todosProjectionSchema,
       init: () => null,
-      apply: (state, event) => (event.type === 'todo/write' ? event.data.todos : state),
+      apply: (state, event) => {
+        if (event.type === 'todo/write') return event.data.todos
+        if (event.type === 'turn/start') return null
+        return state
+      },
       view: state => state,
-      stateVersion: 1,
+      // Fold semantics changed: turn/start clears the standing plan (was last-write-wins only).
+      stateVersion: 2,
     })
   })
   ctx.tools.register(defineTool({
