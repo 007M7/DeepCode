@@ -12,6 +12,8 @@ The [package hierarchy](../../../../packages/README.md) groups plugins by produc
 
 Add `packages/experimental/<pkg>/` as the required home for Cordis plugin packages whose whole public contract is experimental. Package names remain `@deepseek-ai/dsh-<pkg>`; promotion moves the package into its product-role group without renaming it.
 
+The group is also the team's in-repository place to share prototypes: members can discover, run, review, and extend one another's work against the real plugin graph without implying product support.
+
 Experimental packages carry no stability, compatibility, migration, or support promise: they may change APIs, configuration, or data, or disappear, without deprecation or migration. This status does not relax engineering standards; these packages retain the repository's type, test, security, documentation, lifecycle, and snapshot requirements. Non-experimental packages must not take runtime dependencies on them. Examples may use them; any other runtime dependent is itself experimental and belongs under `packages/experimental/`. Tests may use them as development dependencies.
 
 Examples include the pending `@deepseek-ai/dsh-tui-session-changes` `/diff` viewer and the `/btw` plugin; if accepted, they land in this group. A release never promotes a package implicitly. Promotion requires explicit review of the public contract, limitations, test evidence, and a named owner accepting stable-package obligations.
