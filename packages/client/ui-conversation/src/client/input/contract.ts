@@ -5,7 +5,7 @@
  * conversation wiring layer alone sees the full SessionInput. InputMachine
  * (machine.ts) is package-private and never exported.
  */
-import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
@@ -77,8 +77,6 @@ export interface InputNotice {
  * satisfies it structurally.
  */
 export interface ComposerKeyboard {
-  /** Latest surfaced notice store (null after none). */
-  readonly notices: SnapshotStore<InputNotice | null>
   /** Live machine state for event-handler reads (render reads go through useInput). */
   readonly snapshot: InputState
   /** Draft write with the DOM-observed edit shape (narrows occurrence math). */
@@ -99,8 +97,6 @@ export interface ComposerKeyboard {
   space(): boolean
   /** Dismiss the popupSelect shell (any interaction outside the box). */
   dismissPopup(): void
-  /** Hot plain-text reference lexicon source for the decoration scan (decision 21; empty Map without a pipeline). */
-  readonly lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
 }
 
 /** One queued-message row projected from the session/queued frames (T9 supplies the store). */

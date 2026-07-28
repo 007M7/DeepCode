@@ -748,6 +748,25 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     expect(inject).toHaveBeenCalledWith()
   })
 
+  it('binds the inject hooks compartment into use<Name> selector hooks (sources never reach the component)', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const badge = observable('cold')
+    const seen: Record<string, unknown>[] = []
+    h.add('k.single', {
+      component: (props: { useBadge?: <S>(sel: (s: string) => S) => S; hooks?: unknown; plain?: string }) => {
+        seen.push({ hooks: props.hooks, plain: props.plain, read: props.useBadge!(s => s) })
+        return null
+      },
+      inject: () => ({ plain: 'kept', hooks: { badge } }),
+    })
+    mountRoot(h, { 'k.single': SINGLE_ROOT }, renderSlot => renderSlot('k.single', {}))
+    // The raw compartment is consumed by the binding; the plain member passes through.
+    expect(seen.at(-1)).toEqual({ hooks: undefined, plain: 'kept', read: 'cold' })
+    act(() => { badge.set('hot') })
+    expect(seen.at(-1)!['read']).toBe('hot')
+  })
+
   it('session inject receives sessionId and caches per (entry x session): switch-back reuses', () => {
     const h = makeHost()
     h.declare('k.session', SINGLE_SESSION)
