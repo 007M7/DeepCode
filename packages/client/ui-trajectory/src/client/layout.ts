@@ -331,7 +331,6 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           text: summarizeContent(node.content),
           sourceSeq: node.seq,
           messageSource: node.source,
-          ...(node.meta === undefined ? {} : { messageMeta: node.meta }),
           inputDetail: detailContent(node.content),
           sourceBlocks: node.content.map(block => sourceBlock(block)),
           timeSeconds: 0,

@@ -130,6 +130,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   }) as unknown as ConversationSessionProps['renderSlot']
   return render(
     <ConversationSession
+      composer={null}
       sessionId={SID}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}

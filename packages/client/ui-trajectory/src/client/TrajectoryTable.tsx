@@ -1147,7 +1147,7 @@ function RequestTiming({
 }: {
   assistant: TableRecord | undefined
   anchor: TableRecord | undefined
-  request?: TrajectoryRequestNumber
+  request: TrajectoryRequestNumber | undefined
 }) {
   if (assistant !== undefined) return <RecordTiming record={assistant} />
   if (request?.startedAt !== undefined) {
@@ -1746,8 +1746,9 @@ export function TrajectoryTable({
             onPointerDown={(event) => {
               if (event.button !== 0) return
               const details = event.currentTarget.parentElement
-              const split = details?.parentElement
-              if (details === null || split === null) return
+              if (details === null) return
+              const split = details.parentElement
+              if (split === null) return
               const splitWidth = split.getBoundingClientRect().width
               detailsResizeDrag.current = {
                 pointerId: event.pointerId,
@@ -1785,8 +1786,9 @@ export function TrajectoryTable({
             onKeyDown={(event) => {
               if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
               const details = event.currentTarget.parentElement
-              const split = details?.parentElement
-              if (details === null || split === null) return
+              if (details === null) return
+              const split = details.parentElement
+              if (split === null) return
               const direction = event.key === 'ArrowLeft' ? 1 : -1
               const currentDetailsWidth = details.getBoundingClientRect().width
               const splitWidth = split.getBoundingClientRect().width

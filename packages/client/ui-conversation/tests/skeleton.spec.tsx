@@ -88,6 +88,7 @@ function mount(
     if (key === 'conversation.session') {
       return (
         <ConversationSession
+          composer={null}
           sessionId={SID}
           SessionProvider={({ children }) => children(SID)}
           useSession={useSession}

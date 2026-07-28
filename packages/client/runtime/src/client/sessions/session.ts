@@ -955,7 +955,7 @@ function deriveModelRequests(events: readonly SessionEvent[]): readonly ModelReq
       const key = modelRequestKey(sourceEvent.data.turn, sourceEvent.data.step)
       const index = byStep.get(key)
       const request = index === undefined ? undefined : requests[index]
-      if (request !== undefined && request.status === 'running') {
+      if (index !== undefined && request !== undefined && request.status === 'running') {
         requests[index] = {
           ...request,
           completedAt: sourceEvent.time,

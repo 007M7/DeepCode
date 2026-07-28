@@ -72,7 +72,10 @@ function previewPrimitive(value: unknown): ReactNode {
   if (typeof value === 'symbol') {
     return <span className={css.otherValue}>{value.description ?? 'Symbol'}</span>
   }
-  return <span className={css.otherValue}>{value.name || 'Function'}</span>
+  if (typeof value === 'function') {
+    return <span className={css.otherValue}>{value.name || 'Function'}</span>
+  }
+  return null
 }
 
 function previewValue(value: unknown, depth: number): ReactNode {

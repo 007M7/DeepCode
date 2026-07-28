@@ -58,7 +58,6 @@ function materializeNode(
       return {
         kind: 'user', seq: event.seq, time: event.time,
         content: event.data.content, source: event.data.source,
-        meta: event.data.meta,
       }
     case 'assistant/message':
       return {
@@ -76,7 +75,6 @@ function materializeNode(
       return {
         kind: 'steering', seq: event.seq, time: event.time, turn: event.data.turn,
         content: event.data.content, source: event.data.source,
-        meta: event.data.meta,
       }
     case 'tool/result': {
       const call = callIndex.get(String(event.data.callId))

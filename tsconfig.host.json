@@ -32,6 +32,7 @@
   ],
   "exclude": [
     "packages/client/**",
+    "scripts/client-bundle-css.spec.ts",
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
