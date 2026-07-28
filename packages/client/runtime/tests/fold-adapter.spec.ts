@@ -230,7 +230,15 @@ describe('FoldAdapter', () => {
         adapter.reset([
           ev.commandRun(0, 'cmd-5', 'plan'),
           ev.commandDone(1, 'cmd-5'),
-          at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: { turn: 0, step: 0, content: [{ type: 'text', text: '坏 op' }], provenance: { provider: 'x', model: 'y' } } }),
+          at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: {
+            turn: 0,
+            step: 0,
+            message: createMessage({
+              role: 'assistant',
+              content: [{ type: 'text', text: '坏 op' }],
+              source: { kind: 'model', provider: 'x', model: 'y' },
+            }),
+          } }),
         ], 0)
         const { nodes, degraded } = adapter.nodes()
         expect(degraded).toBe(true)
