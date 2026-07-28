@@ -19,7 +19,7 @@
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
  */
-import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -59,21 +59,24 @@ export type DirectoryFlowSlotName =
   | 'conversation.hero.workspace.directoryFlow'
   | 'sidebar.workspaces.directoryFlow'
 
-/** Directory-picking share both trigger surfaces consume. */
+/**
+ * Directory-picking share both trigger surfaces consume. Occupancy rides the
+ * inject face's reserved `hooks` compartment: the renderer binds the source
+ * into the `useDirectoryFlow` selector hook, so an empty hole hides the
+ * "Open local folder…" entry reactively and the surface withdraws an open
+ * flow whose occupant unloaded mid-interaction (nobody is left to cancel).
+ */
 export type DirectoryPickingInjected = {
-  /**
-   * Whether this surface's directory-flow hole is occupied — an empty hole
-   * hides the "Open local folder…" entry (the no-flow composition simply has
-   * no picking affordance).
-   */
-  hasDirectoryFlow: () => boolean
-  /**
-   * Subscribe to the hole's registration changes (the uSES pair of
-   * {@link hasDirectoryFlow}): the trigger surface withdraws an open flow
-   * whose occupant unloaded mid-interaction — nobody is left to cancel it.
-   * @returns the unsubscriber.
-   */
-  subscribeDirectoryFlow: (listener: () => void) => () => void
+  hooks: {
+    /** True while this surface's directory-flow hole is occupied. */
+    directoryFlow: HostObservable<boolean>
+  }
+}
+
+/** Component-side view of the picking share: the bound occupancy selector hook. */
+export type DirectoryPickingHooks = {
+  /** Selector hook over this surface's directory-flow occupancy. */
+  useDirectoryFlow: SnapshotSelectorHook<boolean>
 }
 
 /**
@@ -109,7 +112,8 @@ export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
   & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
-  & WorkspaceBrowserInjected
+  & Omit<WorkspaceBrowserInjected, 'hooks'>
+  & DirectoryPickingHooks
 
 /**
  * Picker-private injected share. Pick semantics remain in the owner's onPick
@@ -129,4 +133,5 @@ export type WorkspacePickerInjected = DirectoryPickingInjected & {
 export type WorkspacePickerProps =
   PropsRuntime<'conversation.hero.workspace'>
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
-  & WorkspacePickerInjected
+  & Omit<WorkspacePickerInjected, 'hooks'>
+  & DirectoryPickingHooks

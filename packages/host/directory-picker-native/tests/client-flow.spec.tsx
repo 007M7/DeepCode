@@ -5,7 +5,8 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import { apply, inject, NativeDirectoryFlow } from '../src/client/index.ts'
+import { apply, inject } from '../src/client/index.ts'
+import { NativeDirectoryFlow } from '../src/client/flow.ts'
 
 afterEach(cleanup)
 

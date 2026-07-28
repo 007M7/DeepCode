@@ -59,8 +59,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
-    hasDirectoryFlow: () => true,
-    subscribeDirectoryFlow: () => () => {},
+    useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
     ...overrides,
   }

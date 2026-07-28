@@ -7,7 +7,7 @@
  * opens the flow, adopts the picked path, and owns the error surface.
  */
 import type { ReactNode, RefObject } from 'react'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -15,6 +15,7 @@ import {
   WorkspaceCreateError,
   type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
@@ -33,10 +34,8 @@ export interface WorkspaceCreateFlowProps {
   useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
   /** Create or adopt a real Host Workspace. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Whether this surface's directory-flow hole is occupied (empty hides the local-folder entry). */
-  hasDirectoryFlow: () => boolean
-  /** Registration-change subscription for the same hole (the uSES pair of hasDirectoryFlow). */
-  subscribeDirectoryFlow: (listener: () => void) => () => void
+  /** Bound occupancy selector hook for this surface's directory-flow hole (empty hides the local-folder entry). */
+  useDirectoryFlow: SnapshotSelectorHook<boolean>
   /** Render this surface's directory-flow hole with the owner conversation (the entry's narrowed renderSlot). */
   renderDirectoryFlow: (owner: DirectoryFlowOwnerProps) => ReactNode
   /** A real Workspace was picked or created. */
@@ -61,8 +60,7 @@ export function WorkspaceCreateFlow({
   anchorRef,
   useWorkspaces,
   createWorkspace,
-  hasDirectoryFlow,
-  subscribeDirectoryFlow,
+  useDirectoryFlow,
   renderDirectoryFlow,
   onPick,
   onClose,
@@ -95,9 +93,9 @@ export function WorkspaceCreateFlow({
 
   // The occupied hole gates the picking affordance: with no composed flow the
   // entry simply is not there (the seam's documented no-flow default). The
-  // subscription keeps occupancy live: flow plugins activate (and HMR-reload)
-  // independently of this menu's renders.
-  const flowAvailable = useSyncExternalStore(subscribeDirectoryFlow, hasDirectoryFlow)
+  // framework-bound hook keeps occupancy live: flow plugins activate (and
+  // HMR-reload) independently of this menu's renders.
+  const flowAvailable = useDirectoryFlow(occupied => occupied)
   // An occupant that unloads mid-interaction leaves nobody to cancel: an
   // open flow over an empty hole withdraws so the menu actions come back.
   useEffect(() => {
@@ -296,8 +294,7 @@ export function WorkspacePicker({
   onPick,
   onClose,
   createWorkspace,
-  hasDirectoryFlow,
-  subscribeDirectoryFlow,
+  useDirectoryFlow,
   renderSlot,
 }: WorkspacePickerProps) {
   return (
@@ -306,8 +303,7 @@ export function WorkspacePicker({
       anchorRef={anchorRef}
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
-      hasDirectoryFlow={hasDirectoryFlow}
-      subscribeDirectoryFlow={subscribeDirectoryFlow}
+      useDirectoryFlow={useDirectoryFlow}
       renderDirectoryFlow={owner => renderSlot('conversation.hero.workspace.directoryFlow', owner)}
       selectedId={selectedId}
       onPick={onPick}

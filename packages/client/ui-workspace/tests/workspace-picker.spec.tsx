@@ -6,6 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryFlowOwnerProps } from '../src/client/contract/slots.ts'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
 afterEach(cleanup)
@@ -50,16 +51,19 @@ function flowProbe() {
   return { probe, renderSlot }
 }
 
-/** Manual occupancy source: flip() drives the uSES subscription like a real registration change. */
+/** Manual occupancy source bound like the renderer would: flip() drives the hook like a real registration change. */
 function occupancySource(initial = true) {
   let occupied = initial
   const listeners = new Set<() => void>()
-  return {
-    hasDirectoryFlow: () => occupied,
-    subscribeDirectoryFlow: (listener: () => void) => {
+  const useDirectoryFlow = bindSnapshotSelector({
+    getSnapshot: () => occupied,
+    subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
+  })
+  return {
+    useDirectoryFlow,
     flip: (next: boolean) => {
       occupied = next
       for (const listener of [...listeners]) listener()
@@ -85,8 +89,7 @@ function mount(
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
-      hasDirectoryFlow={occupancy.hasDirectoryFlow}
-      subscribeDirectoryFlow={occupancy.subscribeDirectoryFlow}
+      useDirectoryFlow={occupancy.useDirectoryFlow}
       renderSlot={renderSlot}
     />
   )
@@ -265,7 +268,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        hasDirectoryFlow={() => true} subscribeDirectoryFlow={() => () => {}} renderSlot={renderSlot}
+        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -280,7 +283,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        hasDirectoryFlow={() => true} subscribeDirectoryFlow={() => () => {}} renderSlot={renderSlot}
+        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')

@@ -7,63 +7,13 @@
  * both sides of the native interaction with one cordis.yml row; no client
  * code branches on a capability kind.
  */
-import { useEffect, useRef } from 'react'
-import type { ReactElement } from 'react'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only: the SlotMap merge declaring the directory-flow holes and their owner contract.
-import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
+// Type-only: pulls the SlotMap merge declaring the directory-flow holes.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { NativeFlowInjected } from './flow.ts'
+import { NativeDirectoryFlow } from './flow.ts'
 
-/** Injected face: the wire call the flow drives (bound in apply's closure). */
-interface NativeFlowInjected {
-  /** Ask the local Host to open its native single-directory chooser. */
-  pick: () => Promise<string | null>
-}
-
-/**
- * Renderless flow occupant: each rising `open` edge runs exactly one pick and
- * reports exactly one outcome; the ref arms once per open so re-renders (and
- * an adoption keeping `open` true while `busy`) never launch a second
- * chooser. The owner withdrawing `open` re-arms the next request.
- * @param props - owner conversation plus the injected pick call.
- * @returns nothing — the native chooser renders on the host display.
- */
-export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowInjected): ReactElement | null {
-  const { open, pick } = props
-  const armed = useRef(false)
-  // Callbacks ride a ref so the settled pick reports through the owner's
-  // latest handlers, not the ones captured when the chooser opened.
-  const outcome = useRef(props)
-  outcome.current = props
-  // Unmount (HMR replacing the occupant) discards settlements wholesale: the
-  // dead instance must neither adopt a path nor drive the owner's error
-  // surface. The wire carries no per-request abort, so the host-side chooser
-  // survives until answered — its answer just lands nowhere; the replacement
-  // instance re-arms under the owner's still-open request. An injected-face
-  // identity change alone (re-registration) keeps the pending settlement:
-  // the chooser on the host display is still the same dialog.
-  const alive = useRef(true)
-  useEffect(() => () => { alive.current = false }, [])
-  useEffect(() => {
-    if (!open) {
-      armed.current = false
-      return
-    }
-    if (armed.current) return
-    armed.current = true
-    pick().then(
-      (path) => {
-        if (!alive.current) return
-        if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
-      },
-      (reason: unknown) => {
-        if (!alive.current) return
-        outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
-      },
-    )
-  }, [open, pick])
-  return null
-}
 
 /** Required services (cordis fiber inject): the slot registry and the wire-facing workspace service. */
 export const inject = ['slots', 'workspaces']
