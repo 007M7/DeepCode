@@ -24,7 +24,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       },
       processTimeoutMs: 120_000,
       inspect: async (cwd) => {
-        for (const name of ['from-fs.txt', 'from-bash.txt', 'multibyte.ts', 'fixture-lsp.mjs']) {
+        for (const name of ['from-fs.txt', 'from-bash.txt', 'multibyte # file.ts', 'fixture-lsp.mjs']) {
           await expect(access(join(cwd, name))).rejects.toMatchObject({ code: 'ENOENT' })
         }
       },
@@ -35,6 +35,12 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     expect(output).toMatchObject({
       bashRead: 'written-by-fs\n',
       fsRead: 'written-by-bash\n',
+      explicitEnvironment: true,
+      spill: {
+        liveBytes: 6,
+        outcome: { exitCode: null, signal: 'SIGTERM' },
+        read: { text: '6789', nextOffset: 10, lossy: true },
+      },
       hover: {
         kind: 'hover',
         hover: { contents: '**remote hover** 你好 café' },
@@ -51,6 +57,8 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       hostileOutput: { error: { kind: 'output-limit' } },
       timedOut: { error: { kind: 'timeout' } },
       aborted: { error: { kind: 'abort', message: 'live abort' } },
+      oversizedBoot: { error: { kind: 'worker-exit' } },
+      oversizedReply: { error: { kind: 'worker-exit' } },
       lingeringCodeRunners: 0,
     })
     expect((output.terminal as { motd: string }).motd.length).toBeGreaterThan(0)

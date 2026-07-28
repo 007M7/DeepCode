@@ -55,37 +55,38 @@ class DeferredStdin extends Writable {
 interface RemotePaths {
   pid: string
   status: string
+  environment: string
   stdout: string
   stderr: string
 }
 
-function explicitEnvironmentNames(env: Readonly<Record<string, string>> | undefined): string {
-  return Object.keys(env ?? {})
-    .map(quoteE2BShellArg)
-    .join(' ')
+function explicitEnvironment(env: Readonly<Record<string, string>> | undefined): string {
+  return Object.entries(env ?? {})
+    .map(([name, value]) => `${name}=${value}\0`)
+    .join('')
 }
 
 function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
   const stdoutRedirect = hasSpill(spec.stdio.stdout)
-    ? `> >(tee -a -- ${quoteE2BShellArg(paths.stdout)})`
+    ? `> >(tee --output-error=warn-nopipe >(head -c ${spec.stdio.stdout.spill.maxBytes} > ${quoteE2BShellArg(paths.stdout)}))`
     : ''
   const stderrRedirect = hasSpill(spec.stdio.stderr)
-    ? `2> >(tee -a -- ${quoteE2BShellArg(paths.stderr)} >&2)`
+    ? `2> >(tee --output-error=warn-nopipe >(head -c ${spec.stdio.stderr.spill.maxBytes} > ${quoteE2BShellArg(paths.stderr)}) >&2)`
     : ''
-  const environmentNames = explicitEnvironmentNames(spec.env)
   const inner = [
     'set +e',
     'umask 077',
     'dsh_e2b_pgid="$(ps -o pgid= -p "$$" | tr -d " ")"',
     `printf '%s\\n' "$dsh_e2b_pgid" > ${quoteE2BShellArg(paths.pid)}`,
+    `mapfile -d '' -t dsh_e2b_explicit < ${quoteE2BShellArg(paths.environment)}`,
+    `: > ${quoteE2BShellArg(paths.environment)}`,
     'dsh_e2b_env=()',
-    `dsh_e2b_explicit=(${environmentNames})`,
-    'while IFS= read -r dsh_e2b_name; do',
+    "while IFS= read -r -d '' dsh_e2b_entry; do",
+    '  dsh_e2b_name="${dsh_e2b_entry%%=*}"',
     '  case "${dsh_e2b_name^^}" in DSH_*|*KEY*|*SECRET*|*TOKEN*) continue ;; esac',
-    '  dsh_e2b_env+=("$dsh_e2b_name=${!dsh_e2b_name}")',
-    'done < <(compgen -e)',
-    'for dsh_e2b_name in "${dsh_e2b_explicit[@]}"; do dsh_e2b_env+=("$dsh_e2b_name=${!dsh_e2b_name}"); done',
-    `env -i "\${dsh_e2b_env[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
+    '  dsh_e2b_env+=("$dsh_e2b_entry")',
+    'done < <(env -0)',
+    `env -i "\${dsh_e2b_env[@]}" "\${dsh_e2b_explicit[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
     'dsh_e2b_status=$?',
     'wait',
     `printf '%s\\n' "$dsh_e2b_status" > ${quoteE2BShellArg(paths.status)}`,
@@ -131,7 +132,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private readonly stderrReader: E2BOutputReader | undefined
   private readonly paths: RemotePaths
   private remotePid = -1
-  private settled = false
   private terminationRequested = false
   private terminationSignal: NodeJS.Signals | null = null
   private termination: Promise<void> | undefined
@@ -150,6 +150,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     this.paths = {
       pid: posix.join(stateDir, 'pid'),
       status: posix.join(stateDir, 'exit-code'),
+      environment: posix.join(stateDir, 'environment'),
       stdout: posix.join(stateDir, 'stdout.log'),
       stderr: posix.join(stateDir, 'stderr.log'),
     }
@@ -182,7 +183,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   /** @inheritdoc */
   terminate(): void {
-    if (this.terminationRequested || this.settled) return
+    if (this.terminationRequested) return
     this.terminationRequested = true
     this.termination = this.terminateRemote()
     void this.termination.catch(() => {})
@@ -240,7 +241,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           cwd: this.spec.cwd,
           stdin: this.spec.stdio.stdin !== 'ignore',
           timeoutMs: 0,
-          ...(this.spec.env !== undefined ? { envs: this.spec.env } : {}),
           onStdout: async (data) => { await this.dispatchOutput('stdout', data) },
           onStderr: async (data) => { await this.dispatchOutput('stderr', data) },
         },
@@ -250,7 +250,12 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       }
       const completion = handle.wait()
       void completion.catch(() => {})
-      this.remotePid = await this.waitForProcessGroupId(sandbox, completion)
+      try {
+        this.remotePid = await this.waitForProcessGroupId(sandbox, completion)
+      } catch (error: unknown) {
+        await Promise.allSettled([handle.kill()])
+        throw error
+      }
       this.readyState.resolve(handle)
       await this.writeBatchStdin(handle)
       const outcome = await this.waitForCommand(completion)
@@ -260,7 +265,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       this.readyState.reject(error)
       throw error
     } finally {
-      this.settled = true
       this.spec.signal?.removeEventListener('abort', this.onAbort)
       this.stdout?.end()
       this.stderr?.end()
@@ -269,17 +273,16 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   private async prepareState(sandbox: Sandbox): Promise<void> {
     await sandbox.files.makeDir(this.stateDir)
+    await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`)
     const files = [
       { path: this.paths.pid, data: '' },
       { path: this.paths.status, data: '' },
+      { path: this.paths.environment, data: explicitEnvironment(this.spec.env) },
       ...(hasSpill(this.spec.stdio.stdout) ? [{ path: this.paths.stdout, data: '' }] : []),
       ...(hasSpill(this.spec.stdio.stderr) ? [{ path: this.paths.stderr, data: '' }] : []),
     ]
     await sandbox.files.write(files)
-    await sandbox.commands.run([
-      `chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`,
-      `chmod 600 -- ${files.map(file => quoteE2BShellArg(file.path)).join(' ')}`,
-    ].join('\n'))
+    await sandbox.commands.run(`chmod 600 -- ${files.map(file => quoteE2BShellArg(file.path)).join(' ')}`)
   }
 
   private async writeBatchStdin(handle: CommandHandle): Promise<void> {

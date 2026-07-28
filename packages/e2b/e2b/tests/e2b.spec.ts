@@ -4,6 +4,7 @@ import type { Sandbox as SandboxType } from 'e2b'
 import E2BSandboxService, {
   E2BFrameDecoder,
   E2BSandboxId,
+  encodeBoundedE2BFrame,
   encodeE2BFrame,
   quoteE2BShellArg,
   resolveE2BExecutable,
@@ -89,6 +90,22 @@ describe('E2BSandboxService', () => {
     await fiber.dispose()
     expect(fixture.kill).toHaveBeenCalledOnce()
     await expect(service.getSandbox()).rejects.toThrow(/disposing/)
+  })
+
+  it('rejects handle acquisition when disposal starts during setup', async () => {
+    const fixture = fakeSandbox()
+    const opening = Promise.withResolvers<SandboxType>()
+    sdk.create.mockReturnValue(opening.promise)
+    const ctx = new Context()
+    const fiber = await ctx.plugin(E2BSandboxService, { apiKey: 'test-key' })
+
+    const acquisition = ctx.e2b.getSandbox()
+    const disposing = fiber.dispose()
+    opening.resolve(fixture.sandbox)
+
+    await expect(acquisition).rejects.toThrow(/disposing/)
+    await expect(disposing).resolves.toBeUndefined()
+    expect(fixture.kill).toHaveBeenCalledOnce()
   })
 
   it('creates from a template, honors timeout and pause policies, and reads the key from the environment', async () => {
@@ -238,6 +255,14 @@ describe('E2B helpers and invariant companion', () => {
     expect(decoder.push(encoded.slice(5))).toEqual([{ text: '你好' }, [1, true]])
     expect(() => { decoder.finish() }).not.toThrow()
     expect(() => encodeE2BFrame(undefined)).toThrow('not JSON-serializable')
+  })
+
+  it('bounds outbound frames by decoded UTF-8 bytes', () => {
+    const exact = encodeBoundedE2BFrame({ text: '你' }, 14)
+    expect(new E2BFrameDecoder(14).push(exact)).toEqual([{ text: '你' }])
+    expect(() => encodeBoundedE2BFrame({ text: '你' }, 13)).toThrow('byte limit')
+    expect(() => encodeBoundedE2BFrame(null, 0)).toThrow('positive safe integer')
+    expect(() => encodeBoundedE2BFrame(null, 1.5)).toThrow('positive safe integer')
   })
 
   it('rejects malformed, oversized, and truncated frame streams', () => {

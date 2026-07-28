@@ -71,9 +71,10 @@ export class E2BPtyBackend implements PtyBackend {
     }
     const session = new E2BPtySession(sandbox, handle, this.config)
     created.session = session
-    for (const data of pending) session.onData(data)
     try {
-      await session.initialize(spec.signal)
+      const initializing = session.initialize(spec.signal)
+      for (const data of pending) session.onData(data)
+      await initializing
       return session
     } catch (error: unknown) {
       try {

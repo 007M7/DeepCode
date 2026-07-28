@@ -7,7 +7,6 @@
  * @module @deepseek-ai/dsh-lsp-local/instance
  */
 
-import { pathToFileURL } from 'node:url'
 import { LspError } from '@deepseek-ai/dsh-lsp'
 import type {
   LspOperation,
@@ -37,6 +36,12 @@ export interface InstanceSpec extends ConnectionSpec {
   readonly shutdownTimeoutMs: number
   /** PID advertised to the server; `null` when client and server do not share a process namespace. */
   readonly clientProcessId?: number | null
+  /**
+   * Encode one implementation-native absolute path as a file URI.
+   * @param path - Canonical workspace or source path.
+   * @returns A file URI interpreted in the server's filesystem namespace.
+   */
+  readonly pathToFileUri: (path: string) => string
 }
 
 /**
@@ -111,8 +116,8 @@ export class LspInstance {
   private async initialize(): Promise<void> {
     const initializeResult = await this.connection.request('initialize', {
       processId: this.spec.clientProcessId === undefined ? process.pid : this.spec.clientProcessId,
-      rootUri: pathToFileURL(this.spec.cwd).href,
-      workspaceFolders: [{ uri: pathToFileURL(this.spec.cwd).href, name: 'workspace' }],
+      rootUri: this.spec.pathToFileUri(this.spec.cwd),
+      workspaceFolders: [{ uri: this.spec.pathToFileUri(this.spec.cwd), name: 'workspace' }],
       capabilities: CLIENT_CAPABILITIES,
       initializationOptions: this.spec.initializationOptions,
     }) as WireInitializeResult
@@ -149,7 +154,7 @@ export class LspInstance {
       throw new LspError('server does not support the transient textDocument/didOpen this host requires', 'LSP_UNSUPPORTED_OPERATION')
     }
 
-    const uri = pathToFileURL(source.canonicalPath).href
+    const uri = this.spec.pathToFileUri(source.canonicalPath)
     let opened = false
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */

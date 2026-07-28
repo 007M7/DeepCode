@@ -11,7 +11,7 @@
 - **环境边界**：包装层从沙箱命令环境开始，移除环境中的 `DSH_*` 和形似凭据的名称（`*KEY*`、`*SECRET*`、`*TOKEN*`），再把每个 `spec.env` 条目恢复为调用方显式选择。宿主环境变量绝不会隐式进入沙箱。
 - **stdio 投影**：pipe 模式把 E2B 回调转发到宿主 Node 流；inherit 模式把回调转发到 harness 进程流；collect 模式保留有界的宿主尾部，并支持基于偏移量读取。可选的完整 spill 文件写在远程，并且只有未超过其上限时才会对外公布。批量 stdin 和流式 stdin 都使用 SDK 句柄。
 
-基础 E2B 镜像提供该适配器调用的 Bash/GNU 工具：`bash`、`setsid`、`ps`、`tr`、`env`、`chmod`、`tee` 和 `kill`。自定义模板必须保留兼容的命令。
+基础 E2B 镜像提供该适配器调用的 Bash/GNU 工具：`bash`、`setsid`、`ps`、`tr`、`env`、`chmod`、`tee`、`head` 和 `kill`。自定义模板必须保留兼容的命令。
 
 ## 模型体验
 

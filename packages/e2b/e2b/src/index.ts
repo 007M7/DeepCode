@@ -10,7 +10,7 @@ import z from 'schemastery'
 import { Sandbox } from 'e2b'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
-export { E2BFrameDecoder, encodeE2BFrame } from './frame.ts'
+export { E2BFrameDecoder, encodeBoundedE2BFrame, encodeE2BFrame } from './frame.ts'
 
 export {
   CommandExitError,
@@ -202,7 +202,11 @@ export class E2BSandboxService extends Service {
    */
   async getSandbox(): Promise<Sandbox> {
     if (this.disposed) throw new Error('E2B sandbox service is disposing')
-    return await this.ready
+    const sandbox = await this.ready
+    // Disposal can race the awaited sandbox readiness despite the synchronous precheck.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (this.disposed) throw new Error('E2B sandbox service is disposing')
+    return sandbox
   }
 
   private validate(): void {

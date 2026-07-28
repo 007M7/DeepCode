@@ -14,7 +14,7 @@ import type {
 } from '@deepseek-ai/dsh-code-runtime'
 import {
   E2BFrameDecoder,
-  encodeE2BFrame,
+  encodeBoundedE2BFrame,
   quoteE2BShellArg,
   resolveE2BExecutable,
 } from '@deepseek-ai/dsh-e2b'
@@ -25,6 +25,7 @@ import {
 } from '@deepseek-ai/dsh-code-runtime-worker'
 import type { WorkerJsonWire } from '@deepseek-ai/dsh-code-runtime-worker'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { CODE_RUNNER_SOURCE } from './runner-source.ts'
@@ -46,6 +47,7 @@ export interface Config {
 }
 
 type ResolvedConfig = Required<Config>
+type PreparedRuntime = { node: string; runner: string }
 
 interface LiveRun {
   settle(failure: CodeRunFailure): void
@@ -130,7 +132,7 @@ export class E2BCodeRuntime extends CodeRuntime {
   readonly isolation = 'container'
 
   private readonly config: ResolvedConfig
-  private readonly ready: Promise<{ node: string; runner: string }>
+  private readonly ready: Promise<PreparedRuntime>
   private readonly live = new Set<LiveRun>()
   private readonly subprocess: E2BSubprocessService
   private disposed = false
@@ -176,25 +178,61 @@ export class E2BCodeRuntime extends CodeRuntime {
     } catch (error: unknown) {
       return this.failure({ kind: 'exception', message: messageOf(error) })
     }
-    let runtime: Awaited<typeof this.ready>
+    let runtime: PreparedRuntime | undefined
     try {
-      runtime = await this.ready
+      runtime = await this.awaitPreparation(request.signal)
     } catch (error: unknown) {
+      // Disposal can race the awaited setup despite the synchronous precheck.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (this.disposed) return this.failure({ kind: 'abort', message: 'runtime disposed' })
       return this.failure({ kind: 'worker-exit', message: `E2B runtime setup failed: ${messageOf(error)}` })
     }
+    if (runtime === undefined) {
+      return this.failure({ kind: 'abort', message: String(request.signal?.reason) })
+    }
     // Disposal can race the awaited remote setup after the pre-await check.
+    /* v8 ignore start -- requires disposal between promise resolution and its awaiting continuation. */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.disposed) return this.failure({ kind: 'abort', message: 'runtime disposed' })
+    /* v8 ignore stop */
     return await this.execute(request, code, bindings, runtime)
   }
   /* jscpd:ignore-end */
 
-  private async prepare(): Promise<{ node: string; runner: string }> {
+  private awaitPreparation(signal: AbortSignal | undefined): Promise<PreparedRuntime | undefined> {
+    if (signal === undefined) return this.ready
+    return new Promise<PreparedRuntime | undefined>((resolve, reject) => {
+      const onAbort = (): void => { cleanup(); resolve(undefined) }
+      const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
+      signal.addEventListener('abort', onAbort, { once: true })
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      void this.ready.then(
+        (runtime) => { cleanup(); resolve(runtime) },
+        (error: unknown) => {
+          cleanup()
+          reject(error instanceof Error ? error : new Error(String(error)))
+        },
+      )
+    })
+  }
+
+  private assertPreparationActive(): void {
+    if (this.disposed) throw new Error('code-runtime-e2b: runtime disposed during setup')
+  }
+
+  private async prepare(): Promise<PreparedRuntime> {
     const sandbox = await this.ctx.e2b.getSandbox()
+    this.assertPreparationActive()
     const runner = posix.join(this.ctx.e2b.runtimeRoot, 'code-runtime-runner.mjs')
     await sandbox.files.write([{ path: runner, data: CODE_RUNNER_SOURCE }])
+    this.assertPreparationActive()
     await sandbox.commands.run(`chmod 600 -- ${quoteE2BShellArg(runner)}`)
+    this.assertPreparationActive()
     const node = await resolveE2BExecutable(sandbox, 'node')
+    this.assertPreparationActive()
     return { node, runner }
   }
 
@@ -237,16 +275,25 @@ export class E2BCodeRuntime extends CodeRuntime {
     request: CodeRunRequest,
     code: string,
     bindings: Map<string, CodeBindingNamespace>,
-    runtime: { node: string; runner: string },
+    runtime: PreparedRuntime,
   ): Promise<CodeRunResult> {
-    const handle = this.subprocess.spawn({
-      argv: [runtime.node, runtime.runner],
-      cwd: this.ctx.e2b.cwd,
-      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: this.config.maxOutputBytes } },
-      graceMs: this.config.killGraceMs,
-      ...request.signal === undefined ? {} : { signal: request.signal },
-      env: {},
-    })
+    let handle: SubprocessHandle
+    try {
+      handle = this.subprocess.spawn({
+        argv: [runtime.node, runtime.runner],
+        cwd: this.ctx.e2b.cwd,
+        stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: this.config.maxOutputBytes } },
+        graceMs: this.config.killGraceMs,
+        ...request.signal === undefined ? {} : { signal: request.signal },
+        env: {},
+      })
+    } catch (error: unknown) {
+      if (this.disposed) return this.failure({ kind: 'abort', message: 'runtime disposed' })
+      if (request.signal?.aborted === true) {
+        return this.failure({ kind: 'abort', message: String(request.signal.reason) })
+      }
+      return this.failure({ kind: 'worker-exit', message: `E2B runtime spawn failed: ${messageOf(error)}` })
+    }
     if (handle.stdin === undefined || handle.stdout === undefined) {
       handle.terminate()
       await Promise.allSettled([handle.done])
@@ -279,7 +326,6 @@ export class E2BCodeRuntime extends CodeRuntime {
         settled = true
         clearTimeout(wallTimer.current)
         request.signal?.removeEventListener('abort', onAbort)
-        this.live.delete(live)
         void new Promise<void>((resume) => { setImmediate(resume) }).then(async () => {
           handle.terminate()
           await handle.done.catch(() => {})
@@ -298,6 +344,7 @@ export class E2BCodeRuntime extends CodeRuntime {
             result = output.failure(logs, { kind: 'worker-exit', message: `E2B runtime cleanup failed: ${messageOf(cleanupError)}` })
           }
           const final = typeof result === 'function' ? result() : result
+          this.live.delete(live)
           finishResolve()
           resolve(final)
         })
@@ -305,7 +352,14 @@ export class E2BCodeRuntime extends CodeRuntime {
 
       const sendReply = (message: unknown): void => {
         if (settled) return
-        stdin.write(encodeE2BFrame(message), (error?: Error | null) => {
+        let frame: string
+        try {
+          frame = encodeBoundedE2BFrame(message, this.config.maxFrameBytes)
+        } catch (error: unknown) {
+          finish(() => output.failure(logs, { kind: 'worker-exit', message: `E2B runtime bridge failed: ${messageOf(error)}` }))
+          return
+        }
+        stdin.write(frame, (error?: Error | null) => {
           if (error !== undefined && error !== null) {
             finish(() => output.failure(logs, { kind: 'worker-exit', message: `E2B runtime bridge write failed: ${error.message}` }))
           }
@@ -433,7 +487,10 @@ export class E2BCodeRuntime extends CodeRuntime {
     this.disposed = true
     const runs = [...this.live]
     for (const run of runs) run.settle({ kind: 'abort', message: 'runtime disposed' })
-    await Promise.all(runs.map(run => run.finished))
+    await Promise.all([
+      this.ready.then(() => {}, () => {}),
+      ...runs.map(run => run.finished),
+    ])
   }
   /* jscpd:ignore-end */
 }

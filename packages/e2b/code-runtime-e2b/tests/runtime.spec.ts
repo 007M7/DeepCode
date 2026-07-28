@@ -34,13 +34,22 @@ class FakeHandle implements SubprocessHandle {
   waitCalls = 0
   private readonly decoder = new E2BFrameDecoder(10_000_000)
   private readonly waitError: Error | undefined
+  private readonly waitResult: Promise<boolean> | undefined
   private settled = false
 
   constructor(
     private readonly onMessage: (message: unknown, handle: FakeHandle) => void = () => {},
-    options: { stdin?: boolean; stdout?: boolean; stderr?: string; writeError?: Error; waitError?: Error } = {},
+    options: {
+      stdin?: boolean
+      stdout?: boolean
+      stderr?: string
+      writeError?: Error
+      waitError?: Error
+      waitResult?: Promise<boolean>
+    } = {},
   ) {
     this.waitError = options.waitError
+    this.waitResult = options.waitResult
     this.stdin = options.stdin === false
       ? undefined
       : options.writeError === undefined
@@ -89,6 +98,7 @@ class FakeHandle implements SubprocessHandle {
   async waitForExit(): Promise<boolean> {
     this.waitCalls += 1
     if (this.waitError !== undefined) throw this.waitError
+    if (this.waitResult !== undefined) return await this.waitResult
     return true
   }
 }
@@ -286,6 +296,30 @@ describe('E2BCodeRuntime', () => {
     await fixture.fiber.dispose()
   })
 
+  it('enforces the outbound frame bound on boot and binding replies', async () => {
+    const oversizedBoot = new FakeHandle()
+    const oversizedReply = new FakeHandle((message, current) => {
+      if ((message as { type?: string }).type === 'boot') {
+        current.emit({ type: 'call', id: 1, global: 'bridge', name: 'large', args: encodeWorkerJson(null) })
+      }
+    })
+    const fixture = await setup([oversizedBoot, oversizedReply], { maxOutputBytes: 128, maxFrameBytes: 512 })
+
+    const bootResult = await fixture.runtime.run(request(`return ${JSON.stringify('x'.repeat(1_000))}`))
+    expect(bootResult.error).toMatchObject({ kind: 'worker-exit' })
+    expect(bootResult.error?.message).toContain('frame exceeded its byte limit')
+    expect(oversizedBoot.writes).toHaveLength(0)
+
+    const replyResult = await fixture.runtime.run({
+      program: 'return await bridge.large(null)',
+      bindings: [{ global: 'bridge', functions: { large: async () => 'x'.repeat(1_000) } }],
+    })
+    expect(replyResult.error).toMatchObject({ kind: 'worker-exit' })
+    expect(replyResult.error?.message).toContain('frame exceeded its byte limit')
+    expect(oversizedReply.writes).toHaveLength(1)
+    await fixture.fiber.dispose()
+  })
+
   it('contains stdin errors, process exits, spawn failures, and missing pipes', async () => {
     const writeError = new FakeHandle(() => {}, { writeError: new Error('write callback broke') })
     const stdinError = new FakeHandle((message, current) => {
@@ -445,10 +479,114 @@ describe('E2BCodeRuntime', () => {
     const gate = Promise.withResolvers<Sandbox>()
     const fixture = await setup([], {}, {}, () => gate.promise)
     const running = fixture.runtime.run(request())
-    await (fixture.runtime as unknown as { teardown(): Promise<void> }).teardown()
+    const disposing = fixture.fiber.dispose()
+    let disposed = false
+    void disposing.then(() => { disposed = true })
+    await new Promise(resolve => setImmediate(resolve))
+    const disposedBeforeSetup = disposed
     gate.resolve(fixture.sandbox)
+    await disposing
+    expect(disposedBeforeSetup).toBe(false)
     expect((await running).error).toEqual({ kind: 'abort', message: 'runtime disposed' })
+    expect(fixture.write).not.toHaveBeenCalled()
+  })
+
+  it('observes abort while runtime preparation is pending', async () => {
+    const gate = Promise.withResolvers<Sandbox>()
+    const fixture = await setup([], {}, {}, () => gate.promise)
+    const controller = new AbortController()
+    const running = fixture.runtime.run({ ...request(), signal: controller.signal })
+
+    controller.abort('stop during setup')
+    const early = await Promise.race([
+      running.then(result => ({ kind: 'result' as const, result })),
+      new Promise<{ kind: 'pending' }>((resolve) => { setImmediate(() => { resolve({ kind: 'pending' }) }) }),
+    ])
+    expect(fixture.spawn).not.toHaveBeenCalled()
+
+    gate.resolve(fixture.sandbox)
+    expect(early).toMatchObject({ kind: 'result', result: { error: { kind: 'abort', message: 'stop during setup' } } })
+    await running
     await fixture.fiber.dispose()
+  })
+
+  it('classifies an abort that races synchronous subprocess spawn', async () => {
+    const fixture = await setup()
+    const controller = new AbortController()
+    fixture.spawn.mockImplementationOnce(() => {
+      controller.abort('stop at spawn')
+      throw new Error('aborted before spawn')
+    })
+
+    expect((await fixture.runtime.run({ ...request(), signal: controller.signal })).error)
+      .toEqual({ kind: 'abort', message: 'stop at spawn' })
+
+    fixture.spawn.mockImplementationOnce(() => { throw new Error('synchronous spawn failure') })
+    expect((await fixture.runtime.run(request())).error).toEqual({
+      kind: 'worker-exit',
+      message: 'E2B runtime spawn failed: synchronous spawn failure',
+    })
+    await fixture.fiber.dispose()
+
+    const disposingFixture = await setup()
+    disposingFixture.spawn.mockImplementationOnce(() => {
+      void (disposingFixture.runtime as unknown as { teardown(): Promise<void> }).teardown()
+      throw new Error('spawn raced disposal')
+    })
+    expect((await disposingFixture.runtime.run(request())).error)
+      .toEqual({ kind: 'abort', message: 'runtime disposed' })
+    await disposingFixture.fiber.dispose()
+  })
+
+  it('closes both abort races around runtime readiness and live-run publication', async () => {
+    let preparationAborted = false
+    const preparationSignal = {
+      get aborted() { return preparationAborted },
+      reason: 'preparation race',
+      addEventListener() { preparationAborted = true },
+      removeEventListener() {},
+    } as unknown as AbortSignal
+    const liveHandle = new FakeHandle()
+    const fixture = await setup([liveHandle])
+    expect((await fixture.runtime.run({ ...request(), signal: preparationSignal })).error)
+      .toEqual({ kind: 'abort', message: 'preparation race' })
+    expect(fixture.spawn).not.toHaveBeenCalled()
+
+    let liveAborted = false
+    let registrations = 0
+    const liveSignal = {
+      get aborted() { return liveAborted },
+      reason: 'live publication race',
+      addEventListener() {
+        registrations += 1
+        if (registrations === 2) liveAborted = true
+      },
+      removeEventListener() {},
+    } as unknown as AbortSignal
+    expect((await fixture.runtime.run({ ...request(), signal: liveSignal })).error)
+      .toEqual({ kind: 'abort', message: 'live publication race' })
+    await fixture.fiber.dispose()
+  })
+
+  it('retains a live run until remote cleanup reaches quiescence', async () => {
+    const cleanup = Promise.withResolvers<boolean>()
+    const handle = new FakeHandle((message, current) => {
+      if ((message as { type?: string }).type === 'boot') current.emit({ type: 'done' })
+    }, { waitResult: cleanup.promise })
+    const fixture = await setup([handle])
+    const running = fixture.runtime.run(request())
+    await vi.waitFor(() => { expect(handle.waitCalls).toBe(1) })
+
+    const disposing = fixture.fiber.dispose()
+    let disposed = false
+    void disposing.then(() => { disposed = true })
+    await new Promise(resolve => setImmediate(resolve))
+    const disposedBeforeCleanup = disposed
+
+    cleanup.resolve(true)
+    await expect(running).resolves.toEqual({ logs: [] })
+    await expect(disposing).resolves.toBeUndefined()
+    expect(disposedBeforeCleanup).toBe(false)
   })
 
   it('registers the package-owned invariant companion', async () => {

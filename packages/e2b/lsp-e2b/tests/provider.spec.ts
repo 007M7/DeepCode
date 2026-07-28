@@ -69,6 +69,7 @@ import {
   E2BLspProvider,
   apply,
   canonicalizeE2BWorkspace,
+  e2bFileUri,
   readE2BSource,
 } from '@deepseek-ai/dsh-lsp-e2b'
 import type { LspE2BServerConfig } from '@deepseek-ai/dsh-lsp-e2b'
@@ -234,6 +235,10 @@ describe('E2BLspProvider pooling and lifecycle', () => {
     await expect(current.query(query())).resolves.toEqual({ kind: 'hover', hover: { contents: 'ok' } })
     expect(mockedLsp.FakeLspInstance.instances).toHaveLength(1)
     expect(mockedLsp.FakeLspInstance.instances[0]?.spec).toMatchObject({ clientProcessId: null, cwd: '/workspace' })
+    expect(e2bFileUri('/workspace/a b#c.ts')).toBe('file:///workspace/a%20b%23c.ts')
+    expect(() => e2bFileUri('relative.ts')).toThrow('absolute remote path')
+    const pathToFileUri = mockedLsp.FakeLspInstance.instances[0]?.spec.pathToFileUri as (path: string) => string
+    expect(pathToFileUri('/workspace/a b#c.ts')).toBe('file:///workspace/a%20b%23c.ts')
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       argv: ['/usr/bin/node', '/workspace/.dsh-e2b/lsp-proxy.mjs', expect.any(String)],
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 128 } },

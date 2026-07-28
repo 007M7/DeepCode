@@ -80,6 +80,7 @@ class FakeSandbox {
   readonly handle = new FakeCommandHandle()
   readonly commandsSeen: string[] = []
   readonly writtenFiles: string[][] = []
+  readonly writtenFileData = new Map<string, string>()
   readonly removed: string[] = []
   readonly directories: string[] = []
   startOptions: StartOptions | undefined
@@ -129,6 +130,7 @@ class FakeSandbox {
       },
       write: async (files: Array<{ path: string; data: string }>): Promise<object[]> => {
         this.writtenFiles.push(files.map(file => file.path))
+        for (const file of files) this.writtenFileData.set(file.path, file.data)
         return files.map(() => ({}))
       },
       read: async (): Promise<string> => this.processGroupReads.shift() ?? this.processGroupId,
@@ -251,7 +253,7 @@ describe('E2BSubprocessHandle', () => {
     const handle = new E2BSubprocessHandle(runtime(fake), spec({
       argv: ['tool', 'argument with spaces'],
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 8, spill: { maxBytes: 32 } } },
-      env: { PATH: '/bin', DEEPSEEK_API_KEY: 'explicit-secret', DSH_MODE: 'test' },
+      env: { PATH: '/bin', 'FOO-BAR': 'hyphen-value', DEEPSEEK_API_KEY: 'explicit-secret', DSH_MODE: 'test' },
     }), '/workspace/.dsh-e2b/processes/one')
     expect(handle.pid).toBe(-1)
     handle.stdin!.write('hello')
@@ -261,17 +263,26 @@ describe('E2BSubprocessHandle', () => {
     expect(handle.pid).toBe(4343)
     expect(fake.handle.sent.map(value => String(value))).toEqual(['hello'])
     expect(fake.handle.closes).toBe(1)
-    expect(fake.startOptions?.envs).toEqual({ PATH: '/bin', DEEPSEEK_API_KEY: 'explicit-secret', DSH_MODE: 'test' })
+    expect(fake.startOptions?.envs).toBeUndefined()
     const command = fake.commandsSeen.find(value => value.startsWith('exec setsid'))!
     expect(command).toContain('exec setsid --wait -- bash -c')
-    expect(command).toContain('DEEPSEEK_API_KEY')
-    expect(command).toContain('DSH_MODE')
+    expect(command).not.toContain('DEEPSEEK_API_KEY')
+    expect(command).not.toContain('DSH_MODE')
+    expect(command).not.toContain('FOO-BAR')
     expect(command).not.toContain('explicit-secret')
+    expect(command).not.toContain('hyphen-value')
+    expect(command).not.toContain('${!dsh_e2b_name}')
+    expect(command).toContain('env -0')
+    expect(command).toContain('mapfile -d')
     expect(fake.writtenFiles[0]).toEqual([
       '/workspace/.dsh-e2b/processes/one/pid',
       '/workspace/.dsh-e2b/processes/one/exit-code',
+      '/workspace/.dsh-e2b/processes/one/environment',
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
+    expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
+      'PATH=/bin\0FOO-BAR=hyphen-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+    )
 
     let piped = ''
     handle.stdout!.on('data', (chunk) => { piped += String(chunk) })
@@ -350,6 +361,11 @@ describe('E2BSubprocessHandle', () => {
     await handle.done
     expect(handle.collected.stdout!.readFrom(0)).toEqual({ text: 'cd', nextOffset: 4, lossy: true })
     expect(fake.removed).toContain('/runtime/oversize/stdout.log')
+    const command = fake.commandsSeen.find(value => value.startsWith('exec setsid'))!
+    expect(command).toContain('head -c 3')
+    expect(command).toContain('/runtime/oversize/stdout.log')
+    expect(command).toContain('tee --output-error=warn-nopipe')
+    expect(command).not.toContain('tee -a')
   })
 
   it('contains remote spill-removal failures and routes empty inherited output', async () => {
@@ -413,6 +429,22 @@ describe('E2BSubprocessHandle', () => {
     await flush()
     controller.abort('stop')
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+  })
+
+  it('can terminate a surviving process group after the command leader settles', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/surviving-group')
+    await flush()
+    fake.handle.succeed(0)
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(fake.alive).toBe(true)
+
+    handle.terminate()
+    await flush()
+    const signaled = fake.commandsSeen.includes('kill -TERM -- -4242')
+    if (!signaled) fake.finish()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(signaled).toBe(true)
   })
 
   it('bounds waitForExit while startup or a live group is pending', async () => {
@@ -564,8 +596,14 @@ describe('E2BSubprocessHandle', () => {
   it('rejects invalid or absent process-group publication', async () => {
     const invalidGroup = new FakeSandbox()
     invalidGroup.processGroupId = 'not-a-pid\n'
+    vi.spyOn(invalidGroup.handle, 'kill').mockImplementation(async () => {
+      invalidGroup.handle.kills += 1
+      invalidGroup.finish()
+      return true
+    })
     const invalid = new E2BSubprocessHandle(runtime(invalidGroup), spec(), '/runtime/invalid-group')
     await expect(invalid.done).rejects.toThrow(/invalid process-group id/)
+    expect(invalidGroup.handle.kills).toBe(1)
 
     const absentGroup = new FakeSandbox()
     absentGroup.processGroupId = ''
@@ -573,6 +611,7 @@ describe('E2BSubprocessHandle', () => {
     await flush()
     absentGroup.finish()
     await expect(absent.done).rejects.toThrow(/exited before publishing/)
+    expect(absentGroup.handle.kills).toBe(1)
   })
 
   it('waits for delayed process-group publication', async () => {

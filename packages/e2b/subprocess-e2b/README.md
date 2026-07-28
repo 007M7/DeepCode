@@ -11,7 +11,7 @@ E2B implementation of the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subpr
 - **Environment boundary** — the wrapper starts from the sandbox command environment, removes ambient `DSH_*` and credential-shaped (`*KEY*`, `*SECRET*`, `*TOKEN*`) names, then restores every `spec.env` entry as an explicit caller opt-in. Host ambient variables never enter the sandbox implicitly.
 - **Stdio projection** — pipe mode forwards E2B callbacks into host Node streams; inherit mode forwards them to the harness process streams; collect mode retains a bounded host tail with offset reads. Optional complete spill files are written remotely and advertised only while within their cap. Batch and streaming stdin use the SDK handle.
 
-The base E2B image supplies the Bash/GNU utilities this adapter invokes: `bash`, `setsid`, `ps`, `tr`, `env`, `chmod`, `tee`, and `kill`. A custom template must retain compatible commands.
+The base E2B image supplies the Bash/GNU utilities this adapter invokes: `bash`, `setsid`, `ps`, `tr`, `env`, `chmod`, `tee`, `head`, and `kill`. A custom template must retain compatible commands.
 
 ## Model Experience
 

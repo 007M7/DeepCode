@@ -52,7 +52,7 @@ describe('E2BPtyBackend and plugin', () => {
     const backend = new E2BPtyBackend(ctx, config(), async (_sandbox, received) => {
       options = received
       void received.onData(Buffer.from('banner\n'))
-      setTimeout(() => { void received.onData(Buffer.from('\x1b]133;D;0\x07dsh> ')) }, 0)
+      void received.onData(Buffer.from('\x1b]133;D;0\x07dsh> '))
       return created
     })
     const pending = backend.spawn({
@@ -62,7 +62,7 @@ describe('E2BPtyBackend and plugin', () => {
     await vi.advanceTimersByTimeAsync(2)
     const session = await pending
 
-    expect(session.motd).toBe('dsh> ')
+    expect(session.motd).toBe('banner\ndsh> ')
     expect(options).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace/project', timeoutMs: 0 })
     expect(options?.envs).toMatchObject({
       TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ',

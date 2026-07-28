@@ -199,6 +199,7 @@ export class E2BFileSystem extends FileSystem {
         const reader = stream.getReader()
         const decoder = new TextDecoder('utf-8', { fatal: true })
         let sampledBytes = 0
+        let completed = false
         try {
           while (true) {
             assertNotAborted(signal, 'read')
@@ -222,9 +223,17 @@ export class E2BFileSystem extends FileSystem {
           } catch (error: unknown) {
             throw new FsError(`cannot read "${displayPath}": invalid UTF-8 text`, 'FS_NOT_TEXT', { cause: error })
           }
+          completed = true
         } catch (error: unknown) {
           throw mapError(error, 'read', displayPath, signal)
         } finally {
+          if (!completed) {
+            try {
+              await reader.cancel()
+            } catch (_streamCancellationFailure) {
+              // The primary read outcome owns the result; cancellation is best-effort after early stop.
+            }
+          }
           reader.releaseLock()
         }
       },

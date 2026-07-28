@@ -12,7 +12,7 @@ import { FsVersion } from '@deepseek-ai/dsh-fs'
 import E2BFileSystem from '@deepseek-ai/dsh-fs-e2b'
 import * as E2BFsInvariant from '../src/invariant.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 interface RemoteNode {
   type: FileType
@@ -38,6 +38,8 @@ class FakeRemote {
   readonly removals: string[] = []
   readonly commands: string[] = []
   streamChunks: Uint8Array[] | undefined
+  streamKeepOpen = false
+  readonly streamCancel = vi.fn()
   nextCommandError: unknown
   nextInfoError: unknown
   nextListError: unknown
@@ -148,10 +150,11 @@ class FakeRemote {
         if (options.format === 'bytes') return data.slice()
         const chunks = this.streamChunks ?? [data.slice()]
         return new ReadableStream<Uint8Array>({
-          start(controller) {
+          start: (controller) => {
             for (const chunk of chunks) controller.enqueue(chunk)
-            controller.close()
+            if (!this.streamKeepOpen) controller.close()
           },
+          cancel: () => { this.streamCancel() },
         })
       },
       list: async (path: string, options?: { depth?: number; signal?: AbortSignal }): Promise<EntryInfo[]> => {
@@ -301,6 +304,22 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
     let initiallyBuffered = ''
     for await (const chunk of await fs.streamText(target)) initiallyBuffered += chunk
     expect(initiallyBuffered).toBe('€')
+  })
+
+  it('cancels a remote stream when its consumer stops early', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/text.txt', 'ab')
+    remote.streamChunks = [bytes('a'), bytes('b')]
+    remote.streamKeepOpen = true
+    const { fs } = await setup(remote)
+    const stream = await fs.streamText(await fs.resolve('text.txt'))
+
+    for await (const chunk of stream) {
+      expect(chunk).toBe('a')
+      break
+    }
+
+    expect(remote.streamCancel).toHaveBeenCalledOnce()
   })
 
   it('matches local binary sampling while edits still reject any NUL byte', async () => {

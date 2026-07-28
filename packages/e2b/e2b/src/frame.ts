@@ -10,9 +10,30 @@ const BASE64_LINE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3
  * @returns Base64-encoded UTF-8 JSON followed by one newline.
  */
 export function encodeE2BFrame(value: unknown): string {
+  return encodeFrame(value)
+}
+
+/**
+ * Encode one JSON-compatible value while enforcing the decoded frame bound.
+ * @param value - Value accepted by `JSON.stringify`.
+ * @param maxFrameBytes - Maximum UTF-8 JSON bytes in the encoded frame.
+ * @returns Base64-encoded UTF-8 JSON followed by one newline.
+ */
+export function encodeBoundedE2BFrame(value: unknown, maxFrameBytes: number): string {
+  if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) {
+    throw new Error('E2B frame maxFrameBytes must be a positive safe integer')
+  }
+  return encodeFrame(value, maxFrameBytes)
+}
+
+function encodeFrame(value: unknown, maxFrameBytes?: number): string {
   const json: unknown = JSON.stringify(value)
   if (typeof json !== 'string') throw new Error('E2B frame value is not JSON-serializable')
-  return `${Buffer.from(json).toString('base64')}\n`
+  const bytes = Buffer.from(json)
+  if (maxFrameBytes !== undefined && bytes.length > maxFrameBytes) {
+    throw new Error('E2B frame exceeded its byte limit')
+  }
+  return `${bytes.toString('base64')}\n`
 }
 
 /** Incremental decoder for newline-delimited base64 JSON frames. */

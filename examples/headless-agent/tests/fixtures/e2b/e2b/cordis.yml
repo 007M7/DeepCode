@@ -2,7 +2,7 @@
   name: '@deepseek-ai/dsh-e2b'
   config:
     cwd: !!js process.cwd()
-    timeoutMs: 60000
+    timeoutMs: 120000
     onTimeout: kill
     onDispose: kill
 
@@ -55,5 +55,5 @@
     maxWallMs: 5000
     maxOutputBytes: 4096
     maxOldGenerationSizeMb: 128
-    maxFrameBytes: 4194304
+    maxFrameBytes: 32768
     killGraceMs: 500

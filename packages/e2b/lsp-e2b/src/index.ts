@@ -200,6 +200,16 @@ export async function readE2BSource(
   return { canonicalPath, text }
 }
 
+/**
+ * Encode one absolute remote Linux path as a host-independent file URI.
+ * @param path - Canonical POSIX path inside E2B.
+ * @returns The equivalent percent-encoded file URI.
+ */
+export function e2bFileUri(path: string): string {
+  if (!posix.isAbsolute(path)) throw new Error(`lsp-e2b: expected an absolute remote path, received ${JSON.stringify(path)}`)
+  return `file://${path.split('/').map(segment => encodeURIComponent(segment)).join('/')}`
+}
+
 /* jscpd:ignore-start -- Provider identity mirrors the seam while remote source and process ownership stay local. */
 /** One pooled remote provider with an isolated server per canonical workspace. */
 export class E2BLspProvider implements LspProvider {
@@ -298,6 +308,7 @@ export class E2BLspProvider implements LspProvider {
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       killGraceMs: this.config.killGraceMs,
       clientProcessId: null,
+      pathToFileUri: e2bFileUri,
     }, (spec: SubprocessSpawnSpec) => {
       const originalArgv = Buffer.from(JSON.stringify(spec.argv)).toString('base64')
       const inner = this.subprocess.spawn({

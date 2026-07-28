@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { posix, resolve } from 'node:path'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -48,20 +48,68 @@ try {
   const fromBash = await ctx.fs.resolve('from-bash.txt')
   const fsRead = await ctx.fs.readText(fromBash)
 
+  const environmentHandle = ctx.subprocess.spawn({
+    argv: ['env'],
+    cwd: process.cwd(),
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 65_536 }, stderr: { maxBytes: 4_096 } },
+    graceMs: 500,
+    env: {
+      'FOO-BAR': 'hyphen-value',
+      DSH_EXPLICIT: 'managed-value',
+      TOKEN_EXPLICIT: 'credential-value',
+    },
+  })
+  const environmentOutcome = await environmentHandle.done
+  const environmentText = environmentHandle.collected.stdout?.readFrom(0).text
+  if (environmentOutcome.exitCode !== 0 || environmentText === undefined) {
+    throw new Error(`E2B subprocess environment probe failed: ${JSON.stringify(environmentOutcome)}`)
+  }
+  const environmentLines = new Set(environmentText.trimEnd().split('\n'))
+  const explicitEnvironment = [
+    'FOO-BAR=hyphen-value',
+    'DSH_EXPLICIT=managed-value',
+    'TOKEN_EXPLICIT=credential-value',
+  ].every(entry => environmentLines.has(entry))
+  if (!explicitEnvironment) throw new Error(`E2B subprocess dropped an explicit environment entry: ${environmentText}`)
+
+  const spillHandle = ctx.subprocess.spawn({
+    argv: ['bash', '-c', "printf '0123456789'; sleep 30"],
+    cwd: process.cwd(),
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 4, spill: { maxBytes: 6 } }, stderr: { maxBytes: 4_096 } },
+    graceMs: 500,
+    env: {},
+  })
+  const spillReader = spillHandle.collected.stdout
+  if (spillReader === undefined) throw new Error('E2B subprocess omitted its configured stdout collector')
+  const spillDeadline = Date.now() + 5_000
+  while (spillReader.readFrom(0).nextOffset < 10) {
+    if (Date.now() >= spillDeadline) throw new Error('E2B subprocess did not stream the spill probe output')
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 20))
+  }
+  const spillPath = posix.join((spillHandle as unknown as { stateDir: string }).stateDir, 'stdout.log')
+  const liveSpillBytes = (await (await ctx.e2b.getSandbox()).files.getInfo(spillPath)).size
+  spillHandle.terminate()
+  const spillOutcome = await spillHandle.done
+  const spillExited = await spillHandle.waitForExit(AbortSignal.timeout(5_000))
+  const spillRead = spillReader.readFrom(0)
+  if (liveSpillBytes !== 6 || !spillExited || spillRead.spillPath !== undefined) {
+    throw new Error(`E2B subprocess spill bound failed: ${JSON.stringify({ liveSpillBytes, spillExited, spillRead })}`)
+  }
+
   const lspFixture = await readFile(new URL('./fixture-lsp.mjs', import.meta.url), 'utf8')
   const remoteLspFixture = await ctx.fs.resolve('fixture-lsp.mjs')
   await ctx.fs.writeText(remoteLspFixture, lspFixture, { kind: 'createIfAbsent' })
-  const remoteSource = await ctx.fs.resolve('multibyte.ts')
+  const remoteSource = await ctx.fs.resolve('multibyte # file.ts')
   await ctx.fs.writeText(remoteSource, 'const café = "你好"\nconsole.log(café)\n', { kind: 'createIfAbsent' })
   const hover = await ctx.lsp.query({
     operation: 'hover',
-    filePath: 'multibyte.ts',
+    filePath: 'multibyte # file.ts',
     position: { line: 0, character: 7 },
     workspaceRoot: process.cwd(),
   })
   const definition = await ctx.lsp.query({
     operation: 'goToDefinition',
-    filePath: 'multibyte.ts',
+    filePath: 'multibyte # file.ts',
     position: { line: 0, character: 7 },
     workspaceRoot: process.cwd(),
   })
@@ -143,6 +191,17 @@ try {
   })
   setTimeout(() => { abortController.abort('live abort') }, 50)
   const aborted = await aborting
+  const oversizedBoot = await ctx.codeRuntime.run({
+    program: `return ${JSON.stringify('x'.repeat(40_000))}`,
+    bindings: [],
+  })
+  const oversizedReply = await ctx.codeRuntime.run({
+    program: 'return await bridge.large(null)',
+    bindings: [{
+      global: 'bridge',
+      functions: { large: async () => 'x'.repeat(40_000) },
+    }],
+  })
   const remoteProcesses = await (await ctx.e2b.getSandbox()).commands.list()
   const lingeringCodeRunners = remoteProcesses.filter(processInfo =>
     JSON.stringify([processInfo.cmd, processInfo.args]).includes('code-runtime-runner.mjs'),
@@ -152,6 +211,8 @@ try {
     sandboxId: await ctx.e2b.sandboxId,
     bashRead: bashRead.stdout.text,
     fsRead,
+    explicitEnvironment,
+    spill: { liveBytes: liveSpillBytes, outcome: spillOutcome, read: spillRead },
     hover,
     definition,
     terminal: {
@@ -165,6 +226,8 @@ try {
     hostileOutput,
     timedOut,
     aborted,
+    oversizedBoot,
+    oversizedReply,
     lingeringCodeRunners: lingeringCodeRunners.length,
   })}\n`)
 } finally {
