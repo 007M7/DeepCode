@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createProcessInspector, parseProcStat } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
+import {
+  createProcessInspector,
+  linuxProcessGroupHasLiveMembers,
+  parseProcStat,
+} from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
 import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
 
 function stat(pid: number, pgrp: number, session: number, tpgid: number, started: string, parentPid = 1, state = 'S'): string {
@@ -63,6 +67,21 @@ function fakeInternals() {
 }
 
 describe('Linux process inspector', () => {
+  it('treats zombie-only process groups as quiescent and fails closed when unobservable', () => {
+    const fake = fakeInternals()
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBeUndefined()
+
+    fake.dirs.set('/proc', ['self', '10', '11', '12'])
+    fake.files.set('/proc/10/stat', stat(10, 77, 10, -1, '500', 1, 'Z'))
+    fake.files.set('/proc/11/stat', stat(11, 77, 10, -1, '501', 1, 'X'))
+    fake.files.set('/proc/12/stat', stat(12, 88, 12, -1, '502'))
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBe(false)
+    expect(linuxProcessGroupHasLiveMembers(99, fake.internals)).toBeUndefined()
+
+    fake.files.set('/proc/11/stat', stat(11, 77, 10, -1, '501'))
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBe(true)
+  })
+
   it('parses stat safely, captures only the rooted process tree, and signals identities', () => {
     expect(parseProcStat('bad')).toBeUndefined()
     expect(parseProcStat('1 () ')).toBeUndefined()

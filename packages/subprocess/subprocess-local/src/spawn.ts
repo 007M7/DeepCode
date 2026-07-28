@@ -23,6 +23,7 @@ import type {
   SubprocessOutputMode,
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 
 /**
  * Build a child environment: explicit caller entries override the scrubbed
@@ -52,6 +53,8 @@ export interface SpawnInternals {
   taskkill?: (pid: number) => void
   /** Host platform override for signalling decisions. */
   platform?: NodeJS.Platform
+  /** Linux process-group member probe (defaults to `/proc` inspection). */
+  linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
 }
 
 /**
@@ -312,6 +315,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const spillDir = internals.spillDir ?? privateSpillDir()
   const platform = internals.platform ?? process.platform
   const taskkill = internals.taskkill ?? taskkillProcessTree
+  const linuxGroupHasLiveMembers = internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers
 
   if (spec.signal?.aborted) {
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
@@ -366,6 +370,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     }
     try {
       process.kill(-pid, 0)
+      // A group containing only unreaped zombies still answers kill(0), but
+      // it can execute no work and cannot be signalled into quiescence. Only
+      // inspect after direct-child settlement so live-process polls remain a
+      // syscall rather than repeated process-table scans.
+      if (settled && platform === 'linux' && linuxGroupHasLiveMembers(pid) === false) return false
       return true
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code

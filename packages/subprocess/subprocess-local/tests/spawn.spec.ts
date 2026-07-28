@@ -268,6 +268,24 @@ describe('spawnSubprocess', () => {
     expect(result.signal).toBe('SIGTERM')
   })
 
+  it('does not wait for a Linux group that has only zombie members', async () => {
+    const pidFile = join(spillDir, `zombie-group-${Date.now()}.pid`)
+    let hasLiveMembers = false
+    const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; echo leader-done`, { graceMs: 100 }), {
+      platform: 'linux',
+      linuxProcessGroupHasLiveMembers: () => hasLiveMembers,
+    })
+    const descendant = await waitForPidFile(pidFile)
+    try {
+      await running.done
+      await expect(running.waitForExit()).resolves.toBe(true)
+    } finally {
+      hasLiveMembers = true
+      running.terminate()
+      await waitGone(descendant)
+    }
+  })
+
   it('bounds inherited-pipe draining after the shell exits', async () => {
     const pidFile = join(spillDir, `pipe-holder-${Date.now()}.pid`)
     const started = Date.now()

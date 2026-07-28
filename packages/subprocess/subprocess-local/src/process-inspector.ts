@@ -87,6 +87,35 @@ function readLinuxStat(internals: ProcessInspectorInternals, pid: number): ProcS
   }
 }
 
+/**
+ * Report whether a Linux process group has an executing member. `false`
+ * means the group contains only zombie/dead entries; `undefined` means the
+ * process table could not prove either outcome.
+ * @param processGroupId - POSIX process-group id to inspect.
+ * @param internals - injectable process-table operations.
+ * @returns Live-member presence, or `undefined` when unavailable/absent.
+ */
+export function linuxProcessGroupHasLiveMembers(
+  processGroupId: number,
+  internals: ProcessInspectorInternals = DEFAULT_INTERNALS,
+): boolean | undefined {
+  let entries: string[]
+  try {
+    entries = internals.readDir('/proc')
+  } catch (_unreadableProcDirectory) {
+    return undefined
+  }
+  let matched = false
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue
+    const stat = readLinuxStat(internals, Number(entry))
+    if (stat?.pgrp !== processGroupId) continue
+    matched = true
+    if (!/^[ZXx]$/.test(stat.state)) return true
+  }
+  return matched ? false : undefined
+}
+
 function numericEntries(internals: ProcessInspectorInternals, path: string): number[] {
   try {
     return internals.readDir(path).filter(entry => /^\d+$/.test(entry)).map(Number)
