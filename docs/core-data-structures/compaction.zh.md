@@ -22,7 +22,7 @@
 
 ## `CompactionResult`
 
-成功压缩向调用方返回：记账事件 seq、安全摘要投影、可选的完整 provider 输出、被遮蔽的范围与 seq，以及估算 token 数。
+成功压缩向调用方返回：记账事件 seq、安全摘要投影、被遮蔽的范围与 seq，以及估算 token 数。
 
 ```ts type-equiv
 /** Result of a successful compaction operation. */
@@ -35,8 +35,6 @@ interface CompactionResult {
   endSeq: number
   /** The summary content blocks produced by the backend. */
   summary: ContentBlock[]
-  /** Complete provider output before the backend's safe summary projection. */
-  rawOutput?: ContentBlock[]
   /**
    * The surface-boundary pair that was shadowed: the seqs of the first
    * (`start`) and last (`end`) surface nodes of the replaced range. A

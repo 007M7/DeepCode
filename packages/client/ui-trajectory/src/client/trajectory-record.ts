@@ -47,7 +47,6 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   /** Producer provenance from a user-role message or context injection. */
   messageSource?: unknown
   /** Producer-owned model-hidden metadata carried beside the message source. */
-  messageMeta?: unknown
   /** A separator-only anchor for an auxiliary request with no visible record. */
   requestOnly?: boolean
   /** Full request/message content for the details panel. */

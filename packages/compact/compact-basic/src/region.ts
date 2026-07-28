@@ -168,7 +168,6 @@ export async function compactSurfaceRegion(
       summarySeq: summaryEvent.seq,
       endSeq: endEvent.seq,
       summary,
-      ...rawOutput === undefined ? {} : { rawOutput },
       shadowedRange: { start, end },
       shadowedSeqs,
       shadowedTokenCount,

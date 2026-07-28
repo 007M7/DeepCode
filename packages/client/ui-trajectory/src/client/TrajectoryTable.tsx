@@ -591,12 +591,9 @@ function messageOriginLabel(source: unknown): string {
 function MessageOrigin({ record }: { record: TableRecord }) {
   const source = record.cell.messageSource
   if (source === undefined) return <p className={css.noPayload}>Origin not recorded</p>
-  const sourceRoot = typeof source === 'object' && source !== null
+  const data = typeof source === 'object' && source !== null
     ? source
     : { value: source }
-  const data = record.cell.messageMeta === undefined
-    ? sourceRoot
-    : { source, meta: record.cell.messageMeta }
   return (
     <JsonTree
       data={data}

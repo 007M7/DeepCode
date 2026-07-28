@@ -55,8 +55,6 @@ export interface CompactionResult {
   endSeq: number
   /** The summary content blocks produced by the backend. */
   summary: ContentBlock[]
-  /** Complete provider output before the backend's safe summary projection. */
-  rawOutput?: ContentBlock[]
   /**
    * The surface-boundary pair that was shadowed: the seqs of the first
    * (`start`) and last (`end`) surface nodes of the replaced range. A

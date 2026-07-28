@@ -34,6 +34,47 @@ describe('FoldAdapter', () => {
     expect(second.nodes).not.toBe(first.nodes) // array itself fresh per call
   })
 
+  it('projects frozen surface generations without widening the core live surface', () => {
+    const adapter = new FoldAdapter()
+    adapter.reset([
+      ev.user(0, 'a'),
+      ev.user(1, 'b'),
+      at(2, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 0, end: 0 },
+        sourceEventSeqs: [0],
+        data: {
+          turn: 1,
+          step: 1,
+          content: [{ type: 'text', text: 'summary' }],
+          provenance: { provider: 'fake', model: 'fake' },
+        },
+      }),
+      at(3, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 2, end: 1 },
+        sourceEventSeqs: [2, 1],
+        data: {
+          turn: 1,
+          step: 2,
+          content: [{ type: 'text', text: 'summary 2' }],
+          provenance: { provider: 'fake', model: 'fake' },
+        },
+      }),
+    ], 0)
+
+    expect(adapter.contexts().map(context => ({
+      id: context.id,
+      parentId: context.parentId,
+      originSeq: context.originSeq,
+      nodes: context.nodes.map(node => node.seq),
+    }))).toEqual([
+      { id: 0, parentId: undefined, originSeq: undefined, nodes: [0, 1] },
+      { id: 1, parentId: 0, originSeq: 2, nodes: [2, 1] },
+      { id: 2, parentId: 1, originSeq: 3, nodes: [3] },
+    ])
+  })
+
   it('materializes all six node variants with field mapping', () => {
     const adapter = new FoldAdapter()
     const events = [

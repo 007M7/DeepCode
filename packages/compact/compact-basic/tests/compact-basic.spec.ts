@@ -816,7 +816,6 @@ describe('compaction region transaction', () => {
 
     expect(result.shadowedSeqs).toEqual(before.slice(0, 4))
     expect(result.shadowedTokenCount).toBeGreaterThan(0)
-    expect(result.rawOutput).toEqual(compact.rawOutput)
     expect(compact.calls[0]).toMatchObject({ signal: SIGNAL })
     expect(summarizedText(compact.calls[0]!.input)).toContain('fixture user 1')
     const summary = session.events.findLast(event => event.type === 'compact/summary')

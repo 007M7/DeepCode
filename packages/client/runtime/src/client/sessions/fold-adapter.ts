@@ -11,11 +11,12 @@ import {
   SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
 } from '@deepseek-ai/dsh-session/surface'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type {
-  AssistantRequestConfig, AssistantTiming, ConversationContext, ConversationContextOriginKind, ConversationNode,
-  ConversationPromptSnapshot,
-} from './conversation.ts'
+import type { AssistantTiming, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
+import type {
+  AssistantRequestConfig, ConversationContext, ConversationContextOriginKind,
+  ConversationPromptSnapshot,
+} from './inspection.ts'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
 export interface CallIndexEntry {
@@ -35,6 +36,43 @@ export interface CallIndexEntry {
  */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
+}
+
+/** Minimal generation projection owned by the inspection adapter, not the core live surface. */
+interface FoldedContext {
+  generation: number
+  nodes: readonly number[]
+  originSeq?: number
+}
+
+/**
+ * Replay surface replacements into frozen generations while keeping replacement
+ * validation and mutation in the canonical core manager.
+ */
+function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[] {
+  const replay: SessionEvent[] = []
+  const surface = new SurfaceManager(replay)
+  const contexts: FoldedContext[] = []
+  let generation = 0
+  let originSeq: number | undefined
+  for (const event of events) {
+    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
+      contexts.push({
+        generation,
+        nodes: [...surface.nodes],
+        ...(originSeq === undefined ? {} : { originSeq }),
+      })
+      generation++
+      originSeq = event.seq
+    }
+    replay.push(event)
+  }
+  contexts.push({
+    generation,
+    nodes: [...surface.nodes],
+    ...(originSeq === undefined ? {} : { originSeq }),
+  })
+  return contexts
 }
 
 /** One event -> UI node (pure function; the six-variant ConversationNode union). */
@@ -223,26 +261,26 @@ export class FoldAdapter {
       this.contextsResult = { rev: this.contextRev, value }
       return value
     }
-    const value = this.surface.contexts.map((context): ConversationContext => {
+    const value = foldContexts(this.padded).map((context): ConversationContext => {
       const nodes: ConversationNode[] = []
       for (const seq of context.nodes) {
         const node = this.materialize(seq)
         if (node !== undefined) nodes.push(node)
       }
       const prompt = this.promptsByContext.get(context.generation)
-      if (context.origin === undefined) {
+      if (context.originSeq === undefined) {
         return {
           id: context.generation,
           ...(prompt === undefined ? {} : { prompt }),
           nodes,
         }
       }
-      const originEvent = this.padded[context.origin.seq]
+      const originEvent = this.padded[context.originSeq]
       return {
         id: context.generation,
         parentId: context.generation - 1,
         origin: contextOriginKind(originEvent),
-        originSeq: context.origin.seq,
+        originSeq: context.originSeq,
         ...(originEvent === undefined ? {} : { createdAt: originEvent.time }),
         ...(prompt === undefined ? {} : { prompt }),
         nodes,

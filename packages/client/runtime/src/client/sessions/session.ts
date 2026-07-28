@@ -1,7 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from 'cordis'
-import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
@@ -12,10 +12,10 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  CodeSubCall, CompactionRequestView, ComposerPhase, ConversationNode,
-  ConversationPromptChange, ConversationPromptSnapshot, ConversationSnapshot,
-  ModelRequestView, OpenState, PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot,
+  OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
+import { SessionInspection } from './inspection.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
@@ -108,27 +108,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
-  /** Schemas in force for the next tool/call, updated by request/header. */
-  private activeToolSchemas = new Map<string, ToolSchema>()
-  /** Call-time schema snapshots keyed by native or code-dispatch call id. */
-  private callSchemas = new Map<string, ToolSchema>()
-  private callSchemasRev = 0
-  private callSchemasCache: { rev: number; value: ReadonlyMap<string, ToolSchema> } | null = null
-  private modelRequestsRev = 0
-  private modelRequestsCache: {
-    rev: number
-    value: readonly ModelRequestView[]
-  } | null = null
-  private compactionRequestsRev = 0
-  private compactionRequestsCache: {
-    rev: number
-    value: readonly CompactionRequestView[]
-  } | null = null
-  private promptChangesRev = 0
-  private promptChangesCache: {
-    rev: number
-    value: readonly ConversationPromptChange[]
-  } | null = null
+  /** Diagnostic projections isolated from the ordinary conversation state machine. */
+  private readonly inspection = new SessionInspection()
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -624,8 +605,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
-    if (affectsModelRequests(event)) this.modelRequestsRev++
-    if (affectsCompactionRequests(event)) this.compactionRequestsRev++
+    this.inspection.applyEvent(event)
     // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
     // the host-side dsh-tools plugin whose types cannot enter the client
     // program (its host Context merges collide with the client's), so this
@@ -646,7 +626,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         argsRaw: JSON.stringify(data.arguments),
         turn: 0, step: 0, time: event.time, callView: null,
       }
-      this.captureCallSchema(data.subCallId, data.name)
+      this.inspection.captureCallSchema(data.subCallId, data.name)
       const siblings = this.codeDispatches.get(data.parentCallId) ?? []
       this.codeDispatches.set(data.parentCallId, [...siblings, running])
       this.dispatchesRev++
@@ -666,7 +646,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         content: ContentBlock[]
       }
       const siblings = this.codeDispatches.get(data.parentCallId) ?? []
-      this.captureCallSchema(data.subCallId, data.name)
+      this.inspection.captureCallSchema(data.subCallId, data.name)
       const at = siblings.findIndex(sub => sub.callId === data.subCallId)
       const started = at === -1 ? undefined : siblings[at]
       const settled: CodeSubCall = {
@@ -688,13 +668,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       return
     }
     switch (event.type) {
-      case 'request/header': {
-        this.promptChangesRev++
-        this.activeToolSchemas = new Map(
-          (event.data.header.tools ?? []).map(schema => [schema.name, schema]),
-        )
-        return
-      }
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
@@ -710,7 +683,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'tool/call': {
-        this.captureCallSchema(String(event.data.callId), event.data.name)
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
           turn: event.data.turn, step: event.data.step, time: event.time,
@@ -769,15 +741,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
-  /** Preserve the schema active when one call starts. */
-  private captureCallSchema(callId: string, name: string): void {
-    if (this.callSchemas.has(callId)) return
-    const schema = this.activeToolSchemas.get(name)
-    if (schema === undefined) return
-    this.callSchemas.set(callId, schema)
-    this.callSchemasRev++
-  }
-
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
    *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text).
@@ -792,12 +755,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.frozenRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
-    this.activeToolSchemas = new Map()
-    this.callSchemas = new Map()
-    this.callSchemasRev++
-    this.modelRequestsRev++
-    this.compactionRequestsRev++
-    this.promptChangesRev++
+    this.inspection.reset()
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -834,53 +792,24 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
-    if (this.callSchemasCache === null || this.callSchemasCache.rev !== this.callSchemasRev) {
-      this.callSchemasCache = { rev: this.callSchemasRev, value: new Map(this.callSchemas) }
-    }
-    if (
-      this.modelRequestsCache === null
-      || this.modelRequestsCache.rev !== this.modelRequestsRev
-    ) {
-      this.modelRequestsCache = {
-        rev: this.modelRequestsRev,
-        value: deriveModelRequests(this.events),
-      }
-    }
-    if (
-      this.compactionRequestsCache === null
-      || this.compactionRequestsCache.rev !== this.compactionRequestsRev
-    ) {
-      this.compactionRequestsCache = {
-        rev: this.compactionRequestsRev,
-        value: deriveCompactionRequests(this.events),
-      }
-    }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
       this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
     }
-    if (
-      this.promptChangesCache === null
-      || this.promptChangesCache.rev !== this.promptChangesRev
-    ) {
-      this.promptChangesCache = {
-        rev: this.promptChangesRev,
-        value: derivePromptChanges(this.events),
-      }
-    }
+    const inspection = this.inspection.snapshot(this.events)
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
       nodes,
       contexts,
-      compactionRequests: this.compactionRequestsCache.value,
-      requestAttempts: this.modelRequestsCache.value,
-      promptChanges: this.promptChangesCache.value,
+      compactionRequests: inspection.compactionRequests,
+      requestAttempts: inspection.requestAttempts,
+      promptChanges: inspection.promptChanges,
       foldDegraded: degraded,
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       codeDispatches: this.dispatchesCache.value,
-      callSchemas: this.callSchemasCache.value,
+      callSchemas: inspection.callSchemas,
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
@@ -913,261 +842,4 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
   if (hasContent) return 'active'
   return promptAttempted ? 'engaging' : 'blank'
-}
-
-interface RetryEvent {
-  type: 'llm/retry'
-  seq: number
-  time: number
-  data: {
-    turn: number
-    step: number
-    retry: number
-    maxRetries: number
-    delayMs: number
-    failure: { message: string }
-  }
-}
-
-function modelRequestKey(turn: number, step: number): string {
-  return `${turn}\u0000${step}`
-}
-
-function affectsModelRequests(event: SessionEvent): boolean {
-  switch (event.type) {
-    case 'request/header':
-    case 'step/start':
-    case 'assistant/message':
-    case 'step/end':
-      return true
-    case 'turn/end':
-      return event.data.reason.kind === 'error'
-    default:
-      return (event.type as string) === 'llm/retry'
-  }
-}
-
-function affectsCompactionRequests(event: SessionEvent): boolean {
-  const type = event.type as string
-  return type === 'compact/start'
-    || type === 'compact/summary'
-    || type === 'compact/end'
-    || (event.type === 'user/message' && isCompactionSource(event.data.source))
-}
-
-/** Project every durable step into one provider request, retaining failed retry attempts. */
-function deriveModelRequests(events: readonly SessionEvent[]): readonly ModelRequestView[] {
-  const requests: ModelRequestView[] = []
-  const byStep = new Map<string, number>()
-  let activeStep: string | undefined
-  let activeConfig: ConversationPromptSnapshot['config']
-
-  const update = (key: string, change: Partial<ModelRequestView>): void => {
-    const index = byStep.get(key)
-    if (index === undefined) return
-    const request = requests[index]
-    if (request !== undefined) requests[index] = { ...request, ...change }
-  }
-
-  for (const sourceEvent of events) {
-    if (sourceEvent.type === 'request/header') {
-      activeConfig = sourceEvent.data.header.config
-      if (activeStep !== undefined) update(activeStep, { requestConfig: activeConfig })
-      continue
-    }
-    if (sourceEvent.type === 'step/start') {
-      const { turn, step } = sourceEvent.data
-      const key = modelRequestKey(turn, step)
-      byStep.set(key, requests.length)
-      requests.push({
-        startSeq: sourceEvent.seq,
-        turn,
-        step,
-        startedAt: sourceEvent.time,
-        completedAt: null,
-        status: 'running',
-        ...(activeConfig === undefined ? {} : { requestConfig: activeConfig }),
-      })
-      activeStep = key
-      continue
-    }
-    if (sourceEvent.type === 'assistant/message') {
-      const key = modelRequestKey(sourceEvent.data.turn, sourceEvent.data.step)
-      update(key, {
-        completedAt: sourceEvent.time,
-        status: 'complete',
-        resultSeq: sourceEvent.seq,
-        provenance: {
-          provider: sourceEvent.data.provenance.provider,
-          model: sourceEvent.data.provenance.model,
-        },
-        ...(sourceEvent.data.usage === undefined ? {} : { usage: sourceEvent.data.usage }),
-      })
-      continue
-    }
-    if (sourceEvent.type === 'step/end') {
-      const key = modelRequestKey(sourceEvent.data.turn, sourceEvent.data.step)
-      const index = byStep.get(key)
-      const request = index === undefined ? undefined : requests[index]
-      if (index !== undefined && request !== undefined && request.status === 'running') {
-        requests[index] = {
-          ...request,
-          completedAt: sourceEvent.time,
-          status: 'error',
-        }
-      }
-      if (activeStep === key) activeStep = undefined
-      continue
-    }
-    if ((sourceEvent.type as string) === 'llm/retry') {
-      const event = sourceEvent as unknown as RetryEvent
-      update(modelRequestKey(event.data.turn, event.data.step), {
-        status: 'error',
-        error: event.data.failure.message,
-        retry: event.data.retry,
-        maxRetries: event.data.maxRetries,
-        retryDelayMs: event.data.delayMs,
-      })
-      continue
-    }
-    if (sourceEvent.type !== 'turn/end' || sourceEvent.data.reason.kind !== 'error') continue
-    const reason = sourceEvent.data.reason
-    update(modelRequestKey(sourceEvent.data.turn, reason.step), {
-      status: 'error',
-      error: 'failure' in reason ? reason.failure.message : reason.message,
-    })
-  }
-  return requests
-}
-
-interface CompactionStartEvent {
-  type: 'compact/start'
-  seq: number
-  time: number
-  data: { turn: number }
-}
-
-interface CompactionSummaryEvent {
-  type: 'compact/summary'
-  seq: number
-  time: number
-  data: {
-    summary: readonly ContentBlock[]
-    rawOutput?: readonly ContentBlock[]
-    provider: string
-    model: string
-    maxTokens?: number
-    usage?: unknown
-  }
-}
-
-interface CompactionEndEvent {
-  type: 'compact/end'
-  seq: number
-  time: number
-  data: { turn: number; error?: string }
-}
-
-/** Project log-only compaction request brackets without coupling the client runtime to one backend package. */
-function deriveCompactionRequests(events: readonly SessionEvent[]): readonly CompactionRequestView[] {
-  const requests: CompactionRequestView[] = []
-  let active: CompactionRequestView | undefined
-  for (const sourceEvent of events) {
-    const type = sourceEvent.type as string
-    if (type === 'compact/start') {
-      const event = sourceEvent as unknown as CompactionStartEvent
-      active = {
-        startSeq: event.seq,
-        turn: event.data.turn,
-        startedAt: event.time,
-        completedAt: null,
-        status: 'running',
-      }
-      continue
-    }
-    if (type === 'compact/summary' && active !== undefined) {
-      const event = sourceEvent as unknown as CompactionSummaryEvent
-      active = {
-        ...active,
-        summarySeq: event.seq,
-        summary: event.data.summary,
-        ...(event.data.rawOutput === undefined ? {} : { rawOutput: event.data.rawOutput }),
-        provenance: {
-          provider: event.data.provider,
-          model: event.data.model,
-        },
-        requestConfig: {
-          provider: event.data.provider,
-          model: event.data.model,
-          purpose: 'compaction',
-          ...(event.data.maxTokens === undefined ? {} : { maxTokens: event.data.maxTokens }),
-        },
-        ...(event.data.usage === undefined ? {} : { usage: event.data.usage }),
-      }
-      continue
-    }
-    if (
-      sourceEvent.type === 'user/message'
-      && active?.summarySeq !== undefined
-      && isCompactionSource(sourceEvent.data.source)
-    ) {
-      active = { ...active, replacementSeq: sourceEvent.seq }
-      continue
-    }
-    if (type !== 'compact/end' || active === undefined) continue
-    const event = sourceEvent as unknown as CompactionEndEvent
-    active = {
-      ...active,
-      completedAt: event.time,
-      status: event.data.error === undefined ? 'complete' : 'error',
-      ...(event.data.error === undefined ? {} : { error: event.data.error }),
-    }
-    requests.push(active)
-    active = undefined
-  }
-  if (active !== undefined) requests.push(active)
-  return requests
-}
-
-/** Project request headers into model-visible system/tool changes only. */
-function derivePromptChanges(events: readonly SessionEvent[]): readonly ConversationPromptChange[] {
-  const changes: ConversationPromptChange[] = []
-  let previous: ConversationPromptSnapshot | undefined
-  for (const event of events) {
-    if (event.type !== 'request/header') continue
-    const prompt: ConversationPromptSnapshot = {
-      config: event.data.header.config,
-      system: event.data.header.system ?? '',
-      tools: event.data.header.tools ?? [],
-    }
-    const systemChanged = previous !== undefined && previous.system !== prompt.system
-    const toolsChanged = previous !== undefined
-      && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
-    if (previous === undefined || systemChanged || toolsChanged) {
-      changes.push({
-        seq: event.seq,
-        time: event.time,
-        kind: previous === undefined
-          ? 'initial'
-          : systemChanged && toolsChanged
-            ? 'system-and-tools'
-            : systemChanged
-              ? 'system'
-              : 'tools',
-        prompt,
-        ...(previous === undefined ? {} : { previous }),
-      })
-    }
-    previous = prompt
-  }
-  return changes
-}
-
-function isCompactionSource(source: unknown): boolean {
-  return typeof source === 'object'
-    && source !== null
-    && 'kind' in source
-    && source.kind === 'plugin'
-    && 'plugin' in source
-    && source.plugin === 'compact'
 }

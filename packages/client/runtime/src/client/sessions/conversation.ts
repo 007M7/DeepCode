@@ -3,12 +3,15 @@
 // substructures keep their references (the React.memo premise). callId/approvalId stay plain
 // string here (narrow to real brands when convenient).
 
-import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+import type {
+  AssistantProvenanceView, AssistantRequestConfig, ConversationContext, SessionInspectionSnapshot,
+} from './inspection.ts'
 
 export type { TodoItem }
 
@@ -51,7 +54,6 @@ export interface UserMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
-  meta?: unknown
 }
 
 /** Recorded boundaries used to derive assistant latency and throughput. */
@@ -62,24 +64,6 @@ export interface AssistantTiming {
   firstTokenTime: number | null
   /** Final assistant/message timestamp. */
   completedTime: number
-}
-
-/** Request configuration recorded in the effective header for one assistant response. */
-export interface AssistantRequestConfig {
-  provider: string
-  model: string
-  purpose?: string
-  thinking?: string
-  reasoningEffort?: string
-  temperature?: number
-  maxTokens?: number
-  stop?: readonly string[]
-}
-
-/** Stable provider/model identity attached to one assistant response. */
-export interface AssistantProvenanceView {
-  provider: string
-  model: string
 }
 
 /** A finalized (or interruption-frozen) assistant message. */
@@ -110,7 +94,6 @@ export interface SteeringMessageNode {
   turn: number
   content: readonly ContentBlock[]
   source: unknown
-  meta?: unknown
 }
 
 /** A context/system injection surfaced in the flow. */
@@ -230,91 +213,6 @@ export type OpenState = 'cold' | 'loading' | 'open' | 'error'
  */
 export type ComposerPhase = 'blank' | 'engaging' | 'active'
 
-/** Operation that started a new append-only model context. */
-export type ConversationContextOriginKind = 'compaction' | 'rewind' | 'rewrite'
-
-/** Latest complete model request header in force within one context generation. */
-export interface ConversationPromptSnapshot {
-  /** Provider/model and sampling configuration from the latest effective request header. */
-  config?: AssistantRequestConfig
-  /** Rendered system prompt text; empty when the request had no system prompt. */
-  system: string
-  /** Complete tool catalog sent with the request, including tools that were never called. */
-  tools: readonly ToolSchema[]
-}
-
-/** One system-prompt/tool-catalog state that became effective in the request timeline. */
-export interface ConversationPromptChange {
-  /** Sequence of the request/header event that introduced this state. */
-  seq: number
-  /** Unix epoch ms from the request/header event. */
-  time: number
-  /** How the model-visible system configuration differs from the prior recorded state. */
-  kind: 'initial' | 'system' | 'tools' | 'system-and-tools'
-  /** Complete state effective from this event onward. */
-  prompt: ConversationPromptSnapshot
-  /** State immediately before this change; absent for the initial header. */
-  previous?: ConversationPromptSnapshot
-}
-
-/** One immutable model-context generation reconstructed from surface replacements. */
-export interface ConversationContext {
-  /** Zero-based generation within the session; stable across later appends. */
-  id: number
-  /** Previous generation in this session; absent for the initial context. */
-  parentId?: number
-  /** Why this generation exists; absent for the initial context. */
-  origin?: ConversationContextOriginKind
-  /** Event seq of the replacement that created this generation. */
-  originSeq?: number
-  /** Unix epoch ms of the replacement that created this generation. */
-  createdAt?: number
-  /** Latest request header observed in this generation, inherited until a later header replaces it. */
-  prompt?: ConversationPromptSnapshot
-  /** Final frozen nodes for historical generations, or current folded nodes for the tail. */
-  nodes: readonly ConversationNode[]
-}
-
-/** One auxiliary compaction model request reconstructed from its durable lifecycle events. */
-export interface CompactionRequestView {
-  startSeq: number
-  turn: number
-  startedAt: number
-  completedAt: number | null
-  status: 'running' | 'complete' | 'error'
-  error?: string
-  summarySeq?: number
-  replacementSeq?: number
-  summary?: readonly ContentBlock[]
-  rawOutput?: readonly ContentBlock[]
-  provenance?: AssistantProvenanceView
-  requestConfig?: AssistantRequestConfig
-  usage?: unknown
-}
-
-/** One ordinary provider-request attempt reconstructed from a durable step boundary. */
-export interface ModelRequestView {
-  /** Sequence of the step/start event that opened this attempt. */
-  startSeq: number
-  turn: number
-  step: number
-  /** Unix epoch ms from step/start. */
-  startedAt: number
-  /** Assistant completion time, or the failed step/end time when no response completed. */
-  completedAt: number | null
-  status: 'running' | 'complete' | 'error'
-  error?: string
-  /** Assistant/message sequence when this attempt completed successfully. */
-  resultSeq?: number
-  provenance?: AssistantProvenanceView
-  requestConfig?: AssistantRequestConfig
-  usage?: unknown
-  /** Retry ordinal scheduled after this failed attempt. */
-  retry?: number
-  maxRetries?: number
-  retryDelayMs?: number
-}
-
 /** Send/stop failure surfaced in the input error strip; op picks the user-facing copy (发送失败 vs 停止失败). */
 export interface PromptError {
   op: 'send' | 'stop'
@@ -329,11 +227,11 @@ export interface ConversationSnapshot {
   /** Append-only context generations split at every model-surface replacement. */
   contexts?: readonly ConversationContext[]
   /** Auxiliary compaction requests, including those without an assistant/message surface node. */
-  compactionRequests?: readonly CompactionRequestView[]
+  compactionRequests?: SessionInspectionSnapshot['compactionRequests']
   /** Ordinary provider requests, including failed attempts that produced no assistant message. */
-  requestAttempts?: readonly ModelRequestView[]
+  requestAttempts?: SessionInspectionSnapshot['requestAttempts']
   /** System-prompt/tool-catalog changes in request order. */
-  promptChanges?: readonly ConversationPromptChange[]
+  promptChanges?: SessionInspectionSnapshot['promptChanges']
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean
   partial: PartialAssistant | null
@@ -346,7 +244,7 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   /** Model-visible tool schema captured for each recorded call id. */
-  callSchemas?: ReadonlyMap<string, ToolSchema>
+  callSchemas?: SessionInspectionSnapshot['callSchemas']
   pending: readonly PendingInteraction[]
   /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
   queue: readonly QueuedMessage[]

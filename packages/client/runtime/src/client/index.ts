@@ -28,13 +28,16 @@ export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
-  AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
-  CompactionRequestView, ConversationContext, ConversationContextOriginKind,
-  ConversationNode, ConversationPromptChange, ConversationPromptSnapshot, ModelRequestView,
+  AssistantBlock, AssistantMessageNode, AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
+  ConversationNode,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
+export type {
+  AssistantProvenanceView, AssistantRequestConfig, CompactionRequestView,
+  ConversationContext, ConversationContextOriginKind, ConversationPromptChange,
+  ConversationPromptSnapshot, ModelRequestView,
+} from './sessions/inspection.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'

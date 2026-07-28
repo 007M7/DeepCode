@@ -317,7 +317,6 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           index: ++index,
           kind: 'user',
           ...inputCellDetail(node),
-          ...(node.meta === undefined ? {} : { messageMeta: node.meta }),
           opensTurn: node.kind === 'user',
         },
       })
