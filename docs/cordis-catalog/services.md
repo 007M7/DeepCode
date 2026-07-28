@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:215`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -242,11 +242,18 @@ Approval service that applies session policy before answerers and logs every ask
  *   append commit point.
  */
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+
+/**
+ * Read the session override without applying the configured default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged policy, or `undefined` without one.
+ */
+overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -992,9 +999,16 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+
+/**
+ * Read the session override without applying the deployment default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged mode, or `undefined` without one.
+ */
+overrideOf(session: Session): SandboxMode | undefined
 ```
 
-Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md)
+Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
