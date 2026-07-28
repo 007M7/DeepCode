@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
@@ -87,7 +88,27 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     const prefix = system.split('\n\n').slice(0, 4).join('\n\n')
       .split(REPO_ROOT).join('{{sourceRoot}}')
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
+      .split(scaffold.baseUrl).join('{{webUrl}}')
     await compareOrRefreshGolden(SYSTEM_PROMPT_EXPECTED, prefix, MODE)
+  })
+
+  it('exposes the assembled Web URL to the real bash tool', async () => {
+    if (settledSessionId === undefined) throw new Error('the drive turn did not publish a session id')
+    const agent = scaffold.ctx.agents.get(settledSessionId)
+    if (agent === undefined) throw new Error(`the settled Web agent ${settledSessionId} is no longer live`)
+    const result = await scaffold.ctx.tools.execute({
+      signal: AbortSignal.timeout(5_000),
+      callId: CallId('web-url-probe'),
+      name: 'bash',
+      arguments: {
+        command: 'printf \'%s\\n\' "$DSH_WEB_URL"',
+        description: 'Print current Web URL',
+      },
+      agent,
+    })
+    expect(result.isError).toBe(false)
+    expect(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+      .toBe(`${scaffold.baseUrl}\n`)
   })
 
   it.skipIf(MODE === 'record')('rendered the settled turn: markdown, tool row, composer restore', async () => {

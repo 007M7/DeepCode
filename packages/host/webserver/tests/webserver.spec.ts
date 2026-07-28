@@ -111,6 +111,8 @@ describe('real Loader composition', () => {
     // Static fallback semantics: real asset served, traversal 403, non-GET/
     // HEAD without a matching route 405.
     expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export {}' })
+    await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
+    expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })
     expect((await request(port, '/..%2f..%2fetc%2fpasswd')).status).toBe(403)
     expect((await request(port, '/nowhere', { method: 'POST' })).status).toBe(405)
 

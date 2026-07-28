@@ -203,12 +203,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     })
     await ctx.loader.await()
     assertEntriesLoaded(ctx, 'web e2e scaffold')
-    installWebPromptContext(ctx, REPO_ROOT)
     const boundPort = ctx.get('httpServer')?.port
     if (boundPort === undefined) {
       throw new Error('web e2e scaffold: httpServer service missing after settled boot')
     }
     port = boundPort
+    installWebPromptContext(ctx, REPO_ROOT, `http://127.0.0.1:${String(port)}`)
 
     // Fill the open llm seam on the settled root ctx (llm-deepseek is disabled
     // in keyless modes; a scenario with no fixture leaves the seam empty so a

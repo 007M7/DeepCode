@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "vite build",
-    "dev": "vite",
+    "dev": "node -e \"console.error('apps/web is build-only; run dsh web or dsh web --dev with pnpm run dev:web') ; process.exit(1)\"",
     "watch": "vite build --watch"
   },
   "license": "BSD-3-Clause",
