@@ -1,6 +1,11 @@
-/** Regression tests for the bilingual corpus scope and structural signature. */
+/** Regression tests for bilingual snapshots, corpus scope, and structure. */
 
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { gitBlobHash, storeGitBlob } from './translation-pairing-git.ts'
 import {
   isTranslationScopeFile,
   pairAnchorOfArgument,
@@ -14,6 +19,52 @@ import {
 function signature(markdown: string) {
   return translationStructureSignature(parseTranslationMarkdown(markdown), 'counterpart.zh.md')
 }
+
+describe('translation pairing snapshots', () => {
+  it('stores exact uncommitted bytes for later recovery by object ID', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-'))
+    try {
+      execFileSync('git', ['init', '--quiet', root])
+      const content = Buffer.from([0x75, 0x6e, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x74, 0x65, 0x64, 0x0a, 0xff])
+
+      const objectId = storeGitBlob(root, content)
+
+      expect(objectId).toBe(gitBlobHash(content))
+      expect(execFileSync('git', ['-C', root, 'cat-file', '-p', objectId])).toEqual(content)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails before a sidecar can reference an unavailable object', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-'))
+    try {
+      expect(() => storeGitBlob(root, Buffer.from('snapshot'))).toThrow('git hash-object -w --stdin failed')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails clearly when Git cannot be started', () => {
+    const previousPath = process.env.PATH
+    try {
+      process.env.PATH = ''
+      expect(() => storeGitBlob('.', Buffer.from('snapshot'))).toThrow('git hash-object -w --stdin failed')
+    } finally {
+      process.env.PATH = previousPath
+    }
+  })
+
+  it('rejects an object format that pairing records cannot represent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-'))
+    try {
+      execFileSync('git', ['init', '--quiet', '--object-format=sha256', root])
+      expect(() => storeGitBlob(root, Buffer.from('snapshot'))).toThrow('returned unexpected object ID')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('translation pairing manifest', () => {
   it('accepts an exclusions-only manifest', () => {
