@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
@@ -10,27 +10,34 @@ function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
 describe('serializeMessages', () => {
   it('maps user text to string content', () => {
     const wire = serializeMessages([
-      { role: 'user', content: [{ type: 'text', text: 'hello ' }, { type: 'text', text: 'world' }] },
+      createUserMessage({
+        content: [{ type: 'text', text: 'hello ' }, { type: 'text', text: 'world' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{ role: 'user', content: 'hello world' }])
   })
 
   it('maps system-role messages in history', () => {
     const wire = serializeMessages([
-      { role: 'system', content: [{ type: 'text', text: 'be brief' }] },
+      createMessage({
+        role: 'system', content: [{ type: 'text', text: 'be brief' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{ role: 'system', content: 'be brief' }])
   })
 
   it('maps plain assistant text without reasoning_content', () => {
     const wire = serializeMessages([
-      {
+      createMessage({
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'thinking…' },
           { type: 'text', text: 'answer' },
         ],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     // Tool-call-free turn: reasoning is dropped (ignored by the API anyway).
     expect(wire).toEqual([{ role: 'assistant', content: 'answer' }])
@@ -38,13 +45,14 @@ describe('serializeMessages', () => {
 
   it('passes reasoning_content back on tool-call turns (official passback rule)', () => {
     const wire = serializeMessages([
-      {
+      createMessage({
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'I should check the weather.' },
           { type: 'tool-call', id: CallId('call-1'), name: 'get_weather', arguments: '{"city":"Paris"}' },
         ],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{
       role: 'assistant',
@@ -58,13 +66,14 @@ describe('serializeMessages', () => {
 
   it('serializes parallel tool calls in order', () => {
     const wire = serializeMessages([
-      {
+      createMessage({
         role: 'assistant',
         content: [
           { type: 'tool-call', id: CallId('a'), name: 'one', arguments: '{}' },
           { type: 'tool-call', id: CallId('b'), name: 'two', arguments: '{}' },
         ],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     const assistant = wire[0] as { tool_calls: { id: string }[] }
     expect(assistant.tool_calls.map(call => call.id)).toEqual(['a', 'b'])
@@ -72,37 +81,37 @@ describe('serializeMessages', () => {
 
   it('turns tool results into role:tool messages', () => {
     const wire = serializeMessages([
-      {
-        role: 'user',
+      createUserMessage({
         content: [{
           type: 'tool-result',
           toolCallId: CallId('call-1'),
           content: [{ type: 'text', text: 'Sunny 22C' }],
         }],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{ role: 'tool', tool_call_id: 'call-1', content: 'Sunny 22C' }])
   })
 
   it('sends a sentinel for empty tool-result content', () => {
     const wire = serializeMessages([
-      {
-        role: 'user',
+      createUserMessage({
         content: [{ type: 'tool-result', toolCallId: CallId('call-1'), content: [] }],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{ role: 'tool', tool_call_id: 'call-1', content: '(no output)' }])
   })
 
   it('splits mixed user text + tool results into separate wire messages', () => {
     const wire = serializeMessages([
-      {
-        role: 'user',
+      createUserMessage({
         content: [
           { type: 'text', text: 'context note' },
           { type: 'tool-result', toolCallId: CallId('call-1'), content: [{ type: 'text', text: 'ok' }] },
         ],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([
       { role: 'user', content: 'context note' },
@@ -112,25 +121,31 @@ describe('serializeMessages', () => {
 
   it('skips plugin-added block types (merge-extensible ContentBlockMap)', () => {
     const wire = serializeMessages([
-      {
-        role: 'user',
+      createUserMessage({
         content: [
           { type: 'chart', data: 'x' } as unknown as ContentBlock,
           { type: 'text', text: 'see chart' },
         ],
-      },
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
     ])
     expect(wire).toEqual([{ role: 'user', content: 'see chart' }])
   })
 
   it('emits an empty user message rather than dropping block-less messages', () => {
-    const wire = serializeMessages([{ role: 'user', content: [] }])
+    const wire = serializeMessages([createUserMessage({
+      content: [],
+      source: { kind: 'plugin', plugin: 'test' },
+    })])
     expect(wire).toEqual([{ role: 'user', content: '' }])
   })
 })
 
 describe('serializeRequest', () => {
-  const history: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]
+  const history: Message[] = [createUserMessage({
+    content: [{ type: 'text', text: 'hi' }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 
   it('always streams with usage and maps the basics', () => {
     const wire = serializeRequest(request({ messages: history }))
@@ -246,7 +261,10 @@ describe('review fixes: assistant content shapes', () => {
     // Aborted/empty assistant turns: no text, no calls → "". The earlier
     // null shape was live-falsified: the API 400s a null-content assistant
     // message without tool_calls ("content or tool_calls must be set").
-    const wire = serializeMessages([{ role: 'assistant', content: [] }])
+    const wire = serializeMessages([createMessage({
+      role: 'assistant', content: [],
+      source: { kind: 'plugin', plugin: 'test' },
+    })])
     expect(wire).toEqual([{ role: 'assistant', content: '' }])
   })
 
@@ -255,15 +273,19 @@ describe('review fixes: assistant content shapes', () => {
     // greeting did, live). The passback rule keeps reasoning_content off
     // plain turns, and content must still be SET — a null here poisoned the
     // session log and bricked every later turn of that session.
-    const wire = serializeMessages([{ role: 'assistant', content: [{ type: 'reasoning', text: '你好！有什么我可以帮你的吗？' }] }])
+    const wire = serializeMessages([createMessage({
+      role: 'assistant', content: [{ type: 'reasoning', text: '你好！有什么我可以帮你的吗？' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })])
     expect(wire).toEqual([{ role: 'assistant', content: '' }])
   })
 
   it('serializes tool-call turns with empty string content, not null', () => {
-    const wire = serializeMessages([{
+    const wire = serializeMessages([createMessage({
       role: 'assistant',
       content: [{ type: 'tool-call', id: CallId('c'), name: 'f', arguments: '{}' }],
-    }])
+      source: { kind: 'plugin', plugin: 'test' },
+    })])
     expect(wire[0]).toMatchObject({ content: '' })
   })
 })

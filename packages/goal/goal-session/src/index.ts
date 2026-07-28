@@ -8,7 +8,7 @@ import { FiberState } from 'cordis'
 import type { Context } from 'cordis'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
-import { assertNever } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { classifyGoalRound } from './outcome.ts'
@@ -226,7 +226,7 @@ export function apply(ctx: Context): void {
     }
     state.attempt = reservation
     try {
-      agent.followup({ content: content, source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round } })
+      agent.followup(createUserMessage({ content, source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round } }))
     } catch (error: unknown) {
       state.attempt = undefined
       ctx.logger.warn(`goal-session: could not queue round ${round} for agent "${agent.id}": ${renderThrown(error)}`)
@@ -407,7 +407,8 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/prompt-submit', async (agent, content, source, _signal, next): Promise<PromptDecision> => {
+    ctx.on('agent/prompt-submit', async (agent, message, _signal, next): Promise<PromptDecision> => {
+      const { content, source } = message
       if (!isGoalRoundSource(source)) return next()
       const state = stateFor(agent)
       let valid = false

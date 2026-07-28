@@ -6,7 +6,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
@@ -243,10 +243,10 @@ export async function generateSessionTitleWithLlm(
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
   }
   const route = resolveRoute(config, request)
-  const messages: Message[] = [{
-    role: 'user',
+  const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: framedInput }],
-  }]
+    source: { kind: 'plugin', plugin: 'dsh-session-title-llm' },
+  })]
   const system = systemPrompt(config)
   using callDeadline = deadline(request.signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
   const options: GenerateOptions = deepFreeze({
@@ -276,7 +276,7 @@ export async function generateSessionTitleWithLlm(
   callDeadline.signal.throwIfAborted()
   const terminalError = finishError(assembler.finish)
   if (terminalError !== undefined) throw terminalError
-  const blocks = assembler.message().content
+  const blocks = assembler.blocks()
   if (blocks.some(block => block.type === 'tool-call')) {
     throw new Error('session-title-llm: title output must contain text only')
   }

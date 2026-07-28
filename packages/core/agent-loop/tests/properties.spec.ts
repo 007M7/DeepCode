@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -115,7 +115,7 @@ describe('agent loop scheduling properties', () => {
           const { seen: trace } = recordStatus(ctx, agent)
           const idle = nextIdle(ctx, agent)
           // Send all in one synchronous tick: they queue before the loop wakes.
-          for (const text of texts) agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+          for (const text of texts) agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
           await idle
 
           // No message lost: every send appears as a user/message, in order.
@@ -142,7 +142,7 @@ describe('agent loop scheduling properties', () => {
           const agent = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })
           for (const text of texts) {
             const idle = nextIdle(ctx, agent)
-            agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+            agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
             await idle
           }
           // Each send was drained at a separate turn start: N turns, 1..N.
@@ -171,7 +171,7 @@ describe('agent loop scheduling properties', () => {
           for (const step of steps) {
             const idle = nextIdle(ctx, agent)
             lastIdle = idle
-            agent.followup({ content: [{ type: 'text', text: step.text }], source: { kind: 'user' } })
+            agent.followup(createUserMessage({ content: [{ type: 'text', text: step.text }], source: { kind: 'user' } }))
             if (step.settle) await idle
           }
           await lastIdle

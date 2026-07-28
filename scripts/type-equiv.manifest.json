@@ -14,17 +14,17 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "AssistantProvenance",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "Message",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "MessageSourceMap",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -99,16 +99,6 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "SendOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentMessageId",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentMessage",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -320,8 +310,8 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "UserMessageData",
-      "source": "packages/core/session/src/types.ts"
+      "symbol": "UserMessage",
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/session.md",

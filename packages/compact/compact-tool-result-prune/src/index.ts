@@ -6,8 +6,9 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
 import type {
   PrunedEntry,
@@ -132,13 +133,21 @@ export class ToolResultPruneService extends Service {
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
-      const content = this.pruneContent(event.data.content)
+      const result = event.data.message.content[0]
+      const content = this.pruneContent(result.content)
       if (content === null) continue
-      const charsBefore = this.measureContent(event.data.content)
+      const charsBefore = this.measureContent(result.content)
       const charsAfter = this.measureContent(content)
+      const message = freezeMessage<ToolResultMessage>({
+        ...event.data.message,
+        content: [{
+          ...result,
+          content,
+        }] as [typeof result],
+      })
       const replacement = session.append('tool/result', {
         ...event.data,
-        content,
+        message,
       }, {
         surfaceOp: { op: 'replace', start: seq, end: seq },
         sourceEventSeqs: [seq],
@@ -146,7 +155,7 @@ export class ToolResultPruneService extends Service {
       pruned.push({
         originalSeq: seq,
         replacementSeq: replacement.seq,
-        callId: event.data.callId,
+        callId: event.data.message.source.callId,
         charsBefore,
         charsAfter,
       })

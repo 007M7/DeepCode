@@ -4,11 +4,15 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { agentEvents, AgentMessageId, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
-import {
+import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage,
+  createToolResultMessage,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
+  MessageId,
+  createMessage,
+  freezeMessage,
 } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
@@ -236,10 +240,22 @@ describe('resume command and /resume', () => {
     reason: TurnEndReason = { kind: 'completed' },
   ): SessionEvent[] => [
     { type: 'turn/start', seq: 0, time, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: time + 1, data: { content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: time + 1, data: createUserMessage({
+      content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: time + 2, data: { turn: 1, step: 1 } },
     { type: 'request/header', seq: 3, time: time + 3, data: { header: { config: { provider, model: 'model-1' } }, reason: 'initial' } },
-    { type: 'assistant/message', seq: 4, time: time + 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'done' }], provenance: { provider, model: 'model-1' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 4, time: time + 4, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: {
+          kind: 'model',
+          ...{ provider, model: 'model-1' },
+        },
+      }),
+    }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
@@ -1094,7 +1110,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
     const result = await setup({
       beforeMount(session) {
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: renderGoalChange(change),
           source: {
             kind: 'goal',
@@ -1103,7 +1119,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
             round: 0,
             change,
           },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
       },
     })
     expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
@@ -1198,22 +1214,42 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'running'
     agentEvents(result.ctx, result.agent).emit('agent/status', 'running')
     now = 8_000
-    result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('user/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '   ' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    result.session.append('steering/message', {
+      turn: 2,
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'steering note' }],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('steering/message', {
+      turn: 2,
+      message: createUserMessage({
+        content: [{ type: 'text', text: '' }],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender XML context clearly.\n</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<system-reminder>&#155;</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-control-context' },
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' },
+    }), { surfaceOp: 'append' })
     // A non-plugin injected source (goal) has no `plugin` field, so its context
     // card label falls back to the source kind.
-    result.session.append('user/message', { content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never,
+    }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
     result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
@@ -1434,19 +1470,31 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const drainSteering = (text: string): void => {
       const id = result.agent.steeredIds.shift()
       if (id !== undefined) {
-        result.ctx.emit('agent/inbox/dequeue', result.agent, {
+        result.ctx.emit('agent/inbox/dequeue', result.agent, freezeMessage({
           id,
+          role: 'user',
           content: [{ type: 'text', text }],
           source: { kind: 'user' },
-        })
+        }), 'steering')
       }
-      result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+      result.session.append('steering/message', {
+        turn: 1,
+        message: createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        }),
+      }, { surfaceOp: 'append' })
     }
 
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' } }, 'queued')
+    result.ctx.emit('agent/inbox/enqueue', other, freezeMessage({
+      id: MessageId('stub'),
+      role: 'user',
+      content: [{ type: 'text', text: 'elsewhere' }],
+      source: { kind: 'user' },
+    }), 'queued')
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -1484,8 +1532,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.output = ''
     result.session.append('steering/message', {
       turn: 1,
-      content: [{ type: 'text', text: 'continue: goal not reached' }],
-      source: { kind: 'plugin', plugin: 'hooks' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'continue: goal not reached' }],
+        source: { kind: 'plugin', plugin: 'hooks' },
+      }),
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -1509,18 +1559,29 @@ describe('pi-tui chat lifecycle and transcript', () => {
     submitSteering('fourth')
     await tick()
     expect(result.terminal.output).toContain('2 queued')
-    const discarded = result.agent.steeredIds.splice(0).map(id => ({
-      id, content: [{ type: 'text' as const, text: 'discarded' }], source: { kind: 'user' as const },
+    const discarded = result.agent.steeredIds.splice(0).map(id => freezeMessage({
+      id,
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'discarded' }],
+      source: { kind: 'user' as const },
     }))
     // Another agent's dequeue/discard, and ones naming no pending id, leave
     // the badge alone.
-    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!)
-    result.ctx.emit('agent/inbox/dequeue', result.agent, {
-      id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' },
-    })
+    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!, 'steering')
+    result.ctx.emit('agent/inbox/dequeue', result.agent, freezeMessage({
+      id: MessageId('never-queued'),
+      role: 'user',
+      content: [{ type: 'text', text: 'x' }],
+      source: { kind: 'user' },
+    }), 'steering')
     result.ctx.emit('agent/inbox/discard', other, discarded)
     result.ctx.emit('agent/inbox/discard', result.agent, [
-      { id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } },
+      freezeMessage({
+        id: MessageId('never-queued'),
+        role: 'user',
+        content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'user' },
+      }),
     ])
     await tick()
     expect(result.terminal.output).toContain('2 queued')
@@ -1841,8 +1902,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('tracks steering drains without a running status line', async () => {
     const result = await setup()
     const source = { kind: 'user' as const }
-    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source }, 'steering')
-    result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'early' }], source }, { surfaceOp: 'append' })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, freezeMessage({
+      id: MessageId('stub'),
+      role: 'user',
+      content: [{ type: 'text', text: 'early' }],
+      source,
+    }), 'steering')
+    result.session.append('steering/message', {
+      turn: 1,
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'early' }],
+        source,
+      }),
+    }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
     await dispose(result)
@@ -1897,7 +1969,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     ])
     result.session.append('tool/call', { turn: 1, step: 1, callId: 'c1' as never, name: 'bash', arguments: '{}' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c1' as never, content: [{ type: 'text', text: 'command output' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [{ type: 'text', text: 'command output' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.terminal.output = ''
     result.session.append('step/end', { turn: 1, step: 1 })
@@ -1934,7 +2011,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       cwd: '/workspace',
       config: { theme: { color: true } },
       beforeMount(session) {
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: [
             { type: 'text', text: '# Heading\n\n[link](https://example.com) `code`\n\n```ts\nconst x = 1\n```\n\n> quote\n\n---\n\n- item\n\n**bold** *italic* ~~strike~~' },
             { type: 'tool-call', id: 'nested' as never, name: 'nested_tool', arguments: '{}' },
@@ -1943,7 +2020,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
             {} as never,
           ],
           source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         appendAssistant(session, [
           { type: 'reasoning', text: 'styled reasoning' },
           { type: 'text', text: 'styled answer\n\n```ts\nconst answer = 42\n```' },
@@ -2291,7 +2368,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
         type: 'user/message',
         seq: 0,
         time: 1,
-        data: { content: [{ type: 'text', text: 'source background' }], source: { kind: 'user' } },
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'source background' }],
+          source: { kind: 'user' },
+        }),
         surfaceOp: 'append',
       },
       {
@@ -2338,7 +2418,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // the allow decision), not a separate pre-admission inject.
     expect(result.agent.injected).toHaveLength(0)
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind).toBe('allow')
@@ -2348,7 +2428,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // The one-shot wrapper detached itself at admission: replaying the
     // waterfall attaches nothing a second time.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2395,7 +2475,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.steered).toHaveLength(0)
     expect(result.agent.injected).toHaveLength(0)
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
@@ -2425,13 +2505,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await send()
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
 
-    // Each wrapper releases on its own allowed admission — matched by the
-    // message content it carries, not the returned id, which real send()
-    // assigns as a random UUID only after followup() returns. Running each
-    // prompt's admission waterfall detaches its wrapper.
-    for (const sent of result.agent.sent) {
+    // Each wrapper releases on its own identified message's allowed admission.
+    // Running each prompt's admission waterfall detaches its wrapper.
+    for (const sent of result.agent.sentMessages) {
       await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent, { kind: 'user' },
+        'agent/prompt-submit', sent,
         new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
       )
     }
@@ -2439,19 +2517,20 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // no armed listener, and an unrelated admission is untouched. The leak
     // regression: a listener installed after its cleanup already ran would
     // survive every future cleanup.
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'), content: result.agent.sent[0]!, source: { kind: 'user' },
-    }])
+    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages[0]!])
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'unrelated' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
     // Replaying either sent prompt attaches nothing: the one-shot wrappers
     // are gone, not merely spent.
-    for (const sent of result.agent.sent) {
+    for (const sent of result.agent.sentMessages) {
       const replay = await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent, { kind: 'user' },
+        'agent/prompt-submit', sent,
         new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
       )
       expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2469,17 +2548,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendUser(source, 'source background')
       },
     })
-    // Real send() publishes its snapshotted message, then an enqueue listener
-    // may synchronously cancel and discard it before followup() returns the
-    // already-assigned id. This stub reproduces that ordering.
+    // Real send() publishes its already identified snapshot, then an enqueue
+    // listener may synchronously cancel and discard it before followup()
+    // returns that id. This stub reproduces that ordering.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
     result.agent.followup = (input) => {
       result.agent.sent.push(input.content)
-      const message = {
-        id: AgentMessageId('stub'),
+      result.agent.sentMessages.push(input)
+      const message = freezeMessage({
+        id: input.id,
+        role: 'user' as const,
         content: structuredClone(input.content),
         source: structuredClone(input.source),
-      }
+      })
       result.ctx.emit('agent/inbox/enqueue', foreign, message, 'queued')
       result.ctx.emit('agent/inbox/enqueue', result.agent, message, 'queued')
       result.ctx.emit('agent/inbox/discard', result.agent, [message])
@@ -2493,11 +2574,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
-    // The synchronous discard released the listeners even though followup()
-    // had not returned the id yet: replaying the prompt's admission attaches
-    // no stranded snapshot, and nothing leaks for the TUI lifetime.
+    // The synchronous discard released the listeners before followup()
+    // returned the existing id: replaying the prompt's admission attaches no
+    // stranded snapshot, and nothing leaks for the TUI lifetime.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2517,7 +2598,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A downstream admission hook blocks the prompt: the attached snapshot
     // must be discarded with it, not stranded for the next prompt.
     let blockPrompts = true
-    result.ctx.on('agent/prompt-submit', async (_agent, _content, _source, _signal, next) =>
+    result.ctx.on('agent/prompt-submit', async (_agent, _message, _signal, next) =>
       blockPrompts ? { kind: 'block' as const, reason: 'policy' } : next())
 
     result.terminal.send('@blocked-source')
@@ -2528,7 +2609,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
     const blocked = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(blocked.kind).toBe('block')
@@ -2537,7 +2618,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.injected).toHaveLength(0)
     blockPrompts = false
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'unrelated' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
@@ -2552,31 +2636,27 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
     // A different prompt passing the still-armed wrapper delegates untouched.
     const passthrough = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'different prompt' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'different prompt' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(passthrough.kind === 'allow' && passthrough.additionalContexts).toBeUndefined()
     // A foreign agent's discard leaves the wrapper armed.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
-    result.ctx.emit('agent/inbox/discard', foreign, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
+    result.ctx.emit('agent/inbox/discard', foreign, [result.agent.sentMessages.at(-1)!])
+    // An unrelated discard for this agent also leaves the wrapper armed.
+    result.ctx.emit('agent/inbox/discard', result.agent, [createUserMessage({
+      content: [{ type: 'text', text: 'unrelated discard' }],
       source: { kind: 'user' },
-    }])
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
-      source: { kind: 'user' },
-    }])
+    })])
+    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages.at(-1)!])
     await tick()
     // Idempotent: a repeat discard after cleanup is a no-op.
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
-      source: { kind: 'user' },
-    }])
+    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages.at(-1)!])
     const afterDiscard = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent.at(-1)!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages.at(-1)!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(afterDiscard.kind === 'allow' && afterDiscard.additionalContexts).toBeUndefined()
@@ -2731,7 +2811,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
     ]])
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
@@ -2820,47 +2900,49 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Session reference failed')
     expect(result.terminal.output).toContain('keep @[')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hidden snapshot payload' }],
       source: {
         kind: 'session-reference',
         references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
       } as never,
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'visible referenced question' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible referenced question')
     expect(result.terminal.output).toContain('Referenced sessions · Prefixed source (prefixed)')
     expect(result.terminal.output).not.toContain('hidden snapshot payload')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hidden steering context' }],
       source: {
         kind: 'session-reference',
         references: [{ sessionId: 'steering-source', label: 'Steering source' }],
       } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     result.session.append('steering/message', {
       turn: 1,
-      content: [{ type: 'text', text: 'visible steering prompt' }],
-      source: { kind: 'user' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'visible steering prompt' }],
+        source: { kind: 'user' },
+      }),
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible steering prompt')
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
     expect(result.terminal.output).not.toContain('hidden steering context')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
       source: {
         kind: 'session-reference',
         version: 1,
         references: [{ sessionId: 'source', label: 'Source', capturedThroughSeq: 2 }],
       } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · Source (source)')
     expect(result.terminal.output).not.toContain('secret full snapshot payload')
@@ -2872,15 +2954,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
     ]
     for (const [source, text] of invalidCards) {
-      result.session.append('user/message', {
+      result.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text }],
         source: source as never,
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'same-label snapshot' }],
       source: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · same')
     await dispose(result)
@@ -3819,47 +3901,90 @@ describe('tool cards and surface replay', () => {
     expect(result.terminal.output).toContain('call presenter boom')
     expect(result.terminal.output).toContain('Symbol(input)')
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c1' as never, content: [{ type: 'text', text: 'raw bash' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [{ type: 'text', text: 'raw bash' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c2' as never, content: [{ type: 'text', text: 'stopped' }], isError: true,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c2' as never,
+        content: [{ type: 'text', text: 'stopped' }],
+        isError: true,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c3' as never, content: [{ type: 'text', text: 'done' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c3' as never,
+        content: [{ type: 'text', text: 'done' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c4' as never, content: [{ type: 'text', text: 'raw generic' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c4' as never,
+        content: [{ type: 'text', text: 'raw generic' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c5' as never, content: [{ type: 'text', text: 'raw throwing' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c5' as never,
+        content: [{ type: 'text', text: 'raw throwing' }],
+        isError: false,
+      }),
       meta: { value: 1 },
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c7' as never,
-      content: [
-        { type: 'tool-call', id: 'inner' as never, name: 'inner', arguments: '{}' },
-        { type: 'tool-result', toolCallId: 'inner' as never, content: [{ type: 'text', text: 'nested output' }] },
-        { type: 'future-result' } as never,
-      ],
-      isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c7' as never,
+        content: [
+          { type: 'tool-call', id: 'inner' as never, name: 'inner', arguments: '{}' },
+          { type: 'tool-result', toolCallId: 'inner' as never, content: [{ type: 'text', text: 'nested output' }] },
+          { type: 'future-result' } as never,
+        ],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c8' as never, content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c8' as never,
+        content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c11' as never, content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c11' as never,
+        content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c13' as never,
-      content: [{ type: 'text', text: '<known><value>literal</value></known>' }],
-      isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c13' as never,
+        content: [{ type: 'text', text: '<known><value>literal</value></known>' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: 'orphan' as never,
-      content: [{ type: 'text', text: '<result><path>/tmp/a.txt</path><content><line number="1">hello</line><line number="2">world</line></content></result>' }],
-      isError: true,
+      message: createToolResultMessage({
+        callId: 'orphan' as never,
+        content: [{ type: 'text', text: '<result><path>/tmp/a.txt</path><content><line number="1">hello</line><line number="2">world</line></content></result>' }],
+        isError: true,
+      }),
       error: { name: 'InterruptedError', code: 'interrupted' },
     }, { surfaceOp: 'append' })
     await tick()
@@ -3956,20 +4081,31 @@ describe('tool cards and surface replay', () => {
     const assistant = result.session.append('assistant/message', {
       turn: 1,
       step: 1,
-      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-      content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/call', {
       turn: 1, step: 1, callId: 'old-call' as never, name: 'bash', arguments: '{}',
     })
     const toolResult = result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'old-call' as never,
+        content: [{ type: 'text', text: 'old output' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     const start = result.session.surface.nodes[0] as number
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary replacement' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start, end: toolResult.seq },
       sourceEventSeqs: [start, assistant.seq, toolResult.seq],
     })
@@ -4290,7 +4426,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -4315,7 +4451,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -4350,14 +4486,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -4388,7 +4524,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -4432,7 +4568,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', acceptsNextStep: true, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

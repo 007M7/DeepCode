@@ -7,3 +7,4 @@
 | 包 | ctx 键 | 职责 |
 |---|---|---|
 | [`session-projection`](session-projection/README.md) | `sessionProjections` | 接口包（package）：merge-extensible 的 `SessionProjectionMap` 类型表、`ProjectionDefinition` 单元契约，以及供载体同步读取的正向驱动注册表 |
+| [`session-projection-cache`](session-projection-cache/README.md) | `sessionProjectionCache` | 持久投影缓存：基于域数据形态的按会话单元 checkpoint 持久化、带 turn/end + detach 两个必写点的节流后写，以及冷读阶梯（缓存行 + 持久化尾部重放） |

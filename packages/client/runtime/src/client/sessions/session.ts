@@ -360,13 +360,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'session/queued': {
+        const message = frame.message
         // Row key: the enqueueing prompt's rpcId when it rode this wire (the
         // provisional-echo reconciliation key); otherwise the frame envelope id.
-        const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
+        const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
         this.queued.push({
-          row: { key, preview: queuePreviewOf(frame.content) },
+          row: { key, preview: queuePreviewOf(message.content) },
           steering: frame.steering,
-          sourceJson: JSON.stringify(frame.source),
+          sourceJson: JSON.stringify(message.source),
         })
         this.queueRev++
         this.notifier.markDirty()
@@ -603,7 +604,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       if (event.data.trigger.kind !== 'message') return
       index = this.queued.findIndex(entry => !entry.steering)
     } else if (event.type === 'steering/message') {
-      const source = JSON.stringify(event.data.source)
+      const source = JSON.stringify(event.data.message.source)
       index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
     } else {
       return
@@ -701,7 +702,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'tool/result': {
-        if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
+        if (this.openCalls.delete(String(event.data.message.source.callId))) this.callsRev++
         return
       }
       case 'turn/end': {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import { ProviderRequestId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ProviderRequestId , createMessage } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RetryInvariant from '@deepseek-ai/dsh-llm-retry/invariant'
@@ -223,8 +223,14 @@ describe('llm-retry invariants', () => {
     reset.append('assistant/message', {
       turn: 2,
       step: 1,
-      content: [{ type: 'text', text: 'success' }],
-      provenance: { provider: 'mock', model: 'mock' },
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'success' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     reset.append('step/end', { turn: 2, step: 1 })
     reset.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
@@ -241,18 +247,18 @@ describe('llm-retry invariants', () => {
     await ctx.plugin(SessionStore)
 
     const missingEnd = ctx.sessions.create(SessionId('retry-invariant-missing-end'))
-    missingEnd.append('user/message', {
+    missingEnd.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     appendRetryTurn(missingEnd, 2)
 
     const nonFailureEnd = ctx.sessions.create(SessionId('retry-invariant-non-failure-end'))
     nonFailureEnd.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    nonFailureEnd.append('user/message', {
+    nonFailureEnd.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     appendRetryTurn(nonFailureEnd, 2)
 
     const missingStart = ctx.sessions.create(SessionId('retry-invariant-missing-start'))
