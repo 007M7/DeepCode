@@ -105,7 +105,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { cwd: root, provider: 'deepseek', model: 'deepseek-v4-pro' },
+        params: { cwd: root, provider: 'deepseek', model: 'deepseek-v4-pro', maxTokens: 1234 },
       })}\n`)
       const initialized = await waitForLine(lines, value => value.id === 1, () => stderr)
       expect(initialized).toMatchObject({
@@ -133,6 +133,7 @@ describe('jsonrpc-agent keyless smoke', () => {
       const prompt = await waitForLine(lines, value => value.id === 2, () => stderr)
       expect(prompt).toMatchObject({ jsonrpc: '2.0', id: 2, result: { accepted: true } })
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
+      expect(modelRequests[0]?.max_tokens).toBe(1234)
       expect(tools.map(tool => tool.function?.name).sort()).toEqual([
         'bash',
         'edit',

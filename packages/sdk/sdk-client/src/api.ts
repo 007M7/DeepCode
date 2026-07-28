@@ -25,6 +25,7 @@ export class DeepSeekHarness implements AsyncDisposable {
   private readonly cwd: string
   private readonly provider: string
   private readonly model: string
+  private readonly maxTokens: number | undefined
   private initialized: Promise<void> | undefined
   private closed = false
 
@@ -38,6 +39,7 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.cwd = resolve(options.cwd ?? options.launch.cwd ?? process.cwd())
     this.provider = options.provider ?? 'deepseek'
     this.model = options.model ?? 'deepseek-v4-flash'
+    this.maxTokens = options.maxTokens
   }
 
   /**
@@ -61,7 +63,12 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.initialized ??= (async () => {
       try {
         this.clientInstance.start()
-        await this.clientInstance.initialize({ cwd: this.cwd, provider: this.provider, model: this.model })
+        await this.clientInstance.initialize({
+          cwd: this.cwd,
+          provider: this.provider,
+          model: this.model,
+          ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+        })
       } catch (error) {
         this.initialized = undefined
         await this.clientInstance.close()
