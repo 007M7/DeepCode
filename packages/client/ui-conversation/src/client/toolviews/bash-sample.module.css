@@ -1,6 +1,8 @@
 /* Bash toolview: same geometry/tokens as ToolRow (figma Bash · description). */
 
 .root {
+  position: relative; /* sweep-glare overlay anchor */
+  overflow: hidden;
   display: flex;
   align-items: center;
   height: 24px;
@@ -9,8 +11,27 @@
   border-radius: 6px;
 }
 
-.root:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* Running sweep glare — same deepsuite ShimmerText pattern as ToolRow. */
+.root[data-state='running']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-bash-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dsh-bash-row-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
 }
 
 .leading {
@@ -39,7 +60,7 @@
   flex: none;
   font-size: 14px;
   line-height: 24px;
-  color: var(--dsw-alias-label-primary-dimmed);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .sep {

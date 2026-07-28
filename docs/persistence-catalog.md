@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:306`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:338`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:292`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -373,7 +373,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:88`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -384,7 +384,7 @@ Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/ses
 
 Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages/session-title/session-title-llm/src/index.ts)
+Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
 
 ### `steering/*`
 
@@ -462,7 +462,7 @@ Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/
  * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
  * model context; persistence and UIs get every call. Appended inside the
  * parent `run_code`'s execution (the bridge drains in-flight dispatches
- * before returning), so the turn-enclosure invariant holds by
+ * before returning), so its execution-enclosure relation holds by
  * construction.
  */
 'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }

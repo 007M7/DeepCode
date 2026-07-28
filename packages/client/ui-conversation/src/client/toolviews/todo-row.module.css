@@ -10,10 +10,6 @@
   border-radius: 6px;
 }
 
-.row:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .leading {
   flex: none;
   width: 16px;
@@ -29,6 +25,7 @@
   flex: none;
   font-size: 14px;
   line-height: 24px;
+  font-weight: 500; /* figma wt510, rendered 500 */
   color: var(--dsw-alias-label-primary-dimmed);
 }
 

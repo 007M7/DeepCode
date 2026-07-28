@@ -170,12 +170,15 @@ describe('pty-local real shell', () => {
     controller.abort()
     const result = await foreground.done
     expectReadyForNextSend(result.waitReason)
-    const after = await ctx.pty.startSend(agent, created.sessionId, {
-      text: 'echo AFTER_SIGINT',
+    const afterReady = 'AFTER_SIGINT'
+    const afterCommand = 'printf "AFTER_%s\\n" SIGINT'
+    expect(afterCommand).not.toContain(afterReady)
+    const after = ctx.pty.startSend(agent, created.sessionId, {
+      text: afterCommand,
       submit: true,
-    }).done
-    expect(after.viewport).toContain('AFTER_SIGINT')
-    expectReadyForNextSend(after.waitReason)
+    })
+    await waitForOutput(after, afterReady, 15_000)
+    expectReadyForNextSend((await after.done).waitReason)
     await ctx.pty.kill(agent, created.sessionId)
-  }, 20_000)
+  }, 35_000)
 })
