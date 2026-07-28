@@ -165,6 +165,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
+  private readonly terminalOperations = new Set<Promise<void>>()
   private writing: LocalSendOperation | undefined
   private pollingReady: LocalSendOperation | undefined
   private polling = false
@@ -237,8 +238,16 @@ export class LocalPtySession implements PtyBackendSession {
     this.activeDeadlineTimer = setTimeout(() => {
       if (this.active === operation) this.settleActive('timeout', this.writing === operation)
     }, this.config.timeoutMs)
-    void this.beginSend(operation, request)
+    this.ownTerminalOperation(this.beginSend(operation, request))
     return operation
+  }
+
+  /** Retain one contained provider operation until its asynchronous work finishes. */
+  private ownTerminalOperation(operation: Promise<void>): void {
+    const tracked = operation.finally(() => { this.terminalOperations.delete(tracked) })
+    this.terminalOperations.add(tracked)
+    // beginSend(), pollReadiness(), and interrupt() contain their own boundary errors.
+    void tracked
   }
 
   private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
@@ -398,7 +407,7 @@ export class LocalPtySession implements PtyBackendSession {
     if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
     this.activeTimer = setTimeout(() => {
       this.activeTimer = undefined
-      void this.pollReadiness(operation)
+      this.ownTerminalOperation(this.pollReadiness(operation))
     }, delayMs)
   }
 
@@ -467,6 +476,7 @@ export class LocalPtySession implements PtyBackendSession {
     this.activeTimer = undefined
     if (this.activeDeadlineTimer !== undefined) clearTimeout(this.activeDeadlineTimer)
     this.activeDeadlineTimer = undefined
+    this.pollingReady = undefined
   }
 
   private clearActive(): void {
@@ -493,9 +503,9 @@ export class LocalPtySession implements PtyBackendSession {
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
-    void this.terminal.signalForeground('SIGINT').catch((error: unknown) => {
+    this.ownTerminalOperation(this.terminal.signalForeground('SIGINT').then(() => {}, (error: unknown) => {
       if (this.active === operation) this.failActive(error, this.writing === operation)
-    })
+    }))
   }
 
   private async closeOnce(reason: string): Promise<void> {
@@ -508,6 +518,7 @@ export class LocalPtySession implements PtyBackendSession {
     if (!quiescent) {
       throw new Error(`PTY cleanup failed (${reason}); terminal session did not reach quiescence`)
     }
+    await Promise.all(this.terminalOperations)
     // Whole-session cleanup can fail before the top-level process exits. Wait
     // for it first so that failure is reported instead of blocking forever on
     // `done`; successful quiescence guarantees `done` can now settle status and

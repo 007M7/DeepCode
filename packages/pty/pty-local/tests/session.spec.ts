@@ -907,4 +907,51 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     await closing
   })
 
+  it('does not finish close while a pre-write terminal operation is pending', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const operation = session.startSend({ text: 'must not run', submit: true })
+    const closing = session.close('pending inspection')
+    let closed = false
+    void closing.then(() => { closed = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(closed).toBe(false)
+
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await closing
+    expect(closed).toBe(true)
+    expect(terminal.writes).toEqual([])
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
+  it('does not finish close while a terminal write is pending', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+
+    const write = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await write.promise }
+    const operation = session.startSend({ text: 'pending write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    const closing = session.close('pending write')
+    let closed = false
+    void closing.then(() => { closed = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(closed).toBe(false)
+
+    write.resolve(undefined)
+    await closing
+    expect(closed).toBe(true)
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
 })
