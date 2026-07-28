@@ -489,6 +489,59 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       && node.target.symbol === payload?.id)).toBe(true)
   })
 
+  it('resolves explicit same-face package re-exports to their declaration owner', () => {
+    const root = copyFixture('typert-same-face-reexport-')
+    const packageRoot = join(root, 'packages/barrel')
+    mkdirSync(join(packageRoot, 'src'), { recursive: true })
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+      name: '@fixture/barrel',
+      private: true,
+      type: 'module',
+      exports: {
+        '.': {
+          types: './lib/types/index.d.ts',
+          default: './lib/index.js',
+        },
+      },
+    }, null, 2))
+    writeFileSync(join(packageRoot, 'tsconfig.json'), JSON.stringify({
+      extends: '../../tsconfig.base.json',
+      compilerOptions: { rootDir: 'src', outDir: 'lib/types' },
+      include: ['src'],
+      references: [{ path: '../host' }],
+    }, null, 2))
+    writeFileSync(
+      join(packageRoot, 'src/index.ts'),
+      "export type { Payload } from '@fixture/host/models'\n",
+    )
+    const basePath = join(root, 'tsconfig.base.json')
+    const base = JSON.parse(readFileSync(basePath, 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> }
+    }
+    base.compilerOptions.paths['@fixture/barrel'] = ['./packages/barrel/src/index.ts']
+    writeFileSync(basePath, `${JSON.stringify(base, null, 2)}\n`)
+    const aggregatePath = join(root, 'tsconfig.host.json')
+    const aggregate = JSON.parse(readFileSync(aggregatePath, 'utf8')) as { references: { path: string }[] }
+    aggregate.references.push({ path: './packages/barrel' })
+    writeFileSync(aggregatePath, `${JSON.stringify(aggregate, null, 2)}\n`)
+    addSameFacePackage(root, '@fixture/barrel', 'Payload')
+    const consumerConfigPath = join(root, 'packages/consumer/tsconfig.json')
+    const consumerConfig = JSON.parse(readFileSync(consumerConfigPath, 'utf8')) as {
+      references: { path: string }[]
+    }
+    consumerConfig.references.push({ path: '../barrel' })
+    writeFileSync(consumerConfigPath, `${JSON.stringify(consumerConfig, null, 2)}\n`)
+
+    const model = new WorkspaceAnalyzer({ root }).analyze()
+    const host = model.faces.find(face => face.face === 'host')
+    const payload = host?.graph.declarations.find(declaration => declaration.name === 'Payload')
+    expect(host?.graph.nodes.some(node => node.id.includes('packages/consumer/src/index.ts')
+      && node.kind === 'reference'
+      && node.name === 'Payload'
+      && node.target.kind === 'declaration'
+      && node.target.symbol === payload?.id)).toBe(true)
+  })
+
   it('rejects same-face package imports outside package.json exports', () => {
     const root = copyFixture('typert-private-package-')
     writeFileSync(

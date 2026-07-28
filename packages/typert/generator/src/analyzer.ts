@@ -1207,7 +1207,7 @@ class FaceAnalyzer {
     const owner = this.registrationForFile(declaration.getSourceFile().fileName)
     if (owner !== undefined) {
       if (owner.name !== from.name) {
-        if (module === undefined || module.package !== owner.name) {
+        if (module === undefined) {
           this.fail(site, `reference to ${symbol.name} crosses a package without an explicit package import`)
         }
         const exportName = authoredExportName(site, moduleSpecifier as string)
