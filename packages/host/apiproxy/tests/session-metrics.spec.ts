@@ -159,12 +159,20 @@ describe('SessionMetricsProjector', () => {
 
   it('publishes only the selected route capacity when asynchronous resolutions race', async () => {
     const ctx = new Context()
-    const resolutions = new Map<string, (contextWindow: number) => void>()
+    const resolutions = new Map<string, {
+      signal: AbortSignal | undefined
+      resolve(contextWindow: number): void
+    }>()
     ctx.provide('tokenMeter', { measure: () => ({ totalTokens: 35_000 }) })
     ctx.provide('llm', {
-      resolveModelInfo(_provider: string, model: string) {
+      resolveModelInfo(_provider: string, model: string, signal?: AbortSignal) {
         return new Promise<{ context: { contextWindow: number } }>((resolve) => {
-          resolutions.set(model, (contextWindow) => { resolve({ context: { contextWindow } }) })
+          resolutions.set(model, {
+            signal,
+            resolve(contextWindow) {
+              resolve({ context: { contextWindow } })
+            },
+          })
         })
       },
     })
@@ -176,14 +184,17 @@ describe('SessionMetricsProjector', () => {
 
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
     await vi.waitFor(() => { expect(resolutions.has('alpha')).toBe(true) })
+    expect(resolutions.get('alpha')?.signal?.aborted).toBe(false)
     current = { provider: 'test', model: 'beta' }
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    expect(resolutions.get('alpha')?.signal?.aborted).toBe(true)
     await vi.waitFor(() => { expect(resolutions.has('beta')).toBe(true) })
+    expect(resolutions.get('beta')?.signal?.aborted).toBe(false)
 
-    resolutions.get('alpha')?.(64_000)
+    resolutions.get('alpha')?.resolve(64_000)
     await Promise.resolve()
     expect(resolved).not.toHaveBeenCalled()
-    resolutions.get('beta')?.(128_000)
+    resolutions.get('beta')?.resolve(128_000)
     await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
     expect(projector.snapshot(session, attached)).toMatchObject({
       contextTokens: 35_000,
@@ -225,17 +236,74 @@ describe('SessionMetricsProjector', () => {
     expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
   })
 
-  it('invalidates same-route capacity and fences the prior epoch in flight', async () => {
+  it('aborts every active capacity on invalidation and resolves fresh generations', async () => {
     const ctx = new Context()
-    const attempts: PromiseWithResolvers<{ context: { contextWindow: number } }>[] = []
+    const attempts: {
+      result: PromiseWithResolvers<{ context: { contextWindow: number } }>
+      signal: AbortSignal | undefined
+    }[] = []
     ctx.provide('llm', {
-      resolveModelInfo() {
-        const attempt = Promise.withResolvers<{ context: { contextWindow: number } }>()
-        attempts.push(attempt)
-        return attempt.promise
+      resolveModelInfo(_provider: string, _model: string, signal?: AbortSignal) {
+        const result = Promise.withResolvers<{ context: { contextWindow: number } }>()
+        attempts.push({ result, signal })
+        return result.promise
       },
     })
-    const session = new Session(SessionId('capacity-invalidation'))
+    const firstSession = new Session(SessionId('capacity-invalidation-first'))
+    const secondSession = new Session(SessionId('capacity-invalidation-second'))
+    const firstAgent = agent(firstSession)
+    const secondAgent = agent(secondSession)
+    const resolved = vi.fn()
+    const projector = new SessionMetricsProjector(
+      ctx,
+      () => ({ provider: 'test', model: 'alpha' }),
+      resolved,
+    )
+
+    expect(projector.snapshot(firstSession, firstAgent).contextWindow).toBeUndefined()
+    expect(projector.snapshot(secondSession, secondAgent).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(attempts).toHaveLength(2) })
+    expect(attempts.map(attempt => attempt.signal?.aborted)).toEqual([false, false])
+
+    projector.invalidateCapacities()
+    expect(attempts.map(attempt => attempt.signal?.aborted)).toEqual([true, true])
+    attempts[0]?.result.resolve({ context: { contextWindow: 32_000 } })
+    attempts[1]?.result.resolve({ context: { contextWindow: 64_000 } })
+    await settleAsyncWork()
+    expect(resolved).not.toHaveBeenCalled()
+
+    expect(projector.snapshot(firstSession, firstAgent).contextWindow).toBeUndefined()
+    expect(projector.snapshot(secondSession, secondAgent).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(attempts).toHaveLength(4) })
+    expect(attempts.slice(2).map(attempt => attempt.signal?.aborted)).toEqual([false, false])
+    attempts[2]?.result.resolve({ context: { contextWindow: 128_000 } })
+    attempts[3]?.result.resolve({ context: { contextWindow: 256_000 } })
+    await vi.waitFor(() => { expect(resolved).toHaveBeenCalledTimes(2) })
+    expect(projector.snapshot(firstSession, firstAgent).contextWindow).toBe(128_000)
+    expect(projector.snapshot(secondSession, secondAgent).contextWindow).toBe(256_000)
+
+    projector.dispose()
+    expect(projector.snapshot(firstSession, firstAgent).contextWindow).toBeUndefined()
+    expect(attempts).toHaveLength(4)
+  })
+
+  it('skips adapter work invalidated before its deferred invocation', async () => {
+    const ctx = new Context()
+    const attempts: {
+      result: PromiseWithResolvers<{ context: { contextWindow: number } }>
+      signal: AbortSignal | undefined
+    }[] = []
+    const resolveModelInfo = vi.fn((
+      _provider: string,
+      _model: string,
+      signal?: AbortSignal,
+    ) => {
+      const result = Promise.withResolvers<{ context: { contextWindow: number } }>()
+      attempts.push({ result, signal })
+      return result.promise
+    })
+    ctx.provide('llm', { resolveModelInfo })
+    const session = new Session(SessionId('capacity-pre-invocation-invalidation'))
     const attached = agent(session)
     const resolved = vi.fn()
     const projector = new SessionMetricsProjector(
@@ -245,26 +313,34 @@ describe('SessionMetricsProjector', () => {
     )
 
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
-    await vi.waitFor(() => { expect(attempts).toHaveLength(1) })
     projector.invalidateCapacities()
-    attempts[0]?.resolve({ context: { contextWindow: 64_000 } })
     await settleAsyncWork()
+    expect(resolveModelInfo).not.toHaveBeenCalled()
     expect(resolved).not.toHaveBeenCalled()
 
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
-    await vi.waitFor(() => { expect(attempts).toHaveLength(2) })
-    attempts[1]?.resolve({ context: { contextWindow: 128_000 } })
+    await vi.waitFor(() => { expect(attempts).toHaveLength(1) })
+    expect(attempts[0]?.signal?.aborted).toBe(false)
+    attempts[0]?.result.resolve({ context: { contextWindow: 128_000 } })
     await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
     expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
   })
 
   it('starts a fresh capacity generation when an unavailable route returns', async () => {
     const ctx = new Context()
-    const resolutions: ((contextWindow: number) => void)[] = []
+    const resolutions: {
+      signal: AbortSignal | undefined
+      resolve(contextWindow: number): void
+    }[] = []
     ctx.provide('llm', {
-      resolveModelInfo() {
+      resolveModelInfo(_provider: string, _model: string, signal?: AbortSignal) {
         return new Promise<{ context: { contextWindow: number } }>((resolve) => {
-          resolutions.push((contextWindow) => { resolve({ context: { contextWindow } }) })
+          resolutions.push({
+            signal,
+            resolve(contextWindow) {
+              resolve({ context: { contextWindow } })
+            },
+          })
         })
       },
     })
@@ -278,13 +354,16 @@ describe('SessionMetricsProjector', () => {
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
     await vi.waitFor(() => { expect(resolutions).toHaveLength(1) })
     current = undefined
-    resolutions[0]?.(64_000)
-    await vi.waitFor(() => { expect(targetFor).toHaveBeenCalledTimes(2) })
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    expect(resolutions[0]?.signal?.aborted).toBe(true)
+    resolutions[0]?.resolve(64_000)
+    await settleAsyncWork()
     expect(resolved).not.toHaveBeenCalled()
     current = { provider: 'test', model: 'alpha' }
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
     await vi.waitFor(() => { expect(resolutions).toHaveLength(2) })
-    resolutions[1]?.(128_000)
+    expect(resolutions[1]?.signal?.aborted).toBe(false)
+    resolutions[1]?.resolve(128_000)
     await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
     expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
   })

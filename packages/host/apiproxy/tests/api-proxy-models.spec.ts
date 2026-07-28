@@ -65,7 +65,10 @@ class CatalogAdapter extends LlmAdapter {
 }
 
 class DeferredCatalogAdapter extends CatalogAdapter {
-  readonly pending: PromiseWithResolvers<LlmResolvedModelInfo>[] = []
+  readonly pending: {
+    result: PromiseWithResolvers<LlmResolvedModelInfo>
+    signal: AbortSignal | undefined
+  }[] = []
 
   constructor() {
     super('Deferred', [
@@ -73,16 +76,20 @@ class DeferredCatalogAdapter extends CatalogAdapter {
     ])
   }
 
-  override resolveModel(_provider: string, _model: string): Promise<LlmResolvedModelInfo> {
+  override resolveModel(
+    _provider: string,
+    _model: string,
+    signal?: AbortSignal,
+  ): Promise<LlmResolvedModelInfo> {
     const result = Promise.withResolvers<LlmResolvedModelInfo>()
-    this.pending.push(result)
+    this.pending.push({ result, signal })
     return result.promise
   }
 
   resolve(index: number, contextWindow: number): void {
     const pending = this.pending[index]
     if (pending === undefined) throw new Error(`no pending resolution at index ${String(index)}`)
-    pending.resolve({
+    pending.result.resolve({
       provider: 'deferred',
       id: 'lifecycle-model',
       name: 'Lifecycle model',
@@ -563,6 +570,140 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('aborts pending capacity during adapter UNLOADING and refreshes after settlement', async () => {
+    const ctx = await hostContext()
+    const retiredAdapter = new DeferredCatalogAdapter()
+    const releaseUnload = Promise.withResolvers<undefined>()
+    const releaseCancellationWait = Promise.withResolvers<undefined>()
+    const abortObserved = Promise.withResolvers<undefined>()
+    const retiredFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.llm.registerAdapter(['deferred'], retiredAdapter)
+      inner.effect(
+        () => () => releaseUnload.promise,
+        'test: hold adapter unload',
+      )
+      inner.effect(() => () => {
+        const signal = retiredAdapter.pending[0]?.signal
+        if (signal === undefined) throw new Error('pending capacity signal missing')
+        const cancellation = new Promise<void>((resolve) => {
+          const finish = () => {
+            abortObserved.resolve(undefined)
+            resolve()
+          }
+          if (signal.aborted) finish()
+          else signal.addEventListener('abort', finish, { once: true })
+        })
+        return Promise.race([cancellation, releaseCancellationWait.promise])
+      }, 'test: await capacity cancellation')
+    }, { inject: ['llm'] }))
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-adapter-unloading'))
+    const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+    const api = createApiProxy(ctx, {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+    const resolveModelInfo = vi.spyOn(ctx.llm, 'resolveModelInfo')
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(retiredAdapter.pending).toHaveLength(1) })
+    expect(resolveModelInfo).toHaveBeenCalledOnce()
+    const listSessions = vi.spyOn(ctx.sessions, 'list')
+    listSessions.mockClear()
+    const pendingFrame = iterator.next()
+    const disposing = retiredFiber.dispose()
+    try {
+      await vi.waitFor(() => {
+        expect(retiredAdapter.pending[0]?.signal?.aborted).toBe(true)
+      })
+      await abortObserved.promise
+      expect(retiredFiber.state).toBe(FiberState.UNLOADING)
+      retiredAdapter.resolve(0, 64_000)
+      await settleCapacityCompletion()
+      expect(resolveModelInfo).toHaveBeenCalledOnce()
+      expect(listSessions).not.toHaveBeenCalled()
+      const outcome = await Promise.race([
+        pendingFrame.then(() => 'frame' as const),
+        new Promise<'idle'>((resolve) => { setImmediate(() => { resolve('idle') }) }),
+      ])
+      expect(outcome).toBe('idle')
+    } finally {
+      releaseCancellationWait.resolve(undefined)
+      releaseUnload.resolve(undefined)
+      await disposing
+    }
+
+    expect(retiredFiber.state).toBe(FiberState.DISPOSED)
+    const settledFrame = await pendingFrame
+    if (settledFrame.done || settledFrame.value.payload.type !== 'session/metrics') {
+      throw new Error('expected settled metrics refresh')
+    }
+    expect(settledFrame.value.payload.metrics.contextWindow).toBeUndefined()
+    await settleCapacityCompletion()
+    expect(resolveModelInfo).toHaveBeenCalledTimes(2)
+
+    const replacementAdapter = new DeferredCatalogAdapter()
+    const replacementFiber = await installDeferredAdapter(ctx, replacementAdapter)
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(replacementAdapter.pending).toHaveLength(1) })
+    expect(resolveModelInfo).toHaveBeenCalledTimes(3)
+    replacementAdapter.resolve(0, 128_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+
+    controller.abort()
+    await iterator.return?.()
+    detachAgent()
+    lifecycle.detach()
+    await replacementFiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('aborts pending capacity when the API proxy fiber is disposed', async () => {
+    const ctx = await hostContext()
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-api-proxy-teardown'))
+    const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+    const proxy = Promise.withResolvers<ReturnType<typeof createApiProxy>>()
+    const proxyFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      proxy.resolve(createApiProxy(inner, {
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        cwd: '/tmp',
+        workspaceRoot: '/tmp',
+      }))
+    }, { inject: ['agents', 'sessions', 'userInteraction'] }))
+    const api = await proxy.promise
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    expect(deferred.pending[0]?.signal?.aborted).toBe(false)
+
+    await proxyFiber.dispose()
+    expect(deferred.pending[0]?.signal?.aborted).toBe(true)
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    const pendingFrame = iterator.next()
+    const outcome = await Promise.race([
+      pendingFrame.then(() => 'frame' as const),
+      new Promise<'idle'>((resolve) => { setImmediate(() => { resolve('idle') }) }),
+    ])
+    expect(outcome).toBe('idle')
+
+    controller.abort()
+    await expect(pendingFrame).resolves.toMatchObject({ done: true })
+    await iterator.return?.()
+    detachAgent()
+    lifecycle.detach()
+    await ctx.fiber.dispose()
+  })
+
   it('does not read the sessions service after its disposal status', async () => {
     let sessionsFiber: Fiber | undefined
     const ctx = await hostContext((fiber) => { sessionsFiber = fiber })
@@ -720,7 +861,7 @@ describe('Web session model selection', () => {
       detachAgent()
       lifecycle.detach()
       await ctx.fiber.dispose()
-      expect(agentReads).toBe(serviceName === 'sessions' ? 1 : 0)
+      expect(agentReads).toBe(0)
       expect(sessionReads).toBe(0)
       expect(outcome).toBe('idle')
     },

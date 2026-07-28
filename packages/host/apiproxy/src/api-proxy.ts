@@ -488,6 +488,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       ctx.on('session/disposed', (session: Session) => { pendingMetricSessions.delete(session) }),
       ctx.on('internal/status', (fiber) => {
         if (metricsDisposed) return
+        if (fiber.state === FiberState.UNLOADING) {
+          metricsProjector.invalidateCapacities()
+          return
+        }
         if (fiber.state !== FiberState.ACTIVE
           && fiber.state !== FiberState.FAILED
           && fiber.state !== FiberState.DISPOSED) return
@@ -499,6 +503,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ]
     return () => {
       metricsDisposed = true
+      metricsProjector.dispose()
       pendingMetricSessions.clear()
       for (const dispose of disposers) dispose()
     }

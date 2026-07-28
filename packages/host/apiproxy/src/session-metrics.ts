@@ -26,6 +26,7 @@ interface CapacityState {
   epoch: number
   status: 'pending' | 'ready' | 'retryable'
   contextWindow?: number
+  controller?: AbortController
 }
 
 type CapacityTarget = Pick<AgentLlmTarget, 'provider' | 'model'>
@@ -35,7 +36,7 @@ interface TokenMeterLike {
 }
 
 interface LlmLike {
-  resolveModelInfo(provider: string, model: string): Promise<{
+  resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<{
     context?: { contextWindow: number }
   }>
 }
@@ -89,7 +90,9 @@ function routeKeyFor(target: CapacityTarget | undefined): string | undefined {
 export class SessionMetricsProjector {
   private readonly usage = new WeakMap<Session, UsageState>()
   private readonly capacities = new WeakMap<Agent, CapacityState>()
+  private readonly pendingCapacities = new Set<CapacityState>()
   private capacityEpoch = 0
+  private disposed = false
 
   /**
    * @param ctx - Host context providing optional token-meter and LLM services.
@@ -105,6 +108,13 @@ export class SessionMetricsProjector {
   /** Retire adapter-owned metadata and fence every resolution already in flight. */
   invalidateCapacities(): void {
     this.capacityEpoch++
+    for (const pending of this.pendingCapacities) this.abortCapacityResolution(pending)
+  }
+
+  /** Permanently retire capacity projection and cancel every adapter-owned lookup. */
+  dispose(): void {
+    this.disposed = true
+    this.invalidateCapacities()
   }
 
   /**
@@ -163,6 +173,7 @@ export class SessionMetricsProjector {
   }
 
   private capacityFor(agent: Agent): number | undefined {
+    if (this.disposed) return undefined
     const target = this.targetFor(agent)
     const routeKey = routeKeyFor(target)
     let state = this.capacities.get(agent)
@@ -170,6 +181,7 @@ export class SessionMetricsProjector {
       || state.routeKey !== routeKey
       || state.epoch !== this.capacityEpoch
       || state.status === 'retryable') {
+      this.abortCapacityResolution(state)
       state = {
         routeKey,
         generation: (state?.generation ?? 0) + 1,
@@ -192,19 +204,40 @@ export class SessionMetricsProjector {
       pending.status = 'retryable'
       return
     }
+    const controller = new AbortController()
+    pending.controller = controller
+    this.pendingCapacities.add(pending)
     void Promise.resolve()
-      .then(() => llm.resolveModelInfo(target.provider, target.model))
+      .then(() => {
+        controller.signal.throwIfAborted()
+        return llm.resolveModelInfo(target.provider, target.model, controller.signal)
+      })
       .then(
         (resolved) => {
+          this.finishCapacityResolution(pending, controller)
           if (this.capacityResolutionIsStale(agent, pending)) return
           pending.status = 'ready'
           if (resolved.context !== undefined) pending.contextWindow = resolved.context.contextWindow
           this.onCapacityResolved(agent)
         },
         () => {
+          this.finishCapacityResolution(pending, controller)
           if (!this.capacityResolutionIsStale(agent, pending)) pending.status = 'retryable'
         },
       )
+  }
+
+  private abortCapacityResolution(pending: CapacityState | undefined): void {
+    if (pending === undefined || pending.controller === undefined) return
+    const controller = pending.controller
+    delete pending.controller
+    this.pendingCapacities.delete(pending)
+    controller.abort()
+  }
+
+  private finishCapacityResolution(pending: CapacityState, controller: AbortController): void {
+    this.pendingCapacities.delete(pending)
+    if (pending.controller === controller) delete pending.controller
   }
 
   private capacityResolutionIsStale(agent: Agent, pending: CapacityState): boolean {
