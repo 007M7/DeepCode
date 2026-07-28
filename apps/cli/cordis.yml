@@ -243,9 +243,9 @@
 # Directory-picking package, dual-face: the node half serves the gateway's
 # host.* picker RPCs, the browser half fills ui-workspace's directory-flow
 # slots — one row composes the whole interaction. Swap point: mount
-# '-browse' instead for the in-app browser (remote-capable).
+# '-native' instead for the host-display OS chooser.
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-native'
+  name: '@deepseek-ai/dsh-host-directory-picker-browse'
 
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'
