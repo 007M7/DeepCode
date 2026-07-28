@@ -602,7 +602,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
-        jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
+        jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd/title substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
       },
       {
         signature: 'async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>',

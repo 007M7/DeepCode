@@ -2271,21 +2271,50 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('combines session autocomplete with files and prepares send/steer references asynchronously', async () => {
-    let sourceId = SessionId('uninitialized')
+    const sourceId = SessionId('source-session')
+    const sourceHeader: SessionHeader = {
+      version: 0,
+      id: sourceId,
+      cwd: '/workspace',
+      createdAt: 1,
+    }
+    const noCwdHeader: SessionHeader = {
+      version: 0,
+      id: SessionId('no-cwd'),
+      createdAt: 2,
+    }
+    const sourceEvents: SessionEvent[] = [
+      {
+        type: 'user/message',
+        seq: 0,
+        time: 1,
+        data: { content: [{ type: 'text', text: 'source background' }], source: { kind: 'user' } },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'session/title',
+        seq: 1,
+        time: 2,
+        data: {
+          title: 'Source chat',
+          messageSeqs: [0],
+          source: { kind: 'fallback' },
+        },
+      },
+    ]
     const result = await setup({
+      sessionPersistence: {
+        list: async () => [noCwdHeader, sourceHeader],
+        load: async (id) => {
+          if (id === sourceId) return { meta: sourceHeader, events: sourceEvents }
+          if (id === noCwdHeader.id) return { meta: noCwdHeader, events: [] }
+          throw new Error(`unexpected persisted session ${id}`)
+        },
+      },
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
-        const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
-        sourceId = source.id
-        appendUser(source, 'source background')
-        source.append('session/title', {
-          title: 'Source chat',
-          messageSeqs: [0],
-          source: { kind: 'fallback' },
-        })
-        ctx.sessions.create(SessionId('no-cwd'), { meta: { createdAt: 2 } })
       },
     })
 
@@ -2294,7 +2323,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('(no cwd)')
     result.terminal.send('\x03')
 
-    result.terminal.send('@source-session')
+    result.terminal.send('@chat')
     await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · Source chat') })
     expect(result.terminal.output).toContain('source-session')
     result.terminal.send('\t')
