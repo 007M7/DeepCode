@@ -27,7 +27,7 @@ const PROFILE_DIR = '.dsh-tmp-profile'
 const PROFILE_FILE = 'config.json'
 
 /** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation here and the printed LAN URL in web.ts. */
-export const ALL_INTERFACES_HOST = '0.0.0.0'
+const ALL_INTERFACES_HOST = '0.0.0.0'
 
 /**
  * Non-internal IPv4 interface addresses of this machine — the IP-literal
