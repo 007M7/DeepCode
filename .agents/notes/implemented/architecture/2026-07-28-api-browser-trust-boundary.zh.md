@@ -13,7 +13,7 @@ Web GUI 宿主以纯 HTTP 提供 `/api`（默认 `127.0.0.1:3080`，支持 `--ho
 在载体层对整个 `/api` 前缀一次性执行浏览器信任检查——两半各占一个栈式 PR：
 
 - **媒体类型栅栏（dsh-host-apiproxy）**：每个 `/api` POST 必须声明 `application/json`，否则在解析前以 415 拒绝。跨站"简单请求"由此不复存在：任何跨站尝试都被逼进一次本服务器从不应答的 CORS 预检。
-- **权威栅栏（dsh-client-connection，`src/api-request-trust.ts`）**：不带浏览器标记的请求（无 `Origin`、无 `sec-fetch-site`）在任何 Host 上都放行——非浏览器客户端是委托人本人，不是代理人，且本就可以伪造任何请求头，对它设栅一无所获，反而会打断非浏览器的 LAN 自动化。对浏览器请求，`Host` 必须是回环地址，或与某个 `trustedHosts` 条目匹配（带端口的 `host:port` 条目精确匹配，不带端口的条目匹配任意端口，均经 WHATWG 归一化；rebinding 防御）；若带 `Origin` 则必须与该权威完全一致；`sec-fetch-site: cross-site` 一律拒绝。`host.pickDirectory` 失去专属守卫，与其他请求同栅而行。
+- **权威栅栏（dsh-client-connection，`src/api-request-trust.ts`）**：不带浏览器标记的请求（无 `Origin`、无 `sec-fetch-site`）在任何 Host 上都放行——非浏览器客户端是委托人本人，不是代理人，且本就可以伪造任何请求头，对它设栅一无所获，反而会打断非浏览器的 LAN 自动化。对浏览器请求，`Host` 必须是回环地址，或与某个 `trustedHosts` 条目匹配（带端口的 `host:port` 条目精确匹配，不带端口的条目匹配任意端口，均经 WHATWG 归一化；rebinding 防御）；若带 `Origin` 则必须与该权威完全一致；`sec-fetch-site: cross-site` 一律拒绝。不是纯权威的 `trustedHosts` 条目会让插件加载失败——否则 WHATWG 解析会悄悄授权笔误里的 hostname。`host.pickDirectory` 失去专属守卫，与其他请求同栅而行。
 
 两条边界刻意留在范围之外：可达性归 webserver 绑定配置（`host: 127.0.0.1 | 0.0.0.0`）管辖；真正远程部署的认证是延期工作，记录在 connection README——这道栅栏是混淆代理人防御，不是认证层。旧守卫的回环 socket 检查被放弃而非泛化：绑定表达可达性、`trustedHosts` 点名远程权威之后，socket 地址提供不了头部栅栏覆盖不到的任何东西。
 

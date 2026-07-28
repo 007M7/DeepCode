@@ -41,6 +41,21 @@ function parseAuthority(authority: string): URL | undefined {
 }
 
 /**
+ * Assert one configured `trustedHosts` entry is a bare authority (`host` or
+ * `host:port`) and nothing else. WHATWG parsing would quietly read a hostname
+ * out of `harness.internal/path` or `user@harness.internal` — a typo must fail
+ * the load loudly instead of authorizing its hostname or being ignored until
+ * requests 403. The delimiter test refuses every URL part beyond the authority
+ * (path, backslash path, query, fragment, userinfo); IPv6 brackets use none of
+ * them.
+ * @param entry - the configured value, verbatim.
+ */
+export function assertTrustedAuthority(entry: string): void {
+  if (parseAuthority(entry) !== undefined && !/[/\\?#@]/.test(entry)) return
+  throw new Error(`client-connection: trustedHosts entry ${JSON.stringify(entry)} is not a bare host[:port] authority`)
+}
+
+/**
  * Whether the request authority matches a `trustedHosts` entry. An entry with
  * an explicit port matches that exact authority; a port-less entry matches the
  * hostname on any port (the shape the CLI derives for IP-literal LAN serving,

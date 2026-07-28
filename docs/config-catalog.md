@@ -282,7 +282,8 @@ export interface ConnectionConfig {
    * port-less `host` matching any port. The /api trust fence refuses any
    * browser request whose Host is neither loopback nor listed here, so a
    * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
-   * by (the dsh CLI derives the machine's LAN IP literals itself).
+   * by (the dsh CLI derives the machine's LAN IP literals itself). An entry
+   * that is not a bare authority fails the plugin load.
    */
   trustedHosts?: string[]
 }

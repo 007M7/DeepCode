@@ -54,6 +54,30 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{ routes: 
 }
 
 describe('connection node half', () => {
+  it('fails the load on a trustedHosts entry that is not a bare authority', async () => {
+    const routes: WebRoute[] = []
+    const ctx = new Context()
+    ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    // The apply throw also escapes cordis as a late rejection — the shape the
+    // boot's installFailLoud is contracted to catch. Capture it so the run
+    // stays clean, same pattern as the webserver bind-failure test.
+    const rejections: unknown[] = []
+    const onUnhandled = (err: unknown): void => { rejections.push(err) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
+      await expect(fiber.await()).rejects.toThrow(/not a bare host\[:port\] authority/)
+      expect(routes).toHaveLength(0)
+      for (let i = 0; i < 100 && rejections.length === 0; i++) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(rejections.map(String).join('\n')).toContain('not a bare host[:port] authority')
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('registers the /api prefix route and removes it with the fiber', async () => {
     const { routes, dispose } = await mounted()
     expect(routes).toHaveLength(1)

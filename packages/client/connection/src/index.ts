@@ -6,7 +6,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
-import { isTrustedApiRequest } from './api-request-trust.ts'
+import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
 
@@ -23,7 +23,8 @@ export interface ConnectionConfig {
    * port-less `host` matching any port. The /api trust fence refuses any
    * browser request whose Host is neither loopback nor listed here, so a
    * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
-   * by (the dsh CLI derives the machine's LAN IP literals itself).
+   * by (the dsh CLI derives the machine's LAN IP literals itself). An entry
+   * that is not a bare authority fails the plugin load.
    */
   trustedHosts?: string[]
 }
@@ -42,6 +43,9 @@ export const Config: z<ConnectionConfig> = z.object({
 export function apply(ctx: Context, config?: ConnectionConfig): void {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  // Config boundary: a malformed entry fails the load loudly here rather than
+  // silently authorizing its hostname prefix at request time.
+  for (const entry of trustedHosts) assertTrustedAuthority(entry)
   const apiHandler = toFetchHandler(ctx.apiProxy)
   const route: WebRoute = {
     kind: 'prefix',

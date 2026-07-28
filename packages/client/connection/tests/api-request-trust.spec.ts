@@ -1,7 +1,7 @@
 /** Behavior of the /api browser-trust fence (rebinding + cross-site defense). */
 
 import { describe, expect, it } from 'vitest'
-import { isTrustedApiRequest } from '../src/api-request-trust.ts'
+import { assertTrustedAuthority, isTrustedApiRequest } from '../src/api-request-trust.ts'
 
 function request(headers: Record<string, string | undefined>): { headers: Record<string, string | undefined> } {
   return { headers }
@@ -64,6 +64,17 @@ describe('isTrustedApiRequest', () => {
     }), [])).toBe(true)
     // Origin-less browser shapes (same-origin GETs) still carry sec-fetch-site.
     expect(isTrustedApiRequest(request({ host: 'localhost:3080', 'sec-fetch-site': 'same-origin' }), [])).toBe(true)
+  })
+
+  it('assertTrustedAuthority accepts bare authorities and throws on anything more', () => {
+    for (const entry of ['harness.internal', 'harness.internal:3080', 'HARNESS.internal:80', '10.0.0.9', '[::1]:3080']) {
+      expect(() => { assertTrustedAuthority(entry) }).not.toThrow()
+    }
+    // WHATWG parsing would quietly read a hostname out of each of these; the
+    // config boundary must refuse them instead of authorizing the prefix.
+    for (const entry of ['harness.internal/path', 'harness.internal/', 'user@harness.internal', 'harness.internal?x', 'harness.internal#f', 'harness.internal\\path', 'bad entry', '']) {
+      expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
+    }
   })
 
   it('refuses malformed or untrusted authorities on browser requests', () => {
