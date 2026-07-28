@@ -92,6 +92,46 @@ interface RemoteSource {
   text: string
 }
 
+interface RemoteSourceReadResponse {
+  kind: 'ok' | 'not-file' | 'oversize' | 'grew' | 'open-error'
+  data?: string
+  size?: number
+  message?: string
+}
+
+const SOURCE_READER_SOURCE = String.raw`
+/* dsh-e2b-source-reader */
+const fs = require('node:fs')
+const path = process.argv[1]
+const maxBytes = Number(process.argv[2])
+let descriptor
+let response
+try {
+  descriptor = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+  const info = fs.fstatSync(descriptor)
+  if (!info.isFile()) response = { kind: 'not-file' }
+  else if (info.size > maxBytes) response = { kind: 'oversize', size: info.size }
+  else {
+    const chunks = []
+    let total = 0
+    while (total <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(65536, maxBytes - total + 1))
+      const bytesRead = fs.readSync(descriptor, chunk, 0, chunk.length, null)
+      if (bytesRead === 0) break
+      chunks.push(chunk.subarray(0, bytesRead))
+      total += bytesRead
+    }
+    response = total > maxBytes
+      ? { kind: 'grew' }
+      : { kind: 'ok', data: Buffer.concat(chunks, total).toString('base64') }
+  }
+} catch (error) {
+  response = { kind: 'open-error', message: error instanceof Error ? error.message : String(error) }
+}
+if (descriptor !== undefined) fs.closeSync(descriptor)
+process.stdout.write(JSON.stringify(response))
+`
+
 function abortReason(signal: AbortSignal): unknown {
   try {
     signal.throwIfAborted()
@@ -164,7 +204,8 @@ export async function canonicalizeE2BWorkspace(
  * @param sandbox - Shared sandbox that owns the source.
  * @param filePath - Absolute path or path relative to the canonical workspace.
  * @param workspace - Canonical remote workspace directory.
- * @param maxDocumentBytes - Maximum source size before and after reading.
+ * @param maxDocumentBytes - Maximum bytes read through the stable remote handle.
+ * @param nodeExecutable - Resolved remote Node executable used by the bounded reader.
  * @param signal - Optional query cancellation signal.
  * @returns The canonical source path and decoded text.
  */
@@ -173,6 +214,7 @@ export async function readE2BSource(
   filePath: string,
   workspace: string,
   maxDocumentBytes: number,
+  nodeExecutable: string,
   signal?: AbortSignal,
 ): Promise<RemoteSource> {
   const requested = posix.isAbsolute(filePath) ? filePath : posix.resolve(workspace, filePath)
@@ -181,15 +223,38 @@ export async function readE2BSource(
   if (relative === '..' || relative.startsWith('../') || posix.isAbsolute(relative)) {
     throw new Error(`source ${JSON.stringify(filePath)} resolves outside the workspace`)
   }
-  const info = await sandbox.files.getInfo(canonicalPath, signal === undefined ? {} : { signal })
-  if (info.type !== FileType.FILE) throw new Error(`source ${JSON.stringify(filePath)} is not a regular file`)
-  if (info.size > maxDocumentBytes) {
-    throw new Error(`source ${JSON.stringify(filePath)} is ${info.size} bytes, over the ${maxDocumentBytes}-byte limit`)
-  }
-  const bytes = await sandbox.files.read(canonicalPath, { format: 'bytes', ...signal === undefined ? {} : { signal } })
+  const command = [
+    quoteE2BShellArg(nodeExecutable),
+    '--input-type=commonjs',
+    '-e',
+    quoteE2BShellArg(SOURCE_READER_SOURCE),
+    quoteE2BShellArg(canonicalPath),
+    String(maxDocumentBytes),
+  ].join(' ')
+  const result = await sandbox.commands.run(command, signal === undefined ? {} : { signal })
   signal?.throwIfAborted()
-  if (bytes.length > maxDocumentBytes) {
+  let response: RemoteSourceReadResponse
+  try {
+    response = JSON.parse(result.stdout) as RemoteSourceReadResponse
+  } catch (error: unknown) {
+    throw new Error(`source ${JSON.stringify(filePath)} reader returned an invalid response`, { cause: error })
+  }
+  if (response.kind === 'not-file') throw new Error(`source ${JSON.stringify(filePath)} is not a regular file`)
+  if (response.kind === 'oversize' && Number.isSafeInteger(response.size)) {
+    throw new Error(`source ${JSON.stringify(filePath)} is ${response.size} bytes, over the ${maxDocumentBytes}-byte limit`)
+  }
+  if (response.kind === 'grew') {
     throw new Error(`source ${JSON.stringify(filePath)} grew past the ${maxDocumentBytes}-byte limit while reading`)
+  }
+  if (response.kind === 'open-error' && typeof response.message === 'string') {
+    throw new Error(`source ${JSON.stringify(filePath)} could not be opened safely: ${response.message}`)
+  }
+  if (response.kind !== 'ok' || typeof response.data !== 'string') {
+    throw new Error(`source ${JSON.stringify(filePath)} reader returned an invalid response`)
+  }
+  const bytes = Buffer.from(response.data, 'base64')
+  if (bytes.toString('base64') !== response.data || bytes.length > maxDocumentBytes) {
+    throw new Error(`source ${JSON.stringify(filePath)} reader returned invalid bounded bytes`)
   }
   let text: string
   try {
@@ -239,7 +304,14 @@ export class E2BLspProvider implements LspProvider {
     this.assertActive(signal)
     return this.enqueue(workspace, signal, async () => {
       this.assertActive(signal)
-      const source = await readE2BSource(this.sandbox, request.filePath, workspace, this.config.maxDocumentBytes, signal)
+      const source = await readE2BSource(
+        this.sandbox,
+        request.filePath,
+        workspace,
+        this.config.maxDocumentBytes,
+        this.nodeExecutable,
+        signal,
+      )
       this.assertActive(signal)
       let instance = this.instanceFor(workspace)
       try {

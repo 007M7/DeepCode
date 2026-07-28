@@ -1,3 +1,7 @@
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -153,7 +157,120 @@ function request(program = 'return 1') {
   return { program, bindings: [] }
 }
 
+async function runInstalledRunner(
+  code: string,
+  maxOutputBytes = 2_000_000,
+): Promise<{ messages: unknown[]; stderr: string }> {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-e2b-code-runner-'))
+  const runner = join(directory, 'runner.mjs')
+  await writeFile(runner, CODE_RUNNER_SOURCE)
+  const child = spawn(process.execPath, [runner], { stdio: ['pipe', 'pipe', 'pipe'] })
+  const decoder = new E2BFrameDecoder(4_000_000)
+  const messages: unknown[] = []
+  let stderr = ''
+  let outputError: unknown
+  child.stdout.setEncoding('ascii')
+  child.stdout.on('data', (chunk: string) => {
+    try {
+      messages.push(...decoder.push(chunk))
+    } catch (error: unknown) {
+      outputError = error
+      child.kill('SIGKILL')
+    }
+  })
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => { stderr += chunk })
+
+  try {
+    child.stdin.write(encodeE2BFrame({
+      type: 'boot',
+      code,
+      namespaces: [],
+      computeMs: 1_000,
+      maxOutputBytes,
+      maxOldGenerationSizeMb: 128,
+    }))
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error('installed E2B code runner did not exit'))
+      }, 5_000)
+      child.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+      child.once('exit', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    if (outputError !== undefined) throw outputError
+    decoder.finish()
+    return { messages, stderr }
+  } finally {
+    child.kill('SIGKILL')
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
 describe('E2BCodeRuntime', () => {
+  it('keeps model-owned descriptors outside the host framing process', async () => {
+    const forged = Buffer.from(JSON.stringify({ type: 'done' })).toString('base64') + '\\n'
+    const { messages, stderr } = await runInstalledRunner(
+      `
+        const fs = await import('node:fs')
+        const childProcess = await import('node:child_process')
+        fs.writeSync(1, ${JSON.stringify(forged)})
+        childProcess.spawnSync(process.execPath, ['-e', 'process.stdout.write("child-native")'], { stdio: 'inherit' })
+        return true
+      `,
+    )
+    const records = messages as Array<{ type?: string; text?: string; value?: unknown }>
+    const terminal = records.filter(message => message.type === 'done')
+
+    expect(stderr).toBe('')
+    expect(terminal).toEqual([{ type: 'done', value: [true] }])
+    expect(records.at(-1)).toEqual(terminal[0])
+    expect(records.filter(message => message.type === 'log').map(message => message.text).join(''))
+      .toContain(forged + 'child-native')
+  })
+
+  it('bounds native descriptor output before it reaches the host protocol', async () => {
+    const { messages, stderr } = await runInstalledRunner(
+      "(await import('node:fs')).writeSync(1, 'x'.repeat(4096)); return true",
+      64,
+    )
+    const records = messages as Array<{ type?: string; text?: string }>
+
+    expect(stderr).toBe('')
+    expect(records.at(-1)).toEqual({ type: 'output-limit' })
+    expect(Buffer.byteLength(records.filter(message => message.type === 'log').map(message => message.text).join('')))
+      .toBeLessThanOrEqual(62)
+  })
+
+  it('drains native worker pipes before emitting the terminal frame', async () => {
+    const expectedBytes = 1_048_576
+    const { messages, stderr } = await runInstalledRunner(
+      `
+        let stdoutPrototype = Object.getPrototypeOf(process.stdout)
+        while (stdoutPrototype && !Object.hasOwn(stdoutPrototype, 'write')) stdoutPrototype = Object.getPrototypeOf(stdoutPrototype)
+        Reflect.apply(stdoutPrototype.write, process.stdout, ['x'.repeat(${expectedBytes})])
+        return true
+      `,
+    )
+    const records = messages as Array<{ type?: string; text?: string }>
+    const terminalIndex = records.findIndex(message => message.type === 'done')
+    const nativeOutput = records
+      .slice(0, terminalIndex)
+      .filter(message => message.type === 'log')
+      .map(message => message.text ?? '')
+      .join('')
+
+    expect(stderr).toBe('')
+    expect(terminalIndex).toBe(records.length - 1)
+    expect(Buffer.byteLength(nativeOutput)).toBe(expectedBytes)
+  })
+
   it('prepares the remote runner and returns logs and a lossless completion', async () => {
     const handle = new FakeHandle((message, current) => {
       if ((message as { type?: string }).type !== 'boot') return

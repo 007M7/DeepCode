@@ -18,7 +18,7 @@ E2B 集成是一个选择性启用的提供方组合 POC。它的 6 个 E2B 专�
 - `@deepseek-ai/dsh-fs-e2b` 在该沙箱的 Filesystem API 之上实现 `ctx.fs`。
 - `@deepseek-ai/dsh-subprocess-e2b` 在 E2B Commands 和远程 Linux 进程组之上实现 `ctx.subprocess`。
 - `@deepseek-ai/dsh-pty-e2b` 在 `ctx.pty` 上注册 E2B 字节 PTY 后端，并把精确的 Agent 所有权保留在现有注册表中。
-- `@deepseek-ai/dsh-lsp-e2b` 在 `ctx.lsp` 上注册已配置的远程语言服务器，通过 E2B Filesystem API 读取源代码，并通过 `dsh-subprocess-e2b` 运行服务器。
+- `@deepseek-ai/dsh-lsp-e2b` 在 `ctx.lsp` 上注册已配置的远程语言服务器，通过 E2B 内有界且不跟随链接的辅助程序读取源代码，并通过 `dsh-subprocess-e2b` 运行服务器。
 - `@deepseek-ai/dsh-code-runtime-e2b` 注册 `ctx.codeRuntime`，在全新的远程 worker 中运行每个模型程序，并在宿主进程中分发绑定函数。
 - 现有的 `@deepseek-ai/dsh-bash-local` 继续作为 Bash 实现，因为它把所有进程机制委托给 `ctx.subprocess`。
 
@@ -28,11 +28,11 @@ E2B 集成是一个选择性启用的提供方组合 POC。它的 6 个 E2B 专�
 
 ## POC 边界
 
-E2B 拥有可变文件系统、命令和 Bash 进程、PTY shell 与前台进程组、语言服务器进程及源码读取、Code Runtime 运行器和 worker，以及 `.dsh-e2b` 下的适配器私有文件。
+E2B 拥有可变文件系统、命令和 Bash 进程、PTY shell 与终端会话进程组、语言服务器进程及源码读取、Code Runtime launcher、controller 和 worker，以及 `.dsh-e2b` 下的适配器私有文件。
 
 宿主拥有 Cordis 与插件对象、agent loop、agent／会话／goal 状态、会话日志及持久化、LLM（大语言模型）调用、提示词与工具、权限决策、skill（技能）、subagent 编排、PTY 缓冲与就绪状态、LSP JSON-RPC id／队列／协议状态、Code Runtime 类型剥离／输出计量／绑定分发，以及 E2B SDK／网络编排。该 overlay 不会上传、挂载或同步宿主工作区；拼写相同的 cwd 字符串分别指向彼此独立的宿主与远程目录。
 
-对字节敏感的协议只使用适配 E2B 回调形状所需的最窄适配器。PTY 直接消费 SDK 的字节回调。LSP 与 Code Runtime 会安装无依赖的远程辅助程序，把原始载荷编码为经过验证、以换行分隔的 base64 JSON，并通过 ASCII 传输承载 E2B 已解码的命令回调。
+对字节敏感的协议只使用适配 E2B 回调形状所需的最窄适配器。PTY 直接消费 SDK 的字节回调。LSP 会安装一个有界的远程源码读取器；Code Runtime 则把分帧 stdout 保留在与 controller 和 worker 描述符隔离的 launcher 进程内。它们的无依赖辅助程序会把协议载荷编码为经过验证、以换行分隔的 base64 JSON，并通过 ASCII 传输承载 E2B 已解码的命令回调。
 
 保留沙箱只会保存远程文件与未受管的远程状态。重新连接不会重建宿主 PTY 会话、缓冲、进程句柄、LSP 连接或请求、代码 worker、绑定调用、定时器、输出游标或锁。受管进程组会在所属提供方 dispose（资源释放）时终止并等待退出，之后共享所有者才会暂停、脱离或终止沙箱。
 
@@ -40,9 +40,9 @@ E2B 拥有可变文件系统、命令和 Bash 进程、PTY shell 与前台进程
 
 ## 验证
 
-聚焦包测试套件固定所有者生命周期清理、文件系统语义、进程管理的进程组、配置与发布回滚、字节分帧与多字节边界、PTY 就绪状态／信号、LSP 传输与源码路径约束、Code Runtime 绑定、恶意通信、输出上限、超时／中止顺序、等待完全停稳的资源释放，以及包自有不变式注册。相邻本地后端测试套件固定共享 PTY 工具函数，以及 LSP 跨命名空间 `processId` 行为。
+聚焦包测试套件固定所有者生命周期清理、文件系统语义与提交元数据、进程管理的进程组、配置与经过验证的发布回滚、字节分帧与多字节边界、PTY 就绪状态／信号／默认环境清理／终端会话清理、稳定且有界的 LSP 源码读取、Code Runtime 绑定与描述符隔离、worker 管道排空、恶意通信、输出上限、超时／中止顺序、等待完全停稳的资源释放，以及包自有不变式注册。相邻本地后端测试套件固定共享 PTY 工具函数，以及 LSP 跨命名空间 `processId` 行为。
 
-凭据门控的 Loader 组合会创建一个真实 E2B 沙箱，并演练 FS-to-Bash 与 Bash-to-FS 可见性、多字节 PTY 输出和 `SIGINT`、多字节 LSP 悬停与定义结果、Code Runtime 宿主绑定，以及适配器已捕获 intrinsic 被修改时的类型化 reject、墙钟超时、中止、运行器清理、宿主工作区隔离，以及最终删除沙箱。同一场景分别通过源代码导入与已构建包导出运行。
+凭据门控的 Loader 组合会创建真实 E2B 沙箱，并演练 FS-to-Bash 与 Bash-to-FS 可见性、进程发布回滚、有界 spill 输出、PTY 默认秘密清理与进程树清理、稳定且有界的 LSP 源码读取、Code Runtime 宿主绑定与描述符隔离的输出记账、墙钟超时、中止、runner 清理、宿主工作区隔离，以及最终删除沙箱。同一组合分别通过源代码导入与已构建包导出运行。
 
 ## 曾考虑的替代方案
 
@@ -66,4 +66,4 @@ E2B 拥有可变文件系统、命令和 Bash 进程、PTY shell 与前台进程
 
 这个小型组合证明，现有功能 seam 可以把 agent 的可变 coding 环境移出宿主，而无需改变循环或面向模型的工具包。`sandboxId` 与 `pause`／`leave` 允许实验手动保留远程文件，演示仍以 `kill` 作为清理策略。
 
-这些提供方并不能对所有消费方与本地后端互换：远程启动无法同步公开 PID，E2B 会在 SDK 内存中保留完整命令输出，普通命令回调并非字节保真，信号归因部分依靠推断，重新连接也无法恢复句柄或协议状态。PTY 使用 E2B 的字节 API；LSP 与 Code Runtime 则在必须保真处理协议字节之处增加经过验证的 ASCII 分帧。保留沙箱后会累积远程进程／spill 产物，模型程序与 Node worker 内部机制共享一个 JavaScript realm，有意逃离已捕获远程进程组的进程也不会因此变得可重新连接或由该组合管理。这些缺口作为 POC 约束明确记录，而不会引入兼容垫片或新的跨领域抽象。
+这些提供方并不能对所有消费方与本地后端互换：远程启动无法同步公开 PID，E2B 会在 SDK 内存中保留完整命令输出，普通命令回调并非字节保真，信号归因部分依靠推断，重新连接也无法恢复句柄或协议状态。PTY 使用 E2B 的字节 API；LSP 与 Code Runtime 则在必须保真处理协议字节之处增加经过验证的 ASCII 分帧。保留沙箱后会累积远程进程／spill 产物，模型程序与 Node worker 内部机制共享一个 JavaScript realm，有意逃离受管理进程组或 PTY 会话的进程也不会因此变得可重新连接或由该组合管理。这些缺口作为 POC 约束明确记录，而不会引入兼容垫片或新的跨领域抽象。

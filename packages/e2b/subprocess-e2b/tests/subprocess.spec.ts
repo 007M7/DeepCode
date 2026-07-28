@@ -89,6 +89,7 @@ class FakeSandbox {
   probeError: unknown
   signalError: unknown
   trapsTerm = false
+  delaysKill = false
   alive = true
   processGroupId = '4242\n'
   readonly processGroupReads: string[] = []
@@ -176,7 +177,7 @@ class FakeSandbox {
             this.signalError = undefined
             throw error
           }
-          this.alive = false
+          if (!this.delaysKill) this.alive = false
           this.handle.fail(137)
           return { exitCode: 0, stdout: '', stderr: '' }
         }
@@ -596,14 +597,13 @@ describe('E2BSubprocessHandle', () => {
   it('rejects invalid or absent process-group publication', async () => {
     const invalidGroup = new FakeSandbox()
     invalidGroup.processGroupId = 'not-a-pid\n'
-    vi.spyOn(invalidGroup.handle, 'kill').mockImplementation(async () => {
-      invalidGroup.handle.kills += 1
-      invalidGroup.finish()
-      return true
-    })
+    invalidGroup.delaysKill = true
+    invalidGroup.afterProbe = () => { invalidGroup.alive = false }
     const invalid = new E2BSubprocessHandle(runtime(invalidGroup), spec(), '/runtime/invalid-group')
     await expect(invalid.done).rejects.toThrow(/invalid process-group id/)
     expect(invalidGroup.handle.kills).toBe(1)
+    expect(invalidGroup.commandsSeen).toContain('kill -KILL -- -4242')
+    await expect(invalid.waitForExit()).resolves.toBe(true)
 
     const absentGroup = new FakeSandbox()
     absentGroup.processGroupId = ''
@@ -612,6 +612,35 @@ describe('E2BSubprocessHandle', () => {
     absentGroup.finish()
     await expect(absent.done).rejects.toThrow(/exited before publishing/)
     expect(absentGroup.handle.kills).toBe(1)
+    expect(absentGroup.commandsSeen).toContain('kill -KILL -- -4242')
+    await expect(absent.waitForExit()).resolves.toBe(true)
+  })
+
+  it('preserves publication and rollback failures when cleanup cannot be verified', async () => {
+    const fake = new FakeSandbox()
+    fake.processGroupId = 'not-a-pid\n'
+    fake.signalError = new Error('rollback signal failed')
+    fake.handle.killError = new Error('SDK kill failed')
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/failed-rollback')
+
+    let failure: unknown
+    try {
+      await handle.done
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(AggregateError)
+    if (!(failure instanceof AggregateError)) throw new Error('expected AggregateError')
+    expect(failure.message).toBe('subprocess-e2b: process-group publication failed and rollback did not reach quiescence')
+    const failures = Array.from(failure.errors as Iterable<unknown>)
+    expect(failures).toHaveLength(2)
+    expect(failures[0]).toBeInstanceOf(Error)
+    expect(failures[1]).toBeInstanceOf(Error)
+    if (!(failures[0] instanceof Error) || !(failures[1] instanceof Error)) throw new Error('expected nested errors')
+    expect(failures[0].message).toContain('invalid process-group id')
+    expect(failures[1].message).toBe('rollback signal failed')
+    expect(fake.handle.kills).toBe(1)
+    fake.finish()
   })
 
   it('waits for delayed process-group publication', async () => {

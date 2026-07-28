@@ -105,6 +105,7 @@ export class E2BPtySession implements PtyBackendSession {
   constructor(
     private readonly sandbox: Sandbox,
     private readonly handle: CommandHandle,
+    private readonly terminalSessionId: number,
     private readonly config: ResolvedConfig,
   ) {
     this.pid = handle.pid
@@ -314,6 +315,40 @@ export class E2BPtySession implements PtyBackendSession {
     return pgid
   }
 
+  private async sessionProcessGroups(): Promise<number[]> {
+    const result = await this.sandbox.commands.run(
+      `ps -eo sid=,pgid= | awk '$1 == ${this.terminalSessionId} { print $2 }'`,
+    )
+    const groups = new Set<number>()
+    for (const raw of result.stdout.trim().split(/\s+/)) {
+      if (raw.length === 0) continue
+      const pgid = Number(raw)
+      if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(pgid) || pgid <= 1) {
+        throw new Error(`pty-e2b: invalid process group ${JSON.stringify(raw)} in terminal session ${this.terminalSessionId}`)
+      }
+      groups.add(pgid)
+    }
+    return [...groups]
+  }
+
+  private async signalProcessGroups(groups: number[], signal: 'TERM' | 'KILL'): Promise<void> {
+    try {
+      await this.sandbox.commands.run(`kill -${signal} -- ${groups.map(pgid => `-${pgid}`).join(' ')}`)
+    } catch (error: unknown) {
+      if (!(error instanceof CommandExitError)) throw error
+    }
+  }
+
+  private async awaitSessionEmpty(timeoutMs: number, signal?: 'KILL'): Promise<number[]> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const groups = await this.sessionProcessGroups()
+      if (groups.length === 0 || Date.now() >= deadline) return groups
+      if (signal !== undefined) await this.signalProcessGroups(groups, signal)
+      await delay(Math.min(this.config.pollIntervalMs, deadline - Date.now()))
+    }
+  }
+
   private onExit(exitCode: number): void {
     this.remoteExited = true
     let tail = ''
@@ -343,19 +378,20 @@ export class E2BPtySession implements PtyBackendSession {
   }
 
   private async closeOnce(reason: string): Promise<void> {
-    if (!this.remoteExited) {
+    let survivingGroups = await this.sessionProcessGroups()
+    if (survivingGroups.length > 0) {
       this.closeSignal = 'SIGTERM'
-      try {
-        await this.sandbox.commands.run(`kill -TERM -- -${this.pid}`)
-      } catch (error: unknown) {
-        if (!(error instanceof CommandExitError)) throw error
-      }
-      await Promise.race([this.exited.promise, delay(this.config.disposeGraceMs)])
+      await this.signalProcessGroups(survivingGroups, 'TERM')
+      survivingGroups = await this.awaitSessionEmpty(this.config.disposeGraceMs)
     }
-    if (!this.remoteExited) {
+    if (survivingGroups.length > 0 || !this.remoteExited) {
       this.closeSignal = 'SIGKILL'
-      await this.sandbox.pty.kill(this.pid)
-      await Promise.race([this.exited.promise, delay(this.config.disposeGraceMs)])
+      if (!this.remoteExited) await this.sandbox.pty.kill(this.pid)
+      survivingGroups = await this.awaitSessionEmpty(this.config.disposeGraceMs, 'KILL')
+      if (!this.remoteExited) await Promise.race([this.exited.promise, delay(this.config.disposeGraceMs)])
+    }
+    if (survivingGroups.length > 0) {
+      throw new Error(`E2B PTY cleanup failed (${reason}); surviving process groups: ${survivingGroups.join(', ')}`)
     }
     if (!this.remoteExited) {
       throw new Error(`E2B PTY cleanup failed (${reason}); surviving pid: ${this.pid}`)

@@ -6,8 +6,8 @@
 
 ## 行为
 
-- **异步远程启动**：同步 seam 会立即返回一个句柄，同时由 `Sandbox.commands.run(..., { background: true })` 在远程启动进程。SDK 返回命令 PID 之前，`pid` 为 `-1`；`done`、stdin、终止和 `waitForExit()` 会在内部等待就绪。
-- **Linux 进程组**：带引号保护的包装层会在 `setsid --wait` 下启动每组 argv，并在 `ctx.e2b.runtimeRoot/processes` 下记录实际进程组 ID 和私有状态文件。句柄会等待该文件，而不会假设 SDK 命令 PID 就是进程组 ID。终止操作以记录的负数 ID 发送 `SIGTERM`，等待调用方的 `graceMs`，再升级到 `SIGKILL` 和 SDK kill 回退。服务 dispose（资源释放）会在沙箱所有者释放前终止并等待每个保留句柄退出。
+- **异步远程启动**：同步 seam 会立即返回一个句柄，同时由 `Sandbox.commands.run(..., { background: true })` 在远程启动进程。包装层发布进程组 ID 并由适配器完成验证之前，`pid` 为 `-1`；`done`、stdin、终止和 `waitForExit()` 会在内部等待就绪。
+- **Linux 进程组**：带引号保护的包装层会在 `exec setsid --wait` 下启动每组 argv，并在 `ctx.e2b.runtimeRoot/processes` 下记录实际进程组 ID 和私有状态文件。句柄会等待该文件，而不会把 SDK 命令 PID 当作已发布的身份。终止操作以记录的负数 ID 发送 `SIGTERM`，等待调用方的 `graceMs`，再升级到 `SIGKILL` 和 SDK kill 回退。如果发布失败，SDK PID 仍为临时的 `exec setsid` 进程组 ID；回滚会终止并验证该进程组，随后启动操作才会以拒绝结束。服务 dispose（资源释放）会在沙箱所有者释放前终止并等待每个保留句柄退出。
 - **环境边界**：包装层从沙箱命令环境开始，移除环境中的 `DSH_*` 和形似凭据的名称（`*KEY*`、`*SECRET*`、`*TOKEN*`），再把每个 `spec.env` 条目恢复为调用方显式选择。宿主环境变量绝不会隐式进入沙箱。
 - **stdio 投影**：pipe 模式把 E2B 回调转发到宿主 Node 流；inherit 模式把回调转发到 harness 进程流；collect 模式保留有界的宿主尾部，并支持基于偏移量读取。可选的完整 spill 文件写在远程，并且只有未超过其上限时才会对外公布。批量 stdin 和流式 stdin 都使用 SDK 句柄。
 

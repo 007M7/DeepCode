@@ -42,7 +42,10 @@ describe('E2BPtyBackend and plugin', () => {
   it('creates a remote PTY with isolated environment and initializes the session', async () => {
     vi.useFakeTimers()
     const ctx = new Context()
-    const sandbox = {} as Sandbox
+    const run = vi.fn(async (command: string) => command.startsWith('env -0')
+      ? { exitCode: 0, stdout: 'NPM_TOKEN\0DSH_STALE\0KEEP\0', stderr: '' }
+      : { exitCode: 0, stdout: '123\n', stderr: '' })
+    const sandbox = { commands: { run } } as unknown as Sandbox
     ctx.provide('e2b', {
       cwd: '/workspace',
       getSandbox: async () => sandbox,
@@ -65,9 +68,11 @@ describe('E2BPtyBackend and plugin', () => {
     expect(session.motd).toBe('banner\ndsh> ')
     expect(options).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace/project', timeoutMs: 0 })
     expect(options?.envs).toMatchObject({
+      NPM_TOKEN: '', DSH_STALE: '',
       TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ',
       DSH_SHELL: '1', DSH_SESSION_ID: 'owner', DSH_PTY_SESSION_ID: 'pty-1',
     })
+    expect(options?.envs).not.toHaveProperty('KEEP')
     vi.useRealTimers()
   })
 
@@ -79,7 +84,10 @@ describe('E2BPtyBackend and plugin', () => {
       setTimeout(() => { void received.onData(Buffer.from('\x1b]133;D;0\x07dsh> ')) }, 0)
       return created
     })
-    const sandbox = { pty: { create } } as unknown as Sandbox
+    const sandbox = {
+      commands: { run: async (command: string) => ({ exitCode: 0, stdout: command.startsWith('env -0') ? '' : '123\n', stderr: '' }) },
+      pty: { create },
+    } as unknown as Sandbox
     ctx.provide('e2b', { cwd: '/workspace', getSandbox: async () => sandbox } as unknown as E2BSandboxService)
     const backend = new E2BPtyBackend(ctx, config())
     const pending = backend.spawn({ sessionId: PtySessionId('default'), owner: owner(ctx), type: 'shell' })
@@ -91,7 +99,9 @@ describe('E2BPtyBackend and plugin', () => {
 
   it('rejects aborts and invalid pids, killing a malformed SDK handle', async () => {
     const ctx = new Context()
-    const sandbox = {} as Sandbox
+    const sandbox = {
+      commands: { run: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
+    } as unknown as Sandbox
     ctx.provide('e2b', { cwd: '/workspace', getSandbox: async () => sandbox } as E2BSandboxService)
     const create = vi.fn().mockResolvedValue(handle(0))
     const backend = new E2BPtyBackend(ctx, config(), create)
@@ -109,13 +119,47 @@ describe('E2BPtyBackend and plugin', () => {
     const killFailure = handle(0, killFailureKill)
     const raced = new E2BPtyBackend(ctx, config(), async () => killFailure)
     await expect(raced.spawn({ sessionId: PtySessionId('three'), owner: owner(ctx), type: 'shell' })).rejects.toThrow('invalid PTY pid')
+
+    const invalidSessionKill = vi.fn().mockRejectedValue(new Error('kill raced'))
+    const invalidSessionHandle = {
+      pid: 123,
+      wait: vi.fn().mockRejectedValue(new Error('already exited')),
+      kill: invalidSessionKill,
+      disconnect: vi.fn(),
+    } as unknown as CommandHandle
+    const invalidSessionSandbox = {
+      commands: {
+        run: async (command: string) => ({
+          exitCode: 0,
+          stdout: command.startsWith('env -0') ? '' : '9007199254740992\n',
+          stderr: '',
+        }),
+      },
+    } as unknown as Sandbox
+    const invalidSessionContext = new Context()
+    invalidSessionContext.provide('e2b', {
+      cwd: '/workspace',
+      getSandbox: async () => invalidSessionSandbox,
+    } as E2BSandboxService)
+    const invalidSession = new E2BPtyBackend(invalidSessionContext, config(), async () => invalidSessionHandle)
+    await expect(invalidSession.spawn({
+      sessionId: PtySessionId('four'), owner: owner(invalidSessionContext), type: 'shell',
+    }))
+      .rejects.toThrow('cannot resolve process session')
+    expect(invalidSessionKill).toHaveBeenCalledOnce()
   })
 
   it('cleans failed startup and aggregates a cleanup failure', async () => {
     vi.useFakeTimers()
     const ctx = new Context()
     const sandbox = {
-      commands: { run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }) },
+      commands: {
+        run: vi.fn(async (command: string) => ({
+          exitCode: 0,
+          stdout: command.startsWith('ps -o sid=') || command.startsWith('ps -eo sid=') ? '123\n' : '',
+          stderr: '',
+        })),
+      },
       pty: { kill: vi.fn().mockRejectedValue(new Error('cleanup failed')) },
     } as unknown as Sandbox
     ctx.provide('e2b', { cwd: '/workspace', getSandbox: async () => sandbox } as E2BSandboxService)
@@ -141,10 +185,19 @@ describe('E2BPtyBackend and plugin', () => {
       wait: () => completion.promise,
       disconnect: vi.fn().mockResolvedValue(undefined),
     } as unknown as CommandHandle
+    let sessionRunning = true
     const sandbox = {
       commands: {
         run: vi.fn(async (command: string) => {
-          if (command.startsWith('kill -TERM')) completion.resolve({ exitCode: 143, stdout: '', stderr: '' })
+          if (command.startsWith('env -0')) return { exitCode: 0, stdout: '', stderr: '' }
+          if (command.startsWith('ps -o sid=')) return { exitCode: 0, stdout: '123\n', stderr: '' }
+          if (command.startsWith('ps -eo sid=')) {
+            return { exitCode: 0, stdout: sessionRunning ? '123\n' : '', stderr: '' }
+          }
+          if (command.startsWith('kill -TERM')) {
+            sessionRunning = false
+            completion.resolve({ exitCode: 143, stdout: '', stderr: '' })
+          }
           return { exitCode: 0, stdout: '', stderr: '' }
         }),
       },

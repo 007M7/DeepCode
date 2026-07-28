@@ -412,11 +412,7 @@ export class E2BFileSystem extends FileSystem {
         signalOpts(signal),
       )
       assertNotAborted(signal, 'write')
-      await sandbox.commands.run(
-        `mv -f -- ${quoteE2BShellArg(temporary)} ${quoteE2BShellArg(targetPath)}`,
-        signalOpts(signal),
-      )
-      const committed = await sandbox.files.getInfo(targetPath)
+      const committed = await sandbox.files.rename(temporary, targetPath, signalOpts(signal))
       return entryVersion(committed)
     } catch (error: unknown) {
       try {

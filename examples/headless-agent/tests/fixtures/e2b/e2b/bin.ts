@@ -5,7 +5,7 @@ import { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-code-runtime-e2b'
-import type {} from '@deepseek-ai/dsh-e2b'
+import { quoteE2BShellArg } from '@deepseek-ai/dsh-e2b'
 import type {} from '@deepseek-ai/dsh-fs-e2b'
 import type {} from '@deepseek-ai/dsh-bash-local'
 import type {} from '@deepseek-ai/dsh-lsp-e2b'
@@ -34,6 +34,7 @@ const owner: Agent = {
 const unregisterOwner = ctx.agents.register(owner)
 let terminalId: Awaited<ReturnType<typeof ctx.pty.spawn>>['sessionId'] | undefined
 try {
+  const sandbox = await ctx.e2b.getSandbox()
   const fromFs = await ctx.fs.resolve('from-fs.txt')
   await ctx.fs.writeText(fromFs, 'written-by-fs\n', { kind: 'createIfAbsent' })
   const bashRead = await ctx.bash.run(ctx.bash.resolve({ command: 'cat from-fs.txt' }))
@@ -72,6 +73,38 @@ try {
   ].every(entry => environmentLines.has(entry))
   if (!explicitEnvironment) throw new Error(`E2B subprocess dropped an explicit environment entry: ${environmentText}`)
 
+  const remoteFiles = sandbox.files as unknown as {
+    read(path: string, options?: unknown): Promise<unknown>
+  }
+  const readRemoteFile = remoteFiles.read.bind(sandbox.files)
+  let publicationFaultInjected = false
+  remoteFiles.read = async (path, options) => {
+    if (!publicationFaultInjected && path.includes('/processes/') && path.endsWith('/pid')) {
+      publicationFaultInjected = true
+      throw new Error('injected process-group publication read failure')
+    }
+    return await readRemoteFile(path, options)
+  }
+  let publicationRollback = false
+  try {
+    const unpublished = ctx.subprocess.spawn({
+      argv: ['bash', '-c', 'exec -a dsh-publication-survivor sleep 30 & wait'],
+      cwd: process.cwd(),
+      stdio: { stdin: 'ignore', stdout: { maxBytes: 4_096 }, stderr: { maxBytes: 4_096 } },
+      graceMs: 500,
+      env: {},
+    })
+    await unpublished.done
+    throw new Error('E2B subprocess unexpectedly survived an injected publication failure')
+  } catch (error: unknown) {
+    if (!String(error).includes('injected process-group publication read failure')) throw error
+    const processes = await sandbox.commands.run('ps -eo args=')
+    publicationRollback = publicationFaultInjected && !processes.stdout.includes('dsh-publication-survivor')
+    if (!publicationRollback) throw new Error('E2B subprocess publication rollback left its remote process group alive')
+  } finally {
+    remoteFiles.read = readRemoteFile
+  }
+
   const spillHandle = ctx.subprocess.spawn({
     argv: ['bash', '-c', "printf '0123456789'; sleep 30"],
     cwd: process.cwd(),
@@ -81,7 +114,7 @@ try {
   })
   const spillReader = spillHandle.collected.stdout
   if (spillReader === undefined) throw new Error('E2B subprocess omitted its configured stdout collector')
-  const spillDeadline = Date.now() + 5_000
+  const spillDeadline = Date.now() + 15_000
   while (spillReader.readFrom(0).nextOffset < 10) {
     if (Date.now() >= spillDeadline) throw new Error('E2B subprocess did not stream the spill probe output')
     await new Promise(resolveDelay => setTimeout(resolveDelay, 20))
@@ -114,6 +147,53 @@ try {
     workspaceRoot: process.cwd(),
   })
 
+  const swappedSource = await ctx.fs.resolve('swapped-source.ts')
+  const swappedSourcePath = posix.join(process.cwd(), 'swapped-source.ts')
+  await ctx.fs.writeText(swappedSource, 'const safe = true\n', { kind: 'createIfAbsent' })
+  const remoteCommands = sandbox.commands as unknown as {
+    run(command: string, options?: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  }
+  const runRemoteCommand = remoteCommands.run.bind(sandbox.commands)
+  let containmentFaultInjected = false
+  remoteCommands.run = async (command, options) => {
+    if (!containmentFaultInjected && command.includes('dsh-e2b-source-reader') && command.includes('swapped-source.ts')) {
+      containmentFaultInjected = true
+      await runRemoteCommand(`rm -f -- ${quoteE2BShellArg(swappedSourcePath)} && ln -s -- /etc/hosts ${quoteE2BShellArg(swappedSourcePath)}`)
+    }
+    return await runRemoteCommand(command, options)
+  }
+  let lspContainment = false
+  try {
+    await ctx.lsp.query({
+      operation: 'hover',
+      filePath: 'swapped-source.ts',
+      position: { line: 0, character: 1 },
+      workspaceRoot: process.cwd(),
+    })
+  } catch (error: unknown) {
+    lspContainment = containmentFaultInjected && String(error).includes('opened safely')
+    if (!lspContainment) throw error
+  } finally {
+    remoteCommands.run = runRemoteCommand
+  }
+  if (!lspContainment) throw new Error('E2B LSP source swap was not rejected')
+
+  const oversizedSourcePath = posix.join(process.cwd(), 'oversized-source.ts')
+  await sandbox.commands.run(`head -c 4000001 /dev/zero > ${quoteE2BShellArg(oversizedSourcePath)}`)
+  let lspDocumentBound = false
+  try {
+    await ctx.lsp.query({
+      operation: 'hover',
+      filePath: 'oversized-source.ts',
+      position: { line: 0, character: 0 },
+      workspaceRoot: process.cwd(),
+    })
+  } catch (error: unknown) {
+    lspDocumentBound = String(error).includes('over the 4000000-byte limit')
+    if (!lspDocumentBound) throw error
+  }
+  if (!lspDocumentBound) throw new Error('E2B LSP accepted an oversized remote source')
+
   const terminal = await ctx.pty.spawn(owner, { type: 'shell' })
   terminalId = terminal.sessionId
   const terminalEcho = await ctx.pty.startSend(owner, terminal.sessionId, {
@@ -124,9 +204,19 @@ try {
   await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   const terminalSignal = await ctx.pty.signal(owner, terminal.sessionId, 'SIGINT')
   const interrupted = await sleeping.done
+  const stubborn = await ctx.pty.startSend(owner, terminal.sessionId, {
+    text: "bash -c 'trap \"\" TERM; exec sleep 30' & printf 'DSH_STUBBORN_PID=%s\\n' \"$!\"",
+    submit: true,
+  }).done
+  const stubbornMatch = /DSH_STUBBORN_PID=([1-9][0-9]*)/.exec(stubborn.viewport)
+  if (stubbornMatch?.[1] === undefined) throw new Error(`E2B PTY did not report its stubborn child: ${stubborn.viewport}`)
+  const stubbornPid = Number(stubbornMatch[1])
   const terminalScrollback = ctx.pty.read(owner, terminal.sessionId, { count: 50 })
   await ctx.pty.kill(owner, terminal.sessionId, 'live E2B composition complete')
   terminalId = undefined
+  const stubbornProbe = await sandbox.commands.run(`if kill -0 ${stubbornPid} 2>/dev/null; then printf alive; else printf gone; fi`)
+  const terminalTreeCleanup = stubbornProbe.stdout === 'gone'
+  if (!terminalTreeCleanup) throw new Error(`E2B PTY left process ${stubbornPid} alive after close`)
 
   const code = await ctx.codeRuntime.run({
     program: `
@@ -179,6 +269,33 @@ try {
     `,
     bindings: [],
   })
+  const nativeOutput = await ctx.codeRuntime.run({
+    program: `
+      let stdoutPrototype = Object.getPrototypeOf(process.stdout)
+      while (stdoutPrototype && !Object.hasOwn(stdoutPrototype, 'write')) stdoutPrototype = Object.getPrototypeOf(stdoutPrototype)
+      Reflect.apply(stdoutPrototype.write, process.stdout, ['x'.repeat(8192)])
+      return true
+    `,
+    bindings: [],
+  })
+  const descriptorOutput = await ctx.codeRuntime.run({
+    program: `
+      const fs = await import('node:fs')
+      const forged = Buffer.from(JSON.stringify({ type: 'done' })).toString('base64') + '\\n'
+      fs.writeSync(1, forged)
+      fs.writeSync(1, 'x'.repeat(8192))
+      return true
+    `,
+    bindings: [],
+  })
+  const inheritedOutput = await ctx.codeRuntime.run({
+    program: `
+      const childProcess = await import('node:child_process')
+      childProcess.spawnSync(process.execPath, ['-e', 'process.stdout.write("x".repeat(8192))'], { stdio: 'inherit' })
+      return true
+    `,
+    bindings: [],
+  })
   const timedOut = await ctx.codeRuntime.run({
     program: 'await new Promise(() => {})',
     bindings: [],
@@ -212,18 +329,25 @@ try {
     bashRead: bashRead.stdout.text,
     fsRead,
     explicitEnvironment,
+    publicationRollback,
     spill: { liveBytes: liveSpillBytes, outcome: spillOutcome, read: spillRead },
     hover,
     definition,
+    lspContainment,
+    lspDocumentBound,
     terminal: {
       motd: terminal.motd,
       echo: terminalEcho,
       signal: terminalSignal,
       interrupted,
+      treeCleanup: terminalTreeCleanup,
       scrollback: terminalScrollback.text,
     },
     code,
     hostileOutput,
+    nativeOutput,
+    descriptorOutput,
+    inheritedOutput,
     timedOut,
     aborted,
     oversizedBoot,

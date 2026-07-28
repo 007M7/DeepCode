@@ -453,6 +453,17 @@ describe('E2BFileSystem atomic writes and edits', () => {
     expect(controller.signal.aborted).toBe(true)
   })
 
+  it('returns committed rename metadata without a fallible post-commit lookup', async () => {
+    const remote = new FakeRemote()
+    const getInfo = vi.spyOn(remote.sandbox.files, 'getInfo')
+    const { fs } = await setup(remote)
+
+    await expect(fs.writeText(await fs.resolve('committed'), 'yes'))
+      .resolves.toMatchObject({ operation: 'create' })
+    expect(getInfo).toHaveBeenCalledTimes(1)
+    expect(remote.renames).toHaveLength(1)
+  })
+
   it('cleans staging files and maps command, permission, and abort failures', async () => {
     const remote = new FakeRemote()
     const { fs } = await setup(remote)

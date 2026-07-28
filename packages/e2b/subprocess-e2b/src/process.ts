@@ -253,7 +253,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       try {
         this.remotePid = await this.waitForProcessGroupId(sandbox, completion)
       } catch (error: unknown) {
-        await Promise.allSettled([handle.kill()])
+        try {
+          await this.rollbackUnpublishedGroup(sandbox, handle)
+        } catch (cleanupError: unknown) {
+          throw new AggregateError(
+            [error, cleanupError],
+            'subprocess-e2b: process-group publication failed and rollback did not reach quiescence',
+          )
+        }
         throw error
       }
       this.readyState.resolve(handle)
@@ -359,6 +366,19 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       }
       throw error
     }
+  }
+
+  private async rollbackUnpublishedGroup(sandbox: Sandbox, handle: CommandHandle): Promise<void> {
+    // The background command begins with `exec setsid`, so E2B's command PID is
+    // the provisional group id even before the private publication file can be
+    // trusted. Kill that group before the SDK-PID fallback, then prove no group
+    // member survived before rejecting startup.
+    try {
+      await this.signalGroup(sandbox, handle.pid, 'KILL')
+    } finally {
+      await handle.kill().catch(() => false)
+    }
+    while (await this.groupAlive(sandbox, handle.pid)) await waitTick()
   }
 
   private async terminateRemote(): Promise<void> {

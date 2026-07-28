@@ -17,8 +17,22 @@ export const name = 'pty-e2b'
 /** Required shared sandbox owner and PTY registry. */
 export const inject = ['e2b', 'pty']
 
-function terminalEnvironment(spec: PtyBackendSpawnSpec): Record<string, string> {
+const SENSITIVE_ENV_NAME = /KEY|SECRET|TOKEN/i
+
+async function terminalEnvironment(
+  sandbox: Sandbox,
+  spec: PtyBackendSpawnSpec,
+): Promise<Record<string, string>> {
+  const discovered = await sandbox.commands.run(
+    'env -0 | cut -z -d= -f1',
+    spec.signal === undefined ? {} : { signal: spec.signal },
+  )
+  spec.signal?.throwIfAborted()
+  const scrubbed = Object.fromEntries(discovered.stdout.split('\0')
+    .filter(name => name.startsWith('DSH_') || SENSITIVE_ENV_NAME.test(name))
+    .map(name => [name, '']))
   return {
+    ...scrubbed,
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
@@ -29,6 +43,20 @@ function terminalEnvironment(spec: PtyBackendSpawnSpec): Record<string, string> 
     DSH_SESSION_ID: spec.owner.id,
     DSH_PTY_SESSION_ID: spec.sessionId,
   }
+}
+
+async function resolveTerminalSessionId(sandbox: Sandbox, pid: number, signal?: AbortSignal): Promise<number> {
+  const result = await sandbox.commands.run(
+    `ps -o sid= -p ${pid}`,
+    signal === undefined ? {} : { signal },
+  )
+  signal?.throwIfAborted()
+  const raw = result.stdout.trim()
+  const sessionId = Number(raw)
+  if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(sessionId)) {
+    throw new Error(`pty-e2b: cannot resolve process session for E2B PTY ${pid}`)
+  }
+  return sessionId
 }
 
 /** E2B backend registered under the configured terminal type. */
@@ -57,7 +85,7 @@ export class E2BPtyBackend implements PtyBackend {
       rows: this.config.rows,
       cols: this.config.cols,
       cwd: posix.resolve(this.ctx.e2b.cwd, spec.cwd ?? this.ctx.e2b.cwd),
-      envs: terminalEnvironment(spec),
+      envs: await terminalEnvironment(sandbox, spec),
       timeoutMs: 0,
       ...spec.signal === undefined ? {} : { signal: spec.signal },
       onData: (data) => {
@@ -69,7 +97,15 @@ export class E2BPtyBackend implements PtyBackend {
       await handle.kill().catch(() => false)
       throw new Error(`pty-e2b: E2B returned invalid PTY pid ${handle.pid}`)
     }
-    const session = new E2BPtySession(sandbox, handle, this.config)
+    let terminalSessionId: number
+    try {
+      terminalSessionId = await resolveTerminalSessionId(sandbox, handle.pid, spec.signal)
+    } catch (error: unknown) {
+      await handle.kill().catch(() => false)
+      await Promise.allSettled([handle.wait()])
+      throw error
+    }
+    const session = new E2BPtySession(sandbox, handle, terminalSessionId, this.config)
     created.session = session
     try {
       const initializing = session.initialize(spec.signal)

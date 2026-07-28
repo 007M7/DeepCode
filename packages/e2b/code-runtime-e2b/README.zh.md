@@ -19,7 +19,7 @@
 
 ## 执行与桥接契约
 
-设置阶段会在 `ctx.e2b.runtimeRoot` 下上传一个无依赖的 runner，并解析远程 Node。每次运行时，宿主会包装仅使用可擦除语法的 TypeScript，再用 Node 的 `stripTypeScriptTypes` 剥离类型，然后在 `ctx.e2b.cwd` 中启动 runner。runner 会创建一个具有空环境与堆上限的全新 worker 线程，测量事件循环活跃时间，并在一次运行结算后销毁该 worker。每当运行返回结果、超时、中止或因资源释放终止时，系统都会终止外围的 E2B 进程组并等待其退出，因此组内的普通子进程会随本次运行一同停止。
+设置阶段会在 `ctx.e2b.runtimeRoot` 下上传一个无依赖的 runner，并解析远程 Node。每次运行时，宿主会包装仅使用可擦除语法的 TypeScript，再用 Node 的 `stripTypeScriptTypes` 剥离类型，然后在 `ctx.e2b.cwd` 中启动 runner。runner 会把面向宿主的分帧协议保留在 launcher 进程内，派生一个以 stdout 和 stderr 作为有界数据管道的 controller，再创建一个具有空环境与堆上限的全新 worker 线程。因此，模型对原生描述符的写入和继承的子进程输出无法进入分帧流；worker 与 controller 管道会在发出终结帧前排空。worker 会测量事件循环活跃时间，并在一次运行结算后销毁。每当运行返回结果、超时、中止或因资源释放终止时，系统都会终止外围的 E2B 进程组并等待其退出，因此组内的普通子进程会随本次运行一同停止。
 
 由于 E2B 进程管理回调公开的是已解码文本，桥接层使用经过验证、以换行分隔的 base64 JSON 帧。绑定参数与 resolve 值使用 worker 运行时的迭代式无损 JSON wire 形状；绑定函数在宿主执行，类型化的 reject 类则在远程 worker 内物化。worker 会在模型代码运行前捕获其适配器边界调用的 JavaScript intrinsic，从而增强绑定传输、输出记账与完成值验证对这些引用修改的抵御能力。宿主会再次执行消息验证、调用 id 去重和无损 JSON 检查，并用外层输出账本再次计量。
 

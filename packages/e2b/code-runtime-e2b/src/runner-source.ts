@@ -2,9 +2,11 @@
 
 /** Node program that runs one model program in a fresh remote worker thread. */
 export const CODE_RUNNER_SOURCE = String.raw`import { Buffer } from 'node:buffer'
+import { fork } from 'node:child_process'
 import { inspect } from 'node:util'
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 
 const emitFrame = message => {
   process.stdout.write(Buffer.from(JSON.stringify(message)).toString('base64') + '\n')
@@ -12,23 +14,140 @@ const emitFrame = message => {
 
 const parseFrame = line => JSON.parse(Buffer.from(line, 'base64').toString('utf8'))
 
-if (isMainThread) {
+const waitForPipeDrain = stream => {
+  if (stream.readableEnded || stream.destroyed) return Promise.resolve()
+  return new Promise(resolve => {
+    const done = () => {
+      stream.off('end', done)
+      stream.off('close', done)
+      stream.off('error', done)
+      resolve()
+    }
+    stream.once('end', done)
+    stream.once('close', done)
+    stream.once('error', done)
+    if (stream.readableEnded || stream.destroyed) done()
+  })
+}
+
+const waitForChildExit = child => {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise(resolve => { child.once('exit', resolve) })
+}
+
+const jsonStringBytes = text => Buffer.byteLength(JSON.stringify(text))
+
+const truncateLog = (text, available) => {
+  if (available < 2) return ''
+  let result = ''
+  let bytes = 2
+  for (const character of text) {
+    const cost = jsonStringBytes(character) - 2
+    if (bytes + cost > available) break
+    bytes += cost
+    result += character
+  }
+  return result
+}
+
+const runLauncher = () => {
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity })
-  let worker
-  let finished = false
-  let computeTimer
+  let controller
+  let maxOutputBytes = 0
+  let logBytes = 2
+  let logEntries = 0
+  let settling = false
+  let closed = false
+  let terminal
+
   const finish = message => {
-    if (finished) return
-    finished = true
-    clearInterval(computeTimer)
-    emitFrame(message)
-    const current = worker
-    worker = undefined
-    Promise.resolve(current ? current.terminate() : undefined).finally(() => {
+    if (settling) {
+      if (message.type === 'output-limit') terminal = message
+      return
+    }
+    settling = true
+    terminal = message
+    const current = controller
+    controller = undefined
+    const drain = current
+      ? new Promise(resolve => { setImmediate(resolve) }).then(async () => {
+          const stdoutDrained = waitForPipeDrain(current.stdout)
+          const stderrDrained = waitForPipeDrain(current.stderr)
+          const exited = waitForChildExit(current)
+          current.kill('SIGKILL')
+          await Promise.all([exited, stdoutDrained, stderrDrained])
+        })
+      : Promise.resolve()
+    void drain.catch(error => {
+      process.stderr.write('code-runtime-e2b controller cleanup error: ' + String(error) + '\n')
+    }).then(() => {
+      closed = true
+      emitFrame(terminal)
       input.close()
       process.stdin.destroy()
     })
   }
+
+  const forwardLog = text => {
+    if (closed || terminal?.type === 'output-limit') return
+    const separator = logEntries > 0 ? 1 : 0
+    const available = maxOutputBytes - logBytes - separator
+    const cost = jsonStringBytes(text)
+    if (cost > available) {
+      const prefix = truncateLog(text, available)
+      if (prefix) {
+        logBytes += jsonStringBytes(prefix) + separator
+        logEntries += 1
+        emitFrame({ type: 'log', text: prefix })
+      }
+      finish({ type: 'output-limit' })
+      return
+    }
+    logBytes += cost + separator
+    logEntries += 1
+    emitFrame({ type: 'log', text })
+  }
+
+  const startController = message => {
+    maxOutputBytes = message.maxOutputBytes
+    controller = fork(fileURLToPath(import.meta.url), [], {
+      env: { DSH_CODE_RUNTIME_CONTROLLER: '1' },
+      execArgv: [],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    })
+    const current = controller
+    current.stdout.on('data', data => { forwardLog(data.toString('utf8')) })
+    current.stderr.on('data', data => { forwardLog(data.toString('utf8')) })
+    current.on('message', raw => {
+      if (!raw || typeof raw !== 'object') return
+      if (raw.type === 'log' && typeof raw.text === 'string') {
+        forwardLog(raw.text)
+        return
+      }
+      if (settling) return
+      if (raw.type === 'call' && typeof raw.id === 'number' && typeof raw.global === 'string' && typeof raw.name === 'string' && Array.isArray(raw.args)) {
+        emitFrame({ type: 'call', id: raw.id, global: raw.global, name: raw.name, args: raw.args })
+      } else if (raw.type === 'output-limit') {
+        finish({ type: 'output-limit' })
+      } else if (raw.type === 'done') {
+        if (raw.error && typeof raw.error === 'object' && typeof raw.error.kind === 'string' && typeof raw.error.message === 'string') {
+          finish({ type: 'done', error: { kind: raw.error.kind, message: raw.error.message } })
+        } else if (raw.value === undefined || Array.isArray(raw.value)) {
+          finish({ type: 'done', ...(raw.value === undefined ? {} : { value: raw.value }) })
+        }
+      }
+    })
+    current.on('error', error => {
+      finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote controller error: ' + error.message } })
+    })
+    current.on('exit', code => {
+      if (!settling) finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote controller exited with code ' + code + ' before completing' } })
+    })
+    current.send(message, error => {
+      if (error) finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote controller boot failed: ' + error.message } })
+    })
+  }
+
   input.on('line', line => {
     let message
     try {
@@ -38,26 +157,77 @@ if (isMainThread) {
       finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote runner received a malformed frame' } })
       return
     }
+    if (!controller) {
+      if (!message || message.type !== 'boot' || typeof message.code !== 'string' || !Array.isArray(message.namespaces) || !Number.isSafeInteger(message.maxOutputBytes) || message.maxOutputBytes < 4) {
+        finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote runner received an invalid boot frame' } })
+        return
+      }
+      startController(message)
+      return
+    }
+    if (message && message.type === 'reply' && typeof message.id === 'number' && typeof message.ok === 'boolean') {
+      controller.send(message.ok
+        ? { type: 'reply', id: message.id, ok: true, value: message.value }
+        : { type: 'reply', id: message.id, ok: false, message: String(message.message) }, error => {
+          if (error) finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote controller reply failed: ' + error.message } })
+        })
+    }
+  })
+  input.on('close', () => { if (controller && !settling) controller.kill('SIGKILL') })
+}
+
+const runController = () => {
+  let worker
+  let finished = false
+  let computeTimer
+  const send = message => {
+    if (process.send) process.send(message)
+  }
+  const finish = message => {
+    if (finished) return
+    finished = true
+    clearInterval(computeTimer)
+    const current = worker
+    worker = undefined
+    const drain = current
+      ? new Promise(resolve => { setImmediate(resolve) }).then(async () => {
+          const stdoutDrained = waitForPipeDrain(current.stdout)
+          const stderrDrained = waitForPipeDrain(current.stderr)
+          await Promise.all([current.terminate(), stdoutDrained, stderrDrained])
+        })
+      : Promise.resolve()
+    void drain.catch(error => {
+      send({ type: 'log', text: 'code-runtime-e2b worker cleanup error: ' + String(error) + '\n' })
+    }).then(() => {
+      if (!process.send) {
+        process.exitCode = 1
+        return
+      }
+      process.send(message, () => { if (process.connected) process.disconnect() })
+    })
+  }
+  process.on('message', message => {
     if (!worker) {
       if (!message || message.type !== 'boot' || typeof message.code !== 'string' || !Array.isArray(message.namespaces)) {
-        finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote runner received an invalid boot frame' } })
+        finish({ type: 'done', error: { kind: 'worker-exit', message: 'remote controller received an invalid boot frame' } })
         return
       }
       worker = new Worker(new URL(import.meta.url), {
         workerData: message,
         env: {},
+        execArgv: [],
         stdout: true,
         stderr: true,
         resourceLimits: { maxOldGenerationSizeMb: message.maxOldGenerationSizeMb },
       })
-      worker.stdout.on('data', data => { emitFrame({ type: 'log', text: data.toString('utf8') }) })
-      worker.stderr.on('data', data => { emitFrame({ type: 'log', text: data.toString('utf8') }) })
+      worker.stdout.on('data', data => { send({ type: 'log', text: data.toString('utf8') }) })
+      worker.stderr.on('data', data => { send({ type: 'log', text: data.toString('utf8') }) })
       worker.on('message', raw => {
         if (!raw || typeof raw !== 'object') return
         if (raw.type === 'call' && typeof raw.id === 'number' && typeof raw.global === 'string' && typeof raw.name === 'string' && Array.isArray(raw.args)) {
-          emitFrame({ type: 'call', id: raw.id, global: raw.global, name: raw.name, args: raw.args })
+          send({ type: 'call', id: raw.id, global: raw.global, name: raw.name, args: raw.args })
         } else if (raw.type === 'log' && typeof raw.text === 'string') {
-          emitFrame({ type: 'log', text: raw.text })
+          send({ type: 'log', text: raw.text })
         } else if (raw.type === 'output-limit') {
           finish({ type: 'output-limit' })
         } else if (raw.type === 'done') {
@@ -88,8 +258,10 @@ if (isMainThread) {
         : { type: 'reply', id: message.id, ok: false, message: String(message.message) })
     }
   })
-  input.on('close', () => { if (worker && !finished) void worker.terminate() })
-} else {
+  process.on('disconnect', () => { if (worker && !finished) void worker.terminate() })
+}
+
+if (!isMainThread) {
   const port = parentPort
   if (!port) throw new Error('remote worker requires parentPort')
 
@@ -456,5 +628,9 @@ if (isMainThread) {
     process.stdout.write = originalStdout
     process.stderr.write = originalStderr
   }
+} else if (process.env.DSH_CODE_RUNTIME_CONTROLLER === '1') {
+  runController()
+} else {
+  runLauncher()
 }
 `

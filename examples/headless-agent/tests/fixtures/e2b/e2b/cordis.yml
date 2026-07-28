@@ -2,7 +2,7 @@
   name: '@deepseek-ai/dsh-e2b'
   config:
     cwd: !!js process.cwd()
-    timeoutMs: 120000
+    timeoutMs: 180000
     onTimeout: kill
     onDispose: kill
 

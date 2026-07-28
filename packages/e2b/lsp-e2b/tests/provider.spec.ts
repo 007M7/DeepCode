@@ -94,11 +94,14 @@ class FakeRemote {
   readonly contents = new Map<string, Uint8Array>()
   readonly realpaths = new Map<string, string>()
   forcedRealpath: string | undefined
+  readerResponse: unknown
+  readerOutput: string | undefined
 
   constructor() {
     this.infos.set('/workspace', { type: FileType.DIR, size: 0 })
     this.infos.set('/workspace/file.ts', { type: FileType.FILE, size: 12 })
     this.contents.set('/workspace/file.ts', Buffer.from('const x = 1'))
+    this.readerResponse = { kind: 'ok', data: Buffer.from('const x = 1').toString('base64') }
   }
 
   readonly sandbox = {
@@ -109,6 +112,9 @@ class FakeRemote {
           const match = /'([^']*)'$/.exec(command)
           const requested = match?.[1] ?? ''
           return { exitCode: 0, stdout: `${this.forcedRealpath ?? this.realpaths.get(requested) ?? requested}\n`, stderr: '' }
+        }
+        if (command.includes('dsh-e2b-source-reader')) {
+          return { exitCode: 0, stdout: this.readerOutput ?? JSON.stringify(this.readerResponse), stderr: '' }
         }
         if (command.startsWith('command -v')) return { exitCode: 0, stdout: '/usr/bin/node\n', stderr: '' }
         return { exitCode: 0, stdout: '', stderr: '' }
@@ -172,16 +178,16 @@ describe('E2B LSP filesystem boundary', () => {
   it('canonicalizes a directory and reads a contained UTF-8 source', async () => {
     const remote = new FakeRemote()
     await expect(canonicalizeE2BWorkspace(remote.sandbox, '/workspace')).resolves.toBe('/workspace')
-    await expect(readE2BSource(remote.sandbox, 'file.ts', '/workspace', 1_024)).resolves.toEqual({
+    await expect(readE2BSource(remote.sandbox, 'file.ts', '/workspace', 1_024, '/usr/bin/node')).resolves.toEqual({
       canonicalPath: '/workspace/file.ts',
       text: 'const x = 1',
     })
-    await expect(readE2BSource(remote.sandbox, '/workspace/file.ts', '/workspace', 1_024)).resolves.toMatchObject({
+    await expect(readE2BSource(remote.sandbox, '/workspace/file.ts', '/workspace', 1_024, '/usr/bin/node')).resolves.toMatchObject({
       canonicalPath: '/workspace/file.ts',
     })
     const signal = new AbortController().signal
     await expect(canonicalizeE2BWorkspace(remote.sandbox, '/workspace', signal)).resolves.toBe('/workspace')
-    await expect(readE2BSource(remote.sandbox, 'file.ts', '/workspace', 1_024, signal)).resolves.toMatchObject({
+    await expect(readE2BSource(remote.sandbox, 'file.ts', '/workspace', 1_024, '/usr/bin/node', signal)).resolves.toMatchObject({
       canonicalPath: '/workspace/file.ts',
     })
   })
@@ -199,25 +205,35 @@ describe('E2B LSP filesystem boundary', () => {
 
     const outside = new FakeRemote()
     outside.realpaths.set('/workspace/file.ts', '/outside/file.ts')
-    await expect(readE2BSource(outside.sandbox, 'file.ts', '/workspace', 20)).rejects.toThrow('outside the workspace')
+    await expect(readE2BSource(outside.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('outside the workspace')
 
     const notFile = new FakeRemote()
-    notFile.infos.set('/workspace/file.ts', { type: FileType.DIR, size: 0 })
-    await expect(readE2BSource(notFile.sandbox, 'file.ts', '/workspace', 20)).rejects.toThrow('not a regular file')
+    notFile.readerResponse = { kind: 'not-file' }
+    await expect(readE2BSource(notFile.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('not a regular file')
 
     const tooLarge = new FakeRemote()
-    tooLarge.infos.set('/workspace/file.ts', { type: FileType.FILE, size: 21 })
-    await expect(readE2BSource(tooLarge.sandbox, 'file.ts', '/workspace', 20)).rejects.toThrow('over the 20-byte limit')
+    tooLarge.readerResponse = { kind: 'oversize', size: 21 }
+    await expect(readE2BSource(tooLarge.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('over the 20-byte limit')
 
     const grew = new FakeRemote()
-    grew.infos.set('/workspace/file.ts', { type: FileType.FILE, size: 1 })
-    grew.contents.set('/workspace/file.ts', Buffer.alloc(21))
-    await expect(readE2BSource(grew.sandbox, 'file.ts', '/workspace', 20)).rejects.toThrow('grew past')
+    grew.readerResponse = { kind: 'grew' }
+    await expect(readE2BSource(grew.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('grew past')
 
     const invalid = new FakeRemote()
-    invalid.infos.set('/workspace/file.ts', { type: FileType.FILE, size: 1 })
-    invalid.contents.set('/workspace/file.ts', Uint8Array.from([0xff]))
-    await expect(readE2BSource(invalid.sandbox, 'file.ts', '/workspace', 20)).rejects.toThrow('not valid UTF-8')
+    invalid.readerResponse = { kind: 'ok', data: Buffer.from([0xff]).toString('base64') }
+    await expect(readE2BSource(invalid.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('not valid UTF-8')
+
+    const swapped = new FakeRemote()
+    swapped.readerResponse = { kind: 'open-error', message: 'ELOOP: symbolic link encountered' }
+    await expect(readE2BSource(swapped.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('opened safely')
+
+    const malformedReader = new FakeRemote()
+    malformedReader.readerResponse = { kind: 'ok', data: '*' }
+    await expect(readE2BSource(malformedReader.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('invalid bounded bytes')
+    malformedReader.readerResponse = { kind: 'oversize', size: 'large' }
+    await expect(readE2BSource(malformedReader.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('invalid response')
+    malformedReader.readerOutput = '{'
+    await expect(readE2BSource(malformedReader.sandbox, 'file.ts', '/workspace', 20, '/usr/bin/node')).rejects.toThrow('invalid response')
 
     await expect(canonicalizeE2BWorkspace(new FakeRemote().sandbox, '/workspace', AbortSignal.abort('stop')))
       .rejects.toBe('stop')

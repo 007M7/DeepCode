@@ -64,10 +64,12 @@ class FakeSandbox {
   readonly commands: string[] = []
   readonly killed: number[] = []
   pgid = '456\n'
+  sessionGroups = [123]
   sendError: unknown
-  commandError: unknown
+  signalError: unknown
   killError: unknown
   onTerm: (() => void) | undefined
+  onGroupKill: (() => void) | undefined
   onKill: (() => void) | undefined
 
   readonly sandbox = {
@@ -86,13 +88,19 @@ class FakeSandbox {
     commands: {
       run: async (command: string): Promise<CommandResult> => {
         this.commands.push(command)
-        if (this.commandError !== undefined) {
-          const error = this.commandError
-          this.commandError = undefined
-          throw error
+        if (command.startsWith('ps -o tpgid')) return { exitCode: 0, stdout: this.pgid, stderr: '' }
+        if (command.startsWith('ps -eo sid=')) {
+          return { exitCode: 0, stdout: this.sessionGroups.map(value => `${value}\n`).join(''), stderr: '' }
         }
-        if (command.startsWith('ps ')) return { exitCode: 0, stdout: this.pgid, stderr: '' }
-        if (command.startsWith('kill -TERM')) this.onTerm?.()
+        if (command.startsWith('kill -')) {
+          if (this.signalError !== undefined) {
+            const error = this.signalError
+            this.signalError = undefined
+            throw error
+          }
+          if (command.startsWith('kill -TERM')) this.onTerm?.()
+          if (command.startsWith('kill -KILL')) this.onGroupKill?.()
+        }
         return { exitCode: 0, stdout: '', stderr: '' }
       },
     },
@@ -122,7 +130,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config({ maxReadBytes: 12 }))
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config({ maxReadBytes: 12 }))
     expect(session.read({})).toMatchObject({ text: '', totalLines: 0 })
     await initialize(session)
     expect(session.motd).toBe('dsh> ')
@@ -152,7 +160,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     await initialize(session)
 
     const inferred = session.startSend({ text: '', submit: false })
@@ -176,7 +184,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
     expect(() => session.startSend({ text: '', submit: false })).toThrow('has exited')
 
     const startupHandle = new FakePtyHandle()
-    const startup = new E2BPtySession(fake.sandbox, startupHandle.asHandle(), config())
+    const startup = new E2BPtySession(fake.sandbox, startupHandle.asHandle(), 123, config())
     const timedOut = expect(startup.initialize()).rejects.toThrow('startup timeout')
     await vi.advanceTimersByTimeAsync(100)
     await timedOut
@@ -186,7 +194,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     const initializing = session.initialize()
     session.onData(Buffer.from('\x1b]133;D;0\x07'))
     await vi.advanceTimersByTimeAsync(20)
@@ -230,7 +238,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     await initialize(session)
 
     const controller = new AbortController()
@@ -268,7 +276,7 @@ describe('E2BPtySession readiness, output, and signals', () => {
   it('preserves startup abort reasons and classifies invalid UTF-8 transport failures', async () => {
     const fake = new FakeSandbox()
     const abortHandle = new FakePtyHandle()
-    const abortSession = new E2BPtySession(fake.sandbox, abortHandle.asHandle(), config())
+    const abortSession = new E2BPtySession(fake.sandbox, abortHandle.asHandle(), 123, config())
     const controller = new AbortController()
     const reason = new Error('startup cancelled')
     const initializing = abortSession.initialize(controller.signal)
@@ -277,20 +285,20 @@ describe('E2BPtySession readiness, output, and signals', () => {
     await rejected
 
     const invalidHandle = new FakePtyHandle()
-    const invalid = new E2BPtySession(fake.sandbox, invalidHandle.asHandle(), config())
+    const invalid = new E2BPtySession(fake.sandbox, invalidHandle.asHandle(), 123, config())
     const pending = invalid.startSend({ text: '', submit: false })
     invalid.onData(Uint8Array.from([0xff]))
     await expect(pending.done).rejects.toThrow('invalid UTF-8')
     expect(invalid.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
 
     const crashHandle = new FakePtyHandle()
-    const crashed = new E2BPtySession(fake.sandbox, crashHandle.asHandle(), config())
+    const crashed = new E2BPtySession(fake.sandbox, crashHandle.asHandle(), 123, config())
     const active = crashed.startSend({ text: '', submit: false })
     crashHandle.crash('transport gone')
     await expect(active.done).rejects.toEqual(new Error('transport gone'))
 
     const startupExitHandle = new FakePtyHandle()
-    const startupExit = new E2BPtySession(fake.sandbox, startupExitHandle.asHandle(), config())
+    const startupExit = new E2BPtySession(fake.sandbox, startupExitHandle.asHandle(), 123, config())
     const exitedDuringStartup = expect(startupExit.initialize()).rejects.toThrow('exited during startup')
     startupExitHandle.exit(7)
     await exitedDuringStartup
@@ -300,12 +308,12 @@ describe('E2BPtySession readiness, output, and signals', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const tinyHandle = new FakePtyHandle()
-    const tiny = new E2BPtySession(fake.sandbox, tinyHandle.asHandle(), config({ maxReadBytes: 1 }))
+    const tiny = new E2BPtySession(fake.sandbox, tinyHandle.asHandle(), 123, config({ maxReadBytes: 1 }))
     tiny.onData(Buffer.from('你'))
     expect(tiny.read({ count: 1 })).toMatchObject({ text: '', lineEnd: 0 })
 
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     const operation = session.startSend({ text: '', submit: false })
     const internal = session as unknown as {
       pollReadiness(operation: PtySendOperation): void
@@ -324,8 +332,8 @@ describe('E2BPtySession teardown', () => {
     vi.useFakeTimers()
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    fake.onTerm = () => { handle.failExit(143) }
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    fake.onTerm = () => { fake.sessionGroups = []; handle.failExit(143) }
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     const first = session.close('done')
     expect(session.close('again')).toBe(first)
     await first
@@ -334,63 +342,100 @@ describe('E2BPtySession teardown', () => {
     expect(() => session.startSend({ text: '', submit: false })).toThrow('closing')
   })
 
+  it('escalates every job-control group that survives shell exit', async () => {
+    vi.useFakeTimers()
+    const fake = new FakeSandbox()
+    fake.sessionGroups = [123, 456]
+    const handle = new FakePtyHandle()
+    fake.onTerm = () => { fake.sessionGroups = [456]; handle.failExit(143) }
+    fake.onGroupKill = () => { fake.sessionGroups = [] }
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
+
+    const closing = session.close('tree cleanup')
+    await vi.advanceTimersByTimeAsync(100)
+    await closing
+
+    expect(fake.commands).toContain('kill -TERM -- -123 -456')
+    expect(fake.commands).toContain('kill -KILL -- -456')
+  })
+
   it('contains an already-gone TERM, escalates to KILL, and reports a survivor', async () => {
     vi.useFakeTimers()
     const gone = new FakeSandbox()
     const goneHandle = new FakePtyHandle()
-    gone.commandError = commandError(1)
+    gone.signalError = commandError(1)
+    gone.onGroupKill = () => { gone.sessionGroups = [] }
     gone.onKill = () => { goneHandle.failExit(137) }
-    const goneSession = new E2BPtySession(gone.sandbox, goneHandle.asHandle(), config())
+    const goneSession = new E2BPtySession(gone.sandbox, goneHandle.asHandle(), 123, config())
     const closingGone = goneSession.close('gone')
-    await vi.advanceTimersByTimeAsync(20)
+    await vi.advanceTimersByTimeAsync(100)
     await closingGone
     expect(gone.killed).toEqual([123])
     expect(goneSession.status()).toEqual({ kind: 'exited', exitCode: null, signal: 'SIGKILL' })
 
     const survivor = new FakeSandbox()
     const survivorHandle = new FakePtyHandle()
-    const survivorSession = new E2BPtySession(survivor.sandbox, survivorHandle.asHandle(), config())
-    const failed = expect(survivorSession.close('still alive')).rejects.toThrow('surviving pid: 123')
-    await vi.advanceTimersByTimeAsync(40)
+    const survivorSession = new E2BPtySession(survivor.sandbox, survivorHandle.asHandle(), 123, config())
+    const failed = expect(survivorSession.close('still alive')).rejects.toThrow('surviving process groups: 123')
+    await vi.advanceTimersByTimeAsync(100)
     await failed
     survivorHandle.exit()
+    survivor.sessionGroups = []
     await expect(survivorSession.close('retry')).resolves.toBeUndefined()
   })
 
   it('propagates cleanup transport failures and lets close retry', async () => {
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    fake.commandError = new Error('TERM transport failed')
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    fake.signalError = new Error('TERM transport failed')
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     await expect(session.close('failure')).rejects.toThrow('TERM transport failed')
     handle.exit()
+    fake.sessionGroups = []
     await expect(session.close('retry')).resolves.toBeUndefined()
 
     const invalidTailHandle = new FakePtyHandle()
-    const invalidTail = new E2BPtySession(fake.sandbox, invalidTailHandle.asHandle(), config())
+    const invalidTail = new E2BPtySession(fake.sandbox, invalidTailHandle.asHandle(), 123, config())
     invalidTail.onData(Uint8Array.from([0xe2]))
     invalidTailHandle.exit()
     await expect(invalidTail.close('invalid tail')).rejects.toThrow('invalid UTF-8')
 
     const normalHandle = new FakePtyHandle()
     normalHandle.disconnectError = new Error('disconnect raced')
-    const normal = new E2BPtySession(fake.sandbox, normalHandle.asHandle(), config())
+    const normal = new E2BPtySession(fake.sandbox, normalHandle.asHandle(), 123, config())
     normalHandle.exit(7)
     await Promise.resolve()
     expect(normal.status()).toEqual({ kind: 'exited', exitCode: 7, signal: null })
     await expect(normal.close('already exited')).resolves.toBeUndefined()
   })
 
+  it('rejects invalid session groups and a shell handle that survives SDK kill', async () => {
+    const invalid = new FakeSandbox()
+    invalid.sessionGroups = [1]
+    const invalidSession = new E2BPtySession(invalid.sandbox, new FakePtyHandle().asHandle(), 123, config())
+    await expect(invalidSession.close('invalid group')).rejects.toThrow('invalid process group')
+
+    vi.useFakeTimers()
+    const survivor = new FakeSandbox()
+    survivor.sessionGroups = []
+    const survivorHandle = new FakePtyHandle()
+    const survivorSession = new E2BPtySession(survivor.sandbox, survivorHandle.asHandle(), 123, config())
+    const failed = expect(survivorSession.close('shell survived')).rejects.toThrow('surviving pid: 123')
+    await vi.advanceTimersByTimeAsync(100)
+    await failed
+    expect(survivor.killed).toEqual([123])
+  })
+
   it('kills a remotely live PTY after its host transport fails', async () => {
     const fake = new FakeSandbox()
     const handle = new FakePtyHandle()
-    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), config())
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
     const active = session.startSend({ text: '', submit: false })
     session.onData(Uint8Array.from([0xff]))
     await expect(active.done).rejects.toThrow('invalid UTF-8')
     expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
 
-    fake.onTerm = () => { handle.failExit(143) }
+    fake.onTerm = () => { fake.sessionGroups = []; handle.failExit(143) }
     await expect(session.close('transport failed')).rejects.toThrow('invalid UTF-8')
     expect(fake.commands).toContain('kill -TERM -- -123')
     expect(handle.disconnects).toBe(1)
