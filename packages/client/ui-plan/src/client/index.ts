@@ -23,7 +23,7 @@ export interface PlanModeControlInjected {
    * @param active - whether plan mode should be active from the next boundary.
    * @returns null on admitted execution; a user-visible failure line otherwise.
    */
-  setPlanMode(active: boolean): Promise<string | null>
+  setPlanMode: (active: boolean) => Promise<string | null>
 }
 
 /**

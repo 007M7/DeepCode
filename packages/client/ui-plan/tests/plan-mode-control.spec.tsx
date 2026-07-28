@@ -34,7 +34,7 @@ describe('PlanModeControl', () => {
     cleanup()
     setup({ active: false, pending: false })
     expect(screen.getByTitle('当前为默认模式')).toBeTruthy()
-    const select = screen.getByRole('combobox', { name: '协作模式' }) as HTMLSelectElement
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: '协作模式' })
     expect(select.value).toBe('default')
     expect(document.getElementById(select.getAttribute('aria-describedby') ?? '')?.textContent)
       .toBe('当前为默认模式')
@@ -49,7 +49,7 @@ describe('PlanModeControl', () => {
     cleanup()
     setup({ active: true, pending: true })
     expect(screen.getByText('默认 · 待生效')).toBeTruthy()
-    const defaultSelect = screen.getByRole('combobox') as HTMLSelectElement
+    const defaultSelect = screen.getByRole<HTMLSelectElement>('combobox')
     expect(defaultSelect.value).toBe('default')
     expect(document.getElementById(defaultSelect.getAttribute('aria-describedby') ?? '')?.textContent)
       .toBe('当前为计划模式；默认模式将在下一次模型请求时生效')
@@ -59,7 +59,7 @@ describe('PlanModeControl', () => {
     let resolve!: (value: string | null) => void
     const setPlanMode = vi.fn(() => new Promise<string | null>((done) => { resolve = done }))
     const { store } = setup({ active: false, pending: false }, setPlanMode)
-    const select = screen.getByRole('combobox', { name: '协作模式' }) as HTMLSelectElement
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: '协作模式' })
     expect(select.disabled).toBe(false)
     fireEvent.change(select, { target: { value: 'plan' } })
     expect(setPlanMode).toHaveBeenCalledWith(true)
@@ -69,7 +69,7 @@ describe('PlanModeControl', () => {
     store.set({ value: { active: false, pending: true } })
     resolve(null)
     await waitFor(() => {
-      expect((screen.getByRole('combobox') as HTMLSelectElement).disabled).toBe(false)
+      expect(screen.getByRole<HTMLSelectElement>('combobox').disabled).toBe(false)
     })
     expect(screen.getByText('计划 · 待生效')).toBeTruthy()
     // Re-selecting the effective target is a no-op.
@@ -79,7 +79,7 @@ describe('PlanModeControl', () => {
 
   it('disables under the locked owner prop', () => {
     setup({ active: false, pending: false }, vi.fn(), true)
-    expect((screen.getByRole('combobox') as HTMLSelectElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLSelectElement>('combobox').disabled).toBe(true)
   })
 
   it('surfaces admission and transport failures without changing the confirmed mode', async () => {
@@ -94,7 +94,7 @@ describe('PlanModeControl', () => {
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'plan' } })
     expect(await screen.findByTitle('network down')).toBeTruthy()
-    expect((screen.getByRole('combobox') as HTMLSelectElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLSelectElement>('combobox').disabled).toBe(false)
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'plan' } })
     expect(await screen.findByTitle('socket closed')).toBeTruthy()

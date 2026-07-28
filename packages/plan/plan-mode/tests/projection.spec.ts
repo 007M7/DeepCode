@@ -42,7 +42,7 @@ async function harness(withPlanMode: boolean): Promise<Bench> {
   return {
     ctx,
     session,
-    values: () => ctx.sessionProjections.snapshot(session).values as Record<string, unknown>,
+    values: () => ctx.sessionProjections.snapshot(session).values,
   }
 }
 
@@ -124,7 +124,7 @@ describe('plan projection unit', () => {
     const cold = await harness(true)
     for (const event of bench.session.events) {
       if (event.type === 'command/run' || event.type === 'plan/mode') {
-        cold.session.append(event.type, event.data as never)
+        cold.session.append(event.type, event.data)
       }
     }
     expect(cold.values().plan).toEqual({ active: false, pending: true })

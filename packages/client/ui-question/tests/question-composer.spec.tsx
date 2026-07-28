@@ -119,7 +119,7 @@ describe('QuestionComposer', () => {
           detail: '# 实施计划\n\n- **先验证**现状\n- 修改 `QuestionComposer`',
           options: [{ label: '批准' }],
         }],
-      } as PendingWait<'question'>['payload'],
+      },
       vi.fn(),
     )
     const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)

@@ -314,7 +314,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
   for (const event of log) {
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
-      wanted = String(item.data['args'] ?? '').trim() !== 'off'
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
