@@ -1,6 +1,7 @@
+import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -45,7 +46,12 @@ describe('agent status invariants', () => {
 })
 
 describe('agent inbox invariants', () => {
-  const info = () => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const } })
+  const info = () => freezeMessage({
+    id: MessageId('m'),
+    role: 'user' as const,
+    content: [],
+    source: { kind: 'user' as const },
+  })
 
   it('accepts a dequeue and a discard covered by prior enqueues', async () => {
     const ctx = await setup()
@@ -54,7 +60,7 @@ describe('agent inbox invariants', () => {
     expect(() => {
       ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'queued')
       ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'steering')
-      ctx.emit(at, 'agent/inbox/dequeue', agent, info())
+      ctx.emit(at, 'agent/inbox/dequeue', agent, info(), 'queued')
       ctx.emit(at, 'agent/inbox/discard', agent, [info()])
     }).not.toThrow()
   })
@@ -62,7 +68,7 @@ describe('agent inbox invariants', () => {
   it('rejects a dequeue with no outstanding item', async () => {
     const ctx = await setup()
     const agent = mockAgent('i2')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info()) })
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info(), 'queued') })
       .toThrow(/without a matching prior enqueue/)
   })
 

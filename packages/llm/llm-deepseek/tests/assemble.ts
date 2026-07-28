@@ -20,14 +20,12 @@ export async function assemble(ctx: Context, options: Omit<GenerateOptions, 'pro
   const request = { provider: 'deepseek', ...options }
   for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
   return {
-    message: {
-      ...assembler.message(),
-      provenance: {
-        provider: request.provider,
-        model: request.model,
-        ...assembler.replayState === undefined ? {} : { replayState: assembler.replayState },
-      },
-    },
+    message: assembler.message({
+      kind: 'model',
+      provider: request.provider,
+      model: request.model,
+      ...assembler.replayState === undefined ? {} : { replayState: assembler.replayState },
+    }),
     ...assembler.usage !== undefined ? { usage: assembler.usage } : {},
     finish: assembler.finish,
   }

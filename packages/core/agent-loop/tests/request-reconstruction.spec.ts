@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 /** Assert `previous` is a strict value-prefix of `current`. */
@@ -322,10 +322,10 @@ describe('request stability across the loop', () => {
       preStep()
       const session = agent.session
       const nodes = session.surface.nodes
-      session.append('user/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: '[summary of turn 1]' }],
         source: { kind: 'plugin', plugin: 'test-compact' },
-      }, {
+      }), {
         surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
         sourceEventSeqs: [nodes[0]!, nodes[1]!],
       })
@@ -374,7 +374,7 @@ describe('request stability across the loop', () => {
     ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!injected) {
         injected = true
-        agent.inject({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
       return next()
     })
@@ -405,7 +405,10 @@ describe('request stability across the loop', () => {
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
-      options.messages.push({ role: 'user', content: [{ type: 'text', text: 'sneaky' }] })
+      options.messages.push(createUserMessage({
+        content: [{ type: 'text', text: 'sneaky' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
       return next()
     })
 

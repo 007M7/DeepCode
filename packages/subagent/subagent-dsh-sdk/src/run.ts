@@ -35,6 +35,8 @@ export interface SdkRunSpec {
   provider: string
   /** Model the child runtime initializes with. */
   model: string
+  /** Optional per-request output-token cap sent in the child runtime's initialize handshake. */
+  maxTokens?: number
   /**
    * Extra environment variables to ADD for the child (e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). Merged after
@@ -126,6 +128,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     cwd: spec.cwd,
     provider: spec.provider,
     model: spec.model,
+    ...spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens },
   })
 
   // Cancellation settles the result without waiting for a cooperative child.
@@ -170,7 +173,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
       partial.push(event.data.chunk.text)
     } else if (event.type === 'assistant/message') {
-      lastMessage = event.data.content
+      lastMessage = event.data.message.content
     }
   }
   const collectOutput = (): ContentBlock[] => {

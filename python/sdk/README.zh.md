@@ -23,12 +23,13 @@ from deepseek_harness import DeepSeekHarness
 with DeepSeekHarness(
     provider="deepseek",
     model="deepseek-v4-flash",
+    max_tokens=49_152,
     cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent 及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
 `HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`TurnResult.notifications` 与 `on_notification` 会按线上的原始顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期与会话事件。`TurnResult.events` 仍只保存根会话的完整事件流，`TurnResult.final_response` 则取该会话最后一个 `assistant/message` 的文本内容，因此后代消息不会覆盖根会话回复。
 

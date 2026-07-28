@@ -28,21 +28,22 @@
 | [`workflow/`](workflow/README.md) | 工作流能力系列：脚本引擎 seam、worker 线程引擎、面向模型的 `workflow` 与新 agent `ralph` 工具 | 产品：稳定表面 |
 | [`web/`](web/README.md) | Web 能力系列：seam、搜索／获取提供方实现和面向模型的 Web 工具 | 产品：稳定表面 |
 | [`spill/`](spill/README.md) | 溢出能力系列：存储 seam、本地实现、工具结果溢出策略 | 产品：稳定表面 |
-| [`todo/`](todo/README.md) | Todo／规划系列：面向模型的 `todo_write` 工具 | 产品：稳定表面 |
+| [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
 | [`timeout/`](timeout/README.md) | 工具调用超时策略：`tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
 | [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 | 产品：稳定表面 |
 | [`cordis/`](cordis/README.md) | 自指运行时工具集：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
-| [`session-persistence/`](session-persistence/README.md) | 持久化能力系列：seam + JSONL/SQLite 后端 | 产品：稳定表面 |
+| [`session-persistence/`](session-persistence/README.md) | 持久化 seam + JSONL/SQLite 后端 | 产品：稳定表面 |
+| [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
-| [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务、共享 LLM 策略和选用提供方 | 产品：稳定表面 |
+| [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务与选用 LLM 提供方 | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
 | [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |
 | [`acp/`](acp/README.md) | 仅面向自动化的 Agent Client Protocol 服务器 | 产品：稳定表面 |
-| [`ui/`](ui/README.md) | 人类／客户端集成：TUI 与 JSON-RPC、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
+| [`ui/`](ui/README.md) | TUI 与 JSON-RPC 集成、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
 | [`examples/`](examples/README.md) | 演示组合包（agent-spine + TUI/CLI/ACP/JSON-RPC bin），由叶节点加载 | 支持：示例基础设施 |
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |

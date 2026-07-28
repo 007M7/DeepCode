@@ -4,8 +4,9 @@
 // Opens the fixture history session and pins the todo_write turn's two
 // surfaces: the dedicated TodoRow in the chat flow (keyed toolview, summary
 // derived from the call args) and the TodoPanel plan strip riding the
-// 'conversation.input.dock' slot (fed by ConversationSnapshot.todos, seeded
-// by the tail history page), including the collapse interaction.
+// 'conversation.input.dock' slot (fed by the host `todos` projection via
+// useProjection, seeded by the tail history page), including the collapse
+// interaction and the next-turn clearance of the standing plan.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -188,4 +189,32 @@ it('collapses the plan strip to the count summary and restores it', async () => 
 
   fireEvent.click(header)
   expect(panel.querySelectorAll('li')).toHaveLength(3)
+})
+
+it('hides the plan strip when the next turn starts', async () => {
+  boot()
+  await openFixtureSession()
+  expect(document.querySelector('[data-testid="todo-panel"]')).not.toBeNull()
+
+  const composer = await screen.findByPlaceholderText('Message the agent', {}, { timeout: 10_000 })
+  fireEvent.change(composer, { target: { value: '下一轮清空计划' } })
+  fireEvent.keyDown(composer, { key: 'Enter' })
+
+  await screen.findByText('下一轮清空计划', { exact: true }, { timeout: 10_000 })
+  await waitFor(() => {
+    expect(document.querySelector('[data-testid="todo-panel"]')).toBeNull()
+  }, { timeout: 10_000 })
+
+  expect({
+    promptVisible: screen.getByText('下一轮清空计划', { exact: true }).textContent,
+    panelGone: document.querySelector('[data-testid="todo-panel"]') === null,
+    // Historical todo_write row stays in the flow; only the dock strip clears.
+    rowStillPresent: document.querySelector('[data-sample="todo-row"]') !== null,
+  }).toMatchInlineSnapshot(`
+    {
+      "panelGone": true,
+      "promptVisible": "下一轮清空计划",
+      "rowStillPresent": true,
+    }
+  `)
 })
