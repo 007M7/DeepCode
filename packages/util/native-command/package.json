@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-host-directory-picker-native",
-  "description": "Native-OS-chooser backend of the directory-picker seam for the DeepSeek Harness web GUI host",
+  "name": "@deepseek-ai/dsh-native-command",
+  "description": "Zero-dependency no-shell execFile runner for host-native OS integrations: utf8 stdio capture, abort propagation, Windows hide",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -26,10 +26,6 @@
     "src"
   ],
   "license": "BSD-3-Clause",
-  "dependencies": {
-    "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
-    "@deepseek-ai/dsh-native-command": "workspace:^"
-  },
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "cordis": "^4.0.0-rc.7"

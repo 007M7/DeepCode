@@ -1,6 +1,6 @@
 /** Cross-platform native single-directory chooser behind the dialog backend's capability. */
 
-import { runNativeCommand, type NativeCommandRunner } from './native-command.ts'
+import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type DirectoryPickerRunner = NativeCommandRunner

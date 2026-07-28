@@ -46,6 +46,7 @@
     { "path": "./vendor/hmr" },
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
+    { "path": "./packages/util/native-command" },
     { "path": "./packages/util/paths" },
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/retention" },
