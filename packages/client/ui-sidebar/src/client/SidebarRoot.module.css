@@ -79,13 +79,19 @@
 
 /* Brand group (figma I133:7632): the full wordmark rides the text ink
    (figma-flows ruling: main-screen instance is black; blue is brand
-   emphasis only). */
+   emphasis only). A button only in behavior (New Session shortcut): the
+   pointer cursor is the sole affordance — no hover chrome on the mark. */
 .brand {
   flex: 1;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   overflow: hidden;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .iconButton {

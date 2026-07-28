@@ -143,8 +143,13 @@ export interface ToolRowOwnerProps {
   toolName: string
   /** Frozen call slice: the running call or the settled result node. */
   block: ToolCallBlock
-  /** Open the details panel for this call (session-level facility, supplied by the view). */
-  openDetails: () => void
+  /** Session workspace root; path summaries display relative to it. */
+  cwd?: string | undefined
+  /**
+   * Open a tool-arg filesystem path with the host OS default application.
+   * The chat view resolves relative paths against the session cwd.
+   */
+  openFile: (path: string) => void
 }
 
 /**
@@ -283,6 +288,11 @@ export type ConversationSessionSlotProps =
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails: (target: SelectionTarget) => void
+  /**
+   * Open a tool-arg filesystem path with the host OS default application
+   * (relative paths resolve against the session cwd).
+   */
+  openFile: (path: string) => void
   loadOlder: () => void
 }
 
@@ -307,6 +317,8 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
+  /** Currently active workspace (renders a trailing check in the picker list). */
+  selectedId?: WorkspaceId | undefined
   onPick: (workspaceId: WorkspaceId) => void
   onClose: () => void
 }

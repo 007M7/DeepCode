@@ -330,11 +330,6 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "OutOfBandSessionEventMap",
-      "source": "packages/core/session/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session.md",
       "symbol": "EpochHeader",
       "source": "packages/core/session/src/types.ts"
     },

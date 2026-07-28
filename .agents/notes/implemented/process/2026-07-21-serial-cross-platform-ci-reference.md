@@ -12,6 +12,8 @@ Encoding the one-minute non-Windows target and three-minute Windows target as jo
 
 Reviewers also need a direct answer to a simpler question: what happens when the repository's complete primary Node CI aggregate runs without matrix selection, shard variables, or concurrent gates on each selected hosted operating system?
 
+Real-kernel sandbox proofs require specific hosted operating systems and architectures but do not provide a pull-request merge verdict. Repeating that four-job matrix for every pull request consumes Linux, arm64 Linux, and macOS capacity without satisfying branch protection or contributing to the required aggregate in another workflow.
+
 ## Decision
 
 [CI](../../../../.github/workflows/ci.yml) gives pull-request and master-push events complementary responsibilities. Pull requests run consolidated Linux and Windows jobs plus the Node compatibility and Python contracts on standard GitHub-hosted capacity. A push to `master` skips those jobs and runs four explicit references: `serial / linux`, `serial / macos`, and `serial / windows` on standard hosted runners, plus `serial / linux (self-hosted standby)` on the in-house `vm-backup` pool — the hot-standby drill that continuously re-proves the failover target described in the [failover runbook](2026-07-26-ci-failover-runbook.md). They intentionally duplicate their short checkout, runtime setup, and immutable install sequences instead of hiding the operating systems behind a matrix or reusable workflow. `workflow_dispatch` is reserved for runner benchmarks.
@@ -22,7 +24,9 @@ Platform ownership remains explicit inside that complete aggregate. `pty-local` 
 
 The macOS reference runs the ordinary Vitest project in forked processes. Node 24 on macOS arm64 has aborted in its CJS lexer from a worker thread; the process boundary contains that external runtime failure without removing any test from the aggregate, while Linux and Windows retain the lower-overhead thread pool. Repository-owned races are fixed at their observation boundaries: dev bundle polling stages each candidate table, graph, and watch-baseline map before publishing a rescan, and a missing bundle remains dirty until a successful content hash. PTY readiness retains a prompt candidate while polling checks foreground ownership; the ordinary silence bound covers inherited markers from interactive children. Real PTY fixtures assemble synchronization tokens at runtime so the interactive shell's input echo cannot satisfy a child-readiness wait. The live-link package-manager e2e preserves the workflow-prepared Corepack home and pnpm metadata/store caches while isolating the other managers' mutable caches, so it does not discard reusable package-manager state before the install.
 
-Master reference jobs are diagnostic and do not participate in the pull request's required `all checks passed` result. A pull request runs only its required jobs; a master push runs only the serial references. Performance is evaluated from completed hosted-job timestamps and reported as a measurement; it is not encoded as a `timeout-minutes` value.
+The standalone [Sandbox](../../../../.github/workflows/sandbox.yml) workflow belongs to the reference side of the same split. Its bwrap, Landlock x64/arm64, and Seatbelt real-kernel matrix runs only after a push to `master`. Those four jobs are diagnostic: they are not branch-protection requirements and do not feed `all checks passed` across workflow files. Pull-request CI still checks sandbox source through its ordinary unit and coverage inventory; the host-kernel and packed-install proofs report after merge.
+
+Master reference jobs are diagnostic and do not participate in the pull request's required `all checks passed` result. The CI and Sandbox workflows keep their cross-platform references on master pushes. Performance is evaluated from completed hosted-job timestamps and reported as a measurement; it is not encoded as a `timeout-minutes` value.
 
 The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, and `windows-2025` labels; `serial / windows` is the one remaining native-Windows job, the complete-kernel oracle behind the Wine-hosted pull-request lane ([Wine lane decision](2026-07-27-wine-windows-gates-experiment.md)). Required pull-request jobs use portable standard capacity under the [required-CI decision](2026-07-23-portable-required-pull-request-ci.md). Higher-core hosted runners remain manual benchmarks because a correctness path must remain runnable without repository-external runner configuration.
 
@@ -31,6 +35,7 @@ The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, a
 - **Set each timeout equal to its latency target** - rejected because scheduling variance would cancel correct work and suppress the evidence needed to diagnose a regression.
 - **Trust only the concurrent primary inventory** - rejected because scheduling and validation share implementation assumptions; a serial aggregate is an independent completeness check.
 - **Run the serial references on every pull request** - rejected because they duplicate complete cross-platform aggregates and add macOS work to every change; the required jobs already execute the blocking Linux and Windows contracts.
+- **Run the real-kernel Sandbox matrix on every pull request** - rejected because its four statuses do not participate in branch protection, while repeated installs, Landlock builds, and macOS unit parity consume runner capacity without changing the merge verdict. The master run retains the platform and installed-launcher signal.
 - **Use one operating-system matrix** - rejected because three named jobs make the reference surface visible without another selection mechanism.
 - **Run the serial reference on larger runners** - rejected because both required CI and its independent reference must remain runnable when organization-owned pools cannot allocate jobs.
 
@@ -39,6 +44,8 @@ The portable reference uses GitHub's standard `ubuntu-latest`, `macos-latest`, a
 The workflow contains duplicated setup steps and a master reference run can take much longer than the optimized pull-request path. That duplication is deliberate: reviewers can inspect each operating system's complete command without resolving a matrix or concurrent scheduler.
 
 The reference may expose platform failures that the optimized blocking set does not yet claim to support, especially on Windows. Such a failure is evidence about current cross-platform behavior rather than a reason to weaken or silently skip the aggregate.
+
+A sandbox regression visible only to a real host kernel or the packed Landlock install can merge before the master run reports it. That post-merge detection window is accepted in exchange for removing four non-blocking jobs from every pull request; the default branch retains the complete signal.
 
 The explicit `pty-local` ownership boundary means Windows does not claim coverage for a backend it cannot load, and forked macOS unit workers cost more process startup time. In return, every supported surface has an honest platform oracle, a native runtime abort cannot erase the rest of the unit result, and timing-sensitive observers start from state established before callers can mutate it.
 

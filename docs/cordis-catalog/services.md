@@ -1321,28 +1321,6 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
- * Append one plugin-declared log-only event without borrowing the agent
- * loop's lifecycle. An open turn receives the event directly and remains
- * responsible for its ordinary checkpoint. A closed log receives one
- * zero-step turn around the event, followed by an awaited flush.
- *
- * Once the synthetic `turn/start` commits, this method always attempts its
- * matching `turn/end` and flush, including when the target append fails.
- * Detachment requested by an event or flush listener is deferred until that
- * sequence settles, so publication cannot switch from a live scoped session
- * to an unobserved bare `Session` halfway through the update.
- *
- * @param session - exact live session that owns the target log.
- * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
- * @param data - typed JSON payload for the target event.
- * @param trigger - plugin-owned turn trigger used only when the log is closed.
- * @returns the accepted target event with its assigned sequence and timestamp.
- * @throws when the session is detached, another out-of-band append is active,
- *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
- */
-async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>
-
-/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -1356,9 +1334,10 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 
 /**
- * Create a live child session from a turn-enclosed prefix of a live source.
+ * Create a live child session from a stable prefix of a live source.
  * `boundary` is an inclusive source event seq; omitted means the source's
- * current last event. A non-empty selected slice must end at `turn/end`.
+ * current last event. The selected slice may end with a between-turn event
+ * but must not end inside an open turn.
  *
  * @param source - Live source session object or id.
  * @param boundary - Inclusive source event seq to fork through; omitted means
@@ -1371,9 +1350,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:613`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1391,7 +1370,7 @@ get(session: Session): SessionTitleSnapshot | undefined
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
- * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+ * @param signal - optional caller cancellation.
  * @returns latest accepted title, or `undefined` when no eligible text exists.
  */
 async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
@@ -1407,7 +1386,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:232`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

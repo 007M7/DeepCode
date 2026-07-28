@@ -7,6 +7,7 @@ import type { ViewTab } from './contract/views.ts'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
+import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { InputHub } from './input/hub.ts'
@@ -166,6 +167,13 @@ export function apply(ctx: Context): void {
         openDetails: (target) => {
           actions.select(target)
           layout.openDetails()
+        },
+        openFile: (path) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+            // Host/OS open failures stay silent in the chat row; the native
+            // app surfaces its own error dialog when the path is unusable.
+          })
         },
         loadOlder: () => { void scoped.loadOlder() },
       }
