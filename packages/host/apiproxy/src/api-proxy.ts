@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
@@ -428,10 +428,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    */
   const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
   ctx.effect(() => {
-    const retire = (agent: Agent, id: MessageId): void => {
+    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
-      const index = entries.findIndex(entry => entry.message.id === id)
+      const index = entries.findIndex(entry =>
+        entry.message.id === id
+        && (placement === undefined || entry.steering === (placement === 'steering')))
       if (index !== -1) entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
     }
@@ -451,8 +453,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           steering,
         })
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage) => {
-        retire(agent, message.id)
+      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
+        retire(agent, message.id, placement)
       }),
       ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
         for (const message of messages) retire(agent, message.id)

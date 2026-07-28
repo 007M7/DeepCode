@@ -294,7 +294,7 @@ export class ReactLoopAgent implements Agent {
     // Published only after the abort owner and pending done are installed: a
     // dequeue listener that cancels or disposes must find live cancellation
     // and quiescence ownership, not the previous activity's settled state.
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message, 'queued')
   }
 
   /**
@@ -639,7 +639,7 @@ export class ReactLoopAgent implements Agent {
     for (const item of this.outbox.splice(0, limit)) {
       if (item.steering) {
         steered = true
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.message)
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.message, 'steering')
         this.session.append(
           'steering/message',
           { turn, message: item.message },

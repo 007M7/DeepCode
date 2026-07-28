@@ -518,11 +518,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen; malformed identified messages reject before any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
         signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with deeply frozen identified messages, so observers cannot mutate message\n * identity/content or backend-owned state. Malformed identified messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -1034,8 +1034,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/inbox/dequeue',
     mode: 'emit',
-    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: UserMessage): void',
-    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/dequeue\'( this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement, ): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message.\n * @param placement - the FIFO that claimed this occurrence; together with\n *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
   },
   {

@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/outbox work is cleared
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:277`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:284`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:391`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:398`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -108,16 +108,18 @@ The driver claimed one item out of the inbox: a queued item at a turn boundary, 
  * boundary, or steering drained between steps. Fires after the item leaves
  * its FIFO and before it becomes a durable message.
  * @param agent - the agent whose inbox item was claimed.
- * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
+ * @param message - the claimed message.
+ * @param placement - the FIFO that claimed this occurrence; together with
+ *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: UserMessage): void
+'agent/inbox/dequeue'( this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement, ): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:257`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discard` — emit
 
@@ -140,7 +142,7 @@ Pending inbox items were dropped without delivering them, so every enqueue occur
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:267`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:274`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -185,7 +187,7 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message or 
 
 Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:304`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -209,7 +211,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:330`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:337`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -239,7 +241,7 @@ Handle a model-request failure after its failed step has closed but before the f
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:349`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:356`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -261,7 +263,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:290`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
 
 ### `agent/settled` — emit
 
@@ -286,7 +288,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:378`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:385`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -330,7 +332,7 @@ Awaited serial checkpoint before EVERY request of a turn is built (the first as 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:317`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:324`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -356,7 +358,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:364`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:371`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

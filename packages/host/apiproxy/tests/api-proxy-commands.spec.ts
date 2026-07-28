@@ -284,8 +284,8 @@ describe('session/queued frames', () => {
     const steering = inboxMessage('m-4', 'x', 'r-1')
     ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
     ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
-    ctx.emit('agent/inbox/dequeue', agent, queued)
-    ctx.emit('agent/inbox/dequeue', agent, steering)
+    ctx.emit('agent/inbox/dequeue', agent, queued, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, steering, 'steering')
 
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(
@@ -293,15 +293,15 @@ describe('session/queued frames', () => {
     expect(frames.filter(f => f.type === 'session/queued')).toHaveLength(0)
   })
 
-  it('retires repeated sends of one message identity by occurrence', async () => {
+  it('retires the matching placement when one message identity is queued and steering', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
     const repeated = inboxMessage('m-repeat', 'same prompt')
     ctx.emit('agent/inbox/enqueue', agent, repeated, 'queued')
-    ctx.emit('agent/inbox/enqueue', agent, repeated, 'queued')
-    ctx.emit('agent/inbox/dequeue', agent, inboxMessage('unknown', 'not queued'))
-    ctx.emit('agent/inbox/dequeue', agent, repeated)
+    ctx.emit('agent/inbox/enqueue', agent, repeated, 'steering')
+    ctx.emit('agent/inbox/dequeue', agent, inboxMessage('unknown', 'not queued'), 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, repeated, 'steering')
 
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(

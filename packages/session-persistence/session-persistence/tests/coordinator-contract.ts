@@ -239,6 +239,65 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('load and inspect return immutable identified-message snapshots', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('immutable-read')
+        const session = ctx.sessions.create(id, { meta: { cwd: WORK } })
+        send(session, oneTurnLog())
+        await ctx.sessions.flush(session)
+
+        for (const snapshot of [
+          await ctx.sessionPersistence.load(id),
+          await ctx.sessionPersistence.inspect(id),
+        ]) {
+          const event = snapshot.events.find(candidate => candidate.type === 'user/message')
+          if (event?.type !== 'user/message') throw new Error('fixture lacks user/message')
+          expect(Object.isFrozen(event.data)).toBe(true)
+          expect(Object.isFrozen(event.data.content)).toBe(true)
+          expect(() => {
+            ;(event.data as { id: string }).id = 'rewritten'
+          }).toThrow(TypeError)
+          expect(() => {
+            ;(event.data.content[0] as { type: 'text'; text: string }).text = 'rewritten'
+          }).toThrow(TypeError)
+        }
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rejects malformed persisted message events before returning them', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('invalid-message-read')
+        await ctx.sessionPersistence.create(meta(id, WORK))
+        await ctx.sessionPersistence.append(id, [{
+          type: 'user/message',
+          seq: 0,
+          time: 1,
+          surfaceOp: 'append',
+          data: {
+            id: 'wrong-role',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'wrong' }],
+            source: { kind: 'user' },
+          },
+        } as unknown as SessionEvent])
+
+        await expect(ctx.sessionPersistence.inspect(id))
+          .rejects.toThrow('message must have role "user"')
+        await expect(ctx.sessionPersistence.load(id))
+          .rejects.toThrow('message must have role "user"')
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('append snapshots the batch: mutating the caller array/events after the call is ignored', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

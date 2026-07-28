@@ -1029,6 +1029,8 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
  * open live turn rejects.
  * A coordinator-backed cold load reserves the identity across storage awaits,
  * so concurrent publication of a same-id live Session rejects.
+ * Returned events are detached, and every identified message is deeply
+ * frozen; malformed identified messages reject before any stored event is returned.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
@@ -1038,7 +1040,8 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * Inspect a header and its valid contiguous stored prefix without repairing
  * a torn tail, closing an interrupted turn, or publishing coordinator state.
  * This read is serialized with writes for the same id and returns detached
- * values, so observers cannot mutate backend-owned state.
+ * values with deeply frozen identified messages, so observers cannot mutate message
+ * identity/content or backend-owned state. Malformed identified messages reject.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
@@ -1194,7 +1197,7 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 
 Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:82`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:81`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 
@@ -1373,7 +1376,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:618`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:695`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

@@ -60,7 +60,7 @@ describe('agent inbox invariants', () => {
     expect(() => {
       ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'queued')
       ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'steering')
-      ctx.emit(at, 'agent/inbox/dequeue', agent, info())
+      ctx.emit(at, 'agent/inbox/dequeue', agent, info(), 'queued')
       ctx.emit(at, 'agent/inbox/discard', agent, [info()])
     }).not.toThrow()
   })
@@ -68,7 +68,7 @@ describe('agent inbox invariants', () => {
   it('rejects a dequeue with no outstanding item', async () => {
     const ctx = await setup()
     const agent = mockAgent('i2')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info()) })
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info(), 'queued') })
       .toThrow(/without a matching prior enqueue/)
   })
 

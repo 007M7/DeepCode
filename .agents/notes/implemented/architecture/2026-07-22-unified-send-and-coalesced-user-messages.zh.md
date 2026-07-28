@@ -20,9 +20,9 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **goal 回放靠轮次而非类型来区分。** 一次 goal 状态变更是一条第 0 轮、来源为 goal 的 `user/message`，其 source 携带完整变更；正数轮次则是一条已准入的继续执行提示词。`decodeGoalEvent` 接收一条 `user/message`，并在 goal 状态内容与其类型化 source 不一致时立即报错。
 
-**`send` 返回消息 id。** `send` 及其别名返回完整消息已有的不透明 `MessageId`；消息的创建与冻结由[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)负责，而不是由路由负责。
+**`send` 不返回标识。** 调用方已经持有完整消息及其不透明的 `MessageId`；消息的创建与冻结由[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)负责，而不是由路由负责。
 
-**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都会携带已接受的 `UserMessage`。enqueue 还会单独携带生产方在接受消息时捕获的已解析 `queued | steering` 放置方式，因此观察方和重连镜像永远不必根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括 `agent/turn-stopping` 监听器提交的 steering，因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
+**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都会携带已接受的 `UserMessage`。enqueue 和 dequeue 还会携带生产方在接受消息时捕获的已解析 `queued | steering` 放置方式，因此观察方和重连镜像可以从正确的 FIFO 中结算重复出现的消息标识，无需根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括 `agent/turn-stopping` 监听器提交的 steering，因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
 
 **准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入获准轮次。如果准入被阻止或失败，仅含调用方上下文的批次会采用空闲注入的立即追加行为，而 steering 及与其一同暂存的上下文仍可重试；两种路径都不会写入被拒绝的提示词。后续提示词获准时，保留在 outbox 中的输入会先于该提示词进入其轮次，而当前准入期间接受的输入则留在提示词之后。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
 

@@ -7,6 +7,7 @@ import SessionStore, {
   Session,
   SessionEvent,
   SessionId,
+  snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
@@ -218,6 +219,156 @@ describe('Session', () => {
     } as unknown as SessionEvent
     expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events)
       .toEqual([unrelatedPrimitiveData])
+  })
+
+  it('rejects event-specific malformed message shapes on seed/load', () => {
+    const user = {
+      id: 'user',
+      role: 'user',
+      content: [{ type: 'text', text: 'content' }],
+      source: { kind: 'user' },
+    }
+    const assistant = {
+      id: 'assistant',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'content' }],
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
+    }
+    const tool = {
+      id: 'tool',
+      role: 'user',
+      content: [{
+        type: 'tool-result',
+        toolCallId: 'call',
+        content: [{ type: 'text', text: 'result' }],
+      }],
+      source: { kind: 'tool', callId: 'call' },
+    }
+    const invalid = [
+      {
+        name: 'message record',
+        event: {
+          type: 'user/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: null,
+        },
+        message: 'lacks an identified message',
+      },
+      {
+        name: 'user role',
+        event: {
+          type: 'user/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: { ...user, role: 'assistant' },
+        },
+        message: 'message must have role "user"',
+      },
+      {
+        name: 'source',
+        event: {
+          type: 'user/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: { ...user, source: null },
+        },
+        message: 'message has invalid source',
+      },
+      {
+        name: 'assistant source',
+        event: {
+          type: 'assistant/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: {
+            turn: 1,
+            step: 1,
+            message: { ...assistant, source: { kind: 'user' } },
+          },
+        },
+        message: 'message must have model source',
+      },
+      {
+        name: 'content block',
+        event: {
+          type: 'steering/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: {
+            turn: 1,
+            message: { ...user, content: 'not-an-array' },
+          },
+        },
+        message: 'message has invalid content',
+      },
+      {
+        name: 'tool source',
+        event: {
+          type: 'tool/result', seq: 0, time: 1, surfaceOp: 'append',
+          data: {
+            turn: 1,
+            step: 1,
+            message: { ...tool, source: { kind: 'user' } },
+          },
+        },
+        message: 'message must have tool source',
+      },
+      {
+        name: 'tool tuple',
+        event: {
+          type: 'tool/result', seq: 0, time: 1, surfaceOp: 'append',
+          data: {
+            turn: 1,
+            step: 1,
+            message: { ...tool, content: [{ type: 'text', text: 'not a result' }] },
+          },
+        },
+        message: 'message must contain one tool-result block',
+      },
+      {
+        name: 'tool correlation',
+        event: {
+          type: 'tool/result', seq: 0, time: 1, surfaceOp: 'append',
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              ...tool,
+              source: { kind: 'tool', callId: 'other-call' },
+            },
+          },
+        },
+        message: 'message has mismatched tool call ids',
+      },
+    ] as const
+
+    for (const { name, event, message } of invalid) {
+      expect(
+        () => new Session(SessionId(`invalid-${name}`), [event as unknown as SessionEvent]),
+        name,
+      ).toThrow(message)
+    }
+  })
+
+  it('snapshots message events without validating plugin-owned block details', () => {
+    const boundary = snapshotSessionEvent({
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    })
+    expect(boundary).toEqual({
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    })
+
+    const extended = snapshotSessionEvent({
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      surfaceOp: 'append',
+      data: {
+        id: 'extended-message',
+        role: 'user',
+        content: [{ type: 'plugin-block', value: 1 }],
+        source: { kind: 'plugin-source', value: 1 },
+      },
+    } as unknown as SessionEvent)
+    expect(extended.type === 'user/message' && extended.data.content)
+      .toEqual([{ type: 'plugin-block', value: 1 }])
   })
 
   it('round-trips a non-empty reasoning effort and rejects invalid durable values', () => {

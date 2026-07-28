@@ -248,11 +248,18 @@ declare module 'cordis' {
      * boundary, or steering drained between steps. Fires after the item leaves
      * its FIFO and before it becomes a durable message.
      * @param agent - the agent whose inbox item was claimed.
-     * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
+     * @param message - the claimed message.
+     * @param placement - the FIFO that claimed this occurrence; together with
+     *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: UserMessage): void
+    'agent/inbox/dequeue'(
+      this: Scoped<Agent>,
+      agent: Agent,
+      message: UserMessage,
+      placement: InboxPlacement,
+    ): void
     /**
      * Pending inbox items were dropped without delivering them, so every
      * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR

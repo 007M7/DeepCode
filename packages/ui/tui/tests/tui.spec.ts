@@ -1474,7 +1474,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
           role: 'user',
           content: [{ type: 'text', text }],
           source: { kind: 'user' },
-        }))
+        }), 'steering')
       }
       result.session.append('steering/message', {
         turn: 1,
@@ -1566,13 +1566,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }))
     // Another agent's dequeue/discard, and ones naming no pending id, leave
     // the badge alone.
-    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!)
+    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!, 'steering')
     result.ctx.emit('agent/inbox/dequeue', result.agent, freezeMessage({
       id: MessageId('never-queued'),
       role: 'user',
       content: [{ type: 'text', text: 'x' }],
       source: { kind: 'user' },
-    }))
+    }), 'steering')
     result.ctx.emit('agent/inbox/discard', other, discarded)
     result.ctx.emit('agent/inbox/discard', result.agent, [
       freezeMessage({

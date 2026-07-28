@@ -146,6 +146,33 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   return deepFreeze(record as unknown as SessionHeader)
 }
 
+/**
+ * Detach one event while preserving deep immutability for its identified message.
+ * @param event - event imported across a query or persistence boundary.
+ * @returns a detached event snapshot with a validated, deeply frozen message.
+ */
+export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
+  const snapshot = structuredClone(event)
+  assertMessageEventShape(
+    snapshot,
+    `session event at seq ${snapshot.seq}`,
+  )
+  switch (snapshot.type) {
+    case 'user/message':
+      deepFreeze(snapshot.data)
+      break
+    case 'assistant/message':
+    case 'tool/result':
+    case 'steering/message':
+      deepFreeze(snapshot.data.message)
+      break
+    default:
+      // SessionEventMap is merge-extensible; plugin-owned events carry no core message.
+      break
+  }
+  return snapshot
+}
+
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
@@ -166,13 +193,14 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   assertCurrentTurnEndShape(event, index)
 }
 
-/** Reject obsolete request headers and pre-unification message shapes at the seed/load boundary. */
+/** Reject obsolete request headers and malformed messages at the seed/load boundary. */
 function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
   const data = event['data']
-  if (typeof data !== 'object' || data === null) return
-  const record = data as Record<string, unknown>
+  const record = typeof data === 'object' && data !== null
+    ? data as Record<string, unknown>
+    : undefined
   if (event['type'] === 'request/header') {
-    const header = record['header']
+    const header = record?.['header']
     const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
     const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
@@ -184,11 +212,60 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
     && type !== 'tool/result' && type !== 'steering/message') return
-  const message = type === 'user/message' ? record : record['message']
+  assertMessageEventShape(event, `seed ${type} at index ${index}`)
+}
+
+/** Validate only the event-specific invariants needed to safely replay a message. */
+function assertMessageEventShape(event: Record<string, unknown>, subject: string): void {
+  const type = event['type']
+  if (type !== 'user/message' && type !== 'assistant/message'
+    && type !== 'tool/result' && type !== 'steering/message') return
+  const data = event['data']
+  const record = typeof data === 'object' && data !== null
+    ? data as Record<string, unknown>
+    : undefined
+  const message = type === 'user/message' ? record : record?.['message']
   if (typeof message !== 'object' || message === null
     || typeof (message as Record<string, unknown>)['id'] !== 'string'
     || (message as Record<string, unknown>)['id'] === '') {
-    throw new Error(`seed ${type} at index ${index} lacks an identified message`)
+    throw new Error(`${subject} lacks an identified message`)
+  }
+  const messageRecord = message as Record<string, unknown>
+  const expectedRole = type === 'assistant/message' ? 'assistant' : 'user'
+  if (messageRecord['role'] !== expectedRole) {
+    throw new Error(`${subject} message must have role "${expectedRole}"`)
+  }
+  const source = messageRecord['source']
+  if (typeof source !== 'object' || source === null
+    || typeof (source as Record<string, unknown>)['kind'] !== 'string'
+    || (source as Record<string, unknown>)['kind'] === '') {
+    throw new Error(`${subject} message has invalid source`)
+  }
+  if (!Array.isArray(messageRecord['content'])) {
+    throw new Error(`${subject} message has invalid content`)
+  }
+  const sourceRecord = source as Record<string, unknown>
+  if (type === 'assistant/message') {
+    if (sourceRecord['kind'] !== 'model' || !hasProviderModel(sourceRecord)) {
+      throw new Error(`${subject} message must have model source`)
+    }
+    return
+  }
+  if (type !== 'tool/result') return
+  if (sourceRecord['kind'] !== 'tool'
+    || typeof sourceRecord['callId'] !== 'string'
+    || sourceRecord['callId'] === '') {
+    throw new Error(`${subject} message must have tool source`)
+  }
+  const content = messageRecord['content'] as unknown[]
+  const block = content[0]
+  if (content.length !== 1 || typeof block !== 'object' || block === null
+    || (block as Record<string, unknown>)['type'] !== 'tool-result'
+    || !Array.isArray((block as Record<string, unknown>)['content'])) {
+    throw new Error(`${subject} message must contain one tool-result block`)
+  }
+  if ((block as Record<string, unknown>)['toolCallId'] !== sourceRecord['callId']) {
+    throw new Error(`${subject} message has mismatched tool call ids`)
   }
 }
 

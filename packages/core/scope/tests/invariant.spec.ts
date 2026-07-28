@@ -49,7 +49,7 @@ describe('scoped-dispatch invariants', () => {
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
       'agent/inbox/enqueue': [agent, message, 'queued'],
-      'agent/inbox/dequeue': [agent, message],
+      'agent/inbox/dequeue': [agent, message, 'queued'],
       'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
