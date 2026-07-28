@@ -38,7 +38,12 @@ async function bench() {
   const commands: string[] = []
   let commandResult: { ok: boolean; matched?: boolean } = { ok: true, matched: true }
   const session = (id: SessionId) => ({
-    projections: { get: (key: string) => (key === 'permissions' ? values.get(id) : undefined) },
+    projections: {
+      faceOf: (key: string) => ({
+        getSnapshot: () => (key === 'permissions' ? values.get(id) : undefined),
+        subscribe: () => () => {},
+      }),
+    },
     command: (line: string) => {
       commands.push(line)
       return Promise.resolve(commandResult.ok

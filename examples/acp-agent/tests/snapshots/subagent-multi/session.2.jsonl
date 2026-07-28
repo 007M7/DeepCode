@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"5f49e80c-16fc-42c7-a617-0b6bd0680aa3","createdAt":1783352129662,"cwd":"/tmp/acp-snap-cwd-28z5Of","parentSession":"14dda109-5728-45ba-a002-7db9543fe50e","delegationDepth":1}
+{"type":"session","version":0,"id":"5f49e80c-16fc-42c7-a617-0b6bd0680aa3","createdAt":1783352129662,"cwd":"{{cwd}}","parentSession":"14dda109-5728-45ba-a002-7db9543fe50e","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1783352129662,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352129662,"data":{"content":[{"type":"text","text":"Reply with exactly the word BETA and nothing else."}],"source":{"kind":"user"},"role":"user","id":"804b9ed3-e2ed-495e-9840-8e0f657661fe"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783352129662,"data":{"title":"Reply with exactly the word","messageSeqs":[1],"source":{"kind":"fallback"}}}

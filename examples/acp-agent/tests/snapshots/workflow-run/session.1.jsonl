@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"583a4db2-3350-436c-b4a5-5615fd159052","createdAt":1783600636316,"cwd":"/var/folders/bn/vj1dvck95yd5jh3x4wskflxm0000gn/T/acp-snap-cwd-vdJYjz","parentSession":"3fd7d599-56b1-493a-930d-f1fc5e1556e8","delegationDepth":1}
+{"type":"session","version":0,"id":"583a4db2-3350-436c-b4a5-5615fd159052","createdAt":1783600636316,"cwd":"{{cwd}}","parentSession":"3fd7d599-56b1-493a-930d-f1fc5e1556e8","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1783600636316,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783600636316,"data":{"content":[{"type":"text","text":"Reply with exactly the word WF_CHILD_OK and nothing else."}],"source":{"kind":"user"},"role":"user","id":"660a2954-67fc-4406-8703-189f3c0ee81e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783600636316,"data":{"title":"Reply with exactly the word","messageSeqs":[1],"source":{"kind":"fallback"}}}

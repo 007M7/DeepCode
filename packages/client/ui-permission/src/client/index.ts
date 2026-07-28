@@ -10,7 +10,7 @@
  * the `/permission <preset>` command line, so both surfaces write through
  * one path and the pushed projection frame is the one confirmation.
  */
-import type { ClientContext, Session } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
@@ -19,8 +19,8 @@ import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
 export const inject = ['command', 'sessions']
 
 /** Read one session's current permissions projection value (undefined = capability absent). */
-function selectOf(session: Session | undefined): PermissionSelect | undefined {
-  return session?.projections.get('permissions') as PermissionSelect | undefined
+function selectOf(session: SessionFace | undefined): PermissionSelect | undefined {
+  return session?.projections.faceOf('permissions').getSnapshot() as PermissionSelect | undefined
 }
 
 /** Flatten the projection select into popup rows; `custom` is display state, never a target. */
@@ -43,7 +43,7 @@ function optionsOf(value: PermissionSelect): SelectOption[] {
 export function apply(ctx: ClientContext): void {
   const command = ctx.get('command') as CommandServiceContract
   const sessions = ctx.sessions
-  const sessionFor = (session: ClientSessionContext): Session | undefined =>
+  const sessionFor = (session: ClientSessionContext): SessionFace | undefined =>
     sessions.binding(session.sessionId)?.session
   ctx.effect(() => command.register({
     name: 'permission',

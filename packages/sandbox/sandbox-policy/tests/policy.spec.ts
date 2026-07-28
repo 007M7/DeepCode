@@ -63,6 +63,8 @@ describe('SandboxPolicyService', () => {
       mode: 'read-only',
       workspaceRoot: resolve('/projects/second'),
     })
+    expect(ctx.sandboxPolicy.overrideOf(first)).toBeUndefined()
+    expect(ctx.sandboxPolicy.overrideOf(second)).toBe('read-only')
     expect(ctx.sandboxPolicy.resolve()).toEqual({
       mode: 'workspace-write',
       workspaceRoot: resolve('/fallback'),
