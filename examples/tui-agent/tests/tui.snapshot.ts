@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { scrubRequestHeaders, tokenizeSessionFixtureTmpdir } from '@deepseek-ai/dsh-acp-snapshot'
+import { scrubRequestHeaders, tokenizeSessionFixtureCwd } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -417,13 +417,13 @@ async function writeRecording(scenario: Scenario, result: ScenarioResult): Promi
   await mkdir(dir, { recursive: true })
   await writeFile(
     join(dir, 'session.jsonl'),
-    scrubRequestHeaders(tokenizeSessionFixtureTmpdir(rawSessionLog(result.parent))),
+    scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(result.parent))),
   )
   expect(result.children).toHaveLength(scenario.childSessions ?? 0)
   for (const [index, child] of result.children.entries()) {
     await writeFile(
       join(dir, `session.${index + 1}.jsonl`),
-      scrubRequestHeaders(tokenizeSessionFixtureTmpdir(rawSessionLog(child))),
+      scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(child))),
     )
   }
 }

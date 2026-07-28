@@ -38,7 +38,7 @@ export {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
-  tokenizeSessionFixtureTmpdir,
+  tokenizeSessionFixtureCwd,
   type CwdPathMode,
   type NormalizeContext,
   type NormalizeOptions,

@@ -20,7 +20,7 @@ import {
   refreshFixtureReplacements,
   scrubRequestHeaders,
   stabilizeRefreshLog,
-  tokenizeSessionFixtureTmpdir,
+  tokenizeSessionFixtureCwd,
   type HarvestedLog,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
@@ -239,7 +239,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         await Promise.all(ordered.map(async (log, index) => {
           const file = fixtureFiles(scenario)[index]
           if (file === undefined) throw new Error(`no fixture path for persisted log ${index}`)
-          await writeFile(file, scrubRequestHeaders(tokenizeSessionFixtureTmpdir(log.content)))
+          await writeFile(file, scrubRequestHeaders(tokenizeSessionFixtureCwd(log.content)))
         }))
       }
 
@@ -258,7 +258,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           const existing = expectedContents[index]
           const file = files[index]
           if (existing === undefined || file === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          const stable = scrubRequestHeaders(tokenizeSessionFixtureTmpdir(
+          const stable = scrubRequestHeaders(tokenizeSessionFixtureCwd(
             stabilizeRefreshLog(log.content, existing, replacements, actualContext),
           ))
           await writeFile(file, stable)

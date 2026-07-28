@@ -7,7 +7,7 @@ import {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
-  tokenizeSessionFixtureTmpdir,
+  tokenizeSessionFixtureCwd,
 } from '../src/normalize.ts'
 
 /**
@@ -371,7 +371,7 @@ describe('normalizeSessionLog', () => {
   })
 })
 
-describe('tokenizeSessionFixtureTmpdir', () => {
+describe('tokenizeSessionFixtureCwd', () => {
   it.each([
     {
       name: 'macOS',
@@ -415,25 +415,25 @@ describe('tokenizeSessionFixtureTmpdir', () => {
       '',
     ].join('\n')
 
-    const out = tokenizeSessionFixtureTmpdir(raw)
+    const out = tokenizeSessionFixtureCwd(raw)
     const result = JSON.parse(out.split('\n')[1] as string) as {
       data: { content: { text: string }[] }
     }
     const resultText = (result.data.content[0] as { text: string }).text
 
-    expect(out).toContain('"cwd":"{{tmpdir}}/acp-snap-cwd-abc123"')
-    expect(resultText).toContain('wrote {{tmpdir}}/acp-snap-cwd-abc123/proof.txt')
-    expect(resultText).toContain('alias {{tmpdir}}/acp-snap-cwd-abc123/alias.txt')
-    expect(resultText).toContain('cwd {{tmpdir}}/acp-snap-cwd-abc123. Next')
+    expect(out).toContain('"cwd":"{{cwd}}"')
+    expect(resultText).toContain('wrote {{cwd}}/proof.txt')
+    expect(resultText).toContain('alias {{cwd}}/alias.txt')
+    expect(resultText).toContain('cwd {{cwd}}. Next')
     expect(resultText).toContain(`${context.cwd}-backup`)
     expect(resultText).toContain(`${context.cwd}.backup`)
     expect(resultText).toContain('/tmp/authored.txt')
     expect(resultText).not.toContain(`${reportedCwd}/proof.txt`)
-    expect(tokenizeSessionFixtureTmpdir(out)).toBe(out)
+    expect(tokenizeSessionFixtureCwd(out)).toBe(out)
   })
 
   it('rejects a log without a session cwd', () => {
-    expect(() => tokenizeSessionFixtureTmpdir('')).toThrow(
+    expect(() => tokenizeSessionFixtureCwd('')).toThrow(
       'acp-snapshot: cannot tokenize a cwd without a basename',
     )
   })

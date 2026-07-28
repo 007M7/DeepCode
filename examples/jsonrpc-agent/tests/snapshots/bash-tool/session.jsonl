@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"sdk-snapshot-bash","createdAt":1785097395899,"cwd":"{{tmpdir}}/sdk-snapshot-bash-tool-ywbuab","delegationDepth":0}
+{"type":"session","version":0,"id":"sdk-snapshot-bash","createdAt":1785097395899,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785097395904,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785097395905,"data":{"content":[{"type":"text","text":"Run this exact command with your bash tool, then reply with its stdout only: echo dsh-sdk-proof-7391"}],"source":{"kind":"user"},"role":"user","id":"295507c3-4ba7-4695-a535-73e75046abb3"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785097395907,"data":{"title":"Run this exact command with","messageSeqs":[1],"source":{"kind":"fallback"}}}

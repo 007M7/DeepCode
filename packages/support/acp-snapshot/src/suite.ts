@@ -31,7 +31,7 @@ import {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
-  tokenizeSessionFixtureTmpdir,
+  tokenizeSessionFixtureCwd,
 } from './normalize.ts'
 
 /** The readable system-prompt snapshot beside its owning header pin. */
@@ -1009,7 +1009,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ? (log: string): string => scrubToolSchemas(scrubSystemPrompts(log))
           : scrubRequestHeaders
         const portableFixture = scenario.workspaceParent === undefined
-          ? tokenizeSessionFixtureTmpdir
+          ? tokenizeSessionFixtureCwd
           : (log: string): string => log
         const existingFixtures = REFRESHING
           ? await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))

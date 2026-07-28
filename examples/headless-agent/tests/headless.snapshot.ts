@@ -7,7 +7,7 @@ import {
   refreshFixtureReplacements,
   scrubRequestHeaders,
   stabilizeRefreshLog,
-  tokenizeSessionFixtureTmpdir,
+  tokenizeSessionFixtureCwd,
   type HarvestedLog,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
@@ -261,7 +261,7 @@ describe('headless stream-json snapshots', () => {
             if (existing === undefined || file === undefined) {
               throw new Error(`headless snapshot has no fixture for persisted log ${index}`)
             }
-            const stable = tokenizeSessionFixtureTmpdir(
+            const stable = tokenizeSessionFixtureCwd(
               stabilizeRefreshLog(actual.content, existing, replacements, actualContext),
             )
             await writeFile(file, stable)
@@ -459,7 +459,7 @@ describe('headless stream-json snapshots', () => {
             content: actual.content,
           }
           const replacements = refreshFixtureReplacements([harvested], [expectedSession])
-          expectedSession = tokenizeSessionFixtureTmpdir(
+          expectedSession = tokenizeSessionFixtureCwd(
             stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext),
           )
           await writeFile(ptySessionFixture, expectedSession)

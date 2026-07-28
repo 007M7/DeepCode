@@ -8,7 +8,6 @@
 
 const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
-const TMPDIR = '{{tmpdir}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const EVENT_TIME = '{{eventTime}}'
@@ -188,46 +187,44 @@ function escapeRegExp(value: string): string {
 }
 
 /** Replace any absolute spelling whose final segment is the generated cwd basename. */
-function tokenizeFixtureString(value: string, ctx: NormalizeContext, portableCwd: string, basename: string): string {
-  const exact = replaceCwd(value, ctx, portableCwd)
+function tokenizeFixtureString(value: string, ctx: NormalizeContext, basename: string): string {
+  const exact = replaceCwd(value, ctx, CWD)
   const absoluteCwd = new RegExp(
     String.raw`(?:[A-Za-z]:)?[\\/](?:[^\\/\s<>"]+[\\/])*${escapeRegExp(basename)}`
     + String.raw`(?=$|[\\/\s<>'"()\[\]{},;:!?=])`,
     'g',
   )
-  return exact.replace(absoluteCwd, (match, offset: number) =>
-    exact.slice(0, offset).endsWith(TMPDIR) ? match : portableCwd)
+  return exact.replace(absoluteCwd, CWD)
 }
 
 /** Recursively replace generated-cwd spellings while preserving every other JSON value. */
 function tokenizeFixtureValue(
   value: unknown,
   ctx: NormalizeContext,
-  portableCwd: string,
   basename: string,
 ): unknown {
-  if (typeof value === 'string') return tokenizeFixtureString(value, ctx, portableCwd, basename)
-  if (Array.isArray(value)) return value.map(item => tokenizeFixtureValue(item, ctx, portableCwd, basename))
+  if (typeof value === 'string') return tokenizeFixtureString(value, ctx, basename)
+  if (Array.isArray(value)) return value.map(item => tokenizeFixtureValue(item, ctx, basename))
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [
       key,
-      tokenizeFixtureValue(item, ctx, portableCwd, basename),
+      tokenizeFixtureValue(item, ctx, basename),
     ]))
   }
   return value
 }
 
 /**
- * Store one generated temporary workspace with a platform-neutral root while
- * retaining its run-specific basename and every other session value. The
- * caller opts in only for workspaces created under a platform temporary root;
- * explicitly relocated workspaces keep their real path.
+ * Store one generated workspace as `{{cwd}}` while retaining every other
+ * session value. The caller opts in only for workspaces created under a
+ * platform temporary root; explicitly relocated workspaces keep their real
+ * path.
  *
  * @param rawLog The raw or refresh-stabilized session JSONL fixture.
- * @returns Compact JSONL whose known cwd spellings start with `{{tmpdir}}`.
+ * @returns Compact JSONL whose known cwd spellings become `{{cwd}}`.
  * @throws If a non-empty line is invalid JSON or the session cwd has no basename.
  */
-export function tokenizeSessionFixtureTmpdir(rawLog: string): string {
+export function tokenizeSessionFixtureCwd(rawLog: string): string {
   const lines = rawLog.split('\n')
   const firstLine = lines.find(line => line.trim().length > 0)
   const header = firstLine === undefined ? undefined : JSON.parse(firstLine) as { cwd?: unknown }
@@ -236,11 +233,10 @@ export function tokenizeSessionFixtureTmpdir(rawLog: string): string {
   if (basename === undefined || basename.length === 0) {
     throw new Error('acp-snapshot: cannot tokenize a cwd without a basename')
   }
-  const portableCwd = `${TMPDIR}/${basename}`
   const ctx: NormalizeContext = { sessionIds: [], cwd }
   return lines.map((line) => {
     if (line.trim().length === 0) return line
-    return JSON.stringify(tokenizeFixtureValue(JSON.parse(line), ctx, portableCwd, basename))
+    return JSON.stringify(tokenizeFixtureValue(JSON.parse(line), ctx, basename))
   }).join('\n')
 }
 
