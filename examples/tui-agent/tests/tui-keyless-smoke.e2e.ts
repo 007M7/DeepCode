@@ -219,6 +219,8 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
             '---',
             'name: scripted-skill',
             'description: Keyless PTY proof that the skill command loads a local skill into the conversation.',
+            'disable-model-invocation: true',
+            'user-invocable: true',
             '---',
             '',
             'SCRIPTED SKILL BODY MARKER',

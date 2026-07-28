@@ -49,7 +49,10 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 // Type import also declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { SkillService } from '@deepseek-ai/dsh-skill'
+import {
+  isUserInvocable,
+  type SkillService,
+} from '@deepseek-ai/dsh-skill'
 // Type import declaration-merges the `userInteraction` service onto `Context`;
 // the ask-user-question queue is registered by ./chat/questions.
 import type {} from '@deepseek-ai/dsh-user-interaction'
@@ -969,9 +972,7 @@ export function createTuiChat(
   }
 
   // Skill listing is async while `createTuiChat` is synchronous, so the
-  // completions rebuild once the catalog resolves. Disabled-for-model skills
-  // are absent from `list()`, so they never appear as completions; a user can
-  // still invoke one by typing its exact name.
+  // completions rebuild once the invocation-neutral catalog resolves.
   let skillCommands: SlashCommand[] = []
   const refreshCommandAutocomplete = (): void => {
     const base = new CombinedAutocompleteProvider(
@@ -999,13 +1000,14 @@ export function createTuiChat(
   const loadSkillCommands = (service: SkillService): void => {
     service.list({ cwd, signal: skillAbort.signal }).then(
       (summaries) => {
-        if (disposed || summaries.length === 0) return
+        const invocable = summaries.filter(isUserInvocable)
+        if (disposed || invocable.length === 0) return
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
         // instructions placeholder. `SkillSource` is open-ended; every
         // non-project source (user, custom, bundled, runtime, …) collapses
         // to `(user)`.
-        skillCommands = summaries.map(skill => ({
+        skillCommands = invocable.map(skill => ({
           name: `skill:${skill.name}`,
           description: skill.description,
           argumentHint: skill.source.startsWith('project-') ? '(project)' : '(user)',
@@ -1209,6 +1211,10 @@ export function createTuiChat(
         if (disposed) return
         if (skill === undefined) {
           appendNotice(`Unknown skill: ${name}`, 'warning')
+          return
+        }
+        if (!isUserInvocable(skill)) {
+          appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
           return
         }
         deliver(renderSkillInvocation(skill, instructions))

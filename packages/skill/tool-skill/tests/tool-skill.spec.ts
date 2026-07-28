@@ -143,6 +143,20 @@ describe('dsh-tool-skill', () => {
       provider: 'runtime',
       content: 'A body.',
     })
+    ctx.skills.register({
+      name: 'model-only-skill',
+      description: 'Model-only skill.',
+      invocation: { userInvocable: false },
+      source: 'runtime',
+      content: 'Model-only body.',
+    })
+    ctx.skills.register({
+      name: 'user-only-skill',
+      description: 'User-only skill.',
+      invocation: { disableModelInvocation: true },
+      source: 'runtime',
+      content: 'User-only body.',
+    })
     ctx.on('agent/step', (agent) => {
       agent.inject({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } })
     })
@@ -160,6 +174,7 @@ describe('dsh-tool-skill', () => {
             '',
             '<available_skills>',
             '- `a-skill`: Use {{placeholder}} &lt;safely&gt; &amp; carefully.',
+            '- `model-only-skill`: Model-only skill.',
             '- `z-skill`: Long description Long description Long descript...',
             '</available_skills>',
             '',
@@ -175,12 +190,20 @@ describe('dsh-tool-skill', () => {
     expect(rendered).not.toContain('secret-source')
     expect(rendered).not.toContain('/secret/path')
     expect(rendered).not.toContain('Secret body')
+    expect(rendered).not.toContain('user-only-skill')
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/workspace') }))).not.toContain('<available_skills>')
   })
 
-  it('does not inject a catalog when no skills are available', async () => {
+  it('does not inject a catalog when no model-invocable skills are available', async () => {
     const home = await tempDir('tool-empty-catalog')
     const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'user-only-skill',
+      description: 'User-only skill',
+      invocation: { disableModelInvocation: true },
+      source: 'runtime',
+      content: 'User-only body.',
+    })
 
     expect(await composePrefix(ctx, '/workspace')).toEqual([])
   })
@@ -333,16 +356,25 @@ describe('dsh-tool-skill', () => {
   it('returns isError for unknown, invalid, and model-disabled skills', async () => {
     const home = await tempDir('tool-errors')
     await writeSkill(join(home, '.dsh/skills'), 'hidden-skill', 'Hidden skill', 'Hidden instructions.')
-    await writeFile(join(home, '.dsh/skills/hidden-skill/SKILL.md'), '---\nname: hidden-skill\ndescription: Hidden skill\ndisableModelInvocation: true\n---\n\nHidden instructions.\n')
+    await writeFile(join(home, '.dsh/skills/hidden-skill/SKILL.md'), '---\nname: hidden-skill\ndescription: Hidden skill\ndisable-model-invocation: true\n---\n\nHidden instructions.\n')
     const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'model-only-skill',
+      description: 'Model-only skill',
+      invocation: { userInvocable: false },
+      source: 'runtime',
+      content: 'Model-only instructions.',
+    })
 
     const unknown = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'skill', arguments: { name: 'missing' } })
     const invalid = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
     const disabled = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c3'), name: 'skill', arguments: { name: 'hidden-skill' } })
+    const modelOnly = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c4'), name: 'skill', arguments: { name: 'model-only-skill' } })
 
     expect(unknown.isError).toBe(true)
     expect(invalid.isError).toBe(true)
     expect(disabled.isError).toBe(true)
+    expect(modelOnly.isError).toBe(false)
     const unknownBlock = unknown.content[0]
     if (unknownBlock?.type !== 'text') throw new Error('expected text tool result')
     expect(unknownBlock.text).toContain('skill "missing" is unknown or no longer available')

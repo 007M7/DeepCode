@@ -22,7 +22,7 @@ Execution uses the calling agent's `session.header.cwd` so workspace-sensitive p
 
 Resource guidance resolves only paths or URLs explicitly referenced by the instructions against `resourceBase`; scripts, references, and assets load on demand, and the result does not enumerate a skill directory. Local providers may supply a directory, while remote or embedded providers may supply a URL or opaque loading guidance.
 
-An unresolved name reports that the skill is unknown or no longer available. Invalid names and `disableModelInvocation: true` skills produce distinct error results.
+An unresolved name reports that the skill is unknown or no longer available. Invalid names and skills whose `invocation.disableModelInvocation` is `true` produce distinct error results. `invocation.userInvocable` does not restrict this model-facing surface.
 
 The tool does not call `agent.inject()` in v1. Its result is already recorded as the tool result and becomes available to the next model step without duplicating the content as synthetic context.
 

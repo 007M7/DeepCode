@@ -1434,11 +1434,12 @@ registerProvider(provider: SkillProvider): () => void
 register(skill: SkillRegistration): () => void
 
 /**
- * List model-invocable skill summaries for a workspace. Lookup options and
- * provider candidates are readonly same-process values borrowed throughout
- * discovery.
+ * List invocation-neutral skill summaries for a workspace. Consumers apply
+ * model or user invocation policy at their operational boundary. Lookup
+ * options and provider candidates are readonly same-process values borrowed
+ * throughout discovery.
  * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
- * @returns sorted summaries, excluding skills disabled for model invocation.
+ * @returns all sorted winning summaries.
  */
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 
@@ -1455,7 +1456,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:167`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -1957,7 +1958,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:188`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:191`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

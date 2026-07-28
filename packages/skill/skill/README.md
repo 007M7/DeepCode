@@ -11,8 +11,8 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 ### Public API
 
 - `ctx.skills.registerProvider(provider): () => void` Registers a readonly provider by unique `provider.name`. Duplicate provider names throw, and `runtime` is reserved for `ctx.skills.register(...)`. The registry borrows the provider object and invokes its methods directly. The registration is effect-scoped and HMR-safe, and the exact Cordis disposer supports ordered composite teardown.
-- `ctx.skills.list({ cwd?, signal? })` Borrows the readonly lookup options, then returns model-invocable summaries for the current workspace, merged across providers and sorted by name.
-- `ctx.skills.get(name, { cwd?, signal? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it, including disabled-for-model skills.
+- `ctx.skills.list({ cwd?, signal? })` Borrows the readonly lookup options, then returns every winning summary for the current workspace, merged across providers and sorted by name. The result is invocation-neutral; consumers apply `isModelInvocable(skill)` or `isUserInvocable(skill)` at their own boundary.
+- `ctx.skills.get(name, { cwd?, signal? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it regardless of invocation policy.
 - `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill, adding `provider: "runtime"` when omitted. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
 
 ### Config
@@ -20,6 +20,19 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 | Field | Default | Meaning |
 |---|---|---|
 | `collectCacheMaxEntries` | `128` | Maximum completed cwd/provider catalogs kept in memory. |
+
+### Invocation policy
+
+`SkillSummary.invocation` is a typed policy object with optional `disableModelInvocation` and `userInvocable` booleans. Missing values preserve the default model-and-user behavior. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
+
+| Policy | Model | User |
+|---|---|---|
+| neither field, or `false` / `true` | included | included |
+| `userInvocable: false` | included | excluded |
+| `disableModelInvocation: true` | excluded | included |
+| both restrictive values | excluded | excluded |
+
+`isModelInvocable(skill)` returns false only for `disableModelInvocation: true`; `isUserInvocable(skill)` returns false only for `userInvocable: false`. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
 
 ## Provider Contract
 

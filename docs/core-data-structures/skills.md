@@ -62,19 +62,29 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's model-invocable summary shape. Consumers choose which fields to render; the session catalog uses only `name` and `description`, never the body or absolute file path. `disableModelInvocation` hides a skill from model listings while allowing trusted code to load it by name.
+`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` keeps the two independent invocation controls typed without turning arbitrary frontmatter into the domain model.
 
 ```ts type-equiv
-/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
-interface SkillSummary {
-  /** Kebab-case identifier used with the `skill` tool. */
-  readonly name: string
-  /** Short routing description shown to the model. */
-  readonly description: string
-  /** Optional extra routing guidance shown to the model. */
-  readonly whenToUse?: string
-  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
+/** Invocation controls shared by skill discovery consumers. */
+interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders exclude this skill. */
   readonly disableModelInvocation?: boolean
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  readonly userInvocable?: boolean
+}
+```
+
+```ts type-equiv
+/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+interface SkillSummary {
+  /** Kebab-case identifier used to address the skill. */
+  readonly name: string
+  /** Short routing description shown by discovery consumers. */
+  readonly description: string
+  /** Optional extra routing guidance. */
+  readonly whenToUse?: string
+  /** Optional model and user invocation controls. */
+  readonly invocation?: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -83,6 +93,8 @@ interface SkillSummary {
   readonly resourceBase?: SkillResourceBase
 }
 ```
+
+`ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` excludes only `disableModelInvocation: true`, while `isUserInvocable(skill)` excludes only `userInvocable: false`; missing fields permit both surfaces. A model-only skill sets `userInvocable: false`, a user-only skill sets `disableModelInvocation: true`, and setting both restrictive values keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads these values from the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`.
 
 `SkillCandidate` is the provider-to-registry shape. `locator` is opaque provider state; the registry only stores it and gives it back to the winning provider's `get()`.
 
@@ -157,4 +169,4 @@ interface Config {
 
 `dsh-tool-skill` injects a durable user-role `<system-reminder>` at the first `agent/step` of a live session. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Discovery forwards the step's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`.
 
-The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rejects `disableModelInvocation` skills, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. The tool result is the model-visible path for complete instructions.
+The model-facing `skill({ name })` tool validates the kebab-case name, filters its catalog with `isModelInvocable`, loads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rechecks model invocation policy before returning content, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. The tool result is the model-visible path for complete instructions.

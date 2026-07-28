@@ -3542,10 +3542,30 @@ describe('skill slash command', () => {
     if (skills === undefined) throw new Error('skills service not mounted')
     skills.register({ name: 'demo-skill', description: 'Demo skill for tests', source: 'runtime', provider: 'runtime', content: 'Demo instructions body.' })
     skills.register({ name: 'project-skill', description: 'Project skill for tests', source: 'project-dsh', provider: 'runtime', content: 'Project instructions body.' })
-    skills.register({ name: 'hidden-skill', description: 'Model-hidden skill', source: 'runtime', provider: 'runtime', content: 'Hidden instructions body.', disableModelInvocation: true })
+    skills.register({
+      name: 'user-only-skill',
+      description: 'User-only skill',
+      invocation: { disableModelInvocation: true },
+      source: 'runtime',
+      content: 'User-only instructions body.',
+    })
+    skills.register({
+      name: 'model-only-skill',
+      description: 'Model-only skill',
+      invocation: { userInvocable: false },
+      source: 'runtime',
+      content: 'Model-only instructions body.',
+    })
+    skills.register({
+      name: 'trusted-only-skill',
+      description: 'Trusted-only skill',
+      invocation: { disableModelInvocation: true, userInvocable: false },
+      source: 'runtime',
+      content: 'Trusted-only instructions body.',
+    })
   }
 
-  it('labels slash completions by scope and hides model-disabled skills', async () => {
+  it('labels slash completions by scope and applies user invocation policy', async () => {
     const result = await setup({ configureContext: withSkills })
     result.terminal.send('/skill')
     await tick()
@@ -3553,8 +3573,10 @@ describe('skill slash command', () => {
     expect(result.terminal.output).toContain('(user)')
     expect(result.terminal.output).toContain('project-skill')
     expect(result.terminal.output).toContain('(project)')
+    expect(result.terminal.output).toContain('user-only-skill')
     expect(result.terminal.output).not.toContain('[instructions]')
-    expect(result.terminal.output).not.toContain('hidden-skill')
+    expect(result.terminal.output).not.toContain('model-only-skill')
+    expect(result.terminal.output).not.toContain('trusted-only-skill')
     await dispose(result)
   })
 
@@ -3573,12 +3595,26 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
-  it('invokes a model-disabled skill by its exact name', async () => {
+  it('invokes a user-only skill by its exact name', async () => {
     const result = await setup({ configureContext: withSkills })
-    result.terminal.send('/skill:hidden-skill')
+    result.terminal.send('/skill:user-only-skill')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="hidden-skill">\nHidden instructions body.\n</skill>' }]])
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="user-only-skill">\nUser-only instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('rejects exact invocation of skills disabled for users', async () => {
+    const result = await setup({ configureContext: withSkills })
+    result.terminal.send('/skill:model-only-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:trusted-only-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([])
+    expect(result.terminal.output).toContain('Skill "model-only-skill" is not available for user invocation.')
+    expect(result.terminal.output).toContain('Skill "trusted-only-skill" is not available for user invocation.')
     await dispose(result)
   })
 

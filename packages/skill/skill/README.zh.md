@@ -11,8 +11,8 @@
 ### 公开 API
 
 - `ctx.skills.registerProvider(provider): () => void` 使用唯一 `provider.name` 注册只读提供方。重复提供方名称会抛错，`runtime` 保留给 `ctx.skills.register(...)`。注册表借用提供方对象，并直接调用其方法。注册作用域绑定到 effect，可安全用于 HMR；精确的 Cordis disposer 支持有序组合拆卸。
-- `ctx.skills.list({ cwd?, signal? })` 借用只读查找选项，然后返回当前工作区中模型可调用的摘要；这些摘要跨提供方合并，并按名称排序。
-- `ctx.skills.get(name, { cwd?, signal? })` 在发现和加载中使用同一组只读选项和胜出候选项；在发现或缓存命中后重新检查取消，让提供方加载与信号竞速，验证已加载定义，然后将其返回，包括已对模型禁用的 skill。
+- `ctx.skills.list({ cwd?, signal? })` 借用只读查找选项，然后返回当前工作区中的全部胜出摘要；这些摘要跨提供方合并，并按名称排序。结果与调用策略无关；消费方在自身边界调用 `isModelInvocable(skill)` 或 `isUserInvocable(skill)`。
+- `ctx.skills.get(name, { cwd?, signal? })` 在发现和加载中使用同一组只读选项和胜出候选项；在发现或缓存命中后重新检查取消，让提供方加载与信号竞速，验证已加载定义，然后无论调用策略如何都将其返回。
 - `ctx.skills.register(skill): () => void` 注册只读运行时嵌入式 skill，省略时添加 `provider: "runtime"`。同名运行时注册使用先到先得：重复项会记录警告，并获得无操作 disposer。成功注册会返回精确的 Cordis disposer，以供有序组合拆卸。
 
 ### 配置
@@ -20,6 +20,19 @@
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `collectCacheMaxEntries` | `128` | 内存中保留的最大已完成 cwd/提供方目录数。 |
+
+### 调用策略
+
+`SkillSummary.invocation` 是类型化策略对象，其中包含可选的布尔字段 `disableModelInvocation` 和 `userInvocable`。字段缺失时保留模型和用户均可调用的默认行为。注册表保留全部四种组合，使一次发现结果可以同时服务面向模型的工具、面向用户的命令和受信内部调用方，而不会混淆各自的目录。
+
+| 策略 | 模型 | 用户 |
+|---|---|---|
+| 两个字段均未设置，或分别为 `false` / `true` | 包含 | 包含 |
+| `userInvocable: false` | 包含 | 排除 |
+| `disableModelInvocation: true` | 排除 | 包含 |
+| 两个限制值均已设置 | 排除 | 排除 |
+
+`isModelInvocable(skill)` 仅在 `disableModelInvocation: true` 时返回 false；`isUserInvocable(skill)` 仅在 `userInvocable: false` 时返回 false。`ctx.skills.get()` 仍是受信且与策略无关的加载原语，因此每个面向用户或模型的消费方都必须先执行与自身接口匹配的判定，再暴露或加载 skill。
 
 ## 提供方契约
 

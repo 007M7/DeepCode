@@ -36,7 +36,9 @@ When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, read
 
 ## Skill Format
 
-Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter is parsed as YAML with the `yaml` package; it requires `name` and `description`, while `whenToUse`, `disableModelInvocation`, and `metadata` are optional. Names must be kebab-case.
+Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter is parsed as an open YAML object with the `yaml` package; this provider currently interprets required `name` and `description`, plus optional `whenToUse`, `metadata`, `disable-model-invocation`, and `user-invocable`. Names must be kebab-case.
+
+The two invocation fields accept YAML booleans and the case-insensitive forms `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0`. `disable-model-invocation: true` excludes the skill from model-facing catalogs and loaders; `user-invocable: false` excludes it from human-facing commands. Omitted fields preserve both forms of invocation. The camel-case spellings `disableModelInvocation` and `userInvocable` are rejected with a warning instead of acting as compatibility aliases.
 
 ## Model Experience
 

@@ -36,16 +36,24 @@ export type SkillResourceBase =
   | { readonly kind: 'url'; readonly url: string }
   | { readonly kind: 'opaque'; readonly description: string }
 
-/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
-export interface SkillSummary {
-  /** Kebab-case identifier used with the `skill` tool. */
-  readonly name: string
-  /** Short routing description shown to the model. */
-  readonly description: string
-  /** Optional extra routing guidance shown to the model. */
-  readonly whenToUse?: string
-  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
+/** Invocation controls shared by skill discovery consumers. */
+export interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders exclude this skill. */
   readonly disableModelInvocation?: boolean
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  readonly userInvocable?: boolean
+}
+
+/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+export interface SkillSummary {
+  /** Kebab-case identifier used to address the skill. */
+  readonly name: string
+  /** Short routing description shown by discovery consumers. */
+  readonly description: string
+  /** Optional extra routing guidance. */
+  readonly whenToUse?: string
+  /** Optional model and user invocation controls. */
+  readonly invocation?: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -85,6 +93,24 @@ export interface SkillLookupOptions {
   readonly cwd?: string | undefined
   /** Abort discovery or loading work for the current caller. */
   readonly signal?: AbortSignal | undefined
+}
+
+/**
+ * Return whether a skill may be advertised to and loaded by a model.
+ * @param skill - skill metadata carrying optional invocation controls.
+ * @returns `false` only when model invocation is explicitly disabled.
+ */
+export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
+  return skill.invocation?.disableModelInvocation !== true
+}
+
+/**
+ * Return whether a skill may be advertised to and loaded by a human-facing command.
+ * @param skill - skill metadata carrying optional invocation controls.
+ * @returns `false` only when user invocation is explicitly disabled.
+ */
+export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
+  return skill.invocation?.userInvocable !== false
 }
 
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -221,16 +247,16 @@ export class SkillService extends Service {
   }
 
   /**
-   * List model-invocable skill summaries for a workspace. Lookup options and
-   * provider candidates are readonly same-process values borrowed throughout
-   * discovery.
+   * List invocation-neutral skill summaries for a workspace. Consumers apply
+   * model or user invocation policy at their operational boundary. Lookup
+   * options and provider candidates are readonly same-process values borrowed
+   * throughout discovery.
    * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
-   * @returns sorted summaries, excluding skills disabled for model invocation.
+   * @returns all sorted winning summaries.
    */
   async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
     return (await this.collect(options))
       .map(entry => entry.candidate)
-      .filter(skill => skill.disableModelInvocation !== true)
       .map(toSummary)
       .sort(compareSkillSummary)
   }
@@ -359,7 +385,7 @@ function runtimeCandidate(skill: SkillRegistration): SkillCandidate {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
-    ...skill.disableModelInvocation !== undefined ? { disableModelInvocation: skill.disableModelInvocation } : {},
+    ...skill.invocation !== undefined ? { invocation: skill.invocation } : {},
     source: skill.source,
     provider: skill.provider ?? RUNTIME_PROVIDER,
     ...skill.resourceBase !== undefined ? { resourceBase: skill.resourceBase } : {},
@@ -383,9 +409,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (candidate.description.length === 0) {
     throw new Error(`skill provider "${providerName}" returned skill "${candidate.name}" without a description`)
   }
-  if (candidate.disableModelInvocation !== undefined && typeof candidate.disableModelInvocation !== 'boolean') {
-    throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-boolean disableModelInvocation`)
-  }
+  validateInvocation(candidate.invocation, `skill provider "${providerName}" returned skill "${candidate.name}"`)
   if (candidate.whenToUse !== undefined && typeof candidate.whenToUse !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string whenToUse`)
   }
@@ -409,6 +433,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
 function validateRuntimeSkill(skill: SkillRegistration): void {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
+  validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -416,7 +441,7 @@ function validateDefinition(skill: SkillDefinition): void {
   const name = skill.name
   const description = skill.description
   const whenToUse = skill.whenToUse
-  const disableModelInvocation = skill.disableModelInvocation
+  const invocation = skill.invocation
   const source = skill.source
   const provider = skill.provider
   const content = skill.content
@@ -425,9 +450,7 @@ function validateDefinition(skill: SkillDefinition): void {
   if (!SKILL_NAME.test(name)) throw new Error(`loaded skill has invalid name "${name}"`)
   if (typeof description !== 'string') throw new TypeError(`loaded skill "${name}" description must be a string`)
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
-  if (disableModelInvocation !== undefined && typeof disableModelInvocation !== 'boolean') {
-    throw new TypeError(`loaded skill "${name}" disableModelInvocation must be a boolean`)
-  }
+  validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
@@ -436,15 +459,29 @@ function validateDefinition(skill: SkillDefinition): void {
 }
 
 function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
-  const { name, description, whenToUse, disableModelInvocation, source, provider, resourceBase } = skill
+  const { name, description, whenToUse, invocation, source, provider, resourceBase } = skill
   return {
     name,
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
-    ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
+    ...invocation !== undefined ? { invocation } : {},
     source,
     provider,
     ...resourceBase !== undefined ? { resourceBase } : {},
+  }
+}
+
+function validateInvocation(invocation: unknown, subject: string): void {
+  if (invocation === undefined) return
+  if (typeof invocation !== 'object' || invocation === null || Array.isArray(invocation)) {
+    throw new TypeError(`${subject} with a non-object invocation policy`)
+  }
+  const policy = invocation as Record<string, unknown>
+  if (policy.disableModelInvocation !== undefined && typeof policy.disableModelInvocation !== 'boolean') {
+    throw new TypeError(`${subject} with a non-boolean invocation.disableModelInvocation`)
+  }
+  if (policy.userInvocable !== undefined && typeof policy.userInvocable !== 'boolean') {
+    throw new TypeError(`${subject} with a non-boolean invocation.userInvocable`)
   }
 }
 

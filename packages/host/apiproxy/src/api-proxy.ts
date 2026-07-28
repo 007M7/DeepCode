@@ -17,6 +17,7 @@ import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import { isModelInvocable, isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -29,9 +30,8 @@ import type {
   MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
-// Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
+// Type-only edge: resolve `ctx.get('commands')` and the `commands/change` event.
 import type {} from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-skill'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -1082,7 +1082,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = await skillRegistry.list({ cwd })
+          const skills = (await skillRegistry.list({ cwd }))
+            .filter(skill => isModelInvocable(skill) && isUserInvocable(skill))
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,

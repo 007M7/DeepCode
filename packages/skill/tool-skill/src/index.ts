@@ -9,7 +9,12 @@ import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
-import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import {
+  isModelInvocable,
+  isSkillName,
+  type SkillDefinition,
+  type SkillSummary,
+} from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
 export const inject = ['tools', 'skills']
@@ -91,7 +96,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!skill) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
-      if (skill.disableModelInvocation === true) {
+      if (!isModelInvocable(skill)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
       return {
@@ -123,7 +128,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       catalogLoaded.add(agent.session)
       return
     }
-    const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
+    const skills = (await ctx.skills.list({ cwd: agent.session.header.cwd, signal }))
+      .filter(isModelInvocable)
     if (skills.length > 0) {
       const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
       agent.inject({ content: catalog.content, source: { kind: 'plugin', plugin: 'dsh-tool-skill' } })

@@ -175,10 +175,27 @@ describe('skill.list', () => {
       name: 'probe',
       list: (options) => {
         seenCwds.push(options.cwd)
-        return Promise.resolve([{
-          name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
-          source: 'custom', provider: 'probe', rank: 0, locator: null,
-        }])
+        return Promise.resolve([
+          {
+            name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'user-only', description: 'User-only',
+            invocation: { disableModelInvocation: true },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'model-only', description: 'Model-only',
+            invocation: { userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'trusted-only', description: 'Trusted-only',
+            invocation: { disableModelInvocation: true, userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+        ])
       },
       get: () => Promise.resolve(undefined),
     })

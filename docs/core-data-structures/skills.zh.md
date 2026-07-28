@@ -62,19 +62,29 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## 摘要、候选项与完整定义
 
-`SkillSummary` 是注册表中可供模型调用的摘要形状。消费方自行选择渲染哪些字段；会话目录仅使用 `name` 和 `description`，从不使用 body 或绝对文件路径。`disableModelInvocation` 将 skill 从模型列表中隐藏，但允许受信代码按名称加载。
+`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 使两个独立调用控制保持类型化，而不会把任意 frontmatter 纳入领域模型。
 
 ```ts type-equiv
-/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
-interface SkillSummary {
-  /** Kebab-case identifier used with the `skill` tool. */
-  readonly name: string
-  /** Short routing description shown to the model. */
-  readonly description: string
-  /** Optional extra routing guidance shown to the model. */
-  readonly whenToUse?: string
-  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
+/** Invocation controls shared by skill discovery consumers. */
+interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders exclude this skill. */
   readonly disableModelInvocation?: boolean
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  readonly userInvocable?: boolean
+}
+```
+
+```ts type-equiv
+/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
+interface SkillSummary {
+  /** Kebab-case identifier used to address the skill. */
+  readonly name: string
+  /** Short routing description shown by discovery consumers. */
+  readonly description: string
+  /** Optional extra routing guidance. */
+  readonly whenToUse?: string
+  /** Optional model and user invocation controls. */
+  readonly invocation?: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -83,6 +93,8 @@ interface SkillSummary {
   readonly resourceBase?: SkillResourceBase
 }
 ```
+
+`ctx.skills.list()` 保留全部四种策略组合。`isModelInvocable(skill)` 仅排除 `disableModelInvocation: true`，`isUserInvocable(skill)` 仅排除 `userInvocable: false`；字段缺失时两个接口均允许调用。仅供模型调用的 skill 设置 `userInvocable: false`，仅供用户调用的 skill 设置 `disableModelInvocation: true`，同时设置两个限制值后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方从名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable` 读取这些值。
 
 `SkillCandidate` 是提供方到注册表的形状。`locator` 是提供方的不透明状态；注册表只存储它并在调用获胜提供方的 `get()` 时传回。
 
@@ -157,4 +169,4 @@ interface Config {
 
 `dsh-tool-skill` 在存活会话的第一个 `agent/step` 注入一条持久的 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。发现通过 `SkillLookupOptions` 转发该步骤的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。
 
-面向模型的 `skill({ name })` 工具校验 kebab-case 名称，为调用方 agent 的 cwd 加载完整定义，将未解析的 skill 报告为 unknown 或 no longer available，拒绝 `disableModelInvocation` 的 skill，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。工具结果是模型获取完整指令的可见路径。
+面向模型的 `skill({ name })` 工具校验 kebab-case 名称，使用 `isModelInvocable` 过滤目录，为调用方 agent 的 cwd 加载完整定义，将未解析的 skill 报告为 unknown 或 no longer available，在返回内容前重新检查模型调用策略，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。工具结果是模型获取完整指令的可见路径。

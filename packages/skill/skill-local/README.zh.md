@@ -36,7 +36,9 @@
 
 ## Skill 格式
 
-Skill 可以是单层目录 bundle（`<name>/SKILL.md`），也可以是平铺 Markdown 文件（`<name>.md`）。v1 刻意不包含嵌套 `**/SKILL.md` 发现。Frontmatter 使用 `yaml` 包解析为 YAML；它要求 `name` 和 `description`，而 `whenToUse`、`disableModelInvocation` 和 `metadata` 可选。名称必须使用 kebab-case。
+Skill 可以是单层目录 bundle（`<name>/SKILL.md`），也可以是平铺 Markdown 文件（`<name>.md`）。v1 刻意不包含嵌套 `**/SKILL.md` 发现。Frontmatter 使用 `yaml` 包解析为开放的 YAML 对象；该提供方目前解析必填的 `name` 和 `description`，以及可选的 `whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable`。名称必须使用 kebab-case。
+
+这两个调用字段接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`。`disable-model-invocation: true` 会从面向模型的目录和加载器中排除该 skill；`user-invocable: false` 会从面向用户的命令中排除该 skill。省略字段时保留两种调用方式。系统会拒绝驼峰形式的 `disableModelInvocation` 和 `userInvocable` 并记录警告，而不会将其作为兼容别名。
 
 ## 模型体验
 
