@@ -27,6 +27,7 @@ function listingFor(path?: string): DirectoryListing {
         { name: '.config', path: `${HOME}/.config`, hidden: true },
         { name: 'Documents', path: DOCS, hidden: false },
       ],
+      truncated: false,
     },
     [DOCS]: {
       path: DOCS,
@@ -38,6 +39,7 @@ function listingFor(path?: string): DirectoryListing {
         { name: 'Documents', path: DOCS, hidden: false },
       ],
       entries: [{ name: 'harness', path: HARNESS, hidden: false }],
+      truncated: false,
     },
     [HARNESS]: {
       path: HARNESS,
@@ -50,6 +52,7 @@ function listingFor(path?: string): DirectoryListing {
         { name: 'harness', path: HARNESS, hidden: false },
       ],
       entries: [],
+      truncated: false,
     },
   }
   const found = tree[target]
@@ -205,6 +208,7 @@ describe('DirectoryBrowser', () => {
         { name: 'data', path: '/srv/data', hidden: false },
       ],
       entries: [],
+      truncated: false,
     }
     mount({ listDirectory: vi.fn(async () => outside) })
     await waitFor(() => { expect(screen.getByRole('button', { name: 'data' })).toBeTruthy() })
@@ -253,6 +257,7 @@ describe('DirectoryBrowser', () => {
       path: `${HOME}/fresh`, home: HOME,
       crumbs: [...listingFor(HOME).crumbs, { name: 'fresh', path: `${HOME}/fresh`, hidden: false }],
       entries: [],
+      truncated: false,
     }
     b.listDirectory.mockImplementation((path?: string) =>
       new Promise<DirectoryListing>((settle) => {
@@ -519,6 +524,7 @@ describe('DirectoryBrowser', () => {
           path: `${DOCS}/fresh`, home: HOME,
           crumbs: [...listingFor(DOCS).crumbs, { name: 'fresh', path: `${DOCS}/fresh`, hidden: false }],
           entries: [],
+          truncated: false,
         }
       }
       if (path === DOCS) {
@@ -648,7 +654,7 @@ describe('DirectoryBrowser', () => {
   })
 
   it('names the create target by its path when the level reports no crumbs', async () => {
-    const bare: DirectoryListing = { path: '/srv/data', home: HOME, crumbs: [], entries: [] }
+    const bare: DirectoryListing = { path: '/srv/data', home: HOME, crumbs: [], entries: [], truncated: false }
     mount({ listDirectory: vi.fn(async () => bare) })
     await waitFor(() => { expect(screen.getByRole('button', { name: 'browser.newFolder' })).toBeTruthy() })
     await waitFor(() => {
@@ -674,6 +680,35 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByLabelText('browser.folderName')).toBeTruthy()
     settleCreate(`${HOME}/slow`)
     await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
+  })
+
+  it('says a level is incomplete when the backend cut it at its bound', async () => {
+    const cut = { ...listingFor(HOME), truncated: true }
+    mount({ listDirectory: vi.fn(async () => cut) })
+    await screen.findByText('browser.truncated')
+  })
+
+  it('flags a truncated child preview under a complete level', async () => {
+    mount({
+      listDirectory: vi.fn(async (path?: string) =>
+        (path === DOCS ? { ...listingFor(DOCS), truncated: true } : listingFor(path))),
+    })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(screen.queryByText('browser.truncated')).toBeNull()
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    await screen.findByText('browser.truncated')
+  })
+
+  it('pins the child pane into view when its preview lands (narrow viewports scroll the miller row)', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    const row = document.querySelector('[class*=millerRow]') as HTMLElement
+    // jsdom does no layout: stub the overflow width the effect pins against.
+    Object.defineProperty(row, 'scrollWidth', { value: 640, configurable: true })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    await waitFor(() => { expect(row.scrollLeft).toBe(640) })
   })
 
   it('starts back at home on reopen', async () => {

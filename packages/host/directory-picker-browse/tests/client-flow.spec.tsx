@@ -19,6 +19,7 @@ const homeListing: DirectoryListing = {
   home: HOME,
   crumbs: [{ name: '/', path: '/', hidden: false }, { name: 'u', path: HOME, hidden: false }],
   entries: [{ name: 'Documents', path: `${HOME}/Documents`, hidden: false }],
+  truncated: false,
 }
 
 async function bench() {

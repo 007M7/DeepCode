@@ -43,12 +43,16 @@
  * so the edit zone to the right never leaves the bar. */
 /* The Miller columns keep their own row so a status/error line below never
  * competes with the fixed column widths for horizontal space. */
+/* A narrow viewport shrinks the dialog below two fixed panes; the row
+ * scrolls horizontally (the effect pins the child pane into view) so
+ * descent never hides behind the Modal's clipping. */
 .millerRow {
   display: flex;
   align-items: stretch;
   flex: 1 1 0;
   min-height: 0;
   gap: 20px;
+  overflow-x: auto;
 }
 
 .crumbTrail {

@@ -41,6 +41,7 @@ export function apply(ctx: ClientContext): void {
         'browser.open': '打开',
         'browser.editPath': '编辑路径',
         'browser.loading': '加载中…',
+        'browser.truncated': '文件夹过多，仅显示开头部分。',
       }),
       ctx.locale.register(LOCALE_NS, 'en', {
         'browser.title': 'Select Workspace Directory',
@@ -54,6 +55,7 @@ export function apply(ctx: ClientContext): void {
         'browser.open': 'Open',
         'browser.editPath': 'Edit path',
         'browser.loading': 'Loading…',
+        'browser.truncated': 'Too many folders to list; only the beginning is shown.',
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }

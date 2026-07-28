@@ -252,6 +252,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     const trail = crumbTrailRef.current
     if (trail !== null) trail.scrollLeft = trail.scrollWidth
   }, [crumbTail])
+  // On viewports too narrow for both fixed panes the Miller row scrolls;
+  // whenever a child preview lands, pin it into view the way the crumb tail
+  // pins — otherwise descent is unreachable on a phone-width window.
+  const millerRowRef = useRef<HTMLDivElement | null>(null)
+  const childPath = child?.path
+  useEffect(() => {
+    const row = millerRowRef.current
+    if (row !== null && childPath !== undefined) row.scrollLeft = row.scrollWidth
+  }, [childPath])
 
   if (!open) return null
   const twoPane = selected !== null
@@ -362,7 +371,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         </div>
       </div>
       <div className={css.content}>
-        <div className={css.millerRow}>
+        <div className={css.millerRow} ref={millerRowRef}>
           {parent !== null && (
             <LevelColumn
               entries={parent.entries}
@@ -384,6 +393,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           )}
         </div>
         {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
+        {/* The backend bounds a level at its complete-result limit; say so
+          * whenever a visible pane was cut instead of letting the tail of a
+          * huge directory go silently missing. */}
+        {(parent?.truncated === true || child?.truncated === true) && !loading
+          && <div className={css.status} role="status">{t('browser.truncated')}</div>}
         {error !== null && <div className={css.error} role="alert">{error}</div>}
       </div>
       <div className={css.footerBar}>
