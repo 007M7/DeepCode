@@ -8,6 +8,7 @@ import {
   isSurfaceEvent,
 } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { SurfaceManager } from '../src/surface.ts'
 
 /** Build a minimal session with turn boundaries and a single user message. */
 function surfaceSession(): Session {
@@ -189,7 +190,7 @@ describe('SurfaceManager', () => {
       { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
       { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
     ])
-    expect(s.surface.contexts).toEqual([
+    expect(new SurfaceManager(s.events).contexts).toEqual([
       { generation: 0, nodes: [0, 1] },
       {
         generation: 1,
