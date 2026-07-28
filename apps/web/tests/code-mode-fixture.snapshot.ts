@@ -206,16 +206,15 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
   }, { timeout: 10_000 })
   const subCells = [...document.querySelectorAll('[data-kind="subtool"]')]
   expect({
-    // Three Sub cells nested under the run_code Tool cell, in dispatch order,
-    // each with a real +N.Ns own-duration off the start/settle pair (the
-    // fixture spaces every event 800ms apart — never the em dash).
+    // Three Subtool cells nested under the run_code Tool cell in dispatch
+    // order, each paired with its result preview.
     subCells: subCells.map(cell => visibleText(cell)),
   }).toMatchInlineSnapshot(`
     {
       "subCells": [
-        "#51Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
-        "#52Subread · {"path":"notes/demo.txt"}+0.8s",
-        "#53Subread · {"path":"notes/missing.txt"}+0.8s",
+        "SUBTOOLbash{"command":"ls notes","description":"List notes"}→demo.txt new-demo.txt",
+        "SUBTOOLread{"path":"notes/demo.txt"}→hello fixture",
+        "SUBTOOLread{"path":"notes/missing.txt"}→error",
       ],
     }
   `)
@@ -239,17 +238,17 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
         {
           "label": "bash",
           "timing": "measured",
-          "title": "bash · 0.80s",
+          "title": "bash · 0.80 s",
         },
         {
           "label": "read",
           "timing": "measured",
-          "title": "read · 0.80s",
+          "title": "read · 0.80 s",
         },
         {
           "label": "read",
           "timing": "measured",
-          "title": "read · 0.80s",
+          "title": "read · 0.80 s",
         },
       ],
     }

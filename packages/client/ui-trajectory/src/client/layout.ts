@@ -68,6 +68,11 @@ interface TurnBucket {
   groups: LaidGroup[]
 }
 
+type InputNode = Extract<
+  ConversationSnapshot['nodes'][number],
+  { kind: 'user' | 'steering' | 'context' }
+>
+
 type OrderedLayoutEntry =
   | {
     kind: 'node'
@@ -95,6 +100,21 @@ function layoutEntryOrder(entry: OrderedLayoutEntry): number {
   return entry.kind === 'system' && entry.change.kind === 'initial'
     ? Number.NEGATIVE_INFINITY
     : entry.seq
+}
+
+function inputCellDetail(node: InputNode): Pick<
+  TrajectoryCellProps,
+  'text' | 'sourceSeq' | 'messageSource' | 'inputDetail' | 'sourceBlocks' | 'timeSeconds' | 'startedAt'
+> {
+  return {
+    text: summarizeContent(node.content),
+    sourceSeq: node.seq,
+    messageSource: node.source,
+    inputDetail: detailContent(node.content),
+    sourceBlocks: node.content.map(block => sourceBlock(block)),
+    timeSeconds: 0,
+    startedAt: finiteTime(node.time),
+  }
 }
 
 /**
@@ -294,15 +314,11 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
-          index: ++index, kind: 'user', text: summarizeContent(node.content),
-          sourceSeq: node.seq,
-          messageSource: node.source,
+          index: ++index,
+          kind: 'user',
+          ...inputCellDetail(node),
           ...(node.meta === undefined ? {} : { messageMeta: node.meta }),
           opensTurn: node.kind === 'user',
-          inputDetail: detailContent(node.content),
-          sourceBlocks: node.content.map(block => sourceBlock(block)),
-          timeSeconds: 0,
-          startedAt: finiteTime(node.time),
         },
       })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
@@ -328,13 +344,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         cell: {
           index: ++index,
           kind: 'context',
-          text: summarizeContent(node.content),
-          sourceSeq: node.seq,
-          messageSource: node.source,
-          inputDetail: detailContent(node.content),
-          sourceBlocks: node.content.map(block => sourceBlock(block)),
-          timeSeconds: 0,
-          startedAt: finiteTime(node.time),
+          ...inputCellDetail(node),
         },
       })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime

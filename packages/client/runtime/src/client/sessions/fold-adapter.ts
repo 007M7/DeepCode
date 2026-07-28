@@ -196,23 +196,9 @@ export class FoldAdapter {
     }
     const out: ConversationNode[] = []
     for (const seq of seqs) {
-      const cached = this.nodeCache.get(seq)
-      if (cached !== undefined) {
-        out.push(cached)
-        continue
-      }
-      const event = this.padded[seq]
-      /* v8 ignore next -- sparse guard: both seq sources (surface fold and degradedSeqs) only emit indexes present in padded. */
-      if (event === undefined) continue
-      const node = materializeNode(
-        event,
-        this.callIdx,
-        this.resultViews.get(seq) ?? null,
-        event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
-        event.type === 'assistant/message' ? this.assistantRequestConfig(event) : undefined,
-      )
-      this.nodeCache.set(seq, node)
-      out.push(node)
+      const node = this.materialize(seq)
+      /* v8 ignore next -- both seq sources only emit indexes present in padded. */
+      if (node !== undefined) out.push(node)
     }
     const value = { nodes: out, degraded: this.degraded }
     this.nodesResult = { rev: this.rev, value }
