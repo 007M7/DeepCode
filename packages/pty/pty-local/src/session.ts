@@ -473,17 +473,23 @@ export class LocalPtySession implements PtyBackendSession {
     this.active = undefined
   }
 
-  private failActive(error: unknown): void {
+  private failActive(error: unknown, retainOwnership = false): void {
     const operation = this.active
     if (operation === undefined) return
-    this.clearActive()
+    if (retainOwnership) {
+      this.stopPolling()
+      this.activeAbort?.()
+      this.activeAbort = undefined
+    } else {
+      this.clearActive()
+    }
     operation.fail(error)
   }
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
     void this.terminal.signalForeground('SIGINT').catch((error: unknown) => {
-      if (this.active === operation) this.failActive(error)
+      if (this.active === operation) this.failActive(error, this.writing === operation)
     })
   }
 

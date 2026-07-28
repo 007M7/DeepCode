@@ -27,6 +27,7 @@ class FakeInspector implements ProcessInspector {
   foregroundPgid() { return this.pgid }
   isStdinWaiting() { return this.waiting }
   processTree() { return this.members }
+  processSession() { return [] }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
   signalGroup(pgid: number, signal: PtySignal) {
     if (this.throwGroup) throw new Error('group failed')
@@ -320,6 +321,32 @@ describe('LocalPtySession readiness and output', () => {
     await Promise.resolve()
     await Promise.resolve()
 
+    const next = session.startSend({ text: '', submit: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await next.done).waitReason).toBe('inferred_idle')
+  })
+
+  it('retains send ownership when cancellation signalling fails during an asynchronous write', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    terminal.signalForeground = async () => { throw new Error('interrupt failed') }
+    const operation = session.startSend({ text: 'slow write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    const rejected = expect(operation.done).rejects.toThrow('interrupt failed')
+    expect(operation.cancel()).toBe(true)
+    await rejected
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow('active send')
+
+    writeGate.resolve(undefined)
+    await Promise.resolve()
+    await Promise.resolve()
     const next = session.startSend({ text: '', submit: false })
     await vi.advanceTimersByTimeAsync(100)
     expect((await next.done).waitReason).toBe('inferred_idle')

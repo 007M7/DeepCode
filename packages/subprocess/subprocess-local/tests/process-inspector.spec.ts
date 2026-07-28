@@ -86,6 +86,13 @@ describe('Linux process inspector', () => {
       { pid: 10, started: '500' },
     ])
     expect(inspector.processTree(99)).toEqual([])
+    expect(inspector.processSession(30)).toEqual([
+      { pid: 10, started: '500' },
+      { pid: 11, started: '501' },
+      { pid: 12, started: '502' },
+      { pid: 13, started: '503' },
+    ])
+    expect(inspector.processSession(99)).toEqual([])
     expect(inspector.isAlive({ pid: 10, started: '500' })).toBe(true)
     expect(inspector.isAlive({ pid: 10, started: 'old' })).toBe(false)
     inspector.signalGroup(40, 'SIGINT')
@@ -197,6 +204,7 @@ describe('macOS process inspector', () => {
       { pid: 10, started: 'Mon Jul 21 10:00:00 2026' },
     ])
     expect(inspector.processTree(99)).toEqual([])
+    expect(inspector.processSession(10)).toEqual([])
     expect(inspector.isAlive({ pid: 11, started: 'Mon Jul 21 10:00:01 2026' })).toBe(true)
     inspector.signalGroup(55, 'SIGTSTP')
     inspector.signalProcess({ pid: 11, started: 'Mon Jul 21 10:00:01 2026' }, 'SIGKILL')

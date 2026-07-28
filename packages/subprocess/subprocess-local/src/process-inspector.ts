@@ -16,6 +16,8 @@ export interface ProcessInspector {
   isStdinWaiting(pgid: number): boolean
   /** Return the root and its current transitive descendants, children first. */
   processTree(rootPid: number): ProcessIdentity[]
+  /** Return current members of one POSIX process session when the platform exposes them. */
+  processSession(sessionId: number): ProcessIdentity[]
   /** Return whether the exact identity remains a non-quiescent process. */
   isAlive(identity: ProcessIdentity): boolean
   signalGroup(pgid: number, signal: SubprocessTerminalSignal): void
@@ -201,6 +203,7 @@ abstract class PosixProcessInspector implements ProcessInspector {
   abstract foregroundPgid(shellPid: number): number | undefined
   abstract isStdinWaiting(pgid: number): boolean
   abstract processTree(rootPid: number): ProcessIdentity[]
+  abstract processSession(sessionId: number): ProcessIdentity[]
   abstract isAlive(identity: ProcessIdentity): boolean
 
   signalGroup(pgid: number, signal: SubprocessTerminalSignal): void {
@@ -272,6 +275,13 @@ class LinuxProcessInspector extends PosixProcessInspector {
     return processTree(entries, rootPid)
   }
 
+  processSession(sessionId: number): ProcessIdentity[] {
+    return numericEntries(this.internals, '/proc').flatMap((pid) => {
+      const stat = readLinuxStat(this.internals, pid)
+      return stat?.session === sessionId ? [{ pid, started: stat.started }] : []
+    })
+  }
+
   isAlive(identity: ProcessIdentity): boolean {
     const stat = readLinuxStat(this.internals, identity.pid)
     return stat?.started === identity.started && !/^[ZXx]$/.test(stat.state)
@@ -305,6 +315,10 @@ class MacProcessInspector extends PosixProcessInspector {
 
   processTree(rootPid: number): ProcessIdentity[] {
     return processTree(macProcessTable(this.internals), rootPid)
+  }
+
+  processSession(_sessionId: number): ProcessIdentity[] {
+    return []
   }
 
   isAlive(identity: ProcessIdentity): boolean {

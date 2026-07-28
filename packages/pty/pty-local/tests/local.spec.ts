@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -154,6 +154,47 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).not.toThrow()
     await ctx.pty.kill(agent, created.sessionId)
     expect(() => process.kill(pid, 0)).toThrow()
+  }, 10_000)
+
+  it('reaps a disowned same-session descendant after the shell exits naturally', async () => {
+    const { ctx, root, agent } = await harness('danger-full-access')
+    const created = await ctx.pty.spawn(agent, { type: 'shell' })
+    const pidFile = join(root, 'disowned.pid')
+    let pid: number | undefined
+    try {
+      const background = ctx.pty.startSend(agent, created.sessionId, {
+        text: `sh -c 'trap "" TERM; printf "%s" "$$" > "$1"; sleep 60' dsh "${pidFile}" & disown`,
+        submit: true,
+      })
+      await background.done
+      const pidDeadline = Date.now() + 2_000
+      let childPid = 0
+      while (childPid === 0 && Date.now() < pidDeadline) {
+        if (existsSync(pidFile)) childPid = Number(readFileSync(pidFile, 'utf8'))
+        if (childPid > 0) break
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(existsSync(pidFile), ctx.pty.read(agent, created.sessionId, { offset: 0, count: 100 }).text).toBe(true)
+      expect(childPid).toBeGreaterThan(0)
+      pid = childPid
+      expect(() => process.kill(childPid, 0)).not.toThrow()
+      await ctx.pty.startSend(agent, created.sessionId, { text: 'exit', submit: true }).done
+      const deadline = Date.now() + 2_000
+      while (ctx.pty.list(agent)[0]?.status.kind !== 'exited' && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(ctx.pty.list(agent)[0]?.status.kind).toBe('exited')
+      await ctx.pty.kill(agent, created.sessionId)
+      expect(() => process.kill(childPid, 0)).toThrow()
+    } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch (_alreadyReaped) {
+          // Product cleanup is the expected path; this only contains a failed regression.
+        }
+      }
+    }
   }, 10_000)
 
   it('cancels a slow-starting raw-mode foreground process with a real SIGINT', async () => {

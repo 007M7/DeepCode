@@ -22,8 +22,8 @@ Status: implemented
 
 - `dsh-bash-local` 继续把 Bash 语义映射到普通的 `ctx.subprocess.spawn()`。
 - `dsh-lsp-local` 通过 `ctx.fs` 读取源文件并验证包含关系，通过 `ctx.subprocess` 解析和启动语言服务器，并发送由提供方负责的文件 URI。其 JSON-RPC、池化、同步、取消和规范化保持不变。
-- `dsh-pty-local` 把持久 shell 语义映射到 `ctx.subprocess.spawnTerminal()`。本地 `node-pty` 与进程检查实现移入 `dsh-subprocess-local`；其他进程管理提供方则提供相同原语。异步写入超时后仍保留发送预留，直至提供方将写入结算；陈旧检查完成后，会针对当前发送恢复轮询。
-- `dsh-code-runtime-subprocess` 通过 `ctx.fs` 物化无依赖 runner，并通过 `ctx.subprocess` 启动它，从而在本地或远程执行世界中保留代码运行时的绑定与输出契约。它通过非插件子路径 `dsh-code-runtime-worker/runtime-host` 共享宿主侧 worker 机制，而不是复制这些机制。受堆上限约束的 worker 会在传输前拒绝过大的绑定帧；每个外层转发环节都会在序列化前执行相同的上限检查；launcher 会在回收 controller 前发布已接纳的终态帧，使继承 controller 管道的后代进程无法阻止完成；宿主仍会等待进程组完全停稳。
+- `dsh-pty-local` 把持久 shell 语义映射到 `ctx.subprocess.spawnTerminal()`。本地 `node-pty` 与进程检查实现移入 `dsh-subprocess-local`；其他进程管理提供方则提供相同原语。分配信号会在发布前解除关联，而就绪初始化仍保留设置阶段的取消。异步写入超时，或在该写入期间取消时前台信号发送失败，都会保留发送预留，直至提供方将写入结算；陈旧检查完成后，会针对当前发送恢复轮询。
+- `dsh-code-runtime-subprocess` 通过 `ctx.fs` 物化无依赖 runner，并通过 `ctx.subprocess` 启动它，从而在本地或远程执行世界中保留代码运行时的绑定与输出契约。它通过非插件子路径 `dsh-code-runtime-worker/runtime-host` 共享宿主侧 worker 机制，而不是复制这些机制。准备阶段让同一个生命周期信号贯穿文件系统解析、物化和可执行文件查找，使资源释放能够中止停滞的提供方操作。受堆上限约束的 worker 会在传输前拒绝过大的绑定帧；每个外层转发环节都会在序列化前执行相同的上限检查；launcher 会在回收 controller 前发布已接纳的终态帧，使继承 controller 管道的后代进程无法阻止完成；宿主仍会等待进程组完全停稳。
 
 `dsh-code-runtime-worker` 仍是独立实现。它是较小的进程内后端，可用于无法假定已安装 Node 可执行文件的单文件分发。远程文件系统／进程组合选择 `dsh-code-runtime-subprocess`；它们不需要提供方专用的代码运行时包。
 
@@ -45,4 +45,4 @@ Status: implemented
 
 基础接口更宽，一对文件系统／进程管理提供方必须在同一个执行世界上保持一致。新增操作仅限当前通用消费方所需的事实与生命周期机制；模型 schema、协议分帧、就绪策略和呈现不会渗入提供方。
 
-本地实现承接 `node-pty` 和平台进程检查，因为它负责本地终端机制。这种代码迁移不会削弱终端拆卸：dispose（资源释放）仍会等待受精确 PID 身份校验保护的后代进程和顶层终端进程完全停稳。
+本地实现承接 `node-pty` 和平台进程检查，因为它负责本地终端机制。这种代码迁移不会削弱终端拆卸：dispose（资源释放）会等待前台检查期间保留下来且受精确 PID 身份围栏保护的后代进程、在顶层进程退出后仍存活的 Linux 会话成员，以及顶层终端进程完全停稳。macOS 无法在 POSIX 会话 leader 退出后枚举该会话，因此在两次检查快照之间重新设定父进程的子进程仍是明确的本地提供方限制，而不是把进程机制移回 PTY 消费方的理由。

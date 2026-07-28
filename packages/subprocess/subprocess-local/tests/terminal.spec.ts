@@ -51,6 +51,7 @@ class FakeInspector implements ProcessInspector {
   pgid: number | undefined = 456
   waiting = false
   members: ProcessIdentity[] = []
+  sessionMembers: ProcessIdentity[] = []
   readonly alive = new Set<number>()
   readonly groups: Array<[number, SubprocessTerminalSignal]> = []
   readonly processes: Array<[number, 'SIGTERM' | 'SIGKILL']> = []
@@ -61,6 +62,7 @@ class FakeInspector implements ProcessInspector {
   foregroundPgid() { return this.pgid }
   isStdinWaiting() { return this.waiting }
   processTree() { return this.members }
+  processSession() { return this.sessionMembers }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
   signalGroup(pgid: number, signal: SubprocessTerminalSignal) {
     if (this.throwGroup) throw new Error('group failed')
@@ -156,6 +158,36 @@ describe('LocalTerminalHandle', () => {
     inspector.alive.delete(124)
     await vi.advanceTimersByTimeAsync(20)
     expect(await waiting).toBe(true)
+  })
+
+  it('cleans a same-session descendant after the top-level shell exits naturally', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const disowned = { pid: 124, started: 'disowned' }
+    inspector.processSession = () => inspector.alive.has(disowned.pid) ? [disowned] : []
+    inspector.alive.add(124)
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
+
+    pty.emitExit()
+
+    expect(await handle.waitForExit()).toBe(true)
+    expect(inspector.processes).toEqual([[124, 'SIGTERM']])
+  })
+
+  it('retains an inspected descendant after it reparents away from the shell', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const descendant = { pid: 124, started: 'observed' }
+    inspector.members = [descendant]
+    inspector.alive.add(descendant.pid)
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
+
+    await handle.inspectForeground()
+    inspector.members = []
+    pty.emitExit()
+
+    expect(await handle.waitForExit()).toBe(true)
+    expect(inspector.processes).toEqual([[124, 'SIGTERM']])
   })
 
   it('rescans for descendants forked during TERM', async () => {

@@ -187,6 +187,51 @@ describe('LocalPtyBackend startup rollback', () => {
     expect(initialized).toHaveBeenCalledWith(undefined)
   })
 
+  it('forwards setup cancellation only while terminal allocation is unpublished', async () => {
+    const ctx = new Context()
+    await ctx.plugin(EmptySandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+
+    const publishedController = new AbortController()
+    let publishedSignal: AbortSignal | undefined
+    const published = new LocalPtyBackend(
+      ctx,
+      config(),
+      async (spawnSpec) => {
+        publishedSignal = spawnSpec.signal
+        return terminalHandle()
+      },
+      () => stubLocalSession(),
+    )
+    await published.spawn(spec(agent(ctx), publishedController.signal))
+    expect(publishedSignal).toBeDefined()
+    expect(publishedSignal).not.toBe(publishedController.signal)
+    publishedController.abort(new Error('originating turn ended'))
+    expect(publishedSignal?.aborted).toBe(false)
+
+    const pendingController = new AbortController()
+    const seen = Promise.withResolvers<AbortSignal>()
+    const pending = new LocalPtyBackend(
+      ctx,
+      config(),
+      async spawnSpec => await new Promise<SubprocessTerminalHandle>((_resolve, reject) => {
+        const setupSignal = spawnSpec.signal as AbortSignal
+        seen.resolve(setupSignal)
+        const onAbort = (): void => {
+          reject(setupSignal.reason instanceof Error ? setupSignal.reason : new Error(String(setupSignal.reason)))
+        }
+        setupSignal.addEventListener('abort', onAbort, { once: true })
+      }),
+      () => stubLocalSession(),
+    )
+    const spawning = pending.spawn(spec(agent(ctx), pendingController.signal))
+    const pendingSignal = await seen.promise
+    const reason = new Error('cancel pending allocation')
+    pendingController.abort(reason)
+    await expect(spawning).rejects.toBe(reason)
+    expect(pendingSignal.aborted).toBe(true)
+  })
+
   it('composes the default local session around a spawned terminal', async () => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)

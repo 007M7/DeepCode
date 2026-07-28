@@ -36,6 +36,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private exited = false
   private termination: Promise<void> | undefined
   private removeAbort: (() => void) | undefined
+  private trackedDescendants: ProcessIdentity[] = []
 
   /**
    * @param terminal - allocated node-pty process.
@@ -86,6 +87,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   // Local inspection is synchronous; the seam returns a promise for remote transports.
   // eslint-disable-next-line @typescript-eslint/require-await
   async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
+    this.descendants()
     const processGroupId = this.inspector.foregroundPgid(this.pid)
     if (processGroupId === undefined) return undefined
     return {
@@ -145,7 +147,12 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private descendants(): ProcessIdentity[] {
-    return this.inspector.processTree(this.pid).filter(member => member.pid !== this.pid)
+    this.trackedDescendants = this.survivors(this.unionMembers(
+      this.trackedDescendants,
+      this.inspector.processTree(this.pid),
+      this.inspector.processSession(this.pid),
+    ).filter(member => member.pid !== this.pid))
+    return this.trackedDescendants
   }
 
   private async waitForMembers(members: ProcessIdentity[]): Promise<ProcessIdentity[]> {
