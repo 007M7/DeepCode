@@ -48,9 +48,14 @@
 }
 
 /* Parallel-active count, kept out of .summary's ellipsis so a long task name
-   clips before the count that reports the other running tasks. */
+   clips before the count that reports the other running tasks. Repeats
+   .summary's type because it sits beside that text on the same 24px row and
+   the shell leaves body text at the browser default, not 14px. */
 .extra {
   flex: none;
+  margin-left: 4px;
+  font-size: 14px;
+  line-height: 24px;
   color: var(--dsw-alias-label-tertiary);
 }
 
