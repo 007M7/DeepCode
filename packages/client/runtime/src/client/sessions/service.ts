@@ -212,7 +212,7 @@ export class SessionsService {
     // The current-provide projection follows the same current writes.
     this.list.subscribe(() => {
       this.followCurrent()
-      this.projectCurrentProvide()
+      this.updateCurrentProvideInfo()
     })
     // The runtime's own contribution comes first: useSession rides the same
     // provide channel every plugin uses (no renderer special case).
@@ -261,16 +261,17 @@ export class SessionsService {
     for (const record of this.scopes.values()) {
       record.provideInfo = this.materializeProvideInfo(record.binding)
     }
-    this.projectCurrentProvide()
+    this.updateCurrentProvideInfo()
   }
 
   /**
-   * Publish the current selection's provide bundle when it changed. Bundles
-   * are identity-stable per (scope, roster) materialization, so an identity
-   * compare is exact; synchronous notify — both call sites (list.subscribe,
-   * provide()) already sit behind their own batching or registration edges.
+   * Re-derive the current selection's provide bundle and publish it when it
+   * changed. Bundles are identity-stable per (scope, roster)
+   * materialization, so an identity compare is exact; synchronous notify —
+   * both call sites (list.subscribe, provide()) already sit behind their own
+   * batching or registration edges.
    */
-  private projectCurrentProvide(): void {
+  private updateCurrentProvideInfo(): void {
     const next = this.maybeProvideInfo(this.list.getSnapshot().current)
     if (next === this.currentProvideInfoSnapshot) return
     this.currentProvideInfoSnapshot = next
@@ -446,20 +447,16 @@ export class SessionsService {
    * {@link SessionsService.currentProvideInfo}). Pure resolution — render-safe:
    * no staging, no window side effects (StrictMode double-invokes and
    * concurrent discarded passes must stay free).
-   * @param id - session id.
-   * @returns the provide info, or undefined for a session neither listed nor already scoped.
    */
-  provideInfo(id: string): SessionProvideInfo | undefined {
+  private provideInfo(id: string): SessionProvideInfo | undefined {
     return this.resolve(id as SessionId)?.provideInfo
   }
 
   /**
    * Resolve the current-session-optional standard kit. Unknown or absent ids
    * return the static no-session projection rather than removing hook props.
-   * @param id - current session id, when selected.
-   * @returns a definite or no-session provide bundle.
    */
-  maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
+  private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
     return (id === undefined ? undefined : this.provideInfo(id)) ?? this.maybeInfo
   }
 
