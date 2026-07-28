@@ -405,6 +405,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return target
   }
 
+  /**
+   * Read the best capacity route without taking ownership of foreign routing.
+   * Web agents expose their live selection; other agents expose only a route
+   * that already crossed the durable request-header boundary.
+   */
+  function metricsRouteFor(agent: Agent): Pick<AgentLlmTarget, 'provider' | 'model'> | undefined {
+    const installed = targets.get(agent)
+    if (installed !== undefined) return installed.current
+    const logged = agent.session.requestHeader()?.config
+    return logged === undefined
+      ? undefined
+      : { provider: logged.provider, model: logged.model }
+  }
+
   /** Pre-publication setup used by both fresh and resumed Web agents. */
   function installTarget(agentCtx: Context): void {
     const agent = agentCtx.agent
@@ -423,7 +437,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   let metricsDisposed = false
   const metricsProjector = new SessionMetricsProjector(
     ctx,
-    agent => targetFor(agent).current,
+    metricsRouteFor,
     (agent) => { scheduleMetrics(agent.session) },
   )
 

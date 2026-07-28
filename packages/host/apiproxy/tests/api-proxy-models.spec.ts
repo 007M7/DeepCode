@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentLlmTargetRef } from '@deepseek-ai/dsh-agent'
 import LlmService, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
@@ -72,15 +72,7 @@ const REASONING: LlmModelReasoningInfo = {
   defaultEffort: ReasoningEffortId('high'),
 }
 
-async function harness(logged?: {
-  provider: string
-  model: string
-  reasoningEffort?: ReasoningEffortId
-}): Promise<{
-  ctx: Context
-  agent: Agent
-  sessionId: SessionId
-}> {
+async function hostContext(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
@@ -100,6 +92,19 @@ async function harness(logged?: {
     { provider: 'duplicate', id: 'same', name: 'Same' },
     { provider: 'duplicate', id: 'same', name: 'Same Again' },
   ]))
+  return ctx
+}
+
+async function harness(logged?: {
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffortId
+}): Promise<{
+  ctx: Context
+  agent: Agent
+  sessionId: SessionId
+}> {
+  const ctx = await hostContext()
   const session = ctx.sessions.create()
   if (logged !== undefined) {
     session.append('request/header', { header: { config: logged }, reason: 'initial' })
@@ -246,6 +251,7 @@ describe('Web session model selection', () => {
   it('publishes unknown capacity immediately on selection, then the exact selected route capacity', async () => {
     const { ctx, sessionId } = await harness()
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    expectValue(await api.sessions.models(request({ sessionId })))
     const controller = new AbortController()
     const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
 
@@ -259,6 +265,58 @@ describe('Web session model selection', () => {
     })))
     expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
     expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+
+    controller.abort()
+    await iterator.return?.()
+    await ctx.fiber.dispose()
+  })
+
+  it('uses logged capacity without installing Web routing while scheduling foreign metrics', async () => {
+    const ctx = await hostContext()
+    const api = createApiProxy(ctx, {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+    const initialMetrics = nextMetrics(iterator)
+    const session = ctx.sessions.create()
+    expect((await initialMetrics).contextWindow).toBeUndefined()
+    session.append('request/header', {
+      header: { config: { provider: 'deepseek', model: 'private-preview' } },
+      reason: 'change',
+    })
+    const foreign = {
+      id: session.id,
+      session,
+      status: 'running',
+      ctx,
+    } as Agent
+    const foreignTarget: AgentLlmTargetRef = {
+      current: { provider: 'foreign', model: 'foreign-model' },
+      assembled: undefined,
+    }
+    const disposeForeignTarget = installAgentLlmTarget(foreign.ctx, foreignTarget)
+    const scheduledMetrics = nextMetrics(iterator)
+    ctx.agents.register(foreign)
+
+    expect((await scheduledMetrics).contextWindow).toBeUndefined()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+    expect((await ctx.systemPrompt.assemble()).variables)
+      .toMatchObject({ provider: 'foreign', model: 'foreign-model' })
+    const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
+    const signal = new AbortController().signal
+    await expect(agentEvents(ctx, foreign).waterfall(
+      'agent/request', 1, 0, signal, () => Promise.resolve(seed),
+    )).resolves.toMatchObject({ provider: 'foreign', model: 'foreign-model' })
+
+    disposeForeignTarget()
+    expect((await ctx.systemPrompt.assemble()).variables).not.toHaveProperty('provider')
+    await expect(agentEvents(ctx, foreign).waterfall(
+      'agent/request', 1, 1, signal, () => Promise.resolve(seed),
+    )).resolves.toBe(seed)
 
     controller.abort()
     await iterator.return?.()

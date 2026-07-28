@@ -187,6 +187,37 @@ describe('SessionMetricsProjector', () => {
     })
   })
 
+  it('starts a fresh capacity generation when an unavailable route returns', async () => {
+    const ctx = new Context()
+    const resolutions: ((contextWindow: number) => void)[] = []
+    ctx.provide('llm', {
+      resolveModelInfo() {
+        return new Promise<{ context: { contextWindow: number } }>((resolve) => {
+          resolutions.push((contextWindow) => { resolve({ context: { contextWindow } }) })
+        })
+      },
+    })
+    const session = new Session(SessionId('capacity-route-return'))
+    const attached = agent(session)
+    let current: AgentLlmTarget | undefined = { provider: 'test', model: 'alpha' }
+    const resolved = vi.fn()
+    const targetFor = vi.fn(() => current)
+    const projector = new SessionMetricsProjector(ctx, targetFor, resolved)
+
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(resolutions).toHaveLength(1) })
+    current = undefined
+    resolutions[0]?.(64_000)
+    await vi.waitFor(() => { expect(targetFor).toHaveBeenCalledTimes(2) })
+    expect(resolved).not.toHaveBeenCalled()
+    current = { provider: 'test', model: 'alpha' }
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(resolutions).toHaveLength(2) })
+    resolutions[1]?.(128_000)
+    await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
+    expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
+  })
+
   it('omits current context fields when measurement or model metadata is unavailable', async () => {
     const ctx = new Context()
     ctx.provide('tokenMeter', { measure: () => { throw new Error('unmeasurable') } })
@@ -211,9 +242,10 @@ describe('SessionMetricsProjector', () => {
     const session = new Session(SessionId('optional-metrics'))
     assistant(session, 1, 0, { inputTokens: 7, outputTokens: 2 })
     const attached = agent(session)
+    const selected: { current?: AgentLlmTarget } = {}
     const projector = new SessionMetricsProjector(
       ctx,
-      () => ({ provider: 'test', model: 'no-service' }),
+      () => selected.current,
       () => {},
     )
 
@@ -224,6 +256,7 @@ describe('SessionMetricsProjector', () => {
       cacheWriteTokens: 0,
     })
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    selected.current = { provider: 'test', model: 'no-service' }
     expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
     await Promise.resolve()
   })

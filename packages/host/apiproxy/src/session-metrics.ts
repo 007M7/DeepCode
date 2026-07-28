@@ -21,11 +21,13 @@ interface UsageState {
 }
 
 interface CapacityState {
-  routeKey: string
+  routeKey: string | undefined
   generation: number
   status: 'pending' | 'ready'
   contextWindow?: number
 }
+
+type CapacityTarget = Pick<AgentLlmTarget, 'provider' | 'model'>
 
 interface TokenMeterLike {
   measure(session: Session): { totalTokens: number }
@@ -75,6 +77,10 @@ function recordUsage(state: UsageState, turn: number, step: number, usage: Token
   state.cacheWriteTokens += usage.cacheWriteTokens ?? 0
 }
 
+function routeKeyFor(target: CapacityTarget | undefined): string | undefined {
+  return target === undefined ? undefined : `${target.provider}\u0000${target.model}`
+}
+
 /**
  * Projects durable cumulative usage and route-aware current context without
  * awaiting model metadata on the session append path.
@@ -85,12 +91,12 @@ export class SessionMetricsProjector {
 
   /**
    * @param ctx - Host context providing optional token-meter and LLM services.
-   * @param targetFor - selected route owner for one attached Web agent.
+   * @param targetFor - side-effect-free selected or logged route lookup for one attached agent.
    * @param onCapacityResolved - schedules a fresh live projection after exact-route metadata resolves.
    */
   constructor(
     private readonly ctx: Context,
-    private readonly targetFor: (agent: Agent) => Pick<AgentLlmTarget, 'provider' | 'model'>,
+    private readonly targetFor: (agent: Agent) => CapacityTarget | undefined,
     private readonly onCapacityResolved: (agent: Agent) => void,
   ) {}
 
@@ -151,23 +157,23 @@ export class SessionMetricsProjector {
 
   private capacityFor(agent: Agent): number | undefined {
     const target = this.targetFor(agent)
-    const routeKey = `${target.provider}\u0000${target.model}`
+    const routeKey = routeKeyFor(target)
     let state = this.capacities.get(agent)
     if (state === undefined || state.routeKey !== routeKey) {
       state = {
         routeKey,
         generation: (state?.generation ?? 0) + 1,
-        status: 'pending',
+        status: target === undefined ? 'ready' : 'pending',
       }
       this.capacities.set(agent, state)
-      this.resolveCapacity(agent, target, state)
+      if (target !== undefined) this.resolveCapacity(agent, target, state)
     }
     return state.status === 'ready' ? state.contextWindow : undefined
   }
 
   private resolveCapacity(
     agent: Agent,
-    target: Pick<AgentLlmTarget, 'provider' | 'model'>,
+    target: CapacityTarget,
     pending: CapacityState,
   ): void {
     const llm = this.ctx.get('llm') as LlmLike | undefined
@@ -179,16 +185,27 @@ export class SessionMetricsProjector {
       .then(() => llm.resolveModelInfo(target.provider, target.model))
       .then(
         (resolved) => {
-          if (this.capacities.get(agent)?.generation !== pending.generation) return
-          const current = this.targetFor(agent)
-          if (`${current.provider}\u0000${current.model}` !== pending.routeKey) return
+          if (this.capacityResolutionIsStale(agent, pending)) return
           pending.status = 'ready'
           if (resolved.context !== undefined) pending.contextWindow = resolved.context.contextWindow
           this.onCapacityResolved(agent)
         },
         () => {
-          if (this.capacities.get(agent)?.generation === pending.generation) pending.status = 'ready'
+          if (!this.capacityResolutionIsStale(agent, pending)) pending.status = 'ready'
         },
       )
+  }
+
+  private capacityResolutionIsStale(agent: Agent, pending: CapacityState): boolean {
+    if (this.capacities.get(agent)?.generation !== pending.generation) return true
+    if (routeKeyFor(this.targetFor(agent)) === pending.routeKey) return false
+    // Unknown is the neutral generation; the next observed concrete route
+    // starts a fresh resolution even when it equals the route that disappeared.
+    this.capacities.set(agent, {
+      routeKey: undefined,
+      generation: pending.generation + 1,
+      status: 'ready',
+    })
+    return true
   }
 }
