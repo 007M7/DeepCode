@@ -24,6 +24,27 @@ describe('deferRegistration', () => {
     expect(core.entries(HOLE)).toHaveLength(0)
   })
 
+  it('hands a late registration failure to onFailure after unsubscribing itself', async () => {
+    const core = new SlotCore()
+    const component = (): null => null
+    const foreign = (): null => null
+    const failures: unknown[] = []
+    // Nothing is declared yet: the deferral just subscribes and waits.
+    const register = vi.fn(() => core.register({ name: HOLE } as never, component as never))
+    deferRegistration(core, HOLE, component, register, (error) => { failures.push(error) })
+    // The declaration lands with a foreign occupant racing in first: the
+    // deferral's flush-time attempt fails, unsubscribes itself, and reports
+    // through onFailure instead of throwing out of the flush.
+    core.register({ name: 'root', children: { [HOLE]: { kind: 'single', scope: 'root' } } } as never, (() => null) as never)
+    const disposeForeign = core.register({ name: HOLE } as never, foreign as never)
+    await Promise.resolve()
+    expect(failures.map(String).join('')).toContain('already has a registration')
+    // Unsubscribed: freeing the hole must not resurrect the loser.
+    disposeForeign()
+    await Promise.resolve()
+    expect(core.entries(HOLE)).toHaveLength(0)
+  })
+
   it('drops its subscription when the immediate registration throws', async () => {
     const core = declared()
     const foreign = (): null => null
