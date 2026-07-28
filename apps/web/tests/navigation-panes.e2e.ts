@@ -1,12 +1,11 @@
 // Web e2e scenarios: navigation & panes — the view tabs (Trajectory /
-// Waterfall), the details column, and sidebar search, all over ONE rich
-// two-turn seeded fixture rendered purely from the log (the seeded-history
-// pattern: zero model calls in replay, so every surface here is the client
-// fold + host history RPC, not replay binding). The seed is recorded live
-// under the standard discipline: turn 1 produces a bash call plus two
-// parallel reads in one assistant message (tool-call density for the
-// trajectory/waterfall lanes and a details-capable bash row), turn 2 a
-// markdown-rich reply (a second turn so the waterfall has two lanes).
+// Waterfall) and sidebar search, all over ONE rich two-turn seeded fixture
+// rendered purely from the log (the seeded-history pattern: zero model calls
+// in replay, so every surface here is the client fold + host history RPC,
+// not replay binding). The seed is recorded live under the standard
+// discipline: turn 1 produces a bash call plus two parallel reads in one
+// assistant message (tool-call density for the trajectory/waterfall lanes),
+// turn 2 a markdown-rich reply (a second turn so the waterfall has two lanes).
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -25,7 +24,6 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', impor
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
 const WATERFALL_EXPECTED = join(SNAPSHOT_DIR, 'waterfall.expected.md')
-const DETAILS_EXPECTED = join(SNAPSHOT_DIR, 'details-open.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
 
@@ -155,36 +153,27 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await compareOrRefreshGolden(WATERFALL_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('opens the details column from the bash row and closes it', async () => {
+  it.skipIf(MODE === 'record')('bash and file-path rows leave the details column collapsed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
     await page.getByRole('tab', { name: 'Chat' }).click()
-    // The bash toolview row routes its click to openDetails (read rows are
-    // expand-in-place instead — the seeded-history scenario owns that fold).
     const bashRow = page.locator('[data-sample="bash-global"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
-    // Open/closed is the frame's collapsed attribute: the column collapses to
-    // width 0 but its subtree deliberately never unmounts (hidden, not
-    // absent), so element presence/visibility cannot express the state.
     const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
     expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
     await bashRow.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 10_000 }).toBeNull()
-    // The open panel shows the selected call's name, arguments, and durable
-    // result (NAVIGATION_OK appears in the chat row too, hence >= 2 total).
-    await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
-    // Golden of the open panel: tool name header, Input args, Output result.
-    const snapshot = (await captureStableAria(page, '[class*="detailsCol"]', scaffold.workspaceCwd))
-      .split(SEED_ID).join('{{seededId}}')
-    await compareOrRefreshGolden(DETAILS_EXPECTED, snapshot, MODE)
-    await page.getByRole('button', { name: '关闭详情' }).click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 10_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    // Read summaries are host-open file links; they also must not open details.
+    const fileLink = page.locator('[data-variant="read"] button').first()
+    await fileLink.waitFor({ timeout: 10_000 })
+    await fileLink.click()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md', 'details-open.expected.md',
+      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md',
     ])
   })
 })

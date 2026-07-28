@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import { normalizeSessionLog, scrubRequestHeaders, type NormalizeContext } from '@deepseek-ai/dsh-acp-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId , createMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { describe, expect, it } from 'vitest'
@@ -33,7 +33,9 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
   }
   const events: SessionEvent[] = [
     { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 11, data: { content: [{ type: 'text', text: 'Perform one side-effecting remote mutation.' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: 11, data: createUserMessage({
+      content: [{ type: 'text', text: 'Perform one side-effecting remote mutation.' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 12, data: { turn: 1, step: 1 } },
     {
       type: 'assistant/message',
@@ -42,8 +44,14 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
       data: {
         turn: 1,
         step: 1,
-        content: [{ type: 'tool-call', id: CallId('unknown-outcome-call'), name: 'write_remote', arguments: '{"value":1}' }],
-        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: CallId('unknown-outcome-call'), name: 'write_remote', arguments: '{"value":1}' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'deepseek', model: 'deepseek-v4-flash' },
+          },
+        }),
       },
       surfaceOp: 'append',
     },

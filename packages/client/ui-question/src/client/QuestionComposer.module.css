@@ -19,6 +19,13 @@
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-shadow-lv1-blur);
   color: var(--dsw-alias-label-primary);
+  /* Elevated surface in dark, same as the menus: the option list inside scrolls
+     once the card hits the cap above, so the thumb takes the l2 pair. Declared
+     on the card because the elevation belongs to the surface, and the custom
+     properties inherit down to `.options` (see ui-theme styles/scrollbar.css
+     for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .card,

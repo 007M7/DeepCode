@@ -1,31 +1,36 @@
 /**
  * Run local and CI quality gates with bounded in-process scheduling.
  *
- * The gate vocabulary stays in package.json; this runner only decides which
- * independent commands can overlap and which commands wait for built artifacts.
+ * Package scripts own public aggregate names; this runner owns their validated
+ * dependency graphs, scheduler environment, and process diagnostics.
+ * @see ../.agents/notes/implemented/process/2026-07-06-parallel-pre-push-gates.md
  */
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-type Mode =
+/** A named aggregate exposed by the gate runner. */
+export type Mode =
   | 'ci-primary'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
   | 'ci-snapshot'
   | 'ci-artifacts'
+  | 'ci-consumers'
   | 'ci-windows-blocking'
   | 'ci-windows-complete'
   | 'ci-windows-observational'
   | 'node-compat'
-  | 'pre-push'
   | 'check-all'
   | 'doc-sync'
-type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
-interface Gate {
+type GateResultStatus = 'passed' | 'failed' | 'skipped'
+type GateState = 'pending' | 'running' | GateResultStatus
+
+/** A command and its dependency metadata inside one aggregate. */
+export interface Gate {
   id: string
   label: string
   displayCommand: string
@@ -33,19 +38,17 @@ interface Gate {
   args: string[]
   needs?: string[]
   env?: Record<string, string | undefined>
-  input?: string
-  verify?: (result: GateResult) => Promise<void>
   allowFailure?: boolean
 }
 
-interface GateResult {
+/** The observed outcome of one gate process. */
+export interface GateResult {
   gate: Gate
-  status: GateStatus
+  status: GateResultStatus
   durationMs: number
-  stdout: string
-  stderr: string
   output: GateOutputChunk[]
   exitCode: number | null
+  signalCode: NodeJS.Signals | null
   error?: string
 }
 
@@ -64,25 +67,31 @@ interface ConcurrencyDefault {
   source: string
 }
 
+type GateExecutor = (gate: Gate) => Promise<GateResult>
+type ResultObserver = (result: GateResult) => void
+
 const root = resolve(import.meta.dirname, '..')
-const mode = parseMode(process.argv[2])
-const gates = gatesForMode(mode)
-const concurrencyDefault = defaultConcurrency(mode, gates.length)
-const concurrencyOverride = process.env.DSH_GATE_CONCURRENCY
-const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', concurrencyDefault.workers)
-const verbose = process.env.DSH_GATE_VERBOSE === '1'
-const startedAt = performance.now()
+if (import.meta.main) {
+  process.exitCode = await main(process.argv.slice(2))
+}
 
-const concurrencySource = concurrencyOverride === undefined || concurrencyOverride === ''
-  ? concurrencyDefault.source
-  : '$DSH_GATE_CONCURRENCY'
-console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s) from ${concurrencySource}.`)
+async function main(args: string[]): Promise<number> {
+  const mode = parseMode(args[0])
+  const gates = gatesForMode(mode)
+  const concurrencyDefault = defaultConcurrency(mode, gates.length)
+  const concurrencyOverride = process.env.DSH_GATE_CONCURRENCY
+  const maxConcurrency = concurrencyFromEnv('DSH_GATE_CONCURRENCY', concurrencyDefault.workers)
+  const concurrencySource = concurrencyOverride === undefined || concurrencyOverride === ''
+    ? concurrencyDefault.source
+    : '$DSH_GATE_CONCURRENCY'
+  const startedAt = performance.now()
+  console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcurrency} worker(s) from ${concurrencySource}.`)
 
-const results = await runGates(gates, maxConcurrency)
-printSummary(results, performance.now() - startedAt)
-
-if (results.some(result => result.gate.allowFailure !== true && (result.status === 'failed' || result.status === 'skipped'))) {
-  process.exit(1)
+  const results = await runGates(gates, maxConcurrency, runGate, printResult)
+  printSummary(results, performance.now() - startedAt)
+  return results.some(result => result.gate.allowFailure !== true && (result.status === 'failed' || result.status === 'skipped'))
+    ? 1
+    : 0
 }
 
 function parseMode(raw: string | undefined): Mode {
@@ -93,26 +102,37 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-coverage':
     case 'ci-snapshot':
     case 'ci-artifacts':
+    case 'ci-consumers':
     case 'ci-windows-blocking':
     case 'ci-windows-complete':
     case 'ci-windows-observational':
     case 'node-compat':
-    case 'pre-push':
     case 'check-all':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
-function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
-  const available = availableParallelism()
+/**
+ * Resolve the default worker count for one aggregate.
+ * @param selectedMode - aggregate whose resource posture applies.
+ * @param total - number of gates in the aggregate.
+ * @param available - host CPU availability for ordinary modes.
+ * @returns the default worker count and its diagnostic source.
+ */
+export function defaultConcurrency(
+  selectedMode: Mode,
+  total: number,
+  available = availableParallelism(),
+): ConcurrencyDefault {
+  if (selectedMode === 'ci-consumers') return { workers: total, source: 'ci-consumers gate count' }
   // Local modes cap workers: several doc gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'pre-push' || selectedMode === 'check-all' || selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'check-all' || selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -165,7 +185,12 @@ function nodeOptions(...options: string[]): string {
   return [process.env.NODE_OPTIONS, ...options].filter(option => option !== undefined && option !== '').join(' ')
 }
 
-function gatesForMode(selected: Mode): Gate[] {
+/**
+ * Construct the complete gate list for a named aggregate.
+ * @param selected - aggregate mode to construct.
+ * @returns the aggregate's gate graph.
+ */
+export function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
@@ -182,6 +207,8 @@ function gatesForMode(selected: Mode): Gate[] {
       return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
       return ciArtifactGates()
+    case 'ci-consumers':
+      return ciConsumerGates()
     case 'ci-windows-blocking':
       return ciWindowsBlockingGates()
     case 'ci-windows-complete':
@@ -190,7 +217,6 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciWindowsObservationalGates()
     case 'node-compat':
       return nodeCompatGates()
-    case 'pre-push': return []
     case 'check-all':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
@@ -294,6 +320,26 @@ function ciArtifactGates(): Gate[] {
   ]
 }
 
+function ciConsumerGates(): Gate[] {
+  const publicArtifacts = ['publint']
+  const restoredBuild = ['built-package-invariants']
+  return [
+    pnpmScript('lint-and-duplication', 'check:ci:lint', {
+      label: 'lint and duplication',
+      needs: restoredBuild,
+    }),
+    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
+    snapshotGate(restoredBuild),
+    pnpmScript('publint', 'publint'),
+    pnpmScript('node-next-types', 'verify-node-next-types', {
+      label: 'node-next types',
+      needs: restoredBuild,
+    }),
+    builtPackageInvariantsGate(publicArtifacts),
+    builtBinSmokeGate(restoredBuild),
+  ]
+}
+
 function ciWindowsBlockingGates(): Gate[] {
   return [
     pnpmScript('windows-build', 'build', { label: 'build' }),
@@ -381,11 +427,11 @@ function coverageGate(): Gate {
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
 // plugins via real exports); repository-script snapshots execute their real source entry path.
-// CI and check-all already build before either class runs, so the suite waits on `build`.
-function snapshotGate(): Gate {
+// Build-owning modes wait on `build`; a restored-artifact mode passes its validation dependency.
+function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
-    needs: ['build'],
+    needs,
   })
 }
 
@@ -468,7 +514,7 @@ function docSyncLeafGates(options: {
   ]
 }
 
-function builtBinSmokeGate(): Gate {
+function builtBinSmokeGate(needs: string[] = ['build']): Gate {
   return pnpmExec('built-bin-smoke', [
     'vitest',
     'run',
@@ -486,44 +532,125 @@ function builtBinSmokeGate(): Gate {
     'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
-    needs: ['build'],
+    needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
   })
 }
 
-async function runGates(allGates: Gate[], maxActive: number): Promise<GateResult[]> {
-  const states = new Map<string, GateStatus>(allGates.map(gate => [gate.id, 'pending']))
+/**
+ * Reject a gate list whose graph cannot be executed unambiguously.
+ * @param gates - complete aggregate to validate.
+ */
+function validateGateGraph(gates: readonly Gate[]): void {
+  if (gates.length === 0) throw new Error('run-gates: gate graph has no gates.')
+
+  const ids = new Set<string>()
+  for (const gate of gates) {
+    if (ids.has(gate.id)) throw new Error(`run-gates: duplicate gate id ${JSON.stringify(gate.id)}.`)
+    ids.add(gate.id)
+  }
+  for (const gate of gates) {
+    for (const dependency of gate.needs ?? []) {
+      if (!ids.has(dependency)) {
+        throw new Error(`run-gates: gate ${JSON.stringify(gate.id)} depends on unknown gate ${JSON.stringify(dependency)}.`)
+      }
+    }
+  }
+
+  const cycle = findDependencyCycle(gates)
+  if (cycle !== undefined) throw new Error(`run-gates: dependency cycle: ${cycle.join(' -> ')}.`)
+}
+
+function findDependencyCycle(gates: readonly Gate[]): string[] | undefined {
+  const byId = new Map(gates.map(gate => [gate.id, gate]))
+  const complete = new Set<string>()
+  const active = new Map<string, number>()
+  const path: string[] = []
+
+  const visit = (id: string): string[] | undefined => {
+    if (complete.has(id)) return undefined
+    const cycleStart = active.get(id)
+    if (cycleStart !== undefined) return [...path.slice(cycleStart), id]
+    const gate = byId.get(id)
+    if (gate === undefined) return undefined
+
+    active.set(id, path.length)
+    path.push(id)
+    for (const dependency of gate.needs ?? []) {
+      const cycle = visit(dependency)
+      if (cycle !== undefined) return cycle
+    }
+    path.pop()
+    active.delete(id)
+    complete.add(id)
+    return undefined
+  }
+
+  for (const gate of gates) {
+    const cycle = visit(gate.id)
+    if (cycle !== undefined) return cycle
+  }
+  return undefined
+}
+
+/**
+ * Validate and run one aggregate before the injected executor can start a child.
+ * @param gates - complete aggregate to execute.
+ * @param maxActive - maximum concurrent child count.
+ * @param execute - child-process executor.
+ * @param observe - result observer invoked when each gate settles.
+ * @returns results in aggregate order.
+ */
+export async function runGates(
+  gates: Gate[],
+  maxActive: number,
+  execute: GateExecutor,
+  observe: ResultObserver = () => {},
+): Promise<GateResult[]> {
+  validateGateGraph(gates)
+  if (!Number.isSafeInteger(maxActive) || maxActive < 1) {
+    throw new Error(`run-gates: max concurrency must be a positive integer, got ${JSON.stringify(maxActive)}.`)
+  }
+  const states = new Map<string, GateState>(gates.map(gate => [gate.id, 'pending']))
   const results = new Map<string, GateResult>()
   const running: RunningGate[] = []
 
   for (;;) {
     let madeProgress = false
     while (running.length < maxActive) {
-      const ready = allGates.find(gate => states.get(gate.id) === 'pending' && dependenciesPassed(gate, states))
+      const ready = gates.find(gate => states.get(gate.id) === 'pending' && dependenciesPassed(gate, states))
       if (ready === undefined) break
       states.set(ready.id, 'running')
-      running.push({ gate: ready, promise: runGate(ready) })
+      running.push({ gate: ready, promise: execute(ready) })
       console.log(`run-gates: start ${ready.label}`)
       madeProgress = true
     }
 
     if (running.length === 0) {
-      const pending = allGates.filter(gate => states.get(gate.id) === 'pending')
-      for (const gate of pending) {
-        const failedDeps = (gate.needs ?? []).filter(id => states.get(id) !== 'passed')
+      let pending = gates.filter(gate => states.get(gate.id) === 'pending')
+      while (pending.length > 0) {
+        const gate = pending.find(item => (item.needs ?? []).some((id) => {
+          const state = states.get(id)
+          return state === 'failed' || state === 'skipped'
+        }))
+        if (gate === undefined) throw new Error('run-gates: validated graph stalled without a failed dependency.')
+        const failedDeps = (gate.needs ?? []).filter((id) => {
+          const state = states.get(id)
+          return state === 'failed' || state === 'skipped'
+        })
         const result: GateResult = {
           gate,
           status: 'skipped',
           durationMs: 0,
-          stdout: '',
-          stderr: '',
           output: [],
           exitCode: null,
+          signalCode: null,
           error: `dependency failed or skipped: ${failedDeps.join(', ')}`,
         }
         states.set(gate.id, 'skipped')
         results.set(gate.id, result)
-        printResult(result)
+        observe(result)
+        pending = pending.filter(item => item !== gate)
       }
       break
     }
@@ -533,29 +660,35 @@ async function runGates(allGates: Gate[], maxActive: number): Promise<GateResult
       running.splice(running.indexOf(settled.item), 1)
       states.set(settled.item.gate.id, settled.result.status)
       results.set(settled.item.gate.id, settled.result)
-      printResult(settled.result)
+      observe(settled.result)
     }
   }
 
-  return allGates.map((gate) => {
+  return gates.map((gate) => {
     const result = results.get(gate.id)
     if (result === undefined) throw new Error(`run-gates: missing result for ${gate.id}.`)
     return result
   })
 }
 
-function dependenciesPassed(gate: Gate, states: Map<string, GateStatus>): boolean {
+function dependenciesPassed(gate: Gate, states: Map<string, GateState>): boolean {
   return (gate.needs ?? []).every(id => states.get(id) === 'passed')
 }
 
-async function runGate(gate: Gate): Promise<GateResult> {
+/**
+ * Execute one gate through the real shell-free child-process boundary.
+ * @param gate - command and scheduler environment to execute.
+ * @returns the complete process outcome.
+ */
+export async function runGate(gate: Gate): Promise<GateResult> {
   const started = performance.now()
-  let stdout = ''
-  let stderr = ''
   const output: GateOutputChunk[] = []
   let spawnError: string | undefined
 
-  const exitCode = await new Promise<number | null>((resolveExit) => {
+  const outcome = await new Promise<{
+    exitCode: number | null
+    signalCode: NodeJS.Signals | null
+  }>((resolveExit) => {
     const child = spawn(gate.command, gate.args, {
       cwd: root,
       env: { ...process.env, ...gate.env },
@@ -564,47 +697,50 @@ async function runGate(gate: Gate): Promise<GateResult> {
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
       output.push({ stream: 'stdout', text: chunk })
     })
     child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
       output.push({ stream: 'stderr', text: chunk })
     })
     child.on('error', (error) => {
       spawnError = `failed to start command: ${error.message}`
-      resolveExit(null)
+      resolveExit({ exitCode: null, signalCode: null })
     })
-    child.on('close', resolveExit)
-    if (gate.input !== undefined) child.stdin.end(gate.input)
-    else child.stdin.end()
+    child.on('close', (exitCode, signalCode) => {
+      resolveExit({ exitCode, signalCode })
+    })
+    child.stdin.end()
   })
+  const { exitCode, signalCode } = outcome
 
-  let status: GateStatus = exitCode === 0 && spawnError === undefined ? 'passed' : 'failed'
-  let error = spawnError
-  if (status === 'passed' && gate.verify !== undefined) {
-    try {
-      await gate.verify({ gate, status, durationMs: performance.now() - started, stdout, stderr, output, exitCode })
-    } catch (verifyError: unknown) {
-      status = 'failed'
-      error = verifyError instanceof Error ? verifyError.message : String(verifyError)
-    }
-  }
-
+  const status: GateResultStatus = exitCode === 0 && signalCode === null && spawnError === undefined ? 'passed' : 'failed'
   const result: GateResult = {
     gate,
     status,
     durationMs: performance.now() - started,
-    stdout,
-    stderr,
     output,
     exitCode,
+    signalCode,
   }
-  if (error !== undefined) result.error = error
+  if (spawnError !== undefined) result.error = spawnError
   return result
 }
 
+/**
+ * Format every independently observed failure fact for the aggregate summary.
+ * @param result - unsuccessful gate result.
+ * @returns error, exit, and signal facts without allowing one to hide another.
+ */
+export function formatGateResultReason(result: GateResult): string {
+  const facts: string[] = []
+  if (result.error !== undefined) facts.push(result.error)
+  if (result.exitCode !== null) facts.push(`exit ${result.exitCode}`)
+  if (result.signalCode !== null) facts.push(`signal ${result.signalCode}`)
+  return facts.length === 0 ? 'no exit code or signal' : facts.join(', ')
+}
+
 function printResult(result: GateResult): void {
+  const verbose = process.env.DSH_GATE_VERBOSE === '1'
   const seconds = (result.durationMs / 1000).toFixed(2)
   if (result.status === 'passed' && !verbose) {
     console.log(`run-gates: PASS ${result.gate.label} (${seconds}s)`)
@@ -614,9 +750,11 @@ function printResult(result: GateResult): void {
   const heading = `${result.status.toUpperCase()} ${result.gate.label} (${seconds}s)`
   const writeHeading = result.status === 'passed' ? console.log : console.error
   writeHeading(`\n== ${heading} ==`)
-  if (result.status !== 'passed') console.error(`command: ${result.gate.displayCommand}`)
+  if (result.status !== 'passed') {
+    console.error(`command: ${result.gate.displayCommand}`)
+    console.error(`outcome: ${formatGateResultReason(result)}`)
+  }
   printOutput(result.output)
-  if (result.error !== undefined) console.error(result.error)
 }
 
 function printSummary(results: GateResult[], durationMs: number): void {
@@ -632,7 +770,7 @@ function printSummary(results: GateResult[], durationMs: number): void {
   console.error('run-gates: unsuccessful gates:')
   for (const result of unsuccessful) {
     const duration = (result.durationMs / 1000).toFixed(2)
-    const reason = result.error ?? (result.exitCode === null ? 'no exit code' : `exit ${result.exitCode}`)
+    const reason = formatGateResultReason(result)
     const disposition = result.gate.allowFailure === true ? 'NON-BLOCKING ' : ''
     console.error(`  - ${disposition}${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
     console.error(`    ${result.gate.displayCommand}`)

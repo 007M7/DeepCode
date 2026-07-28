@@ -236,6 +236,17 @@ describe('WorkspacesService', () => {
     expect(api.callsOf('host.pickDirectory')).toEqual([{}, {}])
   })
 
+  it('opens a filesystem path through the host without local state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    await expect(workspaces.openPath('/w/alpha/a.ts')).resolves.toBeUndefined()
+    expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
+    api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
+    await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
+  })
+
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

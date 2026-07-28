@@ -50,6 +50,7 @@ function scriptedApi(overrides: {
     host: {
       describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
       pickDirectory: r => ok(r, { path: null }),
+      openPath: r => ok(r, { opened: true as const }),
       ...overrides.host,
     },
     workspace: {

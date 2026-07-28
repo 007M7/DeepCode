@@ -246,13 +246,6 @@ export class SlotsService extends Service {
     if (workspaces === undefined) {
       throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
-    // Identity-stable view: current rides the list snapshot (arbitrated), but
-    // the provider consumes it as its own observable; one cached object keeps
-    // the renderer's per-source hook cache stable.
-    const current = {
-      getSnapshot: () => sessions.list.getSnapshot().current as string | undefined,
-      subscribe: (fn: () => void) => sessions.list.subscribe(fn),
-    }
     this._host = {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
       getVersion: key => this._core.getVersion(key),
@@ -263,9 +256,7 @@ export class SlotsService extends Service {
         entry.store === undefined ? undefined : this.resolveStore(entry.store as unknown as EngineStoreHandle, scopeKey),
       sessions: {
         list: sessions.list,
-        current,
-        provideInfo: id => sessions.provideInfo(id),
-        maybeProvideInfo: id => sessions.maybeProvideInfo(id),
+        provideInfo: sessions.currentProvideInfo,
       },
       workspaces: { list: workspaces.list },
     }

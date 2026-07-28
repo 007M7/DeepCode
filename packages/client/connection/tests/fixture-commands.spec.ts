@@ -36,20 +36,37 @@ describe('createFixtureApi commands/skills', () => {
     expect(response.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
 
-  it('executes a known command line and reports matched with a result', async () => {
+  it('executes a known command line: pure admission plus a mux-broadcast lifecycle pair', async () => {
     const api = createFixtureApi()
+    const frames: unknown[] = []
+    const abort = new AbortController()
+    const stream = api.events.mux(req({}), abort.signal)
+    const pump = (async () => {
+      for await (const frame of stream) {
+        frames.push(frame.payload)
+        if (frames.filter(f => (f as { type: string }).type === 'session/event').length >= 2) abort.abort()
+      }
+    })()
     const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/echo hello world' }), signal)
     if (!response.result.ok) throw new Error('execute failed')
-    expect(response.result.value.matched).toBe(true)
-    expect(response.result.value.result).toEqual({ kind: 'success', text: 'hello world' })
+    expect(response.result.value).toMatchObject({ matched: true })
+    expect(response.result.value.commandId).toBeTruthy()
+    await pump
+    const events = frames
+      .filter((f): f is { type: string; event: { type: string; data: Record<string, unknown> } } => (f as { type: string }).type === 'session/event')
+      .map(f => f.event)
+    expect(events).toMatchObject([
+      { type: 'command/run', data: { name: 'echo', args: ' hello world', source: { kind: 'user' } } },
+      { type: 'command/done', data: { kind: 'success', text: 'hello world' } },
+    ])
+    expect(events[0]?.data.commandId).toBe(events[1]?.data.commandId)
   })
 
-  it('addresses execute to the session (result text carries the id)', async () => {
+  it('addresses execute to the session; an unknown session errs', async () => {
     const api = createFixtureApi()
     const hit = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/goal-fixture ship' }), signal)
     if (!hit.result.ok) throw new Error('execute failed')
     expect(hit.result.value.matched).toBe(true)
-    expect(hit.result.value.result?.text).toContain('fx-alpha')
 
     const missing = await api.commands.execute(req({ sessionId: sid('fx-nope'), line: '/goal-fixture ship' }), signal)
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
@@ -60,8 +77,8 @@ describe('createFixtureApi commands/skills', () => {
     for (const line of ['/nope', 'plain text', '/']) {
       const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line }), signal)
       if (!response.result.ok) throw new Error('execute failed')
-      expect(response.result.value.matched).toBe(false)
-      expect(response.result.value.result).toBeUndefined()
+      // Pure admission value: the matched bit is the whole response shape.
+      expect(response.result.value).toEqual({ matched: false })
     }
   })
 

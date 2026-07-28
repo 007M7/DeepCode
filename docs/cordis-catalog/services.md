@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:188`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:196`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -413,17 +413,29 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 
 /**
  * Parse and execute a known command without sending it to the model.
+ *
+ * A resolved command's lifecycle is logged: `command/run` is appended
+ * before the handler is invoked and `command/done` after settlement (a
+ * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+ * log-only appends — no turn wraps them, and persistence drains them at
+ * ordinary checkpoints. Admission misses (syntax or unknown name) log
+ * nothing — they never entered a handler. A `command/run` append failure
+ * fails the execution loud; a `command/done` append failure on the
+ * handler-failure path is contained so the handler's own error stays the
+ * reported failure.
+ *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
  * @param signal - cancellation signal owned by the UI request.
- * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ * @returns the settled execution (result + lifecycle pairing id), or
+ *   `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:227`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -656,7 +668,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -787,7 +799,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -858,7 +870,7 @@ set(agent: Agent, active: boolean): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:142`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -1029,6 +1041,8 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
  * open live turn rejects.
  * A coordinator-backed cold load reserves the identity across storage awaits,
  * so concurrent publication of a same-id live Session rejects.
+ * Returned events are detached, and every identified message is deeply
+ * frozen; malformed identified messages reject before any stored event is returned.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
@@ -1038,7 +1052,8 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * Inspect a header and its valid contiguous stored prefix without repairing
  * a torn tail, closing an interrupted turn, or publishing coordinator state.
  * This read is serialized with writes for the same id and returns detached
- * values, so observers cannot mutate backend-owned state.
+ * values with deeply frozen identified messages, so observers cannot mutate message
+ * identity/content or backend-owned state. Malformed identified messages reject.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
@@ -1068,6 +1083,44 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
+
+## `ctx.sessionProjections` — `SessionProjectionRegistry`
+
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+
+```ts cordis-catalog
+/**
+ * Register one domain's unit. The registration is an effect on the calling
+ * context's fiber: disposing the fiber (or calling the returned disposer)
+ * removes the key — and the unit's cached cells — from subsequent drives
+ * and snapshots.
+ * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @returns the exact disposer that unregisters this unit.
+ */
+register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
+
+/**
+ * Subscribe to the change feed. The registration is an effect on the
+ * calling context's fiber.
+ * @param listener - called once per unit whose state reference changed, per committed event.
+ * @returns the exact disposer that unsubscribes.
+ */
+onChanged(listener: ProjectionChangeListener): () => void
+
+/**
+ * One consistent cut over every registered unit for one session, read from
+ * the watermark cache (missing cells fold lazily over the in-memory log).
+ * Fully synchronous — every value and `asOfSeq` reflect the same log
+ * position. Each value passes its unit's schema before leaving.
+ * @param session - the session whose projection values are read.
+ * @returns the snapshot; `values` is empty when no unit is registered.
+ */
+snapshot(session: Session): ProjectionSnapshot
+```
+
+Types: [Session](../core-data-structures/session.md)
+
+Source: [`packages/session-projection/session-projection/src/index.ts:136`](../../packages/session-projection/session-projection/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
@@ -1224,7 +1277,7 @@ async prepare( agent: Agent, content: ContentBlock[], references: SessionReferen
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [PreparedReferencedMessage](../core-data-structures/session-reference.md) · [SessionReferenceCandidate](../core-data-structures/session-reference.md) · [SessionReferenceInput](../core-data-structures/session-reference.md)
 
-Source: [`packages/context/session-reference/src/index.ts:69`](../../packages/context/session-reference/src/index.ts)
+Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -1321,28 +1374,6 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
- * Append one plugin-declared log-only event without borrowing the agent
- * loop's lifecycle. An open turn receives the event directly and remains
- * responsible for its ordinary checkpoint. A closed log receives one
- * zero-step turn around the event, followed by an awaited flush.
- *
- * Once the synthetic `turn/start` commits, this method always attempts its
- * matching `turn/end` and flush, including when the target append fails.
- * Detachment requested by an event or flush listener is deferred until that
- * sequence settles, so publication cannot switch from a live scoped session
- * to an unobserved bare `Session` halfway through the update.
- *
- * @param session - exact live session that owns the target log.
- * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
- * @param data - typed JSON payload for the target event.
- * @param trigger - plugin-owned turn trigger used only when the log is closed.
- * @returns the accepted target event with its assigned sequence and timestamp.
- * @throws when the session is detached, another out-of-band append is active,
- *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
- */
-async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>
-
-/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -1356,9 +1387,10 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 
 /**
- * Create a live child session from a turn-enclosed prefix of a live source.
+ * Create a live child session from a stable prefix of a live source.
  * `boundary` is an inclusive source event seq; omitted means the source's
- * current last event. A non-empty selected slice must end at `turn/end`.
+ * current last event. The selected slice may end with a between-turn event
+ * but must not end inside an open turn.
  *
  * @param source - Live source session object or id.
  * @param boundary - Inclusive source event seq to fork through; omitted means
@@ -1371,9 +1403,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:694`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1391,7 +1423,7 @@ get(session: Session): SessionTitleSnapshot | undefined
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
- * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+ * @param signal - optional caller cancellation.
  * @returns latest accepted title, or `undefined` when no eligible text exists.
  */
 async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
@@ -1407,7 +1439,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1851,7 +1883,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:39`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -1957,7 +1989,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:188`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:187`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

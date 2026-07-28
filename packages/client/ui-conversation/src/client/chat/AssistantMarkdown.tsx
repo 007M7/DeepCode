@@ -2,8 +2,8 @@
 // reasoning as the figma Think summary row (expand = indented gray text),
 // other-block JSON fallback. Tool-call heads are NOT rendered here: the chat
 // view groups them into tool rows through its keyed toolview slot (figma
-// step-summary flow). Shared by finalized nodes and the streaming partial
-// (pulse marker).
+// step-summary flow). Shared by finalized nodes and the streaming partial;
+// the turn-level loading dots live in the chat view's tail, not here.
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -14,7 +14,7 @@ import css from './AssistantMarkdown.module.css'
 export interface AssistantMarkdownProps {
   blocks: readonly AssistantBlock[]
   streaming: boolean
-  /** Frozen partial of an aborted turn: rendered with a 已停止 marker, no pulse. */
+  /** Frozen partial of an aborted turn: rendered with a 已停止 marker. */
   interrupted?: boolean | undefined
 }
 
@@ -28,7 +28,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
   return (
     <ToolRow
       variant="think"
-      icon={<IconThinkOutline14 />}
+      icon={<IconThinkOutline14 size={14} />}
       title="Think"
       summary={firstLine(text)}
       body={text}
@@ -58,7 +58,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />
         }
       })}
-      {streaming && <span className={css.pulse} />}
       {interrupted && <span className={css.stopped}>已停止</span>}
     </div>
   )

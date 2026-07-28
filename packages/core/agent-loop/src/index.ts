@@ -112,6 +112,14 @@ function resolveMaxParallelToolCalls(value: number | undefined): number {
   return maxParallelToolCalls
 }
 
+/** Reject an output-token cap that cannot be represented exactly on the request wire. */
+function assertAgentOptions(options: AgentOptions): void {
+  if (options.maxTokens !== undefined
+    && (!Number.isSafeInteger(options.maxTokens) || options.maxTokens <= 0)) {
+    throw new TypeError('agent maxTokens must be a positive safe integer')
+  }
+}
+
 /** Prepared-but-unpublished agent resources sharing one memoized teardown. */
 interface PreparedAgent {
   agent: ReactLoopAgent
@@ -196,6 +204,7 @@ export class AgentLoop extends Service implements AgentFactory {
       sessionId: z.string().min(1),
       provider: z.string(),
       model: z.string(),
+      maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
       cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
@@ -327,6 +336,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * fuses caller cancellation with lifecycle teardown for setup awaits.
    */
   private prepare(ownerCtx: Context, id: SessionId, options: AgentOptions, session: Session, callerSignal?: AbortSignal): PreparedAgent {
+    assertAgentOptions(options)
     ownerCtx.fiber.assertActive()
     // Every caller reaches prepare() synchronously from a service method
     // whose Cordis dispatch already requires the live factory fiber, or

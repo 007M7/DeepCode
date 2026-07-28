@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -48,7 +48,7 @@ describe('cordis tools through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-cordis'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'give yourself reverse_text, use it, clean up' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -56,8 +56,8 @@ describe('cordis tools through the agent loop', () => {
     expect(calls).toEqual(['cordis_mount', 'reverse_text', 'cordis_unmount'])
 
     const results = log.filter(event => event.type === 'tool/result')
-    expect(results.map(event => event.data.isError)).toEqual([false, false, false])
-    const reversed = results[1]!.data.content
+    expect(results.map(event => event.data.message.content[0].isError)).toEqual([false, false, false])
+    const reversed = results[1]!.data.message.content[0].content
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('')
@@ -80,15 +80,15 @@ describe('cordis tools through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-cordis-turn-lifetime'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'Mount the marker and inspect it.' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Mount the marker and inspect it.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
-    agent.followup({ content: [{ type: 'text', text: 'On this later turn, inspect the marker, unmount it, then inspect again.' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'On this later turn, inspect the marker, unmount it, then inspect again.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const resultText = new Map(
       agent.session.events
         .filter(event => event.type === 'tool/result')
-        .map(event => [event.data.callId, event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')]),
+        .map(event => [event.data.message.source.callId, event.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text).join('')]),
     )
     expect(resultText.get(CallId('inspect-1'))).toContain('Temporary Plugin dyn-1: turn-marker [running]')
     expect(resultText.get(CallId('inspect-2'))).toContain('Temporary Plugin dyn-1: turn-marker [running]')
