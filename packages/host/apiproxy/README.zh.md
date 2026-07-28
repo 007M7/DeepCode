@@ -16,7 +16,7 @@ mux 流会在每个已附加会话的订阅基线之后，以及对应的实时�
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
-`host.pickDirectory` 会打开一个原生目录选择器并返回选中的路径；用户取消时返回 `null`。宿主实现不经 shell 调用平台工具：macOS 使用 `osascript`，Windows 使用以 STA 模式运行的 PowerShell `FolderBrowserDialog`，Linux 使用 Zenity，并以 KDialog 作为回退。选择器函数可在测试中注入。该方法需等待用户完成操作，是唯一不受默认 30 秒超时限制的一元调用；调用方发出的中止信号和连接中止仍会传播至原生进程。浏览器载体另行将这一特权方法限制为仅接受来自回环地址的同源请求。
+`host.pickDirectory` 会打开一个原生目录选择器并返回选中的路径；用户取消时返回 `null`。宿主实现不经 shell 调用平台工具：macOS 使用 `osascript`，Windows 使用以 STA 模式运行的 PowerShell `FolderBrowserDialog`，Linux 使用 Zenity，并以 KDialog 作为回退。选择器函数可在测试中注入。该方法需等待用户完成操作，是唯一不受默认 30 秒超时限制的一元调用；调用方发出的中止信号和连接中止仍会传播至原生进程。浏览器载体的前缀级信任栅栏（dsh-client-connection）像覆盖其他所有 `/api` 请求一样覆盖该方法。
 
 `session.history` 按消息边界分页，其尾页（不带 `beforeSeq`）额外携带两项页窗口本身无法提供的会话级数据：进行中局部消息的 chunk 事件，以及 `todos`——整份日志上最后一次 `todo/write` 的整表投影。较早的页面不带 `todos`，因为该投影是会话级而非分页级的；尾页响应缺少该字段意味着整份日志中没有任何 `todo/write`，因此客户端要把缺失字段读作空计划，而不是读作「状态未变」。
 

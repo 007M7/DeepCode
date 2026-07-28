@@ -1,11 +1,12 @@
 /** Host HTTP bridge for browser-client RPC. */
 import type { Context } from 'cordis'
+import z from 'schemastery'
 // Activates the httpServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
-import { isTrustedNativeDialogRequest } from './native-dialog-request.ts'
+import { isTrustedApiRequest } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
 
@@ -15,19 +16,37 @@ export const name = 'client-connection'
 /** Services required before mounting the route. */
 export const inject = ['httpServer', 'apiProxy']
 
+/** Plugin config: the deployment's non-loopback serving authorities. */
+export interface ConnectionConfig {
+  /**
+   * Exact `host[:port]` authorities this deployment serves beyond loopback.
+   * The /api trust fence refuses any request whose Host is neither loopback
+   * nor listed here, so a non-loopback (`0.0.0.0`) deployment must declare
+   * the names it is reached by.
+   */
+  trustedHosts?: string[]
+}
+
+export const Config: z<ConnectionConfig> = z.object({
+  trustedHosts: z.array(String).default([]),
+})
+
 /**
- * Mounts the API gateway under the browser transport prefix.
+ * Mounts the API gateway under the browser transport prefix. Every request on
+ * the prefix passes the browser-trust fence first (DNS-rebinding and
+ * cross-site defense — [api-request-trust](./api-request-trust.ts)).
  * @param ctx - Host plugin context.
+ * @param config - resolved plugin config (schema defaults applied).
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: ConnectionConfig): void {
+  // The Loader resolves schema defaults; hand-built test contexts may pass none.
+  const trustedHosts = config?.trustedHosts ?? []
   const apiHandler = toFetchHandler(ctx.apiProxy)
   const route: WebRoute = {
     kind: 'prefix',
     path: API_PATH,
     handler: async (req, res) => {
-      const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      if (pathname === `${API_PATH}/host.pickDirectory`
-        && !isTrustedNativeDialogRequest(req)) {
+      if (!isTrustedApiRequest(req, trustedHosts)) {
         res.writeHead(403)
         res.end('forbidden')
         return

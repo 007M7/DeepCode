@@ -4,6 +4,10 @@ English | [中文](README.zh.md)
 
 Wire consumer layer: the client plugin's apply mounts `ctx.connection` (shared api client + single-consumer stream-loop starter); the export face carries the wire contract types, the `AbstractApiClient` seam, and the loop's sink/config types. The platform subclasses (WebApiClient/FixtureApiClient), the ConnectionController loop, and the fixture data source are package-internal — apply selects and drives them; tests reach them via src. Contract: api-contracts v3 §3.
 
+## /api browser-trust fence
+
+The node half guards every request under `/api` before bridging (`src/api-request-trust.ts`): the `Host` header must be a loopback authority or an exact `host[:port]` entry from the plugin's `trustedHosts` config (DNS-rebinding defense), an attached `Origin` must equal that authority, and an explicit `sec-fetch-site: cross-site` marker is refused. Requests without browser markers (curl, tests, native clients) pass — without a browser there is no confused deputy. Failures answer plain 403 before any RPC dispatch. A non-loopback (`--host 0.0.0.0`) deployment must therefore list the authorities it is reached by in `trustedHosts`; the fence is deliberately not an authentication layer — reachability policy stays with the webserver binding, and auth remains deferred work. Decision record: [the api browser-trust boundary Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md).
+
 ## Keyless fixture
 
 Any `fixture` query parameter selects the in-memory carrier. `fixture=empty` starts with no Workspace or Session; `fixturePrompt=reject` rejects prompts before acceptance; `fixtureAttach=fail` publishes a Session but rejects its Workspace attachment; `fixtureSessionCreate=drop-response` publishes and frames a Session before dropping the create response; and `fixtureFrames=workspace-first` reverses the default session-first create-frame order. Workspace creation by name/path and caller-preallocated SessionIds remain deterministic enough for assembled Web tests to reconcile list and frame arrival.
