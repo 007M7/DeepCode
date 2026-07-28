@@ -100,6 +100,15 @@ describe('SessionMetricsProjector', () => {
       surfaceOp: { op: 'replace', start: first.seq, end: assistantSeq },
       sourceEventSeqs: [first.seq, assistantSeq],
     })
+    const compacted = projector.snapshot(session, attached)
+    expect(compacted).toMatchObject({
+      uncachedInputTokens: 11,
+      outputTokens: 3,
+      cacheReadTokens: 89,
+      cacheWriteTokens: 8,
+      contextTokens: 100,
+    })
+
     // A replayed usage event for the same step replaces the settled value.
     session.append('assistant/chunk', {
       turn: 1,
@@ -114,8 +123,8 @@ describe('SessionMetricsProjector', () => {
         },
       },
     })
-    const compacted = projector.snapshot(session, attached)
-    expect(compacted).toMatchObject({
+    const replayed = projector.snapshot(session, attached)
+    expect(replayed).toMatchObject({
       uncachedInputTokens: 12,
       outputTokens: 4,
       cacheReadTokens: 88,
@@ -132,7 +141,7 @@ describe('SessionMetricsProjector', () => {
     const after = projector.snapshot(session, attached)
     expect(after).toMatchObject({
       logRevision: session.events.length,
-      projectionRevision: 2,
+      projectionRevision: 3,
       uncachedInputTokens: 1_012,
       outputTokens: 504,
       cacheReadTokens: 2_088,
