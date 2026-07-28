@@ -107,20 +107,6 @@ interface SessionEventMap {
 
 `UserMessageData` 是普通提示词、注入上下文与 steering（中途引导）共享的持久 `content` + `source` 基础形状。实时收件箱事件在同一形状上扩展一个 `AgentMessageId`；条目待处理期间，loop 只额外附加驱动器自有的路由状态。
 
-### `OutOfBandSessionEventMap`：受限的带外追加显式准入
-
-仅属于 `SessionEventMap` 并不表示事件可以脱离 agent loop（智能体循环）的常规生命周期追加。事件所有方必须通过声明合并将同一键加入这个空标记映射，`ctx.sessions.appendOutOfBand()` 才会接受该事件；派生类型还会排除所有 surface 事件。被接受的更新会并入已打开的轮次；如果没有打开的轮次，系统则为它创建一个边界配平且已刷新完成的零步骤轮次。
-
-```ts type-equiv
-/**
- * Marker map for plugin-owned log-only events accepted by
- * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
- * it adds to {@link SessionEventMap}; surface and lifecycle events stay
- * ineligible unless their owner explicitly opts them into this narrow seam.
- */
-interface OutOfBandSessionEventMap {}
-```
-
 ### `TodoItem`：一条待办项
 
 这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识。见 [todo_write Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md)。
@@ -467,9 +453,9 @@ declare class Session {
 
 `ctx.sessions.create(id, { seed, meta })` 是底层的回放/fork 原语。对于普通的活跃会话 fork，`SessionStore` 暴露一个策略 API：
 
-- `fork(source, boundary?, childSessionId?)` 接受一个活跃的 `Session` 对象或活跃的 `SessionId`，选取到 `boundary` seq（含）为止的源事件（默认为当前最后一个事件），要求 boundary 事件必须是 `turn/end`，然后创建一个活跃的子会话，包含深克隆的种子事件和子会话元数据（`parentSession`、`seedLength` 及继承的 `cwd`）。
+- `fork(source, boundary?, childSessionId?)` 接受一个活跃的 `Session` 对象或活跃的 `SessionId`，选取到 `boundary` seq（含）为止的源事件（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，然后创建一个活跃的子会话，包含深克隆的种子事件和子会话元数据（`parentSession`、`seedLength` 及继承的 `cwd`）。
 
-显式 `boundary` 允许调用者从之前完成的轮次 fork，即使源会话有更新的事件或正在进行的轮次。API 拒绝非 `turn/end` 的 boundary，而不是静默截断。更广泛的轮次封闭性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork` 保留其已完成前缀截断逻辑，因为工具时委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
+显式 `boundary` 允许调用者从任意稳定的轮次间位置 fork，包括之前的 `turn/end` 或更晚的独立纯日志事件，即使源会话有更新的事件或正在进行的轮次。API 拒绝结束于开放轮次内的前缀，而不是静默截断。更广泛的执行关系健全性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork` 保留其已完成前缀截断逻辑，因为工具时委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
 
 ## 轮次的触发原因：`TurnTriggerMap`
 
@@ -530,18 +516,20 @@ interface TurnEndReasonMap {
 
 `max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止；但它只优先于 `completed`，`disposed`/`aborted`/`error` 结果的优先级更高。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。两个 map 均可通过合并扩展。
 
-## 轮次封闭不变式
+## 执行封闭与独立事件
 
-每个会话事件都位于一个轮次**之内**（在 `turn/start` 和对应的 `turn/end` 之间）。loop 在 `turn/start` *之后*追加已排队的 `user/message` 事件；空闲时的 `agent.inject()` 会用一次性的 `injection` 轮次包住其 `user/message`；没有打开的轮次时，`appendOutOfBand()` 同样会用一个轮次包住符合条件的仅日志事件。这使轮次成为唯一的持久性/回放边界：后端可以将最后一个 `turn/end` 之后的任何内容视为崩溃中断尾部，而不会丢失合法记录在轮次之间的上下文。可选的 `dsh-session/invariant` 配套插件通过 `ctx.invariants` 在开发环境中强制此不变式（消息事件若位于打开的轮次之外便会抛出）。见[轮次封闭不变式 Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)。
+一个轮次包围一次模型循环执行，而不是整个会话日志。空闲注入的 `user/message` 事件和插件所属的纯日志事件可以出现在 `turn/end` 与下一个 `turn/start` 之间；它们占用事件 seq，但不递增轮次编号。持久化会尽快记录每个连续且已接受的事件，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
+
+可选的 `dsh-session/invariant` 配套插件会强制核心拥有的关系：轮次与步骤编号、执行事件封闭，以及同一步骤内的工具调用／结果配对。可合并扩展事件的关系由声明它的插件拥有，因此核心不会仅因没有开放轮次就拒绝未知事件。见[独立事件决策](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md)。
 
 ## 插件贡献的仅日志事件
 
-插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史），但与所有事件一样，必须位于一个打开的轮次内。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
+插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史）。事件所有方决定它们属于一个开放的执行轮次，还是可以独立位于轮次之间，并在自己的不变量配套插件中强制所需关系。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
 
 钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 与轮次开始前的 `UserPromptSubmit` 准入 seam 都不生成 `hook/*` 记录，因为两者都没有已打开的轮次可容纳该记录；被放行的上下文改由其带来源的 `user/message` 作为持久证据（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
 
 ## 持久性契约
 
-持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增携带不可序列化数据的事件类型，或破坏会话不变式配套插件所检查的轮次/步骤嵌套，会构成磁盘格式的破坏性变更。
+持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增携带不可序列化数据的事件类型、破坏核心执行嵌套，或违反事件所有方声明的关系，都会构成磁盘格式的破坏性变更。
 
 消费此契约的后端见 [persistence.md](persistence.md)。

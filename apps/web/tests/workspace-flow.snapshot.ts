@@ -165,7 +165,7 @@ it('locks the composer in the New Session view state until a Workspace is chosen
     sidebar: visibleText(tree),
   }).toMatchInlineSnapshot(`
     {
-      "chip": "New Workspace",
+      "chip": "Choose workspace",
       "composerDisabled": true,
       "headline": "Let's start building",
       "sendDisabled": true,
@@ -232,7 +232,10 @@ it('New Session reuses the Workspace blank session and converts the single visib
 
   // New Session resolves through the recent Workspace and reuses its blank
   // session in place: no locked interlude, no second entity.
-  fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+  const newSessionButton = screen.getAllByRole('button', { name: 'New session' })
+    .find(button => visibleText(button) === 'New Session')
+  if (newSessionButton === undefined) throw new Error('New Session button missing')
+  fireEvent.click(newSessionButton)
   const composer = await findHeroComposer()
   await waitFor(() => { expect(within(tree).getByText('1 session')).toBeDefined() }, { timeout: 10_000 })
 

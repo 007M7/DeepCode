@@ -257,22 +257,8 @@ export interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
 
-/**
- * Marker map for plugin-owned log-only events accepted by
- * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
- * it adds to {@link SessionEventMap}; surface and lifecycle events stay
- * ineligible unless their owner explicitly opts them into this narrow seam.
- */
-export interface OutOfBandSessionEventMap {}
-
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
-
-/** Plugin-declared non-surface event types accepted by `SessionStore.appendOutOfBand()`. */
-export type OutOfBandSessionEventType = Exclude<
-  Extract<SessionEventType, keyof OutOfBandSessionEventMap>,
-  SurfaceEventType
->
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM

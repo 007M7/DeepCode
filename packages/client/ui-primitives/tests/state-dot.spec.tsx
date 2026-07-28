@@ -14,16 +14,17 @@ describe('StateDot', () => {
     expect(dot.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('solid states are spans; ongoing is an svg gradient ring', () => {
+  it('solid states are spans; ongoing is an svg pixel matrix', () => {
     const { container, rerender } = render(<StateDot state="done" />)
     expect(container.firstElementChild?.tagName).toBe('SPAN')
     rerender(<StateDot state="ongoing" />)
-    const ring = container.firstElementChild as SVGSVGElement
-    expect(ring.tagName).toBe('svg')
-    const circle = ring.querySelector('circle')
-    expect(circle?.getAttribute('stroke-width')).toBe('1')
-    expect(circle?.getAttribute('stroke')).toMatch(/^url\(#/)
-    expect(ring.querySelector('linearGradient')).not.toBeNull()
+    const matrix = container.firstElementChild as SVGSVGElement
+    expect(matrix.tagName).toBe('svg')
+    const cells = matrix.querySelectorAll('rect')
+    expect(cells).toHaveLength(8)
+    // Chase phase: every cell carries its own negative animation delay.
+    const delays = [...cells].map(cell => (cell).style.animationDelay)
+    expect(new Set(delays).size).toBe(8)
   })
 
   it('sizes via the size prop in both shapes', () => {

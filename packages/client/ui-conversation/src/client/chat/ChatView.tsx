@@ -49,19 +49,20 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected, cwd }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
   onOpenDetails: OpenDetails
   selected: boolean
+  cwd: string | undefined
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
   const seq = settled ? node.seq : node.time
   const owner = useMemo(() => ({
-    callId: node.callId, toolName, block: node,
+    callId: node.callId, toolName, block: node, cwd,
     openDetails: () => { onOpenDetails({ turnSeq: seq, callId: node.callId, toolName }) },
-  }), [node, toolName, seq, onOpenDetails])
+  }), [node, toolName, seq, cwd, onOpenDetails])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -77,7 +78,9 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, s
  *  GenericToolCard at this render site. A `run_code` call additionally
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
-const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq, onOpenDetails, selected, subCalls, selectedCallId }: {
+const CallRow = memo(function CallRow({
+  renderSlot, callId, toolName, block, seq, onOpenDetails, selected, subCalls, selectedCallId, cwd,
+}: {
   renderSlot: RenderToolRow
   callId: string
   toolName: string
@@ -91,11 +94,13 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   subCalls?: readonly CodeSubCall[] | undefined
   /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
   selectedCallId?: string | undefined
+  /** Session workspace root for path-relative summaries. */
+  cwd: string | undefined
 }) {
   const owner = useMemo(() => ({
-    callId, toolName, block,
+    callId, toolName, block, cwd,
     openDetails: () => { onOpenDetails({ turnSeq: seq, callId, toolName }) },
-  }), [callId, toolName, block, seq, onOpenDetails])
+  }), [callId, toolName, block, seq, cwd, onOpenDetails])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -111,6 +116,7 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
               node={node}
               onOpenDetails={onOpenDetails}
               selected={node.callId === selectedCallId}
+              cwd={cwd}
             />
           ))}
         </div>
@@ -119,8 +125,8 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   )
 })
 
-/** Consecutive tool results as one step-run group (figma VERTICAL gap10). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId, codeDispatches }: {
+/** Consecutive tool results as one step-run group (uniform 16px rhythm). */
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId, codeDispatches, cwd }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
   onOpenDetails: OpenDetails
@@ -128,6 +134,8 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
   selectedCallId: string | undefined
   /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
+  /** Session workspace root for path-relative summaries. */
+  cwd: string | undefined
 }) {
   return (
     <div className={css.toolGroup}>
@@ -143,11 +151,46 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
           selected={node.callId === selectedCallId}
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
+          cwd={cwd}
         />
       ))}
     </div>
   )
 })
+
+/** Turn loader: one row of four 2.5px pixels (half a notch above the StateDot
+ *  2px cell, same blue) chasing left to right with a stepped trail — flat
+ *  keyframe holds, no tweening, no rotation. Phase offsets come from
+ *  per-rect animation-delay. */
+const LOADER_CELLS = [0, 5, 10, 15] as const
+
+function TurnDots() {
+  return (
+    /* The wrapper is a 26px line box (message line height) so the loader
+       occupies one text line and centers the dots inside it. */
+    <div className={css.turnDots} aria-hidden="true">
+      <svg
+        width="17.5"
+        height="2.5"
+        viewBox="0 0 17.5 2.5"
+        shapeRendering="crispEdges"
+      >
+        {LOADER_CELLS.map((x, index) => (
+          <rect
+            key={x}
+            className={css.turnDotCell}
+            x={x}
+            y="0"
+            width="2.5"
+            height="2.5"
+            /* Negative delay phases the chase so every cell animates from mount. */
+            style={{ animationDelay: `${(index - LOADER_CELLS.length) * 250}ms` }}
+          />
+        ))}
+      </svg>
+    </div>
+  )
+}
 
 /** The streaming partial, isolated so chunk batches re-render only this tail.
  *  onGrow lets the scroll owner follow content the parent never re-renders for. */
@@ -167,8 +210,11 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openDetails, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
+  // Workspace root off the session list row: path summaries display relative to it.
+  const cwd = useSessions(s => s.byId[sessionId]?.cwd)
+  const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
   const pending = useSession(s => s.pending)
@@ -268,6 +314,7 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
           onOpenDetails={openDetails}
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
+          cwd={cwd}
         />
       )
     }
@@ -309,11 +356,15 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
                   selected={call.callId === selectedCallId}
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
+                  cwd={cwd}
                 />
               ))}
             </div>
           )}
           {pending.map(item => <PendingCard key={item.key} item={item} />)}
+          {/* Turn-level loading signal: rides the whole running turn (first-token
+              wait, tool execution, streaming) so it never flickers per step. */}
+          {running && <TurnDots />}
         </div>
       </div>
       <StatsLine useSession={useSession} />

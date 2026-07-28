@@ -7,22 +7,48 @@
 }
 
 .row {
+  position: relative; /* sweep-glare overlay anchor */
+  overflow: hidden;
   display: flex;
   align-items: center;
   height: 24px;
   min-width: 0;
 }
 
+/* Running sweep (deepsuite ShimmerText pattern): a fixed-width glare band —
+   theme background at 60% — glides over the row content from off-left to
+   off-right, washing glyphs and icon toward the background as it passes.
+   ease-out with a 10% end hold gives each pass a beat before the next. */
+.root[data-state='running'] .row::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-tool-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dsh-tool-row-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
+}
+
+/* Clickable rows keep only the cursor affordance — no hover fill. */
 .row[data-clickable] {
   cursor: pointer;
   border-radius: 6px;
 }
 
-.row[data-clickable]:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .leading {
+  position: relative; /* .chevronHover overlay anchor */
   flex: none;
   width: 16px;
   height: 16px;
@@ -65,11 +91,36 @@ button.leading {
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Hover preview on expandable rows: the idle tool icon crossfades (100ms)
+   into a down chevron before the row is opened. The chevron overlays the
+   icon cell absolutely so both can stay mounted for the opacity transition. */
+.iconIdle {
+  display: inline-flex;
+  opacity: 1;
+  transition: opacity 100ms ease;
+}
+
+.chevronHover {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.row:hover .iconIdle {
+  opacity: 0;
+}
+
+.row:hover .chevronHover {
+  opacity: 1;
+}
+
 .title {
   flex: none;
   font-size: 14px;
   line-height: 24px;
-  color: var(--dsw-alias-label-primary-dimmed);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .sep {
