@@ -69,23 +69,23 @@ export function ConversationSession({
             })}
             {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
           </nav>
-          {tabs.length > 1 && (
-            <div className={css.tabs} role="tablist">
-              {tabs.map(view => (
-                <button
-                  key={view.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={view.id === active?.id}
-                  className={clsx(css.tab, view.id === active?.id && css.tabActive)}
-                  onClick={() => { actions.setView(view.id) }}
-                >
-                  {view.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
+        {tabs.length > 1 && (
+          <div className={css.tabs} role="tablist">
+            {tabs.map(view => (
+              <button
+                key={view.id}
+                type="button"
+                role="tab"
+                aria-selected={view.id === active?.id}
+                className={clsx(css.tab, view.id === active?.id && css.tabActive)}
+                onClick={() => { actions.setView(view.id) }}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+        )}
       </header>}
       {!blankHero && <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}

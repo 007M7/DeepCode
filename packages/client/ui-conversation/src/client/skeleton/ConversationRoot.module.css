@@ -1,6 +1,7 @@
-/* Conversation column skeleton: one header row with breadcrumbs and view
-   tabs over the view area, composer InputBar at the bottom. Column
-   width/squeeze is layout's; this fills its cell. */
+/* Conversation column skeleton: header (breadcrumb row + tabs) over the view
+   area, composer InputBar at the bottom. Column width/squeeze is layout's;
+   this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
+   a 3px active bar. */
 
 .root {
   display: flex;
@@ -25,7 +26,6 @@
 
 .crumbs {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: 4px;
   min-width: 0;
@@ -72,14 +72,12 @@
   cursor: default;
 }
 
-/* View tabs occupy the far-right side of the session-title row. */
+/* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
 .tabs {
   display: flex;
-  flex: none;
-  align-self: stretch;
-  align-items: flex-end;
   gap: 36px;
-  margin-left: 24px;
+  margin-top: 4px;
+  padding-left: 8px;
 }
 
 /* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 3px bar (no bottom rounding). */
