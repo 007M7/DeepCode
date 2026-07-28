@@ -4569,10 +4569,16 @@ importers:
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
         version: link:../../bash/bash
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../commands
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -4585,6 +4591,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../user-approval
