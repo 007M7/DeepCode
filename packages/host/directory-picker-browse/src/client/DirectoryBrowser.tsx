@@ -121,8 +121,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // and the edit zone beside it) in view whenever the chain changes.
   const crumbTrailRef = useRef<HTMLSpanElement | null>(null)
   // IME confirmation (Enter selecting a candidate) must not submit either
-  // text input; the same guard the workspace-name inputs carry.
+  // text input; the same guard the workspace-name inputs carry, shared by
+  // the path editor and the folder-name input.
   const composingRef = useRef(false)
+  const compositionGuard = {
+    onCompositionStart: () => { composingRef.current = true },
+    onCompositionEnd: () => { composingRef.current = false },
+  }
 
   /** Replace the whole view with one freshly listed level (no selection). */
   const navigate = useCallback((path?: string) => {
@@ -305,8 +310,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 autoFocus
                 disabled={parentInert}
                 onChange={(event) => { setPathDraft(event.target.value) }}
-                onCompositionStart={() => { composingRef.current = true }}
-                onCompositionEnd={() => { composingRef.current = false }}
+                {...compositionGuard}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !composingRef.current) {
                     event.preventDefault()
@@ -391,8 +395,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             autoFocus
             disabled={creatingFolder}
             onChange={(event) => { setFolderDraft(event.target.value) }}
-            onCompositionStart={() => { composingRef.current = true }}
-            onCompositionEnd={() => { composingRef.current = false }}
+            {...compositionGuard}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !composingRef.current) {
                 event.preventDefault()
