@@ -13,7 +13,7 @@ The web GUI host serves `/api` over plain HTTP (default `127.0.0.1:3080`, `--hos
 Enforce browser trust once, at the carrier, for the entire `/api` prefix — two halves in two stacked PRs:
 
 - **Media-type fence (dsh-host-apiproxy)**: every `/api` POST must declare `application/json`, else 415 before parsing. Cross-site "simple" requests thereby stop existing: any cross-site attempt is forced into a CORS preflight this server never answers.
-- **Authority fence (dsh-client-connection, `src/api-request-trust.ts`)**: `Host` must be loopback or an exact `host[:port]` from the plugin's `trustedHosts` config (rebinding defense); an attached `Origin` must equal that authority; `sec-fetch-site: cross-site` is refused outright. Requests without browser markers pass — a non-browser client is the principal itself, not a deputy. `host.pickDirectory` loses its bespoke guard and rides the same fence.
+- **Authority fence (dsh-client-connection, `src/api-request-trust.ts`)**: requests without browser markers (no `Origin`, no `sec-fetch-site`) pass on any Host — a non-browser client is the principal itself, not a deputy, and forges every header anyway, so fencing it buys nothing and breaks non-browser LAN automation. For browser requests, `Host` must be loopback or match a `trustedHosts` entry (exact on `host:port`, any port on port-less entries, WHATWG-normalized; rebinding defense); an attached `Origin` must equal that authority; `sec-fetch-site: cross-site` is refused outright. `host.pickDirectory` loses its bespoke guard and rides the same fence.
 
 Two boundaries stay deliberately out of scope: reachability is the webserver binding's policy (`host: 127.0.0.1 | 0.0.0.0`), and authentication for genuinely remote deployments is deferred work recorded in the connection README — the fence is a confused-deputy defense, not an auth layer. The old guard's loopback-socket check was dropped rather than generalized: with binding expressing reachability and `trustedHosts` naming remote authorities, the socket address adds nothing a header fence does not already cover.
 
@@ -26,6 +26,6 @@ Two boundaries stay deliberately out of scope: reachability is the webserver bin
 ## Consequences
 
 - Any future `/api` method is covered by construction; there is no per-route trust decision left to forget.
-- Non-loopback deployments must declare their serving authorities in `trustedHosts` or browsers are refused; plain curl-shape automation is unaffected either way.
+- Non-loopback deployments must have their serving authorities trusted or browsers are refused. The dsh CLI keeps its advertised `--host 0.0.0.0` LAN URL working by deriving the machine's LAN IP literals into the connection row (port-less entries — an IP-literal Host cannot be a rebound name, and the bound port may be OS-assigned) and offers `dsh web --trusted-host` for named authorities; compositions the CLI does not boot declare `trustedHosts` themselves. Plain curl-shape automation is unaffected everywhere.
 - Clients must label POST bodies `application/json` (ours always did; raw-fetch tests gained the header).
 - The trusted-network assumption of an unauthenticated `0.0.0.0` deployment is now documented instead of implicit.

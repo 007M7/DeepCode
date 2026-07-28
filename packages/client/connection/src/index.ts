@@ -19,10 +19,11 @@ export const inject = ['httpServer', 'apiProxy']
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
   /**
-   * Exact `host[:port]` authorities this deployment serves beyond loopback.
-   * The /api trust fence refuses any request whose Host is neither loopback
-   * nor listed here, so a non-loopback (`0.0.0.0`) deployment must declare
-   * the names it is reached by.
+   * Authorities this deployment serves beyond loopback: exact `host:port`, or
+   * port-less `host` matching any port. The /api trust fence refuses any
+   * browser request whose Host is neither loopback nor listed here, so a
+   * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
+   * by (the dsh CLI derives the machine's LAN IP literals itself).
    */
   trustedHosts?: string[]
 }

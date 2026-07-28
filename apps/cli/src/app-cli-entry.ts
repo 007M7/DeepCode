@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
@@ -24,6 +25,38 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 /** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
 const PROFILE_DIR = '.dsh-tmp-profile'
 const PROFILE_FILE = 'config.json'
+
+/** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation here and the printed LAN URL in web.ts. */
+export const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Non-internal IPv4 interface addresses of this machine — the IP-literal
+ * authorities an all-interfaces bind is reachable by on the LAN.
+ * @returns the addresses in interface order (possibly empty).
+ */
+export function lanIPv4Addresses(): string[] {
+  return Object.values(networkInterfaces()).flat()
+    .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    .map(iface => iface.address)
+}
+
+/**
+ * Authorities the /api browser-trust fence must accept for one invocation:
+ * the machine's LAN IP literals when the effective bind is all-interfaces
+ * (advertised by the printed LAN URL, so they must not answer 403), followed
+ * by the explicit extras. Derived entries are port-less IP literals — DNS
+ * rebinding needs an attacker-controlled name, so an IP-literal Host is safe
+ * on any port, and the bound port may be OS-assigned, unknowable pre-boot.
+ * @param bindHost - the effective webserver bind host (CLI flag, else the yml default).
+ * @param extra - `--trusted-host` values, in argv order.
+ * @returns the connection row's `trustedHosts` value (possibly empty).
+ */
+export function resolveTrustedHosts(bindHost: string | undefined, extra: readonly string[]): string[] {
+  return [
+    ...bindHost === ALL_INTERFACES_HOST ? lanIPv4Addresses() : [],
+    ...extra,
+  ]
+}
 
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
@@ -79,6 +112,8 @@ export interface AppCLIEntryOptions {
   port?: number
   /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
   workspaceRoot?: string
+  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`), appended to the derived LAN IP literals. */
+  trustedHosts?: string[]
 }
 
 /**
@@ -151,6 +186,12 @@ export class AppCLIEntry {
     if (this.options.host !== undefined) put('webserver', 'host', this.options.host)
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
     if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
+
+    // Source 2b: authorities for the /api browser-trust fence (rationale on
+    // resolveTrustedHosts).
+    const ymlHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
+    const trustedHosts = resolveTrustedHosts(this.options.host ?? ymlHost, this.options.trustedHosts ?? [])
+    if (trustedHosts.length > 0) put('connection', 'trustedHosts', trustedHosts)
 
     // Source 3: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.

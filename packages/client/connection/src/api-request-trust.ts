@@ -3,10 +3,11 @@
  * paths a browser opens against a local HTTP API — DNS rebinding (Host names
  * the attacker's domain while the socket reaches this server) and cross-site
  * requests fired from a malicious page — without blocking non-browser clients
- * (no browser markers → no deputy to confuse) or legitimately remote browsers
- * (their authority is declared via `trustedHosts`). Network reachability and
- * authentication stay out of scope: binding policy belongs to the webserver
- * config, and this fence is not an auth layer.
+ * (no browser markers → no deputy to confuse, and a native client forges Host
+ * freely anyway) or legitimately remote browsers (their authority is declared
+ * via `trustedHosts`, or derived by the composing app for IP-literal LAN
+ * serving). Network reachability and authentication stay out of scope: binding
+ * policy belongs to the webserver config, and this fence is not an auth layer.
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
@@ -29,42 +30,64 @@ function isLoopbackHostname(hostname: string): boolean {
     && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
 }
 
-/** Hostname of a Host-header authority (port stripped, lowercased, IPv6 bracketed), or undefined when unparsable. */
-function authorityHostname(authority: string): string | undefined {
+/** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */
+function parseAuthority(authority: string): URL | undefined {
   try {
     // http: is a WHATWG "special scheme": parsing yields a non-empty hostname or throws.
-    return new URL(`http://${authority}`).hostname
+    return new URL(`http://${authority}`)
   } catch {
     return undefined
   }
 }
 
 /**
+ * Whether the request authority matches a `trustedHosts` entry. An entry with
+ * an explicit port matches that exact authority; a port-less entry matches the
+ * hostname on any port (the shape the CLI derives for IP-literal LAN serving,
+ * where the bound port may be OS-assigned). Both sides compare through WHATWG
+ * normalization, so case and a redundant `:80` never decide trust.
+ */
+function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
+  return trustedHosts.some((entry) => {
+    const entryUrl = parseAuthority(entry)
+    if (entryUrl === undefined) return false
+    return /:\d+$/.test(entry)
+      ? entryUrl.host === hostUrl.host
+      : entryUrl.hostname === hostUrl.hostname
+  })
+}
+
+/**
  * Decide whether one /api request may reach the RPC bridge.
  * @param request - node HTTP request facts (headers).
- * @param trustedHosts - exact non-loopback `host[:port]` authorities this deployment serves.
- * @returns true when the Host is ours and any browser markers are same-origin.
+ * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
+ * @returns true for requests without browser markers, and for browser requests whose Host is ours and whose markers are same-origin.
  */
 export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
+  // Marker gate: Origin and sec-fetch-site exist only when a browser is the
+  // sender's deputy. Absent both, the sender is the principal itself (curl,
+  // tests, native shells) and could forge every header below — fencing it
+  // would add nothing and would break non-browser LAN automation.
+  const origin = header(request.headers, 'origin')
+  const secFetchSite = header(request.headers, 'sec-fetch-site')
+  if (origin === undefined && secFetchSite === undefined) return true
   // Host fence (DNS-rebinding defense): the browser fills Host from the URL it
   // believes it is talking to, so a rebound page carries the attacker's domain
   // here even though the socket lands on this server.
   const host = header(request.headers, 'host')
   if (host === undefined) return false
-  const hostname = authorityHostname(host)
-  if (hostname === undefined) return false
-  if (!isLoopbackHostname(hostname) && !trustedHosts.includes(host)) return false
+  const hostUrl = parseAuthority(host)
+  if (hostUrl === undefined) return false
+  if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false
   // Cross-site fence: modern browsers label the initiator relationship on
   // every fetch; an explicit cross-site marker is refused regardless of Origin.
-  if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false
+  if (secFetchSite === 'cross-site') return false
   // Origin fence: when a browser attaches an Origin it must be exactly this
-  // authority. Absent Origin = non-browser client (curl, tests, native shells)
-  // — allowed, because without a browser there is no confused deputy. The
+  // authority (compared through the same normalization as the Host). The
   // literal "null" (sandboxed iframes, file: pages) is an opaque origin, refused.
-  const origin = header(request.headers, 'origin')
   if (origin === undefined) return true
   try {
-    return new URL(origin).host === host
+    return new URL(origin).host === hostUrl.host
   } catch {
     return false
   }

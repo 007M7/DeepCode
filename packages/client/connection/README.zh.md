@@ -6,7 +6,7 @@
 
 ## /api 浏览器信任栅栏
 
-node 半侧在桥接前守卫 `/api` 下的每个请求（`src/api-request-trust.ts`）：`Host` 头必须是回环地址权威，或与插件 `trustedHosts` 配置中的某个 `host[:port]` 精确匹配（DNS rebinding 防御）；若带有 `Origin` 则必须与该权威完全一致；显式的 `sec-fetch-site: cross-site` 标记一律拒绝。不带浏览器标头的请求（curl、测试、原生客户端）直接放行——没有浏览器就不存在"混淆代理人"。失败在任何 RPC 分发之前以纯 403 应答。因此非回环（`--host 0.0.0.0`）部署必须在 `trustedHosts` 中列出自己被访问时使用的权威；这道栅栏刻意不承担认证职责——可达性策略归 webserver 绑定配置，认证仍是延期工作。决策记录：[api 浏览器信任边界 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)。
+node 半侧在桥接前守卫 `/api` 下的每个请求（`src/api-request-trust.ts`）。不带浏览器标记的请求（无 `Origin`、无 `sec-fetch-site`——curl、测试、原生客户端）在任何 Host 上都放行：没有浏览器就不存在"混淆代理人"，且这类发送方本就可以伪造任何请求头。对浏览器请求，`Host` 头必须是回环地址权威，或与某个 `trustedHosts` 条目匹配——带端口的 `host:port` 条目精确匹配，不带端口的条目匹配任意端口，两侧均经 WHATWG 归一化后比较（DNS rebinding 防御）；若带有 `Origin` 则必须与该权威完全一致；显式的 `sec-fetch-site: cross-site` 标记一律拒绝。失败在任何 RPC 分发之前以纯 403 应答。因此非回环（`--host 0.0.0.0`）部署需要让自己的服务权威被信任：dsh CLI 会自行推导本机的 LAN IP 字面量，其 `--trusted-host` flag 用于声明具名权威，所以 cordis.yml 中的 `trustedHosts` 面向 CLI 不参与引导的组合。这道栅栏刻意不承担认证职责——可达性策略归 webserver 绑定配置，认证仍是延期工作。决策记录：[api 浏览器信任边界 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)。
 
 ## 无密钥 fixture
 

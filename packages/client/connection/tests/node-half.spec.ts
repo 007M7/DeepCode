@@ -80,6 +80,11 @@ describe('connection node half', () => {
     const loopback = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), loopback.response)
     expect(loopback.state.status).toBe(404)
+    // Undeclared LAN authority, no browser markers: the `--host 0.0.0.0` curl
+    // shape must reach the bridge even with an empty-by-default trust list.
+    const lan = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '192.168.1.5:3080' }), lan.response)
+    expect(lan.state.status).toBe(404)
     // Declared public authority, same-origin browser shape.
     const declared = fakeResponse()
     await routes[0]!.handler(fakeRequest({
