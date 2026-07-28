@@ -832,7 +832,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:130`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -1971,7 +1971,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:183`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:198`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -2154,6 +2154,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model` ([`packages/client/ui-model/src/index.ts`](../packages/client/ui-model/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-models` ([`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-permission` ([`packages/client/ui-permission/src/index.ts`](../packages/client/ui-permission/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))

@@ -105,7 +105,7 @@ Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -121,7 +121,7 @@ Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -137,7 +137,7 @@ Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approv
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -342,7 +342,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
