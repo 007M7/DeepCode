@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 import { constants } from 'node:os'
 import { PassThrough } from 'node:stream'
 import type { IDisposable, IPty } from 'node-pty'
+import { SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessOutcome,
   SubprocessTerminalForeground,
@@ -33,9 +34,8 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private readonly outcome = Promise.withResolvers<SubprocessOutcome>()
   private readonly dataDisposable: IDisposable
   private readonly exitDisposable: IDisposable
+  private readonly lifecycle: SubprocessTerminalLifecycle
   private exited = false
-  private termination: Promise<void> | undefined
-  private removeAbort: (() => void) | undefined
   private trackedDescendants: ProcessIdentity[] = []
 
   /**
@@ -63,12 +63,11 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
       })
       this.terminate()
     })
-    if (signal !== undefined) {
-      const onAbort = (): void => { this.terminate() }
-      signal.addEventListener('abort', onAbort, { once: true })
-      this.removeAbort = () => { signal.removeEventListener('abort', onAbort) }
-      if (signal.aborted) this.terminate()
-    }
+    this.lifecycle = new SubprocessTerminalLifecycle({
+      done: this.done,
+      cleanup: () => this.closeOnce(),
+      signal,
+    })
   }
 
   // node-pty writes synchronously; the seam returns a promise for remote transports.
@@ -109,37 +108,11 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   terminate(): void {
-    this.termination ??= this.closeOnce().catch((error: unknown) => {
-      this.termination = undefined
-      throw error
-    })
-    void this.termination.catch(() => {})
+    this.lifecycle.terminate()
   }
 
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
-    // A caller may begin waiting before the top-level process exits. The exit
-    // callback starts descendant cleanup in the same turn, so resolve that
-    // eventual transaction after `done` instead of snapshotting only `done`.
-    const quiescence = this.termination ?? this.done.then(() => this.termination)
-    if (signal === undefined) {
-      await quiescence
-      return true
-    }
-    if (signal.aborted) return false
-    return await new Promise<boolean>((resolve, reject) => {
-      const onAbort = (): void => { cleanup(); resolve(false) }
-      const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      void quiescence.then(
-        () => { cleanup(); resolve(true) },
-        (error: unknown) => {
-          cleanup()
-          // The owned cleanup transaction only throws Error diagnostics.
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-          reject(error)
-        },
-      )
-    })
+    return await this.lifecycle.waitForExit(signal)
   }
 
   private survivors(members: ProcessIdentity[]): ProcessIdentity[] {
@@ -225,8 +198,6 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
       throw new Error(`terminal cleanup failed; surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
     }
     await this.stopShell()
-    this.removeAbort?.()
-    this.removeAbort = undefined
     this.dataDisposable.dispose()
     this.exitDisposable.dispose()
   }

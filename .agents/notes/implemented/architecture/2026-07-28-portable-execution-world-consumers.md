@@ -16,7 +16,7 @@ Ordinary pipes do not cover one requirement. A persistent terminal needs PTY all
 
 The filesystem interface owns the path facts that another capability needs without exposing its opaque target identity: a canonical process path, canonical `file:` URI, containment, and a bounded stable-handle text read. The existing text and mutation operations remain filesystem-owned.
 
-The subprocess interface owns the process coordinates and primitives: canonical cwd, private runtime storage, executable lookup, ordinary raw or collected process spawning, and `spawnTerminal()`. The terminal operation is one deep primitive whose handle owns byte I/O, foreground groups, signalling, TERM-to-KILL session cleanup, and a quiescence wait. Prompt detection, idle inference, scrollback, sandbox policy, and owner lifecycle remain in the PTY consumer.
+The subprocess interface owns the process coordinates and primitives: canonical cwd, private runtime storage, executable lookup, ordinary raw or collected process spawning, and `spawnTerminal()`. The terminal operation is one deep primitive whose handle owns byte I/O, foreground groups, signalling, TERM-to-KILL session cleanup, and a quiescence wait. The interface package also exports a provider-neutral lifecycle controller that joins top-level settlement, lifetime cancellation, retryable provider cleanup, and bounded quiescence observation; each implementation supplies only its session-cleanup transaction. Prompt detection, idle inference, scrollback, sandbox policy, and owner lifecycle remain in the PTY consumer.
 
 Generic consumers use that execution world:
 
