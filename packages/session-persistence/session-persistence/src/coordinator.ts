@@ -26,6 +26,17 @@ export interface StoredPrefix<TornMarker = unknown> {
 }
 
 /**
+ * A stored session's header plus the events at or past a requested seq — the
+ * return shape of the optional seek-capable
+ * {@link PersistenceBackend.loadStoredFrom} hook. Non-mutating reads carry no
+ * torn marker: there is nothing to repair.
+ */
+export interface StoredSuffix {
+  meta: SessionHeader
+  events: SessionEvent[]
+}
+
+/**
  * The storage seam between {@link PersistenceCoordinator} and a concrete
  * backend: the minimal set of durable primitives the orchestration calls. A
  * backend implements these (over files, rows, an object store, …); the
@@ -49,6 +60,22 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * @param signal - optional cancellation for backend read work.
    */
   loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<TornMarker> | undefined>
+
+  /**
+   * Optional seek-capable suffix read behind the service's `readFrom`: return
+   * the header plus the stored events with `seq >= fromSeq` without reading
+   * the whole log. A backend whose medium can address events by seq (SQLite)
+   * implements this so `readFrom` scales with the suffix; sequential backends
+   * omit it and the coordinator falls back to {@link loadStored} plus a
+   * forward skip. Non-mutating (no truncation, no closers). Validation of the
+   * region strictly below `fromSeq` is limited to seq contiguity — the
+   * service contract scopes this read to the suffix.
+   * @param id - persisted session id to resolve.
+   * @param fromSeq - first event seq to include (non-negative safe integer,
+   *   validated by the coordinator before this hook runs).
+   * @param signal - optional cancellation for backend read work.
+   */
+  loadStoredFrom?(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -455,6 +482,52 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       meta: structuredClone(stored.meta),
       events,
     }
+  }
+
+  /**
+   * Read the stored events from `fromSeq` onward, detached and non-mutating
+   * (the read-from-seq primitive behind the service's `readFrom`). Runs on
+   * the same per-id chain as writes; a backend with the seek-capable
+   * {@link PersistenceBackend.loadStoredFrom} hook reads only the suffix,
+   * every other backend reads its stored prefix and skips forward here.
+   * @param id - persisted session to read.
+   * @param fromSeq - first event seq to include; a non-negative safe integer.
+   * @param signal - optional cancellation for queued and backend read work.
+   * @returns stored header and the valid stored events with `seq >= fromSeq`.
+   */
+  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    if (!Number.isSafeInteger(fromSeq) || fromSeq < 0) {
+      return Promise.reject(new TypeError(`readFrom fromSeq must be a non-negative safe integer, got ${String(fromSeq)}`))
+    }
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.readFromCore(id, fromSeq, signal), signal))
+  }
+
+  private async readFromCore(
+    id: SessionId,
+    fromSeq: number,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    signal?.throwIfAborted()
+    if (this.backend.loadStoredFrom !== undefined) {
+      let suffix: StoredSuffix | undefined
+      try {
+        suffix = await this.backend.loadStoredFrom(id, fromSeq, signal)
+      } catch (error: unknown) {
+        if (signal?.aborted) signal.throwIfAborted()
+        throw error
+      }
+      signal?.throwIfAborted()
+      if (suffix === undefined) throw new Error(`session "${id}" not found`)
+      this.assertStoredId(id, suffix.meta)
+      this.assertVersion(suffix.meta)
+      assertSupportedEvents(suffix.events, id)
+      return { meta: structuredClone(suffix.meta), events: structuredClone(suffix.events) }
+    }
+    const whole = await this.inspectCore(id, signal)
+    // Sequential fallback: contiguous seqs from 0 make the suffix an index slice.
+    return { meta: whole.meta, events: whole.events.slice(fromSeq) }
   }
 
   private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {

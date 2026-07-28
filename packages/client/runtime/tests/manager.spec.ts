@@ -160,6 +160,28 @@ describe('list lifecycle', () => {
     expect(manager.getListSnapshot().items.find(item => item.sessionId === S1)?.title).toBeUndefined()
   })
 
+  it('seeds cold titles from the list rows\' projections block under higher-seq-wins', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    // A push frame landed before the list (S2's title is newer than the block's cut).
+    manager.handleMuxEnvelope({
+      rpcId: 'push-newer' as never,
+      payload: { type: 'session/projection', sessionId: S2, key: 'title', value: 'Pushed', seq: 9 } as never,
+    })
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        { ...summary(S1), projections: { asOfSeq: 4, values: { title: 'Cold cached' } } },
+        { ...summary(S2, { updatedAt: 200 }), projections: { asOfSeq: 5, values: { title: 'List stale' } } },
+      ] as never[],
+    }))
+    await manager.refreshList()
+    const items = manager.getListSnapshot().items
+    // Cold row: title surfaces straight from the list block — no open, no history.
+    expect(items.find(item => item.sessionId === S1)?.title).toBe('Cold cached')
+    // The stale list block (seq 5) cannot overwrite the newer push frame (seq 9).
+    expect(items.find(item => item.sessionId === S2)?.title).toBe('Pushed')
+  })
+
   it('drops a projection row beyond the subscription baseline before accepting its durable replay', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
