@@ -165,6 +165,16 @@ export interface SlashSource {
    * (the render path must stay synchronous and side-effect free).
    */
   lexicon?(session: ClientSessionContext): readonly string[] | undefined
+  /**
+   * Subscribe to changes of this source's {@link SlashSource.lexicon} answer
+   * for one session (backing data settled, invalidated, or refreshed). The
+   * controller re-polls lexicon on each notification; a source whose roll
+   * never changes after warm omits the hook.
+   * @param session - stable session projection.
+   * @param listener - invalidation callback.
+   * @returns unsubscribe.
+   */
+  subscribeLexicon?(session: ClientSessionContext, listener: () => void): () => void
   /** Reference codec; required for sources producing insert outcomes. */
   readonly codec?: ReferenceCodec
 }

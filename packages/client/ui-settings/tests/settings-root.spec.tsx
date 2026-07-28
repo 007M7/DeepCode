@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SettingsRootComponentProps } from '../src/client/contract/slots.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
@@ -22,9 +23,9 @@ function mount({
     { id: 'models', order: 10, label: 'Models' },
   ],
 }: { wide?: boolean; rows?: Row[] } = {}) {
-  // Mutable row store standing in for the ledger; bump() plays a change.
+  // Mutable row source standing in for the bound useSections hook; bump()
+  // plays a ledger change through the same observable contract.
   let current = rows
-  let version = 0
   const listeners = new Set<() => void>()
   const renderSlot = vi.fn(
     ((key: string, _owner: unknown, opts?: { only?: string }) => {
@@ -38,19 +39,21 @@ function mount({
     useSessions: unusedHook,
     useWorkspaces: unusedHook,
     wide,
-    sectionsVersion: () => version,
-    subscribeSections: (listener) => {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
+    useSections: (select) => {
+      const [, force] = useState(0)
+      useEffect(() => {
+        const listener = () => { force(n => n + 1) }
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      }, [])
+      return select(current)
     },
-    sections: () => current,
     renderSlot,
   }
   const view = render(<SettingsRoot {...props} />)
   const bump = (next: Row[]) => {
     act(() => {
       current = next
-      version += 1
       for (const fn of [...listeners]) fn()
     })
   }

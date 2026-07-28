@@ -26,6 +26,7 @@
   left: 0;
   z-index: 100;
   min-width: 218px;
+  max-width: 360px;
 }
 
 /* Portal mode: fixed in the viewport, coordinates supplied inline from the
@@ -48,6 +49,36 @@
 .alignEnd {
   left: auto;
   right: 0;
+}
+
+/* Viewport fit: the card stops 12px short of the viewport's top/bottom edges
+ * (24 = 2 × the portal MARGIN in Menu.tsx) and taller content scrolls inside
+ * .viewport, so a pinned .footer stays visible. Menus with submenu rows skip
+ * this class — the overflow clip would crop the side card, so they rely on
+ * staying short. */
+.scrollable {
+  max-height: calc(100vh - 24px);
+}
+
+.viewport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scrollable .viewport {
+  overflow-y: auto;
+}
+
+/* Pinned rows below the scroll region; l2 hairline (l1 is near-invisible on
+ * the menu surface) mirrors the .separator spacing. */
+.footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .itemWrap {
@@ -78,7 +109,7 @@
 }
 
 .item:disabled {
-  color: var(--dsw-alias-label-dimmed);
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

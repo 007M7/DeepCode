@@ -4,6 +4,12 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionForkError, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    'test/log-only': { value: string }
+  }
+}
+
 async function setup(): Promise<{ ctx: Context; sessions: SessionStore }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -80,6 +86,21 @@ describe('SessionStore.fork', () => {
       cwd: '/workspace',
       parentSession: SessionId('parent'),
       seedLength: source.events.length,
+    })
+  })
+
+  it('includes stable log-only events appended after a closed turn', async () => {
+    const { ctx, sessions } = await setup()
+    const source = ctx.sessions.create(SessionId('log-only-parent'))
+    appendClosedTurn(source, 1, 'hello')
+    source.append('test/log-only', { value: 'after execution' })
+
+    const child = sessions.fork(source, undefined, SessionId('log-only-child'))
+
+    expect(child.events).toEqual(source.events)
+    expect(child.events.at(-1)).toMatchObject({
+      type: 'test/log-only',
+      data: { value: 'after execution' },
     })
   })
 
@@ -217,7 +238,7 @@ describe('SessionStore.fork', () => {
       const boundary = build(source)
 
       expect(() => sessions.fork(source, boundary))
-        .toThrow(new SessionForkError(`fork boundary ${boundary} in session "open-${lastType}" must be turn/end, got ${lastType}`, 'OPEN_TURN'))
+        .toThrow(new SessionForkError(`fork boundary ${boundary} in session "open-${lastType}" ends inside open turn 1`, 'OPEN_TURN'))
     }
   })
 
