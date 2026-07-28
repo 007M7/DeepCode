@@ -59,13 +59,16 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * The session's approval policy was switched — log-only, durable,
      * replayable, never in the model transcript (the model learns the policy
-     * from the prompt section and the narrator's notices). The last such OWN
-     * (post-seed) event is the session's override
-     * ({@link approvalOverrideOf}); who asked for it is derivable from
-     * position (an own event after the log's last own `request/header` was a
-     * runtime switch by the user).
+     * from the prompt section and the narrator's notices). The LAST such
+     * event is the session's override ({@link effectiveApprovalPolicy}).
+     * `source: 'delegation'` marks an override seeded into a child; an absent
+     * source is a runtime switch.
      */
-    'approval/policy': { policy: ApprovalPolicy }
+    'approval/policy': {
+      policy: ApprovalPolicy
+      /** Marks an override seeded into a child at delegation. */
+      source?: 'delegation'
+    }
   }
 }
 
@@ -124,12 +127,10 @@ function toldApprovalPolicy(system: string | undefined): ApprovalPolicy | undefi
 }
 
 /**
- * The pure fold of a slice of `approval/policy` events: the last switch
- * wins, or undefined without one. The building block
- * {@link approvalOverrideOf} composes with the seed boundary and the header
- * baseline — consumers resolving a SESSION's policy go through that chain,
- * not this raw fold. Resume needs no catch-up machinery because replaying
- * the log IS the state.
+ * The session's approval-policy override: the last `approval/policy` event in
+ * the log, or undefined when the session never switched (callers apply the
+ * plugin's configured default). The pure fold — resume needs no catch-up
+ * machinery because replaying the log IS the state.
  * @param events - session events in log order (other event types are skipped).
  * @returns the policy of the last switch event, or undefined without one.
  */
@@ -139,41 +140,6 @@ export function effectiveApprovalPolicy(events: readonly SessionEvent[]): Approv
     if (event.type === 'approval/policy') return event.data.policy
   }
   return undefined
-}
-
-/**
- * The session's complete approval-policy OVERRIDE chain — the one home every
- * consumer (this service's policy tier, the permission presets) resolves
- * through. With a header baseline (a delegation child), the fold covers only
- * the session's OWN switches past the seed boundary — the baseline was
- * captured from the parent's FULL log at delegation, so any seed-carried
- * switch is already subsumed by it. Without a baseline (a top-level session,
- * or a generic `SessionStore.fork` child that captured no policy meta), the
- * fold covers the whole log: seeded switches ARE the replayed inherited
- * truth, and slicing them away would silently drop a forked `'never'`. Never
- * the configured default itself. The durable baseline is validated
- * UNCONDITIONALLY — a corrupt or foreign header must fail loud on every
- * read, not only when no own switch happens to shadow it.
- * @param session - the session whose override chain to resolve.
- * @returns the effective override, or `undefined` for a session following
- *   the configured default.
- * @throws when the header baseline is outside the closed policy vocabulary.
- */
-export function approvalOverrideOf(session: Session): ApprovalPolicy | undefined {
-  const baseline = session.header.approvalPolicy
-  if (baseline === undefined) return effectiveApprovalPolicy(session.events)
-  if (!APPROVAL_POLICIES.includes(baseline as ApprovalPolicy)) {
-    throw new Error(`session header approvalPolicy "${baseline}" is outside the closed policy vocabulary`)
-  }
-  // A boundary past the log would make the own-switch slice empty until the
-  // log grows past it — a baseline would then shadow a REAL later switch.
-  // Malformed durable metadata fails loud, never fails open.
-  const seedLength = session.header.seedLength ?? 0
-  if (seedLength > session.events.length) {
-    throw new Error(`session header seedLength ${seedLength} exceeds the log length ${session.events.length}`)
-  }
-  const own = effectiveApprovalPolicy(session.events.slice(seedLength))
-  return own ?? baseline as ApprovalPolicy
 }
 
 /**
@@ -279,30 +245,28 @@ export class ApprovalService extends Service {
     // turn's first step (net-zero → nothing), and a mid-turn switch is
     // narrated no later than the next step. What each session was last told
     // is in-memory with a log-derived fallback (the folded header's system
-    // text), so restarts lose nothing. Attribution is positional over the
-    // session's OWN events (past the seed boundary — a seed-carried switch is
-    // stale parent history, never this session's runtime action): an own
-    // override after the last own `request/header` was a runtime switch by
-    // the user; no own override with the delta matching the inherited header
-    // baseline came from the delegating session; otherwise the configured
-    // default moved under the session (operator/config).
+    // text), so restarts lose nothing. Attribution is positional: an
+    // override event after the log's last `request/header` was a runtime
+    // switch by the user; otherwise the configured default moved under the
+    // session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
     ctx.on('agent/step', (agent) => {
       const session = agent.session
       const events = session.events
-      const seedStart = Math.min(session.header.seedLength ?? 0, events.length)
       let overrideIndex = -1
+      let overrideSource: 'delegation' | undefined
       let headerIndex = -1
-      for (let index = events.length - 1; index >= seedStart && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
+      for (let index = events.length - 1; index >= 0 && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
         const event = events[index] as (typeof events)[number]
         if (overrideIndex < 0 && event.type === 'approval/policy') {
           overrideIndex = index
+          overrideSource = event.data.source
         } else if (headerIndex < 0 && event.type === 'request/header') {
           headerIndex = index
         }
       }
-      // Same fold effectivePolicy performs — the own override is scanned here
-      // anyway for POSITIONAL attribution; the default lives once, in the method.
+      // Same fold effectivePolicy performs — override is scanned here anyway
+      // for POSITIONAL attribution; the default lives once, in the method.
       const current = this.effectivePolicy(session)
       const header = session.requestHeader()
       const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
@@ -310,11 +274,9 @@ export class ApprovalService extends Service {
       // Cold start (nothing ever told) narrates nothing — the section about
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return
-      const cause = overrideIndex > headerIndex
-        ? 'changed by the user'
-        : overrideIndex < 0 && session.header.approvalPolicy === current
-          ? 'inherited from the delegating session'
-          : 'changed by the operator/config'
+      const cause = overrideSource === 'delegation'
+        ? 'inherited from the delegating session'
+        : overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
       agent.inject(createUserMessage({
         content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
         source: { kind: 'plugin', plugin: 'user-approval' },
@@ -362,9 +324,9 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * The session's effective policy: its override chain ({@link overrideOf}),
-   * else the configured default (the schema already defaulted an omitted
-   * policy to `'ask'`; the `??` only narrows the optional-input TYPE).
+   * The session's effective policy: its own `approval/policy` fold, else the
+   * configured default (the schema already defaulted an omitted policy to
+   * `'ask'`; the `??` only narrows the optional-input TYPE).
    * @param session - the exact accepted session whose policy applies.
    * @returns the policy every ask for this session resolves under right now.
    */
@@ -373,15 +335,12 @@ export class ApprovalService extends Service {
   }
 
   /**
-   * {@link approvalOverrideOf} surfaced on the service, for consumers that
-   * reach the seam through `ctx.get('approval')` (the subagent driver's
-   * delegation capture) rather than a value import.
-   * @param session - the session whose override chain to resolve.
-   * @returns the effective override, or `undefined` for a session following
-   *   the configured default.
+   * Read the session override without applying the configured default.
+   * @param session - session whose log supplies the override.
+   * @returns the last logged policy, or `undefined` without one.
    */
   overrideOf(session: Session): ApprovalPolicy | undefined {
-    return approvalOverrideOf(session)
+    return effectiveApprovalPolicy(session.events)
   }
 
   /**

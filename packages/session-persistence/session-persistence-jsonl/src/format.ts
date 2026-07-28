@@ -38,8 +38,6 @@ export interface HeaderLine {
   parentSession?: SessionId
   seedLength?: number
   delegationDepth: number
-  sandboxMode?: string
-  approvalPolicy?: string
 }
 
 /**
@@ -57,8 +55,6 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
     delegationDepth: header.delegationDepth ?? 0,
-    ...header.sandboxMode !== undefined ? { sandboxMode: header.sandboxMode } : {},
-    ...header.approvalPolicy !== undefined ? { approvalPolicy: header.approvalPolicy } : {},
   }
 }
 
@@ -76,8 +72,6 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
     delegationDepth: line.delegationDepth,
-    ...line.sandboxMode !== undefined ? { sandboxMode: line.sandboxMode } : {},
-    ...line.approvalPolicy !== undefined ? { approvalPolicy: line.approvalPolicy } : {},
   }
 }
 
@@ -96,10 +90,6 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
     && (value as { delegationDepth: number }).delegationDepth >= 0
     && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
-    && ((value as { sandboxMode?: unknown }).sandboxMode === undefined
-      || typeof (value as { sandboxMode?: unknown }).sandboxMode === 'string')
-    && ((value as { approvalPolicy?: unknown }).approvalPolicy === undefined
-      || typeof (value as { approvalPolicy?: unknown }).approvalPolicy === 'string')
   )
 }
 

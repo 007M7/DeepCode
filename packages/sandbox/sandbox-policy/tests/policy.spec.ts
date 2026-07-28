@@ -63,6 +63,8 @@ describe('SandboxPolicyService', () => {
       mode: 'read-only',
       workspaceRoot: resolve('/projects/second'),
     })
+    expect(ctx.sandboxPolicy.overrideOf(first)).toBeUndefined()
+    expect(ctx.sandboxPolicy.overrideOf(second)).toBe('read-only')
     expect(ctx.sandboxPolicy.resolve()).toEqual({
       mode: 'workspace-write',
       workspaceRoot: resolve('/fallback'),
@@ -140,102 +142,5 @@ describe('the sandbox/mode session kit', () => {
     const modeEvents = session.events.filter(e => e.type === 'sandbox/mode')
     expect(modeEvents).toHaveLength(1)
     expect(modeEvents[0]?.data).toEqual({ mode: 'danger-full-access' })
-  })
-})
-
-describe('delegation inheritance (overrideOf over the header baseline)', () => {
-  /** A session whose header carries the delegation-inheritance baseline. */
-  function inheritedSession(id: string, meta: { sandboxMode?: string; seedLength?: number } = {}): Session {
-    const sessionId = SessionId(id)
-    return new Session(sessionId, undefined, {
-      version: 0,
-      id: sessionId,
-      createdAt: 0,
-      ...meta.sandboxMode === undefined ? {} : { sandboxMode: meta.sandboxMode },
-      ...meta.seedLength === undefined ? {} : { seedLength: meta.seedLength },
-    })
-  }
-
-  it('overrideOf folds the session log and never falls back to the deployment default', async () => {
-    const ctx = await mounted({ mode: 'workspace-write' })
-    const parent = session('sess-inherit-parent')
-    setSandboxMode(parent, 'workspace-write')
-    setSandboxMode(parent, 'read-only')
-
-    expect(ctx.sandboxPolicy.overrideOf(parent)).toBe('read-only')
-    // undefined, NOT the deployment default — a child whose header froze the
-    // default would stop following the LIVE default across resumes.
-    expect(ctx.sandboxPolicy.overrideOf(session('sess-inherit-unswitched'))).toBeUndefined()
-  })
-
-  it('overrideOf reads the header baseline when the log has no own switch', async () => {
-    const ctx = await mounted({ mode: 'workspace-write' })
-    const child = inheritedSession('sess-inherit-baseline', { sandboxMode: 'read-only' })
-
-    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
-    // resolve() consumes the same chain, so enforcement sees the baseline.
-    expect(ctx.sandboxPolicy.resolve({ session: child }).mode).toBe('read-only')
-  })
-
-  it('a seed-carried stale switch loses to the baseline; an OWN later switch wins over it', async () => {
-    const ctx = await mounted({ mode: 'workspace-write' })
-    // The fork seed carried the parent's OLD workspace-write switch (one
-    // event, so seedLength 1); the delegation-time baseline is read-only.
-    const child = inheritedSession('sess-inherit-slice', { sandboxMode: 'read-only', seedLength: 1 })
-    setSandboxMode(child, 'workspace-write')
-    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
-    // A switch the child makes ITSELF (after the seed boundary) outranks it.
-    setSandboxMode(child, 'danger-full-access')
-    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('danger-full-access')
-  })
-
-  it('rejects a header baseline outside the closed mode vocabulary (durable boundary)', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-inherit-invalid', { sandboxMode: 'yolo' })
-
-    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
-  })
-
-  it('rejects a malformed baseline even when an own switch would win (validation is unconditional)', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-inherit-invalid-own', { sandboxMode: 'yolo' })
-    // A corrupt or foreign durable record must fail loud on EVERY read — an
-    // own override must not paper over the malformed header.
-    setSandboxMode(child, 'read-only')
-
-    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/sandboxMode/)
-  })
-
-  it('a generic SessionStore.fork child (seedLength, NO baseline) keeps its seed-carried override', async () => {
-    const ctx = await mounted({ mode: 'workspace-write' })
-    // The public fork path sets seedLength but captures no delegation
-    // baseline; the seed boundary must not discard the replayed policy state
-    // it exists to subsume — with nothing to subsume it, seeded switches ARE
-    // the child's inherited truth.
-    const child = inheritedSession('sess-generic-fork', { seedLength: 1 })
-    setSandboxMode(child, 'read-only')
-
-    expect(ctx.sandboxPolicy.overrideOf(child)).toBe('read-only')
-    expect(ctx.sandboxPolicy.resolve({ session: child }).mode).toBe('read-only')
-  })
-
-  it('rejects a seed boundary past the log end instead of silently ignoring own switches', async () => {
-    const ctx = await mounted()
-    // A malformed durable seedLength beyond the log would make the own-switch
-    // slice empty until the log grows past it — a wide baseline would then
-    // shadow a REAL later tightening. Fail loud at the durable boundary.
-    const child = inheritedSession('sess-inherit-oob', { sandboxMode: 'danger-full-access', seedLength: 100 })
-    setSandboxMode(child, 'read-only')
-
-    expect(() => ctx.sandboxPolicy.overrideOf(child)).toThrow(/seedLength/)
-  })
-
-  it('resolve() validates the durable header even when an explicit approved mode is supplied', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-resolve-invalid', { sandboxMode: 'yolo' })
-
-    // The explicit one-shot grant must not become a validation bypass: the
-    // unconditional durable-header contract holds on EVERY resolution.
-    expect(() => ctx.sandboxPolicy.resolve({ session: child, mode: 'workspace-write' })).toThrow(/sandboxMode/)
   })
 })

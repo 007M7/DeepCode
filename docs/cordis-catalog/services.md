@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:222`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -244,19 +244,16 @@ Approval service that applies session policy before answerers and logs every ask
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 /**
- * {@link approvalOverrideOf} surfaced on the service, for consumers that
- * reach the seam through `ctx.get('approval')` (the subagent driver's
- * delegation capture) rather than a value import.
- * @param session - the session whose override chain to resolve.
- * @returns the effective override, or `undefined` for a session following
- *   the configured default.
+ * Read the session override without applying the configured default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged policy, or `undefined` without one.
  */
 overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:251`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -817,19 +814,13 @@ Owns the deployment's permission presets and their write path. Requires a confin
 
 ```ts cordis-catalog
 /**
- * Resolve the preset matching the effective knob values — the same
- * override chains execution reads (own post-seed switches, else the
- * inherited header baseline, else the composition defaults), so a
- * delegated child's inherited knobs derive its real preset. A
- * still-matching last selection wins shared-bundle ties, scoped like the
- * knob chains: a delegation child (header baselines present) ignores
- * seed-carried selections as stale parent history, while a generic fork
- * child keeps them alongside its seed-carried knobs; otherwise the first
- * table match wins, or {@link CUSTOM_PRESET} when no entry matches.
- * @param session - the session whose preset to derive.
+ * Resolve the preset matching the effective knob values. A still-matching
+ * last selection wins shared-bundle ties; otherwise the first table match
+ * wins, or {@link CUSTOM_PRESET} when no entry matches.
+ * @param events - the session's events in log order.
  * @returns the effective preset name, or `custom` when nothing matches.
  */
-current(session: Session): string
+current(events: readonly SessionEvent[]): string
 
 /**
  * Resolve a preset's knob bundle.
@@ -857,7 +848,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [Session](../core-data-structures/session.md)
+Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
 
@@ -1000,23 +991,19 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
 ```ts cordis-catalog
 /**
  * Resolve the complete policy for one capability call. An approved explicit
- * mode outranks the session's override chain ({@link overrideOf}: own
- * post-seed switches, else the inherited header baseline), which outranks
- * the deployment default. A session cwd is its workspace-write boundary;
- * the configured root is the fallback for agentless calls and sessions
- * without a cwd.
+ * mode outranks the session's last `sandbox/mode` event, which outranks the
+ * deployment default. A session cwd is its workspace-write boundary; the
+ * configured root is the fallback for agentless calls and sessions without a
+ * cwd.
  * @param request - optional session and approved mode override.
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 
 /**
- * {@link sandboxOverrideOf} surfaced on the service, for consumers that
- * reach policy through `ctx.get('sandboxPolicy')` (the subagent driver's
- * delegation capture, pty-local) rather than a value import.
- * @param session - the session whose override chain to resolve.
- * @returns the effective override, or `undefined` for a session following
- *   the deployment default.
+ * Read the session override without applying the deployment default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged mode, or `undefined` without one.
  */
 overrideOf(session: Session): SandboxMode | undefined
 ```
@@ -1432,7 +1419,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:702`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:694`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

@@ -47,9 +47,9 @@ export interface CreateAgentOptions {
   readonly sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd`, `parentSession`
-   * fork lineage, the `seedLength` seed boundary, the `delegationDepth`
-   * recursion budget, and the inherited `sandboxMode`/`approvalPolicy`
-   * delegation baselines. Mirrors the corresponding fields of
+   * fork lineage, the `seedLength` seed boundary, and the `delegationDepth`
+   * recursion budget. Mirrors the
+   * `cwd`/`parentSession`/`seedLength`/`delegationDepth` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it). This is durable session data,
@@ -61,20 +61,14 @@ export interface CreateAgentOptions {
     readonly parentSession?: SessionId
     readonly seedLength?: number
     readonly delegationDepth?: number
-    readonly sandboxMode?: string
-    readonly approvalPolicy?: string
   }
   /**
-   * Seed events to reconstruct the child session's log from (the fork lineage
-   * primitive). When present, the factory creates the session with this event
-   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
-   * in-process FORK subagent backend to seed a child with a balanced
-   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
-   * from seq 0, carry only lossless-JSON data, and be balanced (no open
-   * turn/step, no dangling tool-call), or the session constructor (and the
-   * dev-mode invariants replay) reject it. The factory passes the raw seed to
-   * the session's durable validator/snapshot boundary. Absent for a fresh
-   * (spawn) child.
+   * Initial session events. A fork starts with a balanced completed-turn
+   * prefix of the parent's log; creation-time log facts may follow that
+   * prefix. The complete seed must be contiguous from seq 0, carry only
+   * lossless-JSON data, and contain no open turn/step or dangling tool call.
+   * The factory passes it to the session's durable validator/snapshot
+   * boundary before publication.
    */
   readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */

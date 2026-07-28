@@ -102,17 +102,28 @@ export async function startInProcessRun(
     subagentDepth: childDepth,
   }
 
-  // Policy inheritance: capture the parent's sandbox/approval OVERRIDES
-  // synchronously, before the first await — the delegation moment is the
-  // semantic snapshot point, and a parent switch racing the child's
-  // asynchronous creation must belong to the parent's future, not the child.
-  // The captured values ride the child's creation meta into its immutable
-  // header, so the baseline is durable from the moment the session exists —
-  // no first-turn event could survive every crash window (an idle injection
-  // can persist a complete turn before any prompt turn opens). Both services
-  // are consumed opportunistically — without them, delegation is policy-free.
+  // Capture before the first await: a later parent switch belongs to the
+  // parent's future. Appending after the fork prefix makes the captured
+  // values the child's initial overrides without another storage plane.
   const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
   const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
+  const seed: SessionEvent[] = [...options.seed ?? []]
+  if (inheritedMode !== undefined) {
+    seed.push({
+      type: 'sandbox/mode',
+      seq: seed.length,
+      time: Date.now(),
+      data: { mode: inheritedMode, source: 'delegation' },
+    })
+  }
+  if (inheritedPolicy !== undefined) {
+    seed.push({
+      type: 'approval/policy',
+      seq: seed.length,
+      time: Date.now(),
+      data: { policy: inheritedPolicy, source: 'delegation' },
+    })
+  }
 
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
@@ -134,10 +145,8 @@ export async function startInProcessRun(
       // Durable: the recursion budget must survive persistence and resume.
       delegationDepth: childDepth,
       ...seedLength > 0 ? { seedLength } : {},
-      ...inheritedMode !== undefined ? { sandboxMode: inheritedMode } : {},
-      ...inheritedPolicy !== undefined ? { approvalPolicy: inheritedPolicy } : {},
     },
-    ...options.seed !== undefined ? { seed: options.seed } : {},
+    ...(options.seed !== undefined || seed.length > 0) ? { seed } : {},
     agentOptions,
     signal: request.signal,
     setup,

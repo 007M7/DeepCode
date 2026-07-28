@@ -152,7 +152,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
-        jsDoc: '/**\n * {@link approvalOverrideOf} surfaced on the service, for consumers that\n * reach the seam through `ctx.get(\'approval\')` (the subagent driver\'s\n * delegation capture) rather than a value import.\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the configured default.\n */',
+        jsDoc: '/**\n * Read the session override without applying the configured default.\n * @param session - session whose log supplies the override.\n * @returns the last logged policy, or `undefined` without one.\n */',
       },
     ],
   },
@@ -411,8 +411,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Owns the deployment\'s permission presets and their write path.',
     methods: [
       {
-        signature: 'current(session: Session): string',
-        jsDoc: '/**\n * Resolve the preset matching the effective knob values — the same\n * override chains execution reads (own post-seed switches, else the\n * inherited header baseline, else the composition defaults), so a\n * delegated child\'s inherited knobs derive its real preset. A\n * still-matching last selection wins shared-bundle ties, scoped like the\n * knob chains: a delegation child (header baselines present) ignores\n * seed-carried selections as stale parent history, while a generic fork\n * child keeps them alongside its seed-carried knobs; otherwise the first\n * table match wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param session - the session whose preset to derive.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
+        signature: 'current(events: readonly SessionEvent[]): string',
+        jsDoc: '/**\n * Resolve the preset matching the effective knob values. A still-matching\n * last selection wins shared-bundle ties; otherwise the first table match\n * wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param events - the session\'s events in log order.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
       },
       {
         signature: 'resolve(name: string): PresetSpec',
@@ -500,11 +500,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
-        jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s override chain ({@link overrideOf}: own\n * post-seed switches, else the inherited header baseline), which outranks\n * the deployment default. A session cwd is its workspace-write boundary;\n * the configured root is the fallback for agentless calls and sessions\n * without a cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
+        jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
       },
       {
         signature: 'overrideOf(session: Session): SandboxMode | undefined',
-        jsDoc: '/**\n * {@link sandboxOverrideOf} surfaced on the service, for consumers that\n * reach policy through `ctx.get(\'sandboxPolicy\')` (the subagent driver\'s\n * delegation capture, pty-local) rather than a value import.\n * @param session - the session whose override chain to resolve.\n * @returns the effective override, or `undefined` for a session following\n *   the deployment default.\n */',
+        jsDoc: '/**\n * Read the session override without applying the deployment default.\n * @param session - session whose log supplies the override.\n * @returns the last logged mode, or `undefined` without one.\n */',
       },
     ],
   },
@@ -1593,7 +1593,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n        readonly sandboxMode?: string;\n        readonly approvalPolicy?: string;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
     name: 'CreateGoalRequest',
@@ -1601,7 +1601,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n        readonly sandboxMode?: string;\n        readonly approvalPolicy?: string;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
   },
   {
     name: 'DiffCallView',
@@ -2109,7 +2109,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n    readonly sandboxMode?: string;\n    readonly approvalPolicy?: string;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n}',
   },
   {
     name: 'SessionId',

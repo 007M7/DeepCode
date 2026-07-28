@@ -72,30 +72,12 @@ interface SessionHeader {
    * resume — a runtime-only depth would reset a resumed child to top-level.
    */
   readonly delegationDepth?: number
-  /**
-   * The sandbox-mode override inherited from the delegating parent at
-   * creation (the delegation-inheritance baseline). A neutral string here:
-   * the policy owner (`dsh-sandbox-policy`) validates it against its closed
-   * vocabulary on every read, this being a durable boundary. Absent for
-   * top-level sessions and for children of unswitched parents, which keep
-   * following the LIVE deployment default. Header-carried (the
-   * `delegationDepth` precedent) so the baseline is durable from the creation
-   * moment — no first-turn event survives every crash window, because an
-   * idle injection can persist a complete turn before any prompt turn opens.
-   */
-  readonly sandboxMode?: string
-  /**
-   * The approval-policy override inherited from the delegating parent at
-   * creation. Same contract as {@link SessionHeader.sandboxMode}; validated
-   * by `dsh-user-approval` on read.
-   */
-  readonly approvalPolicy?: string
 }
 ```
 
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（回放/fork 现有事件日志）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`、继承的 `sandboxMode`/`approvalPolicy` 委派基线，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
+通过 store 创建 `Session` 时会接收 `seed`（回放/fork 现有事件日志）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
 
 ```ts type-equiv
 /**
@@ -116,8 +98,6 @@ interface CreateSessionOptions {
     readonly createdAt?: number
     readonly seedLength?: number
     readonly delegationDepth?: number
-    readonly sandboxMode?: string
-    readonly approvalPolicy?: string
   }
 }
 ```

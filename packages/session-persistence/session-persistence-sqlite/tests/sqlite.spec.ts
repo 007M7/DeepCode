@@ -171,8 +171,6 @@ describe('rowToMeta', () => {
       incarnation: 'fractional',
       revision: 1,
       delegation_depth: null,
-      sandbox_mode: null,
-      approval_policy: null,
     })).toThrow('stored session createdAt must be a non-negative safe integer')
   })
 })
@@ -611,7 +609,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(11)
+    expect(SCHEMA_VERSION).toBe(10)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

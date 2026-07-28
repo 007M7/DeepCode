@@ -20,9 +20,6 @@ function fakeAgent(seed: Array<{ type: string }> = [{ type: 'turn/start' }, { ty
   const agent = {
     session: {
       events: seed,
-      // The typed Session contract the service folds over includes the header
-      // (seed boundary + inherited baselines); the stub carries a bare one.
-      header: { version: 0, id: 'fake-session', createdAt: 0 },
       append: (type: string, data: Record<string, unknown>) => {
         appended.push({ type, data })
         return { type, data } as unknown as SessionEvent
@@ -459,7 +456,9 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService, { policy: 'never' })
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     const { agent, session } = sessionAgent('sess-gate-3')
+    expect(ctx.approval.overrideOf(session)).toBeUndefined()
     setApprovalPolicy(session, 'ask')
+    expect(ctx.approval.overrideOf(session)).toBe('ask')
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('allowed-once')
     setApprovalPolicy(session, 'never')
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
@@ -510,6 +509,18 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(injected).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
   })
 
+  it('attributes a constructor-seeded policy event to delegation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session, injected } = sessionAgent('sess-narr-inherited')
+    appendHeader(session, ASK_MARKER)
+    session.append('approval/policy', { policy: 'never', source: 'delegation' })
+
+    await preStep(ctx, agent)
+
+    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
+  })
+
   it('narrates a config default drift from the logged ask marker', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })
@@ -517,38 +528,6 @@ describe('approval policy (the approval/policy fold)', () => {
     appendHeader(session, `persona only\n${ASK_MARKER}`)
     await preStep(ctx, agent)
     expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
-  })
-
-  it('does not attribute a fork child\'s baseline delta to a stale seed-carried user switch', async () => {
-    // A fork child: the seed carries the parent's OLD 'ask' switch (event 0,
-    // inside seedLength) and the last request header told 'ask'; the header
-    // baseline captured at delegation is 'never'. The delta must not be
-    // attributed to "the user" — the seed switch is stale parent history, not
-    // this session's runtime action.
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const id = SessionId('sess-narr-fork-baseline')
-    const session = new Session(id, undefined, {
-      version: 0,
-      id,
-      createdAt: 0,
-      approvalPolicy: 'never',
-      seedLength: 2,
-    })
-    setApprovalPolicy(session, 'ask')
-    session.append('request/header', { header: { config: { provider: 'mock', model: 'mock' }, system: `persona\n${ASK_MARKER}` }, reason: 'initial' })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const injected: string[] = []
-    const agent = {
-      id,
-      session,
-      inject: (input: { content: Array<{ type: string; text: string }> }) => {
-        injected.push(input.content[0]?.text ?? '')
-      },
-    } as unknown as Agent
-
-    await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
   })
 
   it('a pinned override survives a default change silently', async () => {
@@ -611,90 +590,5 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await sectionFor()).toBeUndefined()
     await preStep(ctx, afterDispose.agent)
     expect(afterDispose.injected).toEqual([])
-  })
-})
-
-describe('delegation inheritance (overrideOf over the header baseline)', () => {
-  function bareSession(id: string): Session {
-    return new Session(SessionId(id))
-  }
-
-  /** A session whose header carries the delegation-inheritance baseline. */
-  function inheritedSession(id: string, meta: { approvalPolicy?: string; seedLength?: number } = {}): Session {
-    const sessionId = SessionId(id)
-    return new Session(sessionId, undefined, {
-      version: 0,
-      id: sessionId,
-      createdAt: 0,
-      ...meta.approvalPolicy === undefined ? {} : { approvalPolicy: meta.approvalPolicy },
-      ...meta.seedLength === undefined ? {} : { seedLength: meta.seedLength },
-    })
-  }
-
-  it('overrideOf folds the session log and never falls back to the configured default', async () => {
-    const ctx = await mounted()
-    const parent = bareSession('sess-appr-inherit-parent')
-    setApprovalPolicy(parent, 'never')
-
-    expect(ctx.approval.overrideOf(parent)).toBe('never')
-    expect(ctx.approval.overrideOf(bareSession('sess-appr-unswitched'))).toBeUndefined()
-  })
-
-  it('overrideOf reads the header baseline when the log has no own switch, and effectivePolicy follows', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-appr-baseline', { approvalPolicy: 'never' })
-
-    expect(ctx.approval.overrideOf(child)).toBe('never')
-    // The request path consumes the same chain: an inherited 'never' rejects
-    // deterministically before any answerer could run.
-    child.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const agent = { session: child } as unknown as Agent
-    await expect(ctx.approval.request({ agent, toolName: 'echo' })).resolves.toBe('rejected')
-  })
-
-  it('a seed-carried stale switch loses to the baseline; an OWN later switch wins over it', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-appr-slice', { approvalPolicy: 'never', seedLength: 1 })
-    // Event 0 sits inside the seed boundary — stale parent history, subsumed
-    // by the delegation-time baseline.
-    setApprovalPolicy(child, 'ask')
-    expect(ctx.approval.overrideOf(child)).toBe('never')
-    // Event 1 is the child's OWN switch — it outranks the baseline.
-    setApprovalPolicy(child, 'ask')
-    expect(ctx.approval.overrideOf(child)).toBe('ask')
-  })
-
-  it('rejects a header baseline outside the closed policy vocabulary (durable boundary)', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-appr-invalid', { approvalPolicy: 'always' })
-
-    expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
-  })
-
-  it('rejects a malformed baseline even when an own switch would win (validation is unconditional)', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-appr-invalid-own', { approvalPolicy: 'always' })
-    setApprovalPolicy(child, 'never')
-
-    expect(() => ctx.approval.overrideOf(child)).toThrow(/approvalPolicy/)
-  })
-
-  it('a generic SessionStore.fork child (seedLength, NO baseline) keeps its seed-carried override', async () => {
-    const ctx = await mounted()
-    // The public fork path sets seedLength but captures no delegation
-    // baseline; with nothing to subsume them, seeded switches ARE the
-    // child's inherited truth — slicing would silently drop a forked 'never'.
-    const child = inheritedSession('sess-appr-generic-fork', { seedLength: 1 })
-    setApprovalPolicy(child, 'never')
-
-    expect(ctx.approval.overrideOf(child)).toBe('never')
-  })
-
-  it('rejects a seed boundary past the log end instead of silently ignoring own switches', async () => {
-    const ctx = await mounted()
-    const child = inheritedSession('sess-appr-oob', { approvalPolicy: 'ask', seedLength: 100 })
-    setApprovalPolicy(child, 'never')
-
-    expect(() => ctx.approval.overrideOf(child)).toThrow(/seedLength/)
   })
 })
