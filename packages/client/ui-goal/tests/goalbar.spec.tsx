@@ -150,7 +150,7 @@ describe('GoalBar', () => {
     fireEvent.change(box, { target: { value: 'retry this draft' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save goal' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('stale revision（agent-busy）')
+    expect((await screen.findByRole('alert')).textContent).toBe('stale revision (agent-busy)')
     expect(screen.getByRole('textbox', { name: 'Goal objective' })).toHaveProperty('value', 'retry this draft')
   })
 
@@ -159,12 +159,12 @@ describe('GoalBar', () => {
     actions.onResume.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'resume failed' } })
     const { rerender } = render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
     fireEvent.click(screen.getByRole('button', { name: 'Resume goal' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('resume failed（internal）')
+    expect((await screen.findByRole('alert')).textContent).toBe('resume failed (internal)')
 
     actions.onClear.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'clear failed' } })
     rerender(<GoalBar goal={makeGoal()} {...actions} />)
     fireEvent.click(screen.getByRole('button', { name: 'Clear goal' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('clear failed（agent-busy）')
+    expect((await screen.findByRole('alert')).textContent).toBe('clear failed (agent-busy)')
     expect(screen.getByText('Ship the redesign')).toBeTruthy()
   })
 })

@@ -23,7 +23,7 @@ describe('createFixtureApi commands/skills', () => {
     expect(response.rpcId).toBe(request.rpcId)
     if (!response.result.ok) throw new Error('list failed')
     const commands = response.result.value.commands
-    expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal-fixture'])
+    expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal'])
     // input hint rides only the commands declaring it.
     const echo = commands.find(c => c.name === 'echo')
     expect(echo?.input?.hint).toBeTruthy()
@@ -64,11 +64,11 @@ describe('createFixtureApi commands/skills', () => {
 
   it('addresses execute to the session; an unknown session errs', async () => {
     const api = createFixtureApi()
-    const hit = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/goal-fixture ship' }), signal)
+    const hit = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/goal ship' }), signal)
     if (!hit.result.ok) throw new Error('execute failed')
     expect(hit.result.value.matched).toBe(true)
 
-    const missing = await api.commands.execute(req({ sessionId: sid('fx-nope'), line: '/goal-fixture ship' }), signal)
+    const missing = await api.commands.execute(req({ sessionId: sid('fx-nope'), line: '/goal ship' }), signal)
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
 

@@ -52,7 +52,7 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
     if (result.ok) {
       setEditing(false)
     } else {
-      setActionError(`${result.error.message}（${result.error.code}）`)
+      setActionError(`${result.error.message} (${result.error.code})`)
     }
   }, [draft, onEdit])
 
@@ -61,7 +61,7 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
     setActionError(null)
     const result = await action()
     setPending(false)
-    if (!result.ok) setActionError(`${result.error.message}（${result.error.code}）`)
+    if (!result.ok) setActionError(`${result.error.message} (${result.error.code})`)
   }, [])
 
   // Loading, absent, and complete goals have no strip at all.
