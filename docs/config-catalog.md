@@ -533,7 +533,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/directory-picker-browse/src/index.ts:127`](../packages/host/directory-picker-browse/src/index.ts)
+Source: [`packages/host/directory-picker-browse/src/index.ts:170`](../packages/host/directory-picker-browse/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-webserver`
 

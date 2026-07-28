@@ -1090,6 +1090,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // stops the backend's directory scan instead of outliving it.
           return ok(request, await capability.list(request.payload.path, signal))
         } catch (error: unknown) {
+          // An abort is the caller's own timeout/disconnect, not a server
+          // failure — same code pickDirectory and command.execute report.
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
+          }
           return err(request, directoryError(error))
         }
       },
