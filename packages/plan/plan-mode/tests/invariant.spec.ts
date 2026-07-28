@@ -44,10 +44,10 @@ describe('plan-mode stream invariants', () => {
       .toThrow(/expected a boolean/)
   })
 
-  it('rejects plan state outside any open turn', async () => {
+  it('accepts standalone plan state between turns (the idle immediate commit)', async () => {
     const ctx = await setup()
     expect(() => ctx.sessions.create().append('plan/mode', { active: true }))
-      .toThrow(/outside any open turn/)
+      .not.toThrow()
   })
 
   it('ignores unrelated dispatches and session events', async () => {
@@ -85,12 +85,12 @@ describe('plan-mode stream invariants', () => {
     await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).resolves.toBeUndefined()
   })
 
-  it('rejects unenclosed existing plan state on late registration', async () => {
+  it('accepts standalone existing plan state on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.sessions.create().append('plan/mode', { active: true })
     await ctx.plugin(InvariantService, { enabled: true })
 
-    await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
+    await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).resolves.toBeUndefined()
   })
 })
