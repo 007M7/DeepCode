@@ -169,16 +169,14 @@ const referencedTokens = new Map<string, string[]>()
 const rebindRules: { file: string; rule: CssRule }[] = []
 /**
  * What one stylesheet contributes to the elevated-surface question: which
- * surface tokens its rules paint, whether any rule scrolls, and whether it
+ * elevated surfaces it paints, whether any rule scrolls, and whether it
  * rebinds. Kept per file rather than per rule because the elevated card and the
  * descendant that actually scrolls are separate rules in the same sheet, and
- * CSS text does not express which element contains which.
+ * CSS text does not express which contains which.
  */
 interface SheetSurfaces {
-  /** Surface tokens named by `background`/`background-color` on a rebinding rule. */
-  rebound: Set<string>
-  /** Surface tokens named by `background`/`background-color` anywhere in the sheet. */
-  painted: Set<string>
+  /** Elevated surface tokens this sheet paints anywhere. */
+  elevated: Set<string>
   /** True when some rule declares `overflow*: auto|scroll`. */
   scrolls: boolean
   /** True when some rule rebinds the indirection. */
@@ -190,10 +188,57 @@ const sheetSurfaces = new Map<string, SheetSurfaces>()
 const OVERFLOW_PROPERTIES = ['overflow', 'overflow-x', 'overflow-y']
 /** Properties that paint a surface, and so identify the elevation a rule sits on. */
 const SURFACE_PROPERTIES = ['background', 'background-color']
+/**
+ * Token families that name a SURFACE — a background an element is drawn on, and
+ * so something a scrollbar can sit against. `--dsw-alias-button-*`,
+ * `--dsw-alias-interactive-*`, and `--dsw-alias-markdown-*` reach the same dark
+ * elevation rungs while naming a control or an inline span, which no scroll
+ * container renders its bar against (ChatView's floating `.toBottom` pill,
+ * CodeBlock's banner). Family, not geometry: a floating button legitimately
+ * carries a radius, a shadow, and a fixed size, so shape cannot separate them.
+ */
+const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-)/
+
+/**
+ * The palette's own dark elevation ladder, resolved from `design-platform.css`:
+ * `bg-layer-2` and `bg-layer-3` are the rungs above the base surfaces, and the
+ * l1/l2 scrollbar split encodes exactly that step. Reading it from the palette
+ * rather than from the sheets that happen to rebind is what lets the check flag
+ * a surface NOBODY has rebound yet.
+ * @returns surface tokens whose dark value sits on an elevated rung.
+ */
+function elevatedRungs(): Set<string> {
+  const definitions = new Map<string, string>()
+  for (const rule of platformRules) {
+    // Dark declarations come later in the sheet and overwrite the light ones,
+    // which is the palette this distinction exists in.
+    for (const [property, value] of rule.declarations) definitions.set(property, value)
+  }
+  const resolve = (name: string): string => {
+    const seen = new Set<string>()
+    let current = name
+    while (definitions.has(current) && !seen.has(current)) {
+      seen.add(current)
+      const value = definitions.get(current)!
+      const [reference] = varReferences(value)
+      if (reference === undefined) return value
+      current = reference
+    }
+    return current
+  }
+  const rungs = new Set([resolve('--dsw-alias-bg-layer-2'), resolve('--dsw-alias-bg-layer-3')])
+  const tokens = new Set<string>()
+  for (const name of definitions.keys()) {
+    if (SURFACE_TOKEN_PATTERN.test(name) && rungs.has(resolve(name))) tokens.add(name)
+  }
+  return tokens
+}
+
+const elevatedSurfaces = elevatedRungs()
 
 for (const file of packageStylesheets()) {
   const rules = parseRules(readFileSync(file, 'utf8'))
-  const surfaces: SheetSurfaces = { rebound: new Set(), painted: new Set(), scrolls: false, rebinds: false }
+  const surfaces: SheetSurfaces = { elevated: new Set(), scrolls: false, rebinds: false }
   for (const rule of rules) {
     let rebinds = false
     const ruleSurfaces: string[] = []
@@ -206,24 +251,16 @@ for (const file of packageStylesheets()) {
         referencedTokens.set(token, [...referencedTokens.get(token) ?? [], file])
       }
     }
-    for (const token of ruleSurfaces) surfaces.painted.add(token)
+    for (const token of ruleSurfaces) {
+      if (elevatedSurfaces.has(token)) surfaces.elevated.add(token)
+    }
     if (rebinds) {
       rebindRules.push({ file, rule })
       surfaces.rebinds = true
-      for (const token of ruleSurfaces) surfaces.rebound.add(token)
     }
   }
   sheetSurfaces.set(file, surfaces)
 }
-
-/**
- * Surface tokens known to be elevated, derived from the sheets that already
- * rebind rather than listed here: a rebinding rule paints the surface whose
- * elevation it is declaring. Deriving it means a new elevated surface joins the
- * set by rebinding, and cannot be added to the palette without either rebinding
- * or failing the check below.
- */
-const elevatedSurfaces = new Set([...sheetSurfaces.values()].flatMap(surfaces => [...surfaces.rebound]))
 
 describe('design-platform.css scrollbar tokens', () => {
   it('defines the same scrollbar token set in the light and the dark block', () => {
@@ -426,24 +463,44 @@ describe('elevated surface rebinds', () => {
     }
   })
 
-  it('every sheet that scrolls on a known elevated surface rebinds', () => {
+  it('resolves the elevated surface set from the palette ladder', () => {
+    // The set has to come from the palette, not from the sheets that happen to
+    // rebind: derived from rebinds it can only confirm what someone already
+    // remembered, and a surface nobody has rebound yet — the case the check
+    // exists for — would define itself as unelevated. Anchoring it here means a
+    // new palette token on an elevated rung is in scope the moment it is
+    // defined. `--dsw-specific-tip` is the regression that proved the point: it
+    // resolves to the same dark rung as the menu surface, and the Todo panel
+    // scrolled on it unrebound while a rebind-derived set stayed green.
+    expect(elevatedSurfaces).toContain('--dsw-alias-bg-layer-2')
+    expect(elevatedSurfaces).toContain('--dsw-alias-bg-layer-3')
+    expect(elevatedSurfaces).toContain('--dsw-specific-menu')
+    expect(elevatedSurfaces).toContain('--dsw-specific-input-major')
+    expect(elevatedSurfaces).toContain('--dsw-specific-tip')
+    // Base surfaces stay out, or every scroll container would be in scope and
+    // the check would say nothing.
+    expect(elevatedSurfaces).not.toContain('--dsw-alias-bg-base')
+    expect(elevatedSurfaces).not.toContain('--dsw-alias-bg-layer-1')
+  })
+
+  it('every sheet that scrolls on an elevated surface rebinds', () => {
     // The failure this closes: a scroll container on an elevated surface that
     // nobody remembered to rebind renders the l1 thumb, which differs from l2
-    // only in the dark palette and only for that one surface — invisible in
-    // review and in a light-palette screenshot. Three sheets shipped that way
-    // (ui-primitives Menu, InputBar, QuestionComposer) and review caught them
-    // by hand, which is what this replaces.
+    // only in the dark palette and only for that one surface — invisible both in
+    // review and in a light-palette screenshot. Four sheets shipped that way
+    // (ui-primitives Menu, InputBar, QuestionComposer, TodoPanel) and review
+    // caught them by hand, which is what this replaces.
     //
     // Surface-level, not element-level: the elevated card and the descendant
     // that scrolls are separate rules, and CSS text does not say which contains
-    // which. A sheet that both scrolls somewhere and paints a known elevated
-    // surface somewhere must rebind; the elevation would otherwise be a
-    // coincidence of two unrelated rules, which no sheet under test does.
-    expect(elevatedSurfaces.size).toBeGreaterThan(0)
+    // which. What keeps that from over-reporting is the token FAMILY: only
+    // `--dsw-alias-bg-*` and `--dsw-specific-*` name a surface, so a floating
+    // button or an inline code span reaching the same rung is out of scope
+    // (ChatView's `.toBottom`, CodeBlock's banner). Geometry cannot make that
+    // call — a floating button carries a radius, a shadow, and a fixed size.
     for (const [file, surfaces] of sheetSurfaces) {
       if (!surfaces.scrolls || surfaces.rebinds) continue
-      const elevated = [...surfaces.painted].filter(token => elevatedSurfaces.has(token))
-      expect(elevated, `${file} scrolls on ${elevated.join(', ')} without rebinding`).toEqual([])
+      expect([...surfaces.elevated], `${file} scrolls on an elevated surface without rebinding`).toEqual([])
     }
   })
 })
