@@ -66,7 +66,7 @@ export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
  * @param props.className - positioning class from the owner.
  * @returns the blurred-ellipse svg element.
  */
-export function HeroGlow({ className }: { className?: string }) {
+export function HeroGlow({ className }: { className?: string | undefined }) {
   // Stable filter id so multiple hero mounts do not collide in the DOM.
   const glowFilterId = `empty-glow-${useId().replace(/:/g, '')}`
   return (

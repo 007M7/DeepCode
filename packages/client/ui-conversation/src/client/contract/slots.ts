@@ -143,6 +143,8 @@ export interface ToolRowOwnerProps {
   toolName: string
   /** Frozen call slice: the running call or the settled result node. */
   block: ToolCallBlock
+  /** Session workspace root; path summaries display relative to it. */
+  cwd?: string | undefined
   /** Open the details panel for this call (session-level facility, supplied by the view). */
   openDetails: () => void
 }

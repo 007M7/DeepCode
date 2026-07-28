@@ -25,8 +25,8 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   others: <IconSparkle16 size={14} />,
 }
 
-export function GenericToolCard({ toolName, block, openDetails }: ToolRowOwnerProps) {
-  const model = toolRowModel(toolName, block)
+export function GenericToolCard({ toolName, block, cwd, openDetails }: ToolRowOwnerProps) {
+  const model = toolRowModel(toolName, block, cwd)
   return (
     <ToolRow
       variant={model.variant}

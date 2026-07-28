@@ -6,34 +6,39 @@
   flex-direction: column;
 }
 
-/* Row sweep mask (running signal): the row content itself is the medium —
-   an animated mask band modulates the alpha of everything in the row
-   (glyphs, icon, dot), so the light reads as passing THROUGH the content,
-   not behind it. The mask is ALWAYS mounted with the band parked off-screen
-   (-50% = past the right edge; tiled copies sit outside the view too), so
-   at rest it is a no-op. Running only adds the position animation. On exit
-   the animation drops and `transition: mask-position` carries the band from
-   its animated position onward off-screen right (before-change style
-   includes animation effects per css-transitions-1) — the sweep finishes
-   instead of snapping. */
 .row {
+  position: relative; /* sweep-glare overlay anchor */
+  overflow: hidden;
   display: flex;
   align-items: center;
   height: 24px;
   min-width: 0;
-  mask-image: linear-gradient(100deg, #000 30%, rgba(0, 0, 0, 0.35) 50%, #000 70%);
-  mask-size: 200% 100%;
-  mask-position: -50% 0;
-  transition: mask-position 1.6s ease-out;
 }
 
-.root[data-state='running'] .row {
-  animation: dsh-tool-row-sweep 2.2s linear infinite;
+/* Running sweep (deepsuite ShimmerText pattern): a fixed-width glare band —
+   theme background at 60% — glides over the row content from off-left to
+   off-right, washing glyphs and icon toward the background as it passes.
+   ease-out with a 10% end hold gives each pass a beat before the next. */
+.root[data-state='running'] .row::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-tool-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
 }
 
 @keyframes dsh-tool-row-sweep {
-  from { mask-position: 150% 0; }
-  to { mask-position: -50% 0; }
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
 }
 
 /* Clickable rows keep only the cursor affordance — no hover fill. */
