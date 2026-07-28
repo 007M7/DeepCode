@@ -309,11 +309,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
-    // The queue mirror is NOT cleared here: onConnected (which drives resync)
-    // races the mux frames — the fresh generation's baseline may have landed
-    // already, and the host never resends it. The mirror re-baselines on the
-    // session/subscribed frame instead (same stream as the queue snapshot
-    // that follows it, so ordering is guaranteed).
+    // Queue, metrics, and request capacity are NOT cleared here: onConnected
+    // (which drives resync) races the mux frames — fresh-generation state may
+    // have landed already, and the host never resends it. session/subscribed
+    // owns the generation reset before the queue snapshot and metrics frames.
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -322,7 +321,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    this.metrics = null
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
     this.pending.clear()

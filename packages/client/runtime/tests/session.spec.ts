@@ -813,6 +813,40 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
+  it('preserves fresh-generation metrics that arrive before a failing history refresh', async () => {
+    const { api, session } = makeSession()
+    const oldMetrics = metrics(8, 10)
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'), false, undefined, oldMetrics)
+    await session.open()
+    expect(session.getSnapshot().metrics).toBe(oldMetrics)
+
+    session.handleMuxEnvelope('sub' as never, {
+      type: 'session/subscribed',
+      sessionId: SID,
+      lastSeq: 5,
+    })
+    expect(session.getSnapshot().metrics).toBeNull()
+
+    const freshMetrics = metrics(0, 10, { contextTokens: 20 })
+    session.handleMuxEnvelope('fresh-metrics' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: freshMetrics,
+    })
+    api.onHistory = () => Promise.resolve(err({
+      code: 'internal',
+      message: 'history refresh failed',
+      details: {},
+    }))
+
+    await session.resync()
+
+    expect(session.getSnapshot()).toMatchObject({
+      openState: 'error',
+      metrics: freshMetrics,
+    })
+  })
+
   it('rebuilds the window and clears pending; cold instances no-op', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
