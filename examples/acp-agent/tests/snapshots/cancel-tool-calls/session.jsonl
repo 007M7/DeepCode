@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{tmpdir}}/{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784437195072,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784437195072,"data":{"content":[{"type":"text","text":"Run two shell commands: wait for cancellation, then write skipped.txt."}],"source":{"kind":"user"},"role":"user","id":"37d9d206-cab7-450f-bff6-63a2dddd5f61"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1784437195072,"data":{"title":"Run two shell commands: wait","messageSeqs":[1],"source":{"kind":"fallback"}}}

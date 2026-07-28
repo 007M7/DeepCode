@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{tmpdir}}/{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"Read request event 4 with session_event_read, verify the complete spill was retained, then reply DONE."}],"source":{"kind":"user"},"role":"user","id":"4cca69f9-35bf-4a89-ad5e-c36296496f75"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":0,"data":{"title":"Read request event 4 with","messageSeqs":[1],"source":{"kind":"fallback"}}}

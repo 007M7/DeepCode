@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"0b7fd85c-9f6f-4d46-b954-363984ce66fb","createdAt":1785097410282,"cwd":"/tmp/sdk-snapshot-subagent-spawn-6fzuBd","parentSession":"sdk-snapshot-subagent","delegationDepth":1}
+{"type":"session","version":0,"id":"0b7fd85c-9f6f-4d46-b954-363984ce66fb","createdAt":1785097410282,"cwd":"{{tmpdir}}/sdk-snapshot-subagent-spawn-6fzuBd","parentSession":"sdk-snapshot-subagent","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1785097410283,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785097410283,"data":{"content":[{"type":"text","text":"Reply with exactly: child answer 42."}],"source":{"kind":"user"},"role":"user","id":"fb1dfb09-5b8b-4343-8a04-49cc4c7c082e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785097410283,"data":{"title":"Reply with exactly: child answer","messageSeqs":[1],"source":{"kind":"fallback"}}}

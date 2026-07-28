@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"sdk-snapshot-text","createdAt":1785097381464,"cwd":"/tmp/sdk-snapshot-text-turn-OwFEJv","delegationDepth":0}
+{"type":"session","version":0,"id":"sdk-snapshot-text","createdAt":1785097381464,"cwd":"{{tmpdir}}/sdk-snapshot-text-turn-OwFEJv","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785097381468,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785097381469,"data":{"content":[{"type":"text","text":"Reply with exactly: SDK snapshot OK"}],"source":{"kind":"user"},"role":"user","id":"4cb523e7-19c9-45d0-8799-911a78c26207"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785097381471,"data":{"title":"Reply with exactly: SDK snapshot","messageSeqs":[1],"source":{"kind":"fallback"}}}

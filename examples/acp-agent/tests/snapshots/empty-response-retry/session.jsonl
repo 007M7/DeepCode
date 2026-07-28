@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{tmpdir}}/{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"This prompt first receives an empty completion, then a retried reply."}],"source":{"kind":"user"},"role":"user","id":"c9828d19-2c86-4a4f-9868-c9c28f345358"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":0,"data":{"title":"This prompt first receives an","messageSeqs":[1],"source":{"kind":"fallback"}}}

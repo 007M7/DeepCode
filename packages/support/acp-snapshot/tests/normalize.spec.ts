@@ -7,6 +7,7 @@ import {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
+  tokenizeSessionFixtureTmpdir,
 } from '../src/normalize.ts'
 
 /**
@@ -367,6 +368,54 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"type":"note","seq":1')
     expect(out).toContain('"decision":"allow"')
     expect(out).not.toContain('durationMs')
+  })
+})
+
+describe('tokenizeSessionFixtureTmpdir', () => {
+  it.each([
+    {
+      name: 'macOS',
+      context: {
+        sessionIds: [],
+        cwd: '/var/folders/2g/snapshot/T/acp-snap-cwd-abc123',
+        cwdAliases: ['/private/var/folders/2g/snapshot/T/acp-snap-cwd-abc123'],
+      },
+      reportedCwd: '/private/var/folders/2g/snapshot/T/acp-snap-cwd-abc123',
+    },
+    {
+      name: 'Linux',
+      context: {
+        sessionIds: [],
+        cwd: '/tmp/acp-snap-cwd-abc123',
+      },
+      reportedCwd: '/tmp/acp-snap-cwd-abc123',
+    },
+  ])('stores $name temporary workspaces with one portable root token', ({ context, reportedCwd }) => {
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: context.cwd }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 1,
+        time: 2,
+        data: {
+          content: [{
+            type: 'text',
+            text: `wrote ${reportedCwd}/proof.txt. cwd ${context.cwd}. Next; kept ${context.cwd}-backup, ${context.cwd}.backup, and /tmp/authored.txt`,
+          }],
+        },
+      }),
+      '',
+    ].join('\n')
+
+    const out = tokenizeSessionFixtureTmpdir(raw)
+
+    expect(out).toContain('"cwd":"{{tmpdir}}/acp-snap-cwd-abc123"')
+    expect(out).toContain('wrote {{tmpdir}}/acp-snap-cwd-abc123/proof.txt')
+    expect(out).toContain('cwd {{tmpdir}}/acp-snap-cwd-abc123. Next')
+    expect(out).toContain(`${context.cwd}-backup`)
+    expect(out).toContain(`${context.cwd}.backup`)
+    expect(out).toContain('/tmp/authored.txt')
+    expect(out).not.toContain(`${reportedCwd}/proof.txt`)
   })
 })
 
