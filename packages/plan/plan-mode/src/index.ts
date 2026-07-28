@@ -249,21 +249,28 @@ export class PlanModeService extends Service {
         handler: ({ agent, rawInput }) => {
           const message = rawInput.trim()
           if (message === 'off') {
-            const state = this.get(agent)
-            this.set(agent, false)
-            if (state.active) {
-              return { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+            switch (this.set(agent, false)) {
+              case 'committed':
+                return { kind: 'success', text: 'Plan mode off.' }
+              case 'queued':
+                return { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+              case 'cancelled':
+                return { kind: 'success', text: 'Plan mode entry cancelled.' }
+              case 'noop':
+                // Repeat the queued wording while an exit still awaits its
+                // boundary; only a truly inactive session reads idempotent.
+                return foldPlanMode(agent.session.events)
+                  ? { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+                  : { kind: 'success', text: 'Plan mode is already inactive.' }
             }
-            if (state.pending === true) {
-              return { kind: 'success', text: 'Plan mode entry cancelled.' }
-            }
-            return { kind: 'success', text: 'Plan mode is already inactive.' }
           }
-          this.set(agent, true)
+          const outcome = this.set(agent, true)
           if (message !== '') agent.steer(createUserMessage({ content: [{ type: 'text', text: message }], source: { kind: 'user' } }))
           return {
             kind: 'success',
-            text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+            text: outcome === 'committed'
+              ? 'Plan mode on. Use /plan off to leave.'
+              : 'Entering plan mode (applies from the next step). Use /plan off to leave.',
           }
         },
       })
@@ -357,17 +364,37 @@ export class PlanModeService extends Service {
   }
 
   /**
-   * Select whether plan mode should be active from the next request boundary.
-   * Repeated selection of the current or already-pending state is a no-op.
+   * Select whether plan mode should be active. An idle agent commits the
+   * change immediately (no boundary would arrive until the next prompt); a
+   * running agent holds it as pending intent for the next in-turn request
+   * boundary. Repeated selection of the current or already-pending state is
+   * a no-op.
    *
    * @param agent The agent to switch.
    * @param active Whether plan mode should be active.
+   * @returns what happened: `committed` (logged now), `queued` (awaiting the
+   * next boundary), `cancelled` (an opposite pending selection was cleared;
+   * the logged state already matches), or `noop` (already in that state).
    */
-  set(agent: Agent, active: boolean): void {
+  set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop' {
     const session = agent.session
-    const target = this.pendingIntents.get(session)?.active ?? foldPlanMode(session.events)
-    if (active === target) return
-    this.pendingIntents.set(session, { active, narrate: true })
+    const pending = this.pendingIntents.get(session)
+    const target = pending?.active ?? foldPlanMode(session.events)
+    if (active === target) return 'noop'
+    if (agent.status === 'running') {
+      this.pendingIntents.set(session, { active, narrate: true })
+      return foldPlanMode(session.events) === active ? 'cancelled' : 'queued'
+    }
+    // Idle: commit now. Delete only after append succeeds so a failed durable
+    // write leaves the selection retryable rather than silently dropped.
+    if (active === foldPlanMode(session.events)) {
+      this.pendingIntents.delete(session)
+      return 'cancelled'
+    }
+    session.append('plan/mode', { active })
+    this.pendingIntents.delete(session)
+    this.narrate(session, active)
+    return 'committed'
   }
 
   /** Flush one pending selection before the next request assembly. */
@@ -384,7 +411,11 @@ export class PlanModeService extends Service {
     // Delete only after append succeeds so a later boundary can retry a failed
     // durable write.
     this.pendingIntents.delete(session)
-    if (!pending.narrate) return
+    if (pending.narrate) this.narrate(session, target)
+  }
+
+  /** Tell the model about a user switch when the last logged header described the other mode. */
+  private narrate(session: Session, target: boolean): void {
     const told = planModeAtLastHeader(session.events)
     if (told === undefined || told === target) return
     const text = target

@@ -998,19 +998,30 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),
           'goal-fixture': `fixture：goal 已设置（${id}）`,
-          // Mirrors the host handler's wording; the projection frame carries the state.
           plan: args.trim() === 'off'
-            ? 'Leaving plan mode (applies from the next step).'
-            : 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+                ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+                : 'Plan mode on. Use /plan off to leave.'),
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
         const commandId = `fx-cmd-${logOf(id).length}` as CommandId
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const, commandId })
       },

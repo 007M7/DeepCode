@@ -23,11 +23,13 @@ const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
  * and between-step seams used by the loop.
  */
 
-async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
+async function agentWithSession(ctx: Context, id = 'agent-1', { active, status = 'running' }: { active?: boolean; status?: 'idle' | 'running' } = {}): Promise<Agent & { session: Session }> {
   // A live store session when a store is mounted (the command executor logs
   // lifecycle events through it); bare otherwise (fold/tool-only benches).
+  // Boundary tests default to a running agent (the mid-turn shape); the
+  // idle-commit tests pass status: 'idle' explicitly.
   const session = new Session(SessionId(id))
-  const agent = { id: SessionId(id), session, options: {} } as unknown as Agent & { session: Session }
+  const agent = { id: SessionId(id), session, options: {}, status } as unknown as Agent & { session: Session }
   let scoped!: Context
   await ctx.plugin(Object.assign((inner: Context) => { scoped = createScope(inner, agent).ctx }, {
     inject: ['tools'],
@@ -167,22 +169,55 @@ describe('ctx.planMode: get/set', () => {
     expect(ctx.planMode.get(agent)).toEqual({ active: true })
   })
 
-  it('selects inactive as the plan exit target', async () => {
+  it('selects inactive as the plan exit target while running', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
     agent.session.append('plan/mode', { active: true })
-    ctx.planMode.set(agent, false)
+    expect(ctx.planMode.set(agent, false)).toBe('queued')
     expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
   })
 
   it('drops a no-op set (target equals pending, else the current fold)', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
-    ctx.planMode.set(agent, false)
+    expect(ctx.planMode.set(agent, false)).toBe('noop')
     expect(ctx.planMode.get(agent)).toEqual({ active: false })
-    ctx.planMode.set(agent, true)
-    ctx.planMode.set(agent, true)
+    expect(ctx.planMode.set(agent, true)).toBe('queued')
+    expect(ctx.planMode.set(agent, true)).toBe('noop')
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+  })
+
+  it('an idle selection commits plan/mode immediately (no boundary would come)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx, 'agent-idle', { status: 'idle' })
+    expect(ctx.planMode.set(agent, true)).toBe('committed')
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(ctx.planMode.get(agent)).toEqual({ active: true })
+    // Immediately reversible, still without a boundary.
+    expect(ctx.planMode.set(agent, false)).toBe('committed')
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+    // A later boundary finds nothing pending — no double append.
+    await boundary(ctx, agent, 'step/end')
+    expect(agent.session.events.filter(event => event.type === 'plan/mode')).toHaveLength(2)
+  })
+
+  it('an idle reversal of a mid-turn pending intent cancels without logging', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    expect(ctx.planMode.set(agent, true)).toBe('queued')
+    ;(agent as { status: string }).status = 'idle'
+    // Back to the logged state: the pending intent clears, nothing lands.
+    expect(ctx.planMode.set(agent, false)).toBe('cancelled')
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+    expect(ctx.planMode.get(agent)).toEqual({ active: false })
+  })
+
+  it('an idle commit narrates when the last header told the model otherwise', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx, 'agent-idle-narrate', { status: 'idle' })
+    header(agent.session)
+    ctx.planMode.set(agent, true)
+    expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
   })
 })
 
