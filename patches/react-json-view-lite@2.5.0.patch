@@ -172,7 +172,6 @@ index ab8b98c992bd34e00e7c3a0257d6778d7928dde8..669304fbba450c789bf4a4264f0627a8
 +    renderStringValue: renderStringValue
    })));
  };
- 
 diff --git a/dist/index.modern.js b/dist/index.modern.js
 index e25aea1bc8936b69275b9fbe7011d0466480f99c..f4c509e4459f70080b90695c00f8a17e8f4aac4e 100644
 --- a/dist/index.modern.js
@@ -316,4 +315,3 @@ index e25aea1bc8936b69275b9fbe7011d0466480f99c..f4c509e4459f70080b90695c00f8a17e
 +    renderStringValue: renderStringValue
    })));
  };
- 
