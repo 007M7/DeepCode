@@ -63,12 +63,11 @@ export interface CreateAgentOptions {
     readonly delegationDepth?: number
   }
   /**
-   * Initial session events. A fork starts with a balanced completed-turn
-   * prefix of the parent's log; creation-time log facts may follow that
-   * prefix. The complete seed must be contiguous from seq 0, carry only
-   * lossless-JSON data, and contain no open turn/step or dangling tool call.
-   * The factory passes it to the session's durable validator/snapshot
-   * boundary before publication.
+   * Initial replay/fork history. A fork supplies a balanced completed-turn
+   * prefix of the parent's log. The complete seed must be contiguous from seq
+   * 0, carry only lossless-JSON data, and contain no open turn/step or dangling
+   * tool call. The factory passes it to the session's durable
+   * validator/snapshot boundary before publication.
    */
   readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */

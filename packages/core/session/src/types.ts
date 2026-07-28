@@ -72,7 +72,7 @@ export interface SessionHeader {
  * store folds into a {@link SessionHeader}.
  */
 export interface CreateSessionOptions {
-  /** Initial log events supplied at construction (replay, fork, or creation-time facts). */
+  /** Initial replay or fork history supplied at construction. */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit

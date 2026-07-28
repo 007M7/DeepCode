@@ -103,30 +103,19 @@ export async function startInProcessRun(
   }
 
   // Capture before the first await: a later parent switch belongs to the
-  // parent's future. Appending after the fork prefix makes the captured
-  // values the child's initial overrides without another storage plane.
+  // parent's future.
   const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
   const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
-  const seed: SessionEvent[] = [...options.seed ?? []]
-  if (inheritedMode !== undefined) {
-    seed.push({
-      type: 'sandbox/mode',
-      seq: seed.length,
-      time: Date.now(),
-      data: { mode: inheritedMode, source: 'delegation' },
-    })
-  }
-  if (inheritedPolicy !== undefined) {
-    seed.push({
-      type: 'approval/policy',
-      seq: seed.length,
-      time: Date.now(),
-      data: { policy: inheritedPolicy, source: 'delegation' },
-    })
-  }
 
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
+    const childSession = (childCtx.agent as Agent).session
+    if (inheritedMode !== undefined) {
+      childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
+    }
+    if (inheritedPolicy !== undefined) {
+      childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
+    }
     if (request.persona !== undefined) {
       childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
     }
@@ -146,7 +135,7 @@ export async function startInProcessRun(
       delegationDepth: childDepth,
       ...seedLength > 0 ? { seedLength } : {},
     },
-    ...(options.seed !== undefined || seed.length > 0) ? { seed } : {},
+    ...options.seed === undefined ? {} : { seed: options.seed },
     agentOptions,
     signal: request.signal,
     setup,

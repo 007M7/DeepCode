@@ -1,4 +1,4 @@
-/** Policy inheritance through constructor-seeded child session events. */
+/** Policy inheritance through child session events appended before publication. */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
@@ -69,7 +69,7 @@ function toolResultTexts(agent: Agent): string[] {
 }
 
 describe('in-process policy inheritance', () => {
-  it('seeds parent overrides into a spawn child before its first request', async () => {
+  it('records parent overrides before publishing a spawn child', async () => {
     const script: Script = []
     const { ctx, parent } = await setupWalled(script)
     const blocked = join(workspace, 'spawn-blocked.txt')
@@ -93,7 +93,7 @@ describe('in-process policy inheritance', () => {
         { type: 'sandbox/mode', seq: 0, data: { mode: 'read-only', source: 'delegation' } },
         { type: 'approval/policy', seq: 1, data: { policy: 'never', source: 'delegation' } },
       ])
-      expect(child.session.firstLiveSeq).toBe(2)
+      expect(child.session.firstLiveSeq).toBe(0)
       expect(child.session.header.seedLength).toBeUndefined()
       expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('read-only')
       expect(ctx.approval.overrideOf(child.session)).toBe('never')
@@ -125,6 +125,7 @@ describe('in-process policy inheritance', () => {
       const child = run.localAgent as Agent
 
       expect(child.session.header.seedLength).toBe(1)
+      expect(child.session.firstLiveSeq).toBe(seed.length)
       expect(child.session.events.filter(event => event.type === 'sandbox/mode')).toMatchObject([
         { seq: 0, data: { mode: 'workspace-write' } },
         { seq: 1, data: { mode: 'read-only', source: 'delegation' } },
