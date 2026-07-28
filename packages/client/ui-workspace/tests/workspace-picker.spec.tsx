@@ -41,7 +41,7 @@ function pickingShare(): DirectoryPickingInjected {
   return {
     directoryPickerKind: vi.fn(async () => 'dialog' as const),
     pickDirectory: vi.fn(async () => null),
-    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] })),
+    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [{ name: 'u', path: '/home/u', hidden: false }], entries: [] })),
     createDirectory: vi.fn(async () => '/home/u/new'),
     t: (key: string) => key,
   }
@@ -59,7 +59,7 @@ function mount(
   const share: DirectoryPickingInjected = {
     directoryPickerKind: vi.fn(async () => 'dialog' as const),
     pickDirectory,
-    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] })),
+    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [{ name: 'u', path: '/home/u', hidden: false }], entries: [] })),
     createDirectory: vi.fn(async () => '/home/u/new'),
     t: key => key,
     ...picking,

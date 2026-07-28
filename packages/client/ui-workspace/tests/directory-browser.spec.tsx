@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowseError } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowser } from '../src/client/DirectoryBrowser.tsx'
@@ -8,6 +8,8 @@ import { DirectoryBrowser } from '../src/client/DirectoryBrowser.tsx'
 afterEach(cleanup)
 
 const HOME = '/home/u'
+const DOCS = `${HOME}/Documents`
+const HARNESS = `${DOCS}/harness`
 
 /** Listing fake over a tiny fixed tree; unknown paths reject like the Host. */
 function listingFor(path?: string): DirectoryListing {
@@ -23,19 +25,31 @@ function listingFor(path?: string): DirectoryListing {
       ],
       entries: [
         { name: '.config', path: `${HOME}/.config`, hidden: true },
-        { name: 'Documents', path: `${HOME}/Documents`, hidden: false },
+        { name: 'Documents', path: DOCS, hidden: false },
       ],
     },
-    [`${HOME}/Documents`]: {
-      path: `${HOME}/Documents`,
+    [DOCS]: {
+      path: DOCS,
       home: HOME,
       crumbs: [
         { name: '/', path: '/', hidden: false },
         { name: 'home', path: '/home', hidden: false },
         { name: 'u', path: HOME, hidden: false },
-        { name: 'Documents', path: `${HOME}/Documents`, hidden: false },
+        { name: 'Documents', path: DOCS, hidden: false },
       ],
-      entries: [{ name: 'harness', path: `${HOME}/Documents/harness`, hidden: false }],
+      entries: [{ name: 'harness', path: HARNESS, hidden: false }],
+    },
+    [HARNESS]: {
+      path: HARNESS,
+      home: HOME,
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'u', path: HOME, hidden: false },
+        { name: 'Documents', path: DOCS, hidden: false },
+        { name: 'harness', path: HARNESS, hidden: false },
+      ],
+      entries: [],
     },
   }
   const found = tree[target]
@@ -57,49 +71,102 @@ function mount(overrides: Partial<Parameters<typeof DirectoryBrowser>[0]> = {}) 
     onOpen,
     onClose,
     busy: false,
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key : `${key}:${String(params.name)}`),
     ...overrides,
   }
   const view = render(<DirectoryBrowser {...props} />)
   return { view, props, listDirectory, createDirectory, onOpen, onClose }
 }
 
+/** The rendered level columns, left-to-right. */
+function columns(): HTMLElement[] {
+  return screen.getAllByRole('list')
+}
+
 describe('DirectoryBrowser', () => {
-  it('opens at the Host home, hides hidden entries, and roots the crumbs at Home', async () => {
+  it('opens at the Host home as one wide column, hides hidden entries, and roots the crumbs at Home', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     expect(b.listDirectory).toHaveBeenCalledWith(undefined)
+    expect(columns()).toHaveLength(1)
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
     expect(screen.queryByText('.config')).toBeNull()
-    // Inside the home subtree the chain collapses to a localized Home crumb.
     expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '/' })).toBeNull()
   })
 
-  it('enters a row on click and jumps back through a crumb', async () => {
+  it('selects a row into the two-pane view: children preview right, crumbs follow the selection', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('listitem'))
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
-    expect(b.listDirectory).toHaveBeenLastCalledWith(`${HOME}/Documents`)
-    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    const [level, preview] = columns()
+    const selectedRow = within(level!).getByRole('listitem')
+    expect(selectedRow.textContent).toBe('Documents')
+    expect(selectedRow.getAttribute('aria-current')).toBe('true')
+    expect(within(preview!).getByRole('listitem').textContent).toBe('harness')
+    expect(b.listDirectory).toHaveBeenLastCalledWith(DOCS)
+    expect(screen.getByRole('button', { name: 'Documents' })).toBeTruthy()
   })
 
-  it('edits the path from the crumb bar: Enter navigates, Escape restores', async () => {
+  it('advances one level when a right-column row is picked', async () => {
     mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(within(columns()[1]!).getByRole('listitem'))
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'harness' })).toBeTruthy() })
+    const [level] = columns()
+    const selectedRow = within(level!).getByRole('listitem')
+    expect(selectedRow.textContent).toBe('harness')
+    expect(selectedRow.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('jumps back through a crumb into a fresh single-column level', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    await waitFor(() => { expect(columns()).toHaveLength(1) })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    expect(screen.getByRole('listitem').getAttribute('aria-current')).toBeNull()
+  })
+
+  it('opens the selection, else the listed level; Cancel closes; busy freezes Open', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
+    expect(b.onOpen).toHaveBeenCalledWith(HOME)
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
+    expect(b.onOpen).toHaveBeenLastCalledWith(DOCS)
+    fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
+    expect(b.onClose).toHaveBeenCalled()
+
+    const busy = mount({ busy: true })
+    await waitFor(() => { expect(busy.listDirectory).toHaveBeenCalled() })
+    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: 'browser.open' }).at(-1)!.disabled).toBe(true)
+  })
+
+  it('edits the path from the crumb bar: Enter navigates, Escape restores, blank is ignored', async () => {
+    const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
     expect(input.value).toBe(HOME)
-    fireEvent.change(input, { target: { value: `${HOME}/Documents` } })
+    fireEvent.change(input, { target: { value: DOCS } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
-    // Escape leaves an opened edit without navigating.
+    expect(columns()).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
-    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Escape' })
+    const again = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(again, { target: { value: '   ' } })
+    fireEvent.keyDown(again, { key: 'Enter' })
+    expect(b.listDirectory).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(again, { key: 'Escape' })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
-    expect(screen.getByRole('listitem').textContent).toBe('harness')
   })
 
   it('surfaces an unreadable target as an alert and keeps the edit open for correction', async () => {
@@ -114,40 +181,16 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
   })
 
-  it('creates a folder inline and refreshes the level; failures land as alerts', async () => {
-    const b = mount()
-    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
-    const input = screen.getByLabelText('browser.newFolder')
-    fireEvent.change(input, { target: { value: 'fresh' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => { expect(b.createDirectory).toHaveBeenCalledWith(HOME, 'fresh') })
-    // The level reloads after creation (initial + post-create).
-    await waitFor(() => { expect(b.listDirectory).toHaveBeenLastCalledWith(HOME) })
-
-    b.createDirectory.mockRejectedValueOnce(
-      new DirectoryBrowseError({ code: 'directory-exists', message: 'taken already', details: { path: `${HOME}/x` } }))
-    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
-    const retry = screen.getByLabelText('browser.newFolder')
-    fireEvent.change(retry, { target: { value: 'x' } })
-    fireEvent.keyDown(retry, { key: 'Enter' })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('taken already') })
+  it('folds non-typed failures into readable text (Error message, String otherwise)', async () => {
+    const b = mount({ listDirectory: vi.fn(async () => { throw new Error('socket down') }) })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('socket down') })
+    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
+    const raw = mount({ listDirectory: vi.fn(async () => { throw 'raw failure' }) })
+    await waitFor(() => { expect(screen.getAllByRole('alert').at(-1)!.textContent).toBe('raw failure') })
+    expect(raw.onOpen).not.toHaveBeenCalled()
   })
 
-  it('confirms the listed directory through Open, closes through Cancel, and freezes while busy', async () => {
-    const b = mount()
-    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
-    expect(b.onOpen).toHaveBeenCalledWith(HOME)
-    fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
-    expect(b.onClose).toHaveBeenCalled()
-
-    const busy = mount({ busy: true })
-    await waitFor(() => { expect(busy.listDirectory).toHaveBeenCalled() })
-    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: 'browser.open' }).at(-1)!.disabled).toBe(true)
-  })
-
-  it('renders the full ancestry when the listing sits outside the home subtree', async () => {
+  it('renders the full ancestry when the level sits outside the home subtree', async () => {
     const outside: DirectoryListing = {
       path: '/srv/data',
       home: HOME,
@@ -164,53 +207,110 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByRole('button', { name: 'browser.home' })).toBeNull()
   })
 
-  it('folds non-typed failures into readable text (Error message, String otherwise)', async () => {
-    const b = mount({ listDirectory: vi.fn(async () => { throw new Error('socket down') }) })
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('socket down') })
-    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
-    const raw = mount({ listDirectory: vi.fn(async () => { throw 'raw failure' }) })
-    await waitFor(() => { expect(screen.getAllByRole('alert').at(-1)!.textContent).toBe('raw failure') })
-    expect(raw.onOpen).not.toHaveBeenCalled()
-  })
-
-  it('cancels the inline folder row with Escape and ignores a blank name', async () => {
+  it('creates a folder through the nested dialog and lands with it selected', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
-    const input = screen.getByLabelText('browser.newFolder')
+    // The nested dialog names the create target (the selected folder).
+    expect(screen.getByText('browser.createIn:Documents')).toBeTruthy()
+    // The created folder becomes listable (like the real backend after mkdir).
+    b.listDirectory.mockImplementation(async (path?: string) => {
+      if (path === `${DOCS}/fresh`) {
+        return {
+          path: `${DOCS}/fresh`, home: HOME,
+          crumbs: [...listingFor(DOCS).crumbs, { name: 'fresh', path: `${DOCS}/fresh`, hidden: false }],
+          entries: [],
+        }
+      }
+      if (path === DOCS) {
+        const docs = listingFor(DOCS)
+        return { ...docs, entries: [...docs.entries, { name: 'fresh', path: `${DOCS}/fresh`, hidden: false }] }
+      }
+      return listingFor(path)
+    })
+    const input = screen.getByLabelText('browser.folderName')
+    fireEvent.change(input, { target: { value: 'fresh' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(b.createDirectory).toHaveBeenCalledWith(DOCS, 'fresh') })
+    // The create target became the level and the new folder its selection.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Documents' })).toBeTruthy()
+      const level = columns()[0]!
+      const rows = within(level).getAllByRole('listitem')
+      expect(rows.some(row => row.textContent === 'fresh' && row.getAttribute('aria-current') === 'true')).toBe(true)
+    })
+  })
+
+  it('keeps the nested dialog open on a creation failure and cancels cleanly', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    b.createDirectory.mockRejectedValueOnce(
+      new DirectoryBrowseError({ code: 'directory-exists', message: 'taken already', details: { path: `${HOME}/x` } }))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    expect(screen.getByText('browser.createIn:browser.home')).toBeTruthy()
+    const input = screen.getByLabelText('browser.folderName')
+    // A blank name never submits.
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(b.createDirectory).not.toHaveBeenCalled()
-    fireEvent.keyDown(input, { key: 'Escape' })
-    expect(screen.queryByLabelText('browser.newFolder')).toBeNull()
-  })
-
-  it('ignores a blank path draft on Enter', async () => {
-    const b = mount()
-    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
-    const input = screen.getByLabelText('browser.editPath')
-    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.change(input, { target: { value: 'x' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    // Only the initial home listing ran; the blank draft navigated nowhere.
-    expect(b.listDirectory).toHaveBeenCalledTimes(1)
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('taken already') })
+    fireEvent.keyDown(screen.getByLabelText('browser.folderName'), { key: 'Escape' })
+    await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
+
+    // The nested Cancel button and the nested mask both close only the child dialog.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const nested = screen.getByRole('dialog', { name: 'browser.newFolder' })
+    fireEvent.click(within(nested).getByRole('button', { name: 'browser.cancel' }))
+    await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const masks = document.querySelectorAll('[aria-hidden="true"]')
+    fireEvent.click(masks[masks.length - 1]!)
+    await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
+    expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy()
   })
 
-  it('drops a stale listing that resolves after a newer navigation', async () => {
+  it('surfaces a selection-preview failure while keeping the selection marked', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    // The next navigation (into Documents) hangs; a Home-crumb jump supersedes it.
+    b.listDirectory.mockRejectedValueOnce(
+      new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path: DOCS } }))
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    expect(screen.getByRole('listitem').getAttribute('aria-current')).toBe('true')
+    // No preview column arrived for the failed selection.
+    expect(columns()).toHaveLength(1)
+  })
+
+  it('surfaces a post-create relist failure on the browser surface', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    // Creation succeeds, but relisting the target fails afterwards.
+    b.listDirectory.mockRejectedValueOnce(new Error('level vanished'))
+    const input = screen.getByLabelText('browser.folderName')
+    fireEvent.change(input, { target: { value: 'fresh' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('level vanished') })
+  })
+
+  it('drops a stale child listing that resolves after a crumb jump', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     let resolveSlow!: (value: DirectoryListing) => void
     const slow = new Promise<DirectoryListing>((settle) => { resolveSlow = settle })
     b.listDirectory.mockReturnValueOnce(slow)
     fireEvent.click(screen.getByRole('listitem'))
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
     await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(3) })
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
-    resolveSlow(listingFor(`${HOME}/Documents`))
+    await waitFor(() => { expect(columns()).toHaveLength(1) })
+    resolveSlow(listingFor(DOCS))
     await new Promise(settle => setTimeout(settle, 0))
-    // The stale Documents listing did not clobber the newer Home level.
-    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // The superseded selection preview did not reopen the second pane.
+    expect(columns()).toHaveLength(1)
   })
 
   it('drops a stale failure that rejects after a newer navigation', async () => {
@@ -224,19 +324,82 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(3) })
     rejectSlow(new Error('too late to matter'))
     await new Promise(settle => setTimeout(settle, 0))
-    // The superseded failure surfaces no alert over the newer level.
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
+  })
+
+  it('drops a stale navigation failure that rejects after a newer jump', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    let rejectSlow!: (reason: unknown) => void
+    const slow = new Promise<DirectoryListing>((_settle, fail) => { rejectSlow = fail })
+    b.listDirectory.mockReturnValueOnce(slow)
+    // A slow crumb jump superseded by a second jump.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(4) })
+    rejectSlow(new Error('late nav failure'))
+    await new Promise(settle => setTimeout(settle, 0))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('drops a stale navigation listing that resolves after a newer jump', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('listitem'))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    let resolveSlow!: (value: DirectoryListing) => void
+    const slow = new Promise<DirectoryListing>((settle) => { resolveSlow = settle })
+    b.listDirectory.mockReturnValueOnce(slow)
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    resolveSlow(listingFor(undefined))
+    await new Promise(settle => setTimeout(settle, 0))
+    // The stale home listing did not replace the newer Documents level.
+    expect(screen.getByRole('listitem').textContent).toBe('harness')
+  })
+
+  it('names the create target by its path when the level reports no crumbs', async () => {
+    const bare: DirectoryListing = { path: '/srv/data', home: HOME, crumbs: [], entries: [] }
+    mount({ listDirectory: vi.fn(async () => bare) })
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'browser.newFolder' })).toBeTruthy() })
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(false)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    expect(screen.getByText('browser.createIn:/srv/data')).toBeTruthy()
+  })
+
+  it('refuses to close the nested dialog while the creation is in flight', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    let settleCreate!: (path: string) => void
+    b.createDirectory.mockReturnValueOnce(new Promise<string>((settle) => { settleCreate = settle }))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const input = screen.getByLabelText('browser.folderName')
+    fireEvent.change(input, { target: { value: 'slow' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // Escape and the mask are both inert while creating.
+    fireEvent.keyDown(screen.getByLabelText('browser.folderName'), { key: 'Escape' })
+    const masks = document.querySelectorAll('[aria-hidden="true"]')
+    fireEvent.click(masks[masks.length - 1]!)
+    expect(screen.getByLabelText('browser.folderName')).toBeTruthy()
+    settleCreate(`${HOME}/slow`)
+    await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
   })
 
   it('starts back at home on reopen', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('listitem'))
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
     b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
     b.view.rerender(<DirectoryBrowser {...b.props} open />)
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
+    expect(columns()).toHaveLength(1)
     expect(b.listDirectory).toHaveBeenLastCalledWith(undefined)
   })
 })

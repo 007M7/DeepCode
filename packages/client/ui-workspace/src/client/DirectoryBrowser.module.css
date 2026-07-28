@@ -1,13 +1,14 @@
-/* Directory-browser dialog (figma 802-56979). The shared Modal renders
+/* Directory-browser dialog (figma 813-23126 family). The shared Modal renders
  * headless here — mask, card, Escape only — and this module owns the figma
- * frame exactly: header (title + crumbs, l3 separator), one directory level,
- * and the bordered footer. Card: w600 r24, bottom pad 12, no close chrome. */
+ * frame exactly: fixed 600×420 card, header (title + crumbs, l3 separator),
+ * the one-or-two-column Miller content, and the bordered footer. */
 
 /* Doubled class beats Modal's own .dialog regardless of stylesheet order. */
 .dialog.dialog {
   width: min(600px, 100%);
-  padding: 0 0 12px;
-  gap: 16px;
+  height: 420px;
+  padding: 0;
+  gap: 0;
 }
 
 /* Header block: pl24 pr14 pt22 pb12, 8px between title row and crumb row. */
@@ -15,6 +16,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: none;
   padding: 22px 14px 12px 24px;
   border-bottom: 1px solid var(--dsw-alias-border-l3);
 }
@@ -95,14 +97,35 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* One directory level: content column pt16 px24, 28px rows with 2px gaps. */
-.level {
+/* Miller content: pt16 px24; columns are 256 wide (or full width solo) with
+ * the hairline divider centered between them; each column scrolls alone. */
+.content {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 0;
+  gap: 20px;
+  padding: 16px 24px 0;
+}
+
+.column {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 16px 24px 0;
-  max-height: 320px;
+  width: 256px;
+  flex: none;
   overflow-y: auto;
+}
+
+.columnWide {
+  width: 100%;
+  flex: 1 1 0;
+}
+
+.divider {
+  flex: none;
+  width: 1px;
+  background: var(--dsw-alias-border-l3);
 }
 
 .row {
@@ -123,9 +146,20 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Selection: pill fill + the open-folder glyph in the info accent. */
+.rowSelected,
+.rowSelected:hover {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+}
+
 .rowIcon {
   flex: none;
   color: var(--dsw-alias-label-secondary);
+}
+
+.rowIconSelected {
+  flex: none;
+  color: var(--dsw-alias-button-info-fill);
 }
 
 .rowName {
@@ -145,29 +179,6 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.folderRow {
-  cursor: default;
-}
-
-.folderInput {
-  box-sizing: border-box;
-  flex: 1 1 0;
-  min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.folderInput::placeholder {
-  color: var(--dsw-alias-label-caption);
-}
-
 .status,
 .error {
   padding: 4px;
@@ -183,12 +194,14 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* Footer: l3 separator on top, pt12 px24, New-folder pinned left. */
+/* Footer: l3 separator on top, pt12 px24, New-folder pinned left; the fixed
+ * card leaves the figma 28px below the 36px buttons. */
 .footerBar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 24px 0;
+  flex: none;
+  padding: 12px 24px 28px;
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 
@@ -198,4 +211,59 @@
 
 .footerAction {
   min-width: 72px;
+}
+
+/* Nested create dialog (figma 813:23278): a small centered card. */
+.createDialog.createDialog {
+  width: min(380px, 100%);
+  padding: 0;
+  gap: 0;
+}
+
+.createBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 24px 20px;
+}
+
+.createTitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createIn {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 7px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 22px;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.createActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
