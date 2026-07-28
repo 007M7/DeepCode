@@ -1,5 +1,5 @@
-/* Quiet composer chip: an invisible native select owns interaction and
-   accessibility while the visible layer reports committed/pending state. */
+/* Read-only plan status badge: quiet chip; the × affordance appears on
+   hover/focus and the whole chip is the /plan off button. */
 
 .wrap {
   display: inline-flex;
@@ -7,65 +7,46 @@
   gap: 6px;
 }
 
-.root {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
+  border: none;
   border-radius: 8px;
+  background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 14px;
   line-height: 20px;
-  pointer-events: none;
-}
-
-.root:hover .chip {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.root:focus-within .chip {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-}
-
-.chevron {
-  color: var(--dsw-alias-label-caption);
-}
-
-.description {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  border: none;
   cursor: pointer;
 }
 
-.select:disabled {
+.chip:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-secondary);
+  outline-offset: 2px;
+}
+
+.chip:disabled {
+  opacity: 0.6;
   cursor: default;
 }
 
-.root:has(.select:disabled) .chip {
-  opacity: 0.5;
+.close {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dsw-alias-label-caption);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.chip:hover .close,
+.chip:focus-visible .close {
+  opacity: 1;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .error {

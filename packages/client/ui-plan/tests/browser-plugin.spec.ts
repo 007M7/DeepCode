@@ -1,7 +1,7 @@
 /**
  * ui-plan browser half on a real SlotsService: the plugin occupies the
- * conversation-declared `conversation.input.plan` single seat; the injected
- * face maps mode selections onto /plan command lines and folds admission
+ * conversation-declared `conversation.input.plan` single seat with the plan
+ * status chip; the injected face executes /plan off and folds admission
  * outcomes into null (admitted) or a user-visible failure line; teardown
  * empties the seat (HMR safety).
  */
@@ -9,8 +9,8 @@ import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { PlanModeControl } from '../src/client/PlanModeControl.tsx'
-import type { PlanModeControlInjected } from '../src/client/index.ts'
+import { PlanChip } from '../src/client/PlanModeControl.tsx'
+import type { PlanChipInjected } from '../src/client/index.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
@@ -49,30 +49,28 @@ describe('ui-plan browser apply', () => {
       .rejects.toThrow(/slot "conversation.input.plan" is not declared/)
   })
 
-  it('registers the control, maps selections to /plan lines, and unregisters on teardown', async () => {
+  it('registers the chip, executes /plan off, and unregisters on teardown', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const entry = b.slots.entries('conversation.input.plan')[0]!
-    expect(entry.component).toBe(PlanModeControl)
-    const injected = (entry.inject as unknown as (id: SessionId) => PlanModeControlInjected)(SID)
+    expect(entry.component).toBe(PlanChip)
+    const injected = (entry.inject as unknown as (id: SessionId) => PlanChipInjected)(SID)
 
-    await expect(injected.setPlanMode(true)).resolves.toBeNull()
-    expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan' })
-    await expect(injected.setPlanMode(false)).resolves.toBeNull()
+    await expect(injected.exitPlanMode()).resolves.toBeNull()
     expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan off' })
 
     // Business failure folds to the composer-visible line.
     b.execute.mockResolvedValueOnce({
       result: { ok: false as const, error: { code: 'session-not-found', message: 'gone', details: {} } },
     } as never)
-    await expect(injected.setPlanMode(true)).resolves.toBe('gone（session-not-found）')
+    await expect(injected.exitPlanMode()).resolves.toBe('gone（session-not-found）')
 
     // Unmatched admission (plan-mode not composed host-side) is also a failure line.
     b.execute.mockResolvedValueOnce({
       result: { ok: true as const, value: { matched: false as const } },
     } as never)
-    await expect(injected.setPlanMode(true)).resolves.toBe('未知命令：/plan')
+    await expect(injected.exitPlanMode()).resolves.toBe('未知命令：/plan off')
 
     await fiber.dispose()
     expect(b.slots.entries('conversation.input.plan')).toHaveLength(0)
