@@ -79,14 +79,18 @@ class LocalSendOperation implements PtySendOperation {
   private readonly output: BoundedTextBuffer
   private readonly promise: PromiseWithResolvers<PtySendResult>
   private finished = false
+  private initialForegroundLeftWait: boolean
 
   constructor(
     maxBytes: number,
     readonly startedAt: number,
+    private readonly initialForegroundPgid: number | undefined,
+    initialForegroundWasWaiting: boolean,
     private readonly onCancel: () => void,
   ) {
     this.output = new BoundedTextBuffer(maxBytes)
     this.promise = Promise.withResolvers<PtySendResult>()
+    this.initialForegroundLeftWait = !initialForegroundWasWaiting
   }
 
   get done(): Promise<PtySendResult> {
@@ -117,6 +121,14 @@ class LocalSendOperation implements PtySendOperation {
 
   readOutput(): PtySendRead {
     return this.output.consume()
+  }
+
+  acceptsStdinWait(pgid: number, waiting: boolean): boolean {
+    // The same group may still expose the wait that existed before terminal.write.
+    // It becomes post-write evidence only after polling observes it leave that wait.
+    if (pgid !== this.initialForegroundPgid) return waiting
+    if (!waiting) this.initialForegroundLeftWait = true
+    return waiting && this.initialForegroundLeftWait
   }
 
   cancel(): boolean {
@@ -200,9 +212,14 @@ export class LocalPtySession implements PtyBackendSession {
     if (this.active !== undefined) throw new Error('PTY session already has an active send')
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
+    const initialForegroundPgid = this.inspector.foregroundPgid(this.pid)
+    const initialForegroundWasWaiting = initialForegroundPgid !== undefined
+      && this.inspector.isStdinWaiting(initialForegroundPgid)
     const operation = new LocalSendOperation(
       this.config.maxReadBytes,
       Date.now(),
+      initialForegroundPgid,
+      initialForegroundWasWaiting,
       () => { this.interrupt(operation) },
     )
     this.active = operation
@@ -323,7 +340,7 @@ export class LocalPtySession implements PtyBackendSession {
     const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
     if (startupHasOutput && elapsed >= this.config.exactProbeAfterMs) {
       const pgid = this.inspector.foregroundPgid(this.pid)
-      if (pgid !== undefined && this.inspector.isStdinWaiting(pgid)) {
+      if (pgid !== undefined && operation.acceptsStdinWait(pgid, this.inspector.isStdinWaiting(pgid))) {
         this.settleActive('stdin_read')
         return
       }

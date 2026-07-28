@@ -115,10 +115,33 @@ describe('LocalPtySession readiness and output', () => {
     inspector.waiting = true
     const operation = session.startSend({ text: 'python3', submit: true })
     expect(terminal.writes).toEqual(['python3', '\r'])
+    inspector.pgid = 789
     terminal.emitData('Python\r\n>>> ')
     await vi.advanceTimersByTimeAsync(20)
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read', viewport: 'Python\n>>> ', sessionStatus: { kind: 'running' } })
     expect(operation.cancel()).toBe(false)
+  })
+
+  it('does not reuse a pre-write stdin wait as post-write readiness', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    await initialize(session, terminal)
+
+    inspector.waiting = true
+    const operation = session.startSend({ text: 'echo ready', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(20)
+    expect(settled).toBe(false)
+
+    inspector.waiting = false
+    await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(false)
+    inspector.waiting = true
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
   })
 
   it('distinguishes inferred idle, timeout, exit signal, and operation reads', async () => {
