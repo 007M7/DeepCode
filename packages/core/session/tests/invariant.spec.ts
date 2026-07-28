@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, createMessage, createToolResultMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TOOL_NOT_STARTED } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
@@ -36,17 +36,32 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
       session.append('step/start', { turn: 1, step: 1 })
       session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } })
       session.append('assistant/message', {
-        provenance: { provider: 'mock', model: 'mock' },
         turn: 1,
         step: 1,
-        content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }],
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
       }, { surfaceOp: 'append' })
       session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
-      session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [], isError: false }, { surfaceOp: 'append' })
+      session.append('tool/result', {
+        turn: 1, step: 1,
+        message: createToolResultMessage({
+          callId: CallId('c1'),
+          content: [],
+          isError: false,
+        }),
+      }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
@@ -118,14 +133,16 @@ describe('session-log invariants', () => {
       .toThrow(/expected turn 2, got 3/)
 
     const outside = (await setup()).ctx.sessions.create()
-    expect(() => outside.append('user/message', {
+    expect(() => outside.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'plugin', plugin: 'test' },
-    }, { surfaceOp: 'append' })).not.toThrow()
+    }), { surfaceOp: 'append' })).not.toThrow()
     expect(() => outside.append('steering/message', {
       turn: 1,
-      content: [{ type: 'text', text: 'go' }],
-      source: { kind: 'user' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'go' }],
+        source: { kind: 'user' },
+      }),
     }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
     // The owning plugin decides whether a merge-extensible event is log-only.
     const appendUnknown = outside.append.bind(outside) as (type: string, data: unknown) => unknown
@@ -149,10 +166,16 @@ describe('session-log invariants', () => {
       .toThrow(/while step 1 is still open/)
     expect(() => nested.append('step/end', { turn: 1, step: 2 })).toThrow(/open is turn 1\/step 1/)
     expect(() => nested.append('assistant/message', {
-      provenance: { provider: 'mock', model: 'mock' },
       turn: 1,
       step: 2,
-      content: [],
+      message: createMessage({
+        role: 'assistant',
+        content: [],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
     }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step 1/)
 
     const skipped = (await setup()).ctx.sessions.create()
@@ -178,9 +201,11 @@ describe('session-log invariants', () => {
     expect(() => tool.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: CallId('ghost'),
-      content: [],
-      isError: false,
+      message: createToolResultMessage({
+        callId: CallId('ghost'),
+        content: [],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })).toThrow(/no prior tool\/call/)
   })
 
@@ -191,9 +216,11 @@ describe('session-log invariants', () => {
     expect(() => session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: CallId('closed'),
-      content: [],
-      isError: false,
+      message: createToolResultMessage({
+        callId: CallId('closed'),
+        content: [],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step null/)
   })
 
@@ -212,9 +239,11 @@ describe('session-log invariants', () => {
     const original = session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: CallId('rewrite'),
-      content: [{ type: 'text', text: 'original' }],
-      isError: false,
+      message: createToolResultMessage({
+        callId: CallId('rewrite'),
+        content: [{ type: 'text', text: 'original' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -222,7 +251,13 @@ describe('session-log invariants', () => {
     session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('tool/result', {
       ...original.data,
-      content: [{ type: 'text', text: 'pruned' }],
+      message: freezeMessage({
+        ...original.data.message,
+        content: [{
+          ...original.data.message.content[0],
+          content: [{ type: 'text', text: 'pruned' }],
+        }],
+      }),
     }, {
       surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
       sourceEventSeqs: [original.seq],
@@ -244,16 +279,24 @@ describe('session-log invariants', () => {
     const original = session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: CallId('rewrite'),
-      content: [{ type: 'text', text: 'original' }],
-      isError: false,
+      message: createToolResultMessage({
+        callId: CallId('rewrite'),
+        content: [{ type: 'text', text: 'original' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     expect(() => session.append('tool/result', {
       ...original.data,
-      content: [{ type: 'text', text: 'pruned' }],
+      message: freezeMessage({
+        ...original.data.message,
+        content: [{
+          ...original.data.message.content[0],
+          content: [{ type: 'text', text: 'pruned' }],
+        }],
+      }),
     }, {
       surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
       sourceEventSeqs: [original.seq],
@@ -268,9 +311,11 @@ describe('session-log invariants', () => {
       repaired.append('tool/result', {
         turn: 1,
         step: 1,
-        callId: CallId('crashed'),
-        content: [],
-        isError: true,
+        message: createToolResultMessage({
+          callId: CallId('crashed'),
+          content: [],
+          isError: true,
+        }),
         error: { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
       }, { surfaceOp: 'append' })
       repaired.append('step/end', { turn: 1, step: 1 })
@@ -298,9 +343,11 @@ describe('session-log invariants', () => {
     expect(() => session.append('tool/result', {
       turn: 1,
       step: 2,
-      callId: CallId('c1'),
-      content: [],
-      isError: false,
+      message: createToolResultMessage({
+        callId: CallId('c1'),
+        content: [],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })).toThrow(/no prior tool\/call in this step/)
   })
 

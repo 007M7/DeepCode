@@ -12,6 +12,18 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
+/** Stable identity carried by one message across inbox, log, and model-request boundaries. */
+export type MessageId = Branded<'MessageId'>
+
+/**
+ * Brand a message identifier.
+ * @param id - the opaque message identifier.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function MessageId(id: string): MessageId {
+  return id as MessageId
+}
+
 /**
  * Correlates a model-issued tool call with its result. Provider-issued for
  * real adapters; synthesized by mocks/assembler fallbacks.

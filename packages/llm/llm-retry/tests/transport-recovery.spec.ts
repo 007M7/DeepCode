@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -66,7 +67,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 
 function sendAndWait(ctx: Context, agent: Agent): Promise<void> {
   const idle = waitForIdle(ctx, agent)
-  agent.followup({ content: [{ type: 'text', text: 'recover through the provider boundary' }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover through the provider boundary' }], source: { kind: 'user' } }))
   return idle
 }
 

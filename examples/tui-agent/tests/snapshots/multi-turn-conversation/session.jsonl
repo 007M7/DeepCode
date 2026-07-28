@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"228b7b82-84ed-49b7-a567-981c03b28c77","createdAt":1783352113760,"cwd":"/tmp/acp-snap-cwd-aN2GRR","delegationDepth":0}
+{"type":"session","version":0,"id":"228b7b82-84ed-49b7-a567-981c03b28c77","createdAt":1783352113760,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352113765,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352113765,"data":{"content":[{"type":"text","text":"Reply with exactly the word: ONE. No tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783352113767,"data":{"turn":1,"step":1}}
