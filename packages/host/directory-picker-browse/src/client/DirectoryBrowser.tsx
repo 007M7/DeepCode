@@ -120,6 +120,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // Deep ancestry overflows the trail; keep its tail (the current directory
   // and the edit zone beside it) in view whenever the chain changes.
   const crumbTrailRef = useRef<HTMLSpanElement | null>(null)
+  // IME confirmation (Enter selecting a candidate) must not submit either
+  // text input; the same guard the workspace-name inputs carry.
+  const composingRef = useRef(false)
 
   /** Replace the whole view with one freshly listed level (no selection). */
   const navigate = useCallback((path?: string) => {
@@ -242,6 +245,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // focus trap, so every parent control goes inert (Shift-Tab or AT must not
   // close, adopt, or retarget underneath the child).
   const parentInert = busy || folderDraft !== null
+  // An uncommitted path draft makes targetPath stale relative to the header:
+  // committing actions must not act on the previous selection/listing while
+  // a different path is displayed.
+  const draftPending = pathDraft !== null
 
   return (
     <Modal
@@ -298,8 +305,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 autoFocus
                 disabled={parentInert}
                 onChange={(event) => { setPathDraft(event.target.value) }}
+                onCompositionStart={() => { composingRef.current = true }}
+                onCompositionEnd={() => { composingRef.current = false }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
+                  if (event.key === 'Enter' && !composingRef.current) {
                     event.preventDefault()
                     const target = pathDraft.trim()
                     if (target !== '') navigate(target)
@@ -315,25 +324,27 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         </div>
       </div>
       <div className={css.content}>
-        {parent !== null && (
-          <LevelColumn
-            entries={parent.entries}
-            selectedPath={selected?.path ?? null}
-            busy={parentInert}
-            onPick={select}
-            wide={!twoPane}
-          />
-        )}
-        {twoPane && <span className={css.divider} />}
-        {twoPane && child !== null && (
-          <LevelColumn
-            entries={child.entries}
-            selectedPath={null}
-            busy={parentInert}
-            onPick={advance}
-            wide={false}
-          />
-        )}
+        <div className={css.millerRow}>
+          {parent !== null && (
+            <LevelColumn
+              entries={parent.entries}
+              selectedPath={selected?.path ?? null}
+              busy={parentInert}
+              onPick={select}
+              wide={!twoPane}
+            />
+          )}
+          {twoPane && <span className={css.divider} />}
+          {twoPane && child !== null && (
+            <LevelColumn
+              entries={child.entries}
+              selectedPath={null}
+              busy={parentInert}
+              onPick={advance}
+              wide={false}
+            />
+          )}
+        </div>
         {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
         {error !== null && <div className={css.error} role="alert">{error}</div>}
       </div>
@@ -341,7 +352,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         <Button
           variant="outline"
           icon={<IconPlusOutline16 size={14} />}
-          disabled={parent === null || loading || parentInert}
+          disabled={parent === null || loading || parentInert || draftPending}
           onClick={() => {
             setFolderDraft('')
             setCreateError(null)
@@ -354,7 +365,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         <Button
           variant="primary"
           className={clsx(css.footerAction)}
-          disabled={targetPath === null || loading || parentInert}
+          disabled={targetPath === null || loading || parentInert || draftPending}
           /* v8 ignore next -- narrowing guard: Open disables while no target exists. */
           onClick={() => { if (targetPath !== null) onOpen(targetPath) }}
         >
@@ -380,8 +391,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             autoFocus
             disabled={creatingFolder}
             onChange={(event) => { setFolderDraft(event.target.value) }}
+            onCompositionStart={() => { composingRef.current = true }}
+            onCompositionEnd={() => { composingRef.current = false }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !composingRef.current) {
                 event.preventDefault()
                 confirmCreate()
               }

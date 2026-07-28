@@ -41,6 +41,16 @@
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
  * so the edit zone to the right never leaves the bar. */
+/* The Miller columns keep their own row so a status/error line below never
+ * competes with the fixed column widths for horizontal space. */
+.millerRow {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 0;
+  gap: 20px;
+}
+
 .crumbTrail {
   display: flex;
   align-items: center;
@@ -113,10 +123,9 @@
  * the hairline divider centered between them; each column scrolls alone. */
 .content {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
-  gap: 20px;
   padding: 16px 24px 0;
 }
 

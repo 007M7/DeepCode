@@ -284,6 +284,59 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
   })
 
+  it('disables Open and New folder while a path draft is uncommitted', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    // targetPath still names the previous listing; committing actions must
+    // not act on it while a different path is displayed in the header.
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(true)
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Escape' })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' }).disabled).toBe(false)
+  })
+
+  it('ignores Enter while an IME composition is active in either input', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // Path editor: a composing Enter confirms the candidate, not the path.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const pathInput = screen.getByLabelText('browser.editPath')
+    fireEvent.change(pathInput, { target: { value: DOCS } })
+    const listCalls = b.listDirectory.mock.calls.length
+    fireEvent.compositionStart(pathInput)
+    fireEvent.keyDown(pathInput, { key: 'Enter' })
+    expect(b.listDirectory.mock.calls.length).toBe(listCalls)
+    fireEvent.compositionEnd(pathInput)
+    fireEvent.keyDown(pathInput, { key: 'Enter' })
+    await waitFor(() => { expect(b.listDirectory).toHaveBeenLastCalledWith(DOCS) })
+    // Create dialog: same guard.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const nameInput = screen.getByLabelText('browser.folderName')
+    fireEvent.change(nameInput, { target: { value: '新建' } })
+    fireEvent.compositionStart(nameInput)
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+    expect(b.createDirectory).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(nameInput)
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+    await waitFor(() => { expect(b.createDirectory).toHaveBeenCalledWith(DOCS, '新建') })
+  })
+
+  it('surfaces a two-pane navigation failure as an alert below the columns', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    b.listDirectory.mockImplementation(async () => {
+      throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path: HOME } })
+    })
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'browser.home' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    // Both panes survive the failure; the alert renders in the flow, not as a
+    // third column competing for the fixed widths.
+    expect(columns()).toHaveLength(2)
+  })
+
   it('ignores dismissal while adoption is busy', async () => {
     const b = mount({ busy: true })
     await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
