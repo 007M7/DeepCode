@@ -26,7 +26,7 @@ Run the placement test in the standard's taxonomy table, then check the constrai
 
 ## Auditing the corpus
 
-The audit is a hunt for the standard's slop checklist, cheapest probes first. Establish the PR's current base first; after a retarget or base merge, repeat the audit for prose introduced by the new base rather than relying on the earlier result.
+The audit is a hunt for the standard's slop checklist, cheapest probes first. Verify and fetch the PR's live base, then run `pnpm run change-scope --base <verified-base-ref>` to identify committed and dirty paths before applying semantic judgment. After a retarget or base merge, rerun the report and repeat the audit for prose introduced by the new base rather than relying on the earlier result.
 
 1. Measure: `pnpm run verify-doc-budgets --list`, then `git ls-files '*.md' ':(exclude)vendor/**' | xargs wc -w | sort -rn | head -30` to spot unbudgeted outliers.
 2. Hunt narrated history: `rg -n "no longer|used to|previously|was moved|renamed" --glob '*.md' --glob '*.ts' --glob '!vendor/**'` and keep only contrasts against a live alternative. Keep the vendor exclusion last so include globs cannot override it.

@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-06-21-bounded-llm-request-recovery.zh.md)
 
+The [per-provider request retry policy](../feature/2026-07-24-provider-retry-policies.md) extends this foundation with exact-provider configuration and an explicit unbounded mode. This note continues to own structured failure facts, the closed-step recovery boundary, normal mode's transient defaults, visible single attempts, and durable retry status.
+
 ## Problem
 
 `dsh-llm` can report provider failures either by throwing during adapter dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary tags thrown failures so `dsh-agent-loop` can distinguish them from middleware and result-processing defects, and the loop normalizes both delivery forms into `agent/request-error` after closing the failed step. An unhandled failure is terminal; a handling listener repairs policy-owned state, returns `{ kind: 'retry' }`, and stops waterfall delegation. The [retry-action decision](../simplification/2026-07-27-request-error-retry-action.md) owns this return contract.
@@ -16,7 +18,7 @@ The prior boundary left three narrower gaps.
 - Retry ownership differs by adapter. The hand-written DeepSeek adapter makes one attempt, while pi-ai profiles can enable opaque library retries. Combining hidden transport retries with an `agent/request-error` listener would multiply attempts and omit intermediate failures from the session log.
 - A recovered failure has no durable status fact. The failed step and chunks remain reconstructable, but an observer cannot tell whether the agent is deliberately backing off, for how long, or why. A long silent wait looks like a stalled loop.
 
-The goal is bounded recovery from transient failures of the same explicit provider/model request. Provider or model failover, response splicing, and semantic output repair are different problems and have no current consumer.
+The default policy provides bounded recovery from transient failures of the same explicit provider/model request. Provider or model failover, response splicing, and semantic output repair are different problems and have no current consumer.
 
 ## Decision
 
@@ -50,31 +52,19 @@ The shared transient-code set is intentionally small: adapter mappings for `RATE
 
 `@deepseek-ai/dsh-llm-retry` is a function plugin that listens to `agent/request-error`. It introduces no service or new loop branch; the agent-loop package changes only the data carried through its existing failed-step recovery control flow.
 
-The `agent/request-error` seam carries only the current `LlmFailure`; the loop owns no retry policy or attempt history. Each recovery plugin keeps a private per-agent counter for its own handled failures and clears it at terminal `agent/settled`. Alternating transient and context-overflow failures therefore consume the `dsh-llm-retry` and compact-basic budgets independently; the maximum request count is one plus the sum of the finite budgets of the loaded recovery policies.
+The `agent/request-error` seam carries the current `LlmFailure`, an immutable list of prior failures that authorized retry turns in the consecutive recovery sequence, and the serving registration's immutable retry policy. The loop transports but does not interpret that policy, owns the consecutive failure history, and clears it after a successful model request. Normal `dsh-llm-retry` policy counts durable retry records scheduled by the same exact-provider policy, while `dsh-compact-basic` keeps its own context-overflow budget. Alternating transient and context-overflow failures therefore consume their owning finite budgets independently; the maximum request count is one plus the sum of the loaded finite budgets.
 
-The plugin resolves and validates this deployment configuration at load:
-
-```ts ignore-check
-interface Config {
-  maxTransientRetries?: number
-  initialDelayMs?: number
-  maxDelayMs?: number
-  jitterRatio?: number
-  retryableCodes?: string[]
-}
-```
-
-The defaults are two transient retries, a 500 millisecond initial delay, a 10 second delay cap, 10 percent jitter, and the five transient codes above (`RATE_LIMIT`, `SERVER`, `TIMEOUT`, `TRANSPORT`, and `EMPTY_RESPONSE`). The count and delay bounds match the conservative edge of the inspected implementations: [OpenCode uses two request retries with 500 ms/10 s bounds](https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/%70ackages/llm/src/route/executor.ts#L36-L39), [Pi separates three agent-level retries from provider retries and defaults provider retries to zero](https://github.com/earendil-works/pi/blob/3da591ab74ab9ab407e72ed882600b2c851fae21/%70ackages/coding-agent/docs/settings.md#L139-L147), and [Codex uses finite request/stream budgets plus a five-minute idle timeout](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/model-provider-info/src/lib.rs#L25-L33). Ten percent follows [Codex's bounded jitter](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/codex-client/src/retry.rs#L40-L47). Two retries mean at most three provider requests when no other recovery policy applies. `maxTransientRetries` is a non-negative integer, delays are positive finite numbers with `initialDelayMs <= maxDelayMs`, `jitterRatio` is in `[0, 1]`, and codes are non-empty and unique. These are Cordis config fields rather than hidden constants so deployments can choose different cost and latency budgets.
+The [provider-policy decision](../feature/2026-07-24-provider-retry-policies.md) owns the current configuration shape. Provider adapters register their nested `retryPolicy`; omission uses normal defaults: two transient retries, a 500 millisecond initial delay, a 10 second delay cap, 10 percent jitter, and the five transient codes above. The count and delay bounds match the conservative edge of the inspected implementations: [OpenCode uses two request retries with 500 ms/10 s bounds](https://github.com/anomalyco/opencode/blob/9976269ab1accfc9f9dc98a4a688c516934de422/%70ackages/llm/src/route/executor.ts#L36-L39), [Pi separates three agent-level retries from provider retries and defaults provider retries to zero](https://github.com/earendil-works/pi/blob/3da591ab74ab9ab407e72ed882600b2c851fae21/%70ackages/coding-agent/docs/settings.md#L139-L147), and [Codex uses finite request/stream budgets plus a five-minute idle timeout](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/model-provider-info/src/lib.rs#L25-L33). Ten percent follows [Codex's bounded jitter](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/codex-client/src/retry.rs#L40-L47).
 
 For an eligible failure with budget remaining, the one-based transient retry count uses bounded exponential backoff. A valid `providerRetryAfterMs` replaces exponential backoff only when it does not exceed `maxDelayMs`; a longer provider delay causes delegation instead of an earlier retry that violates the provider instruction. Local backoff multiplies by an injected random factor in `[1 - jitterRatio, 1 + jitterRatio]` and clamps the final value to `maxDelayMs`; provider delay is not jittered.
 
-The plugin owns a lifetime `AbortController` and tracks every active backoff callback. Each wait fuses the waterfall's turn signal with that lifetime signal. Effect cleanup first unregisters the listener, then aborts and awaits the active callbacks; a captured callback whose lifetime signal aborts returns without retrying or entering the rest of its captured waterfall. This makes HMR disposal quiescent even though Cordis has already captured the listener.
+The plugin owns a lifetime `AbortController` and tracks every active recovery callback, including delegated waterfall work and backoff. Effect cleanup first unregisters the listener, then aborts and awaits the active callbacks; abort wins over a late delegated retry decision, and a captured callback can neither retry nor enter the rest of its waterfall after disposal. This makes HMR disposal quiescent even though Cordis has already captured the listener.
 
-Before sleeping, `dsh-llm-retry` appends one non-surface `llm/retry` session event containing the turn, failed step, one-based transient retry number, configured maximum, scheduled delay, and `LlmFailure`. The plugin owns the `SessionEventMap` augmentation; `dsh-session` remains generic persistence and does not absorb the optional policy's vocabulary. The event says what was scheduled, not that the next request completed; cancellation during the delay is subsequently visible on `turn/end`. The event ships only with a production renderer and replay/snapshot coverage, because its purpose is operational state rather than trace collection.
+Before sleeping, `dsh-llm-retry` appends one non-surface `llm/retry` session event containing the turn, failed step, provider, policy mode, complete resolved-policy key, provider-policy retry number, mode-specific finite maximum when present, scheduled delay, and `LlmFailure`. The key sorts the code set and separates retry histories when a provider route is replaced by a behaviorally different same-mode policy. The plugin owns the `SessionEventMap` augmentation; `dsh-session` remains generic persistence and does not absorb the optional policy's vocabulary. The event says what was scheduled, not that the next request completed; cancellation during the delay is subsequently visible on `turn/end`. The event ships only with a production renderer and replay/snapshot coverage, because its purpose is operational state rather than trace collection.
 
 The listener calls `next()` for a non-transient code, an exhausted policy budget, or an over-cap provider delay. This preserves composition with context-overflow recovery and later policy plugins. For an owned failure it records and awaits the delay, then returns `{ kind: 'retry' }` without delegating. Turn cancellation and plugin disposal end the wait without returning a retry; the loop's cancellation/disposal checks remain authoritative.
 
-The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot CLI, and ACP example compositions use the same bounded policy. Library consumers retain explicit plugin composition: omitting the plugin leaves request failures terminal.
+The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot CLI, and ACP example compositions use the same provider-routed policy. Library consumers retain explicit plugin composition: omitting the plugin leaves request failures terminal.
 
 ### Make one layer own visible attempts
 
@@ -101,7 +91,7 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 - Automatic provider or model failover. Requests already select one explicit provider and model, and the provider registry deliberately has one adapter owner per provider.
 - Retrying or continuing after a successful terminal finish, or splicing chunks from two attempts into one assistant message.
 - Repairing malformed tool arguments, refusals, content filters, or other semantic model output.
-- Unbounded retries, unattended retry-until-cancelled behavior, circuit breakers, shared provider health, or cross-agent retry budgets.
+- Circuit breakers, shared provider health, or cross-agent retry budgets.
 - Changing `llm/stream` into a response lifecycle or adding convenience generation APIs without a production consumer.
 
 ## Alternatives considered
@@ -110,7 +100,7 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 - **Add response start, interrupted, discarded, failed, and committed events to `dsh-llm`** — rejected because the agent log already separates raw chunks, successful messages, and numbered attempts. A second state machine would duplicate ownership without enabling the bounded same-route retry.
 - **Add logical routes, capability matrices, and failover selection** — rejected because current requests already name provider and model explicitly, one adapter owns each provider, and no current consumer requires automatic fallback or can prove semantic compatibility.
 - **Put `retryable` or `failover` on `LlmFailure`** — rejected because adapters report facts while deployment policy decides action. The same 429 may be retried in an interactive bundle and rejected in a cost-capped batch.
-- **Retry forever while the caller remains active** — rejected because it gives one request unbounded cost and latency. Visible status makes bounded waiting understandable; it does not make an unlimited budget safe.
+- **Retry forever while the caller remains active** — the [per-provider policy](../feature/2026-07-24-provider-retry-policies.md) supersedes this rejection for explicit `always` entries while retaining bounded normal mode as the default.
 - **Log retry status only through the process logger** — rejected because process logs do not reconstruct session behavior and cannot drive replayed UI state.
 - **Keep only flat codes** — rejected because retry delay and provider request id are structured provider facts, and HTTP status is necessary for diagnosis when different wire failures share one stable code.
 
@@ -120,11 +110,11 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 - An adapter-thrown `Error` reaches `agent/request-error` as the exact same object while its sidecar `LlmFailure` reaches the adjacent argument; tests retain the existing identity assertion for extensible and frozen third-party errors.
 - DeepSeek and pi-ai adapter tests cover representative 400, 401/403, 429, 5xx, connection, malformed/truncated stream, timeout, abort, retry-after seconds/date, request-id, and unknown-SDK-error paths without recovery policy parsing message text.
 - Pi-ai pins the SDK option to zero retries and performs one observed wire attempt for a retryable provider response; separate tests make removing either boundary fail.
-- `agent/request-error` carries only current failure facts; each plugin clears its private per-agent counter at terminal idle, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.
-- `dsh-llm-retry` validates every config field at Loader startup, delegates all ineligible paths with `next()`, and makes at most `maxTransientRetries + 1` provider requests when no other policy applies.
-- HMR-during-backoff tests prove disposal unregisters the listener, aborts and awaits its captured callbacks, makes no retry request after disposal, and leaves no timer or promise alive.
+- `agent/request-error` carries current failure facts, immutable prior-retried failure facts, and the serving registration's immutable retry policy; a success clears the history, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.
+- Each provider adapter validates its nested retry policy at Loader startup, and `ctx.llm` captures it with the route; normal mode delegates ineligible paths and makes at most `maxRetries + 1` provider requests when no other policy applies.
+- HMR-during-backoff tests prove disposal unregisters the listener, aborts and awaits its captured callbacks, emits no retry decision after disposal, and leaves no timer or promise alive.
 - Pure unit tests cover transient-code selection, exponential backoff and jitter bounds, valid and over-cap `Retry-After`, exhausted budgets, deterministic timer/random seams, and abort during backoff.
-- Real agent-loop tests cover failure before chunks, partial chunks then failure, thrown and in-band failures, retry to success in a new step, exhaustion to structured `turn/end.reason`, and composition with `dsh-compact-basic` context-overflow recovery.
+- Real agent-loop tests cover failure before chunks, partial chunks then failure, thrown and in-band failures, retry to success in a new turn, exhaustion to structured `turn/end.reason`, and composition with `dsh-compact-basic` context-overflow recovery.
 - The partial-chunk integration test proves failed chunks remain attributed to the failed step, no assistant message or tool side effect is committed for that step, and the successful retry has distinct provenance.
 - The plugin-owned `llm/retry` event is non-surface, survives JSONL and SQLite round trips, is ignored by message derivation, and drives TUI retraction plus scheduled-retry rendering. Keyless snapshots cover scheduling, cancellation, success, and exhaustion; ACP automation snapshots confirm that a discarded attempt stays off the wire while the recovered reply is emitted.
 - Idle-watchdog tests prove the stable signal is rearmed only while `next()` is outstanding, disarmed during consumer think time and in `finally`, and classified separately from a total-call deadline and an earlier caller abort; adapter tests prove the signal stops the underlying request rather than merely detaching it.
@@ -132,12 +122,12 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 
 ## Consequences
 
-- Every transient recovery attempt is visible as a closed failed turn plus `llm/retry`, and the bounded policy prevents hidden SDK retries from multiplying cost. A retry can still duplicate provider billing even when no chunk arrived; the finite attempt budget limits but cannot remove that risk.
+- Every retry attempt is visible as a closed failed turn plus `llm/retry`, and adapter-level single-attempt behavior prevents hidden SDK retries from multiplying policy decisions. A retry can still duplicate provider billing even when no chunk arrived; normal mode limits that risk, while explicit always mode accepts it until cancellation or success.
 - Provider SDKs may hide status or retry headers. Those adapters retain the stable facts they expose and otherwise use a coarse code rather than letting recovery policy parse fragile text.
 - Durable retry events expand the session protocol and UI state machine. Shipping the event and its consumer together prevents an unused telemetry vocabulary, but later schema changes still require persistence and replay work.
 - Clearing a failed step's live chunks can visibly retract output. That is preferable to presenting discarded text or partial tool JSON as committed history, and snapshots pin the transition.
 - Adapter-local idle enforcement stops stalled transports without counting consumer think time. Contract tests at each transport boundary guard against SDK drift.
-- Multiple recovery plugins add their finite budgets. Their classifiers remain disjoint here; an overlapping classifier would be registration-order policy and must be documented and tested by the plugins that introduce it.
+- Multiple normal recovery plugins add their finite budgets. Always mode delegates first and then supplies an unbounded fallback; overlapping classifiers remain registration-order policy and must be documented and tested by the plugins that introduce them.
 
 ## Related
 

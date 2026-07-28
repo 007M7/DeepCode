@@ -57,7 +57,7 @@ describe('cordis_mount', () => {
       provides: [],
       waitingFor: [],
     })
-    expect(text(result)).toContain('mounted dyn-1 (plugin "change-logger", state: active)')
+    expect(text(result)).toBe('Temporary Plugin dyn-1 is running (plugin "change-logger"; available until unmounted or DSH restarts).')
 
     // Fire a REAL tools/change by registering a tool; the mounted listener logs.
     ctx.tools.register(dummyTool('trigger_a'))
@@ -665,8 +665,7 @@ describe('cordis_mount', () => {
       provides: [],
       waitingFor: ['no-such-service'],
     })
-    expect(text(result)).toContain('state: pending')
-    expect(text(result)).toContain('waiting for service(s): no-such-service')
+    expect(text(result)).toBe('Temporary Plugin dyn-1 is pending (plugin "waiter"; missing services: no-such-service; available until unmounted or DSH restarts).')
     // Unmounting a pending mount works like any other.
     const unmounted = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(unmounted.isError).toBe(false)
@@ -677,7 +676,7 @@ describe('cordis_mount', () => {
     const result = await call(ctx, 'cordis_mount', { code: 'throw new Error(\'boom in sandbox\')' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('boom in sandbox')
-    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 
   it('passes non-Error and null throws through untouched (no SyntaxError misclassification)', async () => {
@@ -693,7 +692,7 @@ describe('cordis_mount', () => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', { code: 'return 42' })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('must `return` a plugin')
+    expect(text(result)).toContain('must `return` a Plugin')
   })
 
   it('answers a missing return with the two valid plugin forms', async () => {
@@ -710,7 +709,7 @@ describe('cordis_mount', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('apply exploded')
-    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 
   it('rolls back a plugin that collides with an existing tool name, keeping the original tool intact', async () => {
@@ -754,16 +753,16 @@ describe('cordis_mount', () => {
   })
 
   it.each([
-    ['require(\'fs\')', 'require is not available in the mount sandbox', 'inject: [\'fs\']'],
-    ['setTimeout(() => {}, 5)', 'setTimeout is not available in the mount sandbox', 'ctx.setTimeout'],
-    ['fetch(\'https://example.com\')', 'fetch is not available in the mount sandbox', 'ctx.web'],
+    ['require(\'fs\')', 'require is not available in the temporary Plugin sandbox', 'inject: [\'fs\']'],
+    ['setTimeout(() => {}, 5)', 'setTimeout is not available in the temporary Plugin sandbox', 'ctx.setTimeout'],
+    ['fetch(\'https://example.com\')', 'fetch is not available in the temporary Plugin sandbox', 'ctx.web'],
   ])('traps the Node API call %s with a redirect to the cordis alternative', async (invocation, trapMessage, redirect) => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', { code: `${invocation}\nreturn (ctx) => {}` })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(trapMessage)
     expect(text(result)).toContain(redirect)
-    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 
   it('lets a mounted plugin schedule through the cordis timer service (inject: [\'timer\'])', async () => {
@@ -781,7 +780,7 @@ describe('cordis_mount', () => {
       `,
     })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('state: active')
+    expect(text(result)).toContain('is running')
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'tick')
   })
@@ -854,7 +853,7 @@ describe('cordis_mount', () => {
     const result = await call(ctx, 'cordis_mount', { code: 'while (true) {}' })
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(/timed? ?out/i)
-    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 
   it('makes instanceof inside the sandbox see BOTH realms (patched vm constructors, host untouched)', async () => {

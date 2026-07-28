@@ -47,6 +47,7 @@ export const LINK_MAP: Record<string, string> = {
   LlmFailure: 'llm-streaming.md',
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',
+  ResolvedRetryPolicy: 'llm-streaming.md',
   Message: 'core.md',
   MessageSource: 'core.md',
   PromptDecision: 'core.md',

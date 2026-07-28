@@ -17,10 +17,11 @@ import type {
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessageData } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
 import { TestSessionQueryService } from './session-query.ts'
+import TuiPromptService from '../src/prompt.ts'
 
 interface FakeAgent extends Agent {
   status: AgentStatus
@@ -48,6 +49,7 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  gitBranch?: TuiRuntime['gitBranch']
   /** Fake-agent creation options (`provider`/`model` seed the model selector's initial target). */
   agentOptions?: AgentOptions
   contextWindow?: number
@@ -98,6 +100,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
+  await ctx.plugin(TuiPromptService)
   const catalog = options.catalog ?? {
     providers: [{ id: 'deepseek', name: 'DeepSeek' }],
     models: [
@@ -111,12 +114,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     },
   } as never)
   if (options.configureContext === undefined) {
-    const tools = options.tools ?? {}
-    ctx.provide('tools', {
-      get(name: string) {
-        return tools[name]
-      },
-    } as never)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    for (const tool of Object.values(options.tools ?? {})) ctx.tools.register(tool)
   } else {
     await options.configureContext(ctx)
   }
@@ -238,7 +238,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const controller = createTuiChat(ctx, Object.assign({
     ...options.omitWelcome === true ? {} : { welcome: 'Coding agent ready.' },
     sessionId,
-    color: false,
+    theme: { color: false },
   }, options.config), {
     terminal,
     exit,
@@ -248,6 +248,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
     ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
+    gitBranch: options.gitBranch ?? (() => 'tui-staging'),
   })
   return { ctx, session, agent, terminal, exit, controller }
 }

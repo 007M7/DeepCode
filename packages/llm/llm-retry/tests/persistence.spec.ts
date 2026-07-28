@@ -34,12 +34,18 @@ describe.each(['jsonl', 'sqlite'] as const)('%s retry-event persistence', (kind)
       const session = ctx.sessions.create(SessionId(`retry-${kind}`))
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('step/start', { turn: 1, step: 1 })
+      session.append('request/header', {
+        header: { config: { provider: 'mock', model: 'mock' } },
+        reason: 'initial',
+      })
       session.append('step/end', { turn: 1, step: 1 })
       const event = session.append('llm/retry', {
         turn: 1,
         step: 1,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: '["always",500,10000,0.1]',
         retry: 1,
-        maxRetries: 2,
         delayMs: 750,
         failure: { message: 'provider busy', code: 'RATE_LIMIT', status: 429 },
       })

@@ -3,8 +3,8 @@
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
-  ClientResponse, CommandDescriptor, HostFrame, IApiClient, MuxFrame,
-  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SkillEntry,
+  ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -62,10 +62,23 @@ export class FakeApiClient implements IApiClient {
   // Programmable slots (defaults answer OK-empty); reassign per case.
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
+  readonly defaultModel: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
   => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
+  onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
+    current: this.defaultModel,
+    groups: [{
+      id: 'deepseek',
+      name: 'DeepSeek',
+      models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' }],
+    }],
+    failures: [],
+  }))
+  onSelectModel: (payload: { provider: string; model: string }) =>
+  Promise<RpcResponse<{ selected: ModelTarget }>> =
+    payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
@@ -84,6 +97,9 @@ export class FakeApiClient implements IApiClient {
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
+    models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
+    selectModel: (payload: { provider: string; model: string }) =>
+      this.record('session.selectModel', payload, this.onSelectModel(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }

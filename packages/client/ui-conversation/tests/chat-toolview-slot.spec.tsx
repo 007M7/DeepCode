@@ -12,7 +12,7 @@
 
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
@@ -164,6 +164,25 @@ describe('keyed toolview hole through the real machinery', () => {
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
     expect(view.getByText('Tool call')).toBeTruthy()
+  })
+
+  it('renders top-level Cordis calls with lifecycle titles over the generic variants', async () => {
+    const code = 'return { name: "audit", apply(ctx) {} }'
+    const b = await bench([
+      toolResult(3, 'cordis-1', 'cordis_inspect', '{"what":"api","name":"tools"}'),
+      toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
+      toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
+    ])
+    const view = mountApp(b.slots)
+
+    expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
+    const mounted = view.container.querySelector('[data-variant="code"]')
+    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
+    expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
+      .toContain('Unmount temporary Plugindyn-2')
+
+    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
   it('row clicks travel owner openDetails → chat inject → layout orchestration', async () => {

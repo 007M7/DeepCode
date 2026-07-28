@@ -12,15 +12,16 @@
 
 - `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` 为给定提供方路由注册一个适配器实例。注册要么全部成功，要么全部不生效，并且会随调用 fiber dispose。
 - `ctx.llm.listProviders(): LlmProviderInfo[]` 按注册顺序描述已注册提供方路由。
+- `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方重试策略，并解析 normal 默认值。
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
 - `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从拥有精确路由的适配器解析经校验的确切模型身份、可用上下文和推理（reasoning）元数据；异步适配器可选地支持取消。
 - `ctx.llm.resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>` 校验显式推理强度，并填入适配器配置的默认值，但不自动调整。
 - `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 解析配置并将其当前适配器注册捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始 chunk（token 级 delta）。消费方使用 `BlockAssembler` 将 chunk 组装为块／消息。
 
-`LlmService` 保留来自最终适配器选择、同步 dispatch、iterator 构造与迭代的错误，并将其溯源绑定到该次模型调用返回的精确流句柄。`isLlmAdapterFailure(stream, value)` 只报告该调用最终适配器边界的错误；`llmFailureOf(stream, value)` 返回相邻的不可变 `LlmFailure`。嵌套模型调用、`llm/stream` middleware 和下游消费方失败对外层调用仍未分类。分类绝不替换或更改适配器的原始编码 `Error`。
+`LlmService` 保留来自最终适配器选择、同步 dispatch、iterator 构造与迭代的错误，并将其溯源绑定到该次模型调用返回的精确流句柄。`isLlmAdapterFailure(stream, value)` 只报告该调用最终适配器边界的错误；`llmFailureOf(stream, value)` 返回相邻的不可变 `LlmFailure`；`llmRetryPolicyOf(stream)` 返回在该边界选中的确切注册所对应的不可变策略，即使之后释放或替换路由也不变。未到达最终适配器的调用没有服务策略。嵌套模型调用、`llm/stream` middleware 和下游消费方失败对外层调用仍未分类。分类绝不替换或更改适配器的原始编码 `Error`。
 
-提供方与模型元数据是发现表层，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，适配器则可以接受 `listModels()` 中不存在的模型 id；消费方禁止因模型未列出而拒绝请求。返回的元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
+提供方与模型元数据是发现表层，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
 确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型，缺少 `context` 或 `reasoning` 字段只表示相应能力不可用。无效的身份、上下文或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT` 或 `INVALID_MODEL_REASONING` 失败。
 
@@ -34,7 +35,7 @@
 
 ### 扩展点
 
-- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现将路由和模型 id 用作名称，不公布模型，也不返回容量或推理元数据。
+- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方持有的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量或推理元数据。
 - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。发出 chunk 后重试的包装层没有持久尝试边界；因此已发布 agent 重试策略改用 `agent/request-error`。
 
 ### 内容块词汇（`types.ts`）
@@ -76,7 +77,7 @@
 
 ## 已知限制与暂缓事项
 
-- **本服务不内置默认重试／缓存／速率限制策略**：`llm/stream` 仍是单次尝试调用包装 seam；agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败。`@deepseek-ai/dsh-llm-retry` 是共享示例 spine 加载的可选策略插件。
+- **本服务不执行重试、缓存或速率限制**：提供方注册会存储重试策略，但 `llm/stream` 仍是单次尝试调用包装 seam。agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败；`@deepseek-ai/dsh-llm-retry` 是共享示例 spine 加载的可选执行器。
 - **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
 - **由产生方调节的变体在实际产生前保持在外**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块 kind**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。

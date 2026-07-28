@@ -829,6 +829,16 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     await expect(ctx.plugin(WorkerCodeRuntime, { computeMs: -1 })).rejects.toThrow(/positive number/)
   })
 
+  it('rejects a maxWallMs above Node\'s maximum timer delay', async () => {
+    // setTimeout clamps a delay past 2^31-1 ms to 1 ms, so the positivity check
+    // alone would accept a 25-day ceiling that expires on the first tick.
+    const ctx = new Context()
+    await expect(ctx.plugin(WorkerCodeRuntime, { maxWallMs: 2_147_483_648 }))
+      .rejects.toThrow(/maxWallMs must be at most 2147483647/)
+    // The boundary itself is usable.
+    await expect(ctx.plugin(WorkerCodeRuntime, { maxWallMs: 2_147_483_647 })).resolves.toBeTruthy()
+  })
+
   it('requires maxOutputBytes to fit the smallest counted outer payloads', async () => {
     const ctx = new Context()
     await expect(ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)

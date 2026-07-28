@@ -167,6 +167,28 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(view.getByText('Tool call')).toBeTruthy()
   })
 
+  it('renders Cordis sub-calls with lifecycle titles over the generic variants', async () => {
+    const parent = 'call-cordis'
+    const code = 'return { name: "audit", apply(ctx) {} }'
+    const dispatches = new Map([[parent, [
+      subCall(11, parent, 1, 'cordis_inspect', { what: 'temporary' }, '## Temporary Plugins'),
+      subCall(12, parent, 2, 'cordis_mount', { code }, 'Temporary Plugin dyn-2 is running'),
+      subCall(13, parent, 3, 'cordis_unmount', { id: 'dyn-2' }, 'Temporary Plugin dyn-2 was unmounted and removed.'),
+    ]]])
+    const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    const view = mountApp(b.slots)
+    const nest = view.container.querySelector('[data-subcalls]')!
+
+    expect(nest.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
+    const mounted = nest.querySelector('[data-variant="code"]')
+    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
+    expect(nest.querySelector('[data-tool="cordis_unmount"]')?.textContent)
+      .toContain('Unmount temporary Plugindyn-2')
+
+    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
+  })
+
   it('expanding the code row reveals the program body verbatim (shiki-tokenized)', async () => {
     const parent = 'call-64'
     const b = await bench(snapshotWith([codeResult(10, parent)], new Map()))
