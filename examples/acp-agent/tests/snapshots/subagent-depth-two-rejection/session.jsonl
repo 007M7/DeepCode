@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"11111111-1111-4111-8111-111111111111","createdAt":1000,"cwd":"/tmp/subagent-depth-two","delegationDepth":0}
+{"type":"session","version":0,"id":"11111111-1111-4111-8111-111111111111","createdAt":1000,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784540790290,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784540790291,"data":{"content":[{"type":"text","text":"Delegate through two child generations. The depth-two child must attempt one more subagent call and report the rejection."}],"source":{"kind":"user"},"role":"user","id":"f74eb6a3-3869-4b1c-ba3c-5b6db530ac67"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1784540790291,"data":{"title":"Delegate through two child generations.","messageSeqs":[1],"source":{"kind":"fallback"}}}

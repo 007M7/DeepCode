@@ -24,7 +24,8 @@ export type { SlashServiceContract } from './contract.ts'
 
 declare module 'cordis' {
   interface Context {
-    slash: SlashService
+    /** The outward face only; the concrete service stays inside this plugin. */
+    slash: import('./contract.ts').SlashServiceContract
   }
 }
 
