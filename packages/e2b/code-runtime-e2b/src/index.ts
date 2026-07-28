@@ -199,24 +199,20 @@ export class E2BCodeRuntime extends CodeRuntime {
   }
   /* jscpd:ignore-end */
 
-  private awaitPreparation(signal: AbortSignal | undefined): Promise<PreparedRuntime | undefined> {
-    if (signal === undefined) return this.ready
-    return new Promise<PreparedRuntime | undefined>((resolve, reject) => {
-      const onAbort = (): void => { cleanup(); resolve(undefined) }
-      const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      if (signal.aborted) {
-        onAbort()
-        return
-      }
-      void this.ready.then(
-        (runtime) => { cleanup(); resolve(runtime) },
-        (error: unknown) => {
-          cleanup()
-          reject(new Error(messageOf(error), { cause: error }))
-        },
-      )
-    })
+  private async awaitPreparation(signal: AbortSignal | undefined): Promise<PreparedRuntime | undefined> {
+    if (signal === undefined) return await this.ready
+    const aborted = Promise.withResolvers<undefined>()
+    const onAbort = (): void => { aborted.resolve(undefined) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) {
+      signal.removeEventListener('abort', onAbort)
+      return undefined
+    }
+    try {
+      return await Promise.race([this.ready, aborted.promise])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
   }
 
   private assertPreparationActive(): void {
