@@ -8,6 +8,7 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
+import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -21,6 +22,7 @@ import {
   type TuiHarnessOptions,
 } from './harness.ts'
 import { HeadlessTerminal, type TerminalSnapshotOptions } from './headless-terminal.ts'
+import { TestSessionQueryService } from './session-query.ts'
 
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const REFRESHING = process.env.DSH_SNAPSHOT === 'refresh'
@@ -35,6 +37,7 @@ const CHECKPOINTS = [
   'retry-exhausted',
   'banner-gradient',
   'file-autocomplete',
+  'session-title-autocomplete',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -397,6 +400,30 @@ describe('TUI terminal-state snapshots', () => {
       await disposeSnapshot(harness)
       await rm(cwd, { recursive: true, force: true })
     }
+  })
+
+  it('pins session autocomplete discovered through a log-backed title', async () => {
+    const harness = await setupSnapshot({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(TestSessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('opaque-source-id'), {
+          meta: { cwd: '/workspace/project', createdAt: 1 },
+        })
+        source.append('session/title', {
+          title: 'Searchable design review',
+          messageSeqs: [],
+          source: { kind: 'fallback' },
+        })
+      },
+    })
+    harness.terminal.send('@design')
+    await vi.waitFor(async () => {
+      expect(await harness.terminal.snapshot()).toContain('Session · Searchable design re')
+    })
+    await checkpoint('session-title-autocomplete', harness.terminal)
+    await disposeSnapshot(harness)
   })
 
   it('pins Code Mode run_code with its production presenter', async () => {
