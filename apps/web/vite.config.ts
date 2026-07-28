@@ -10,12 +10,11 @@ const STANDALONE_ERROR = 'apps/web is not a standalone application: bare Vite ca
 
 /** Fail before a Vite dev or preview server can expose the boot-manifest-free shell. */
 function rejectStandaloneServe(): Plugin {
-  const reject = (): never => { throw new Error(STANDALONE_ERROR) }
   return {
     name: 'dsh-reject-standalone-web-serve',
-    apply: 'serve',
-    configureServer: reject,
-    configurePreviewServer: reject,
+    config(_config, env) {
+      if (env.command === 'serve') throw new Error(STANDALONE_ERROR)
+    },
   }
 }
 
