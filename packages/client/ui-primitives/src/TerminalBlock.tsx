@@ -147,6 +147,13 @@ export function TerminalBlock({
 
   const status = statusText(exitCode, signal)
   const state = runState(running, exitCode, signal)
+  // A multi-line command gets one prompt row per line, so a two-command shell
+  // snippet reads as the two commands it is instead of collapsing into one
+  // ellipsized row. A trailing newline is a terminator, not an empty command.
+  const commandLines = useMemo(() => {
+    const body = command.endsWith('\n') ? command.slice(0, -1) : command
+    return body.split('\n')
+  }, [command])
   const empty = text.trim() === ''
   const hidden = lines.length - maxLines
   const capped = hidden > 0 && !expanded
@@ -159,10 +166,18 @@ export function TerminalBlock({
     <div className={clsx(css.block, className)} data-terminal="" data-running={running ? '' : undefined}>
       <div className={css.header}>
         <div className={css.prompt}>
-          <StateDot state={state.state} className={css.runState} />
           <span className={css.runStateLabel}>{state.label}</span>
-          <span className={css.cwd}>{cwd === undefined ? '$' : promptLabel(cwd, home)}</span>
-          <span className={css.command}>{command}</span>
+          {commandLines.map((line, index) => (
+            <div key={index} className={css.promptLine}>
+              {/* One dot for the card, on the first row: the exit status the
+                  view carries is the whole call's, and bash reports no
+                  per-command status, so a dot per row would assert a
+                  per-line outcome nothing here knows. */}
+              {index === 0 && <StateDot state={state.state} className={css.runState} />}
+              <span className={css.cwd}>{cwd === undefined ? '$' : promptLabel(cwd, home)}</span>
+              <span className={css.command}>{line}</span>
+            </div>
+          ))}
         </div>
         {status !== undefined && <Pill className={css.status}>{status}</Pill>}
         {!running && !empty && (

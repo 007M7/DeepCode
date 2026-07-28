@@ -111,7 +111,14 @@ function readCard(card: Element) {
   const status = card.querySelector('[class*="_status_"]')
   const expander = card.querySelector('button[aria-expanded]')
   return {
-    prompt: `${card.querySelector('[class*="_cwd_"]')?.textContent ?? ''} ${card.querySelector('[class*="_command_"]')?.textContent ?? ''}`,
+    // One entry per command line: a multi-line command is one row per line.
+    prompt: [...card.querySelectorAll('[class*="_promptLine_"]')].map(row =>
+      `${row.querySelector('[class*="_cwd_"]')?.textContent ?? ''} ${row.querySelector('[class*="_command_"]')?.textContent ?? ''}`),
+    // Dots per prompt row: exactly one, on the first row — the exit status the
+    // view carries is the whole call's, so a dot per line would assert a
+    // per-line outcome bash does not report.
+    dotsPerPromptRow: [...card.querySelectorAll('[class*="_promptLine_"]')].map(row =>
+      row.querySelectorAll('[data-state]').length),
     status: status === null ? null : status.textContent,
     copy: card.querySelector('[class*="_copyButton_"]')?.textContent ?? null,
     lines: [...card.querySelectorAll('[class*="_line_"]')].map(line => line.textContent),
@@ -187,6 +194,9 @@ it('renders the keyed bash row with a resident terminal card', async () => {
         "color: var(--dsw-alias-state-error-primary);",
       ],
       "copy": "复制",
+      "dotsPerPromptRow": [
+        1,
+      ],
       "expander": {
         "expanded": "false",
         "label": "展开其余 14 行输出",
@@ -202,7 +212,9 @@ it('renders the keyed bash row with a resident terminal card', async () => {
         "1 of 4 checks failed",
         "[exit code: 1]",
       ],
-      "prompt": "nested pnpm run check",
+      "prompt": [
+        "nested pnpm run check",
+      ],
       "runState": "error",
       "runStateLabel": "失败",
       "status": "退出码 1",
@@ -229,13 +241,20 @@ it('the fallback row reaches the same card through its expand control', async ()
     {
       "colors": [],
       "copy": "复制",
+      "dotsPerPromptRow": [
+        1,
+        0,
+      ],
       "expander": null,
       "lines": [
         "total 2",
         "drwxr-xr-x fixture",
         "-rw-r--r-- demo.txt",
       ],
-      "prompt": "fixture ls -la",
+      "prompt": [
+        "fixture ls -la",
+        "fixture echo done",
+      ],
       "runState": "done",
       "runStateLabel": "已完成",
       "status": null,
@@ -302,6 +321,9 @@ it('the details panel Output section renders the same call at full height', asyn
         "color: var(--dsw-alias-label-tertiary);",
       ],
       "copy": "复制",
+      "dotsPerPromptRow": [
+        1,
+      ],
       "expander": {
         "expanded": "false",
         "label": "展开其余 6 行输出",
@@ -326,7 +348,9 @@ it('the details panel Output section renders the same call at full height', asyn
         "[exit code: 1]",
       ],
       "panelLines": 16,
-      "prompt": "nested pnpm run check",
+      "prompt": [
+        "nested pnpm run check",
+      ],
       "runState": "error",
       "runStateLabel": "失败",
       "status": "退出码 1",

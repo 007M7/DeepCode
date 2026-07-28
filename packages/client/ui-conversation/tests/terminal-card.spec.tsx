@@ -137,6 +137,17 @@ describe('chat row terminal body', () => {
     expect(view.getByText('line-5')).toBeTruthy()
   })
 
+  it('renders a multi-line command as one prompt row per line', () => {
+    const view = render(<GenericToolCard {...ownerProps(settled({
+      callView: callTerminal({ title: 'ls -la\necho done' }),
+    }))} />)
+    fireEvent.click(view.container.querySelector('button')!)
+    const rows = view.container.querySelectorAll('[class^="_promptLine_"]')
+    expect([...rows].map(row => row.textContent)).toEqual(['$ls -la', '$echo done'])
+    // Still one dot for the call, on the first row.
+    expect(view.container.querySelectorAll('[data-terminal] [data-state]')).toHaveLength(1)
+  })
+
   it('a running terminal call expands to the prompt line with no output yet', () => {
     const view = render(<GenericToolCard {...ownerProps(running())} />)
     fireEvent.click(view.container.querySelector('button')!)

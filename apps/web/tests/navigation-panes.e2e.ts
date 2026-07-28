@@ -222,16 +222,23 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         state: node.getAttribute('data-state'),
         color: getComputedStyle(node as HTMLElement).color,
         success,
-        label: node.parentElement?.querySelector('[class*="_runStateLabel_"]')?.textContent ?? null,
+        // One label per card (the state is the call's), so it hangs off the
+        // prompt column rather than the row the dot sits in.
+        label: node.closest('[class*="_prompt_"]')?.querySelector('[class*="_runStateLabel_"]')?.textContent ?? null,
         // The dot precedes the prompt label in document order, which is what
         // puts it to the left of the `$`.
         beforePrompt: node.compareDocumentPosition(node.parentElement!.querySelector('[class*="_cwd_"]')!)
           === Node.DOCUMENT_POSITION_FOLLOWING,
+        // The dot is out of flow in the card's left gutter, so it starts to the
+        // left of the card surface itself — the geometry jsdom cannot compute.
+        leftOfCard: (node as HTMLElement).getBoundingClientRect().left
+          < node.closest('[data-terminal]')!.getBoundingClientRect().left,
       }
     })
     expect(dot.state).toBe('done')
     expect(dot.label).toBe('已完成')
     expect(dot.beforePrompt).toBe(true)
+    expect(dot.leftOfCard).toBe(true)
     // Resolved through the theme token, not a literal hex in the component.
     expect(dot.success).toMatch(/^rgb/)
     expect(dot.color).toBe(dot.success)

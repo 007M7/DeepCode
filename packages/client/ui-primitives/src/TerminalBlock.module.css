@@ -7,17 +7,23 @@
 .block {
   --dsl-terminal-radius: 12px;
   --dsl-terminal-line-height: 22px;
+  /* Reserved strip to the left of the card for the per-line run-state dots.
+     The dots sit outside the card surface, so a reader scans command state
+     down one column without the dots competing with the commands themselves. */
+  --dsl-terminal-gutter: 30px;
 
   position: relative;
-  margin: 16px 0;
+  margin: 16px 0 16px var(--dsl-terminal-gutter);
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-terminal-radius);
 }
 
+/* Top-aligned: the status pill and copy control stay on the first prompt row
+   however many command lines the card carries. */
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 9px 14px;
   background: var(--dsw-alias-markdown-code-block-banner);
@@ -25,22 +31,33 @@
   border-top-right-radius: var(--dsl-terminal-radius);
 }
 
-/* The prompt row is the only element allowed to shrink; the status pill and
-   the copy control keep their intrinsic width. */
+/* One row per command line. The prompt column is the only element allowed to
+   shrink; the status pill and the copy control keep their intrinsic width. */
 .prompt {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
   min-width: 0;
   flex: 1;
   font: var(--dsw-font-markdown-code-block);
 }
 
-/* The dot sits on the prompt row's baseline box, which is a code-font line, so
-   it is centered against that line's box rather than sitting on the baseline. */
+.promptLine {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  line-height: var(--dsl-terminal-line-height);
+}
+
+/* Out of flow in the gutter, so a dot neither indents its command nor depends
+   on the command's own text metrics to line up with it. Centered against the
+   row's line box rather than sitting on the code font's baseline. */
 .runState {
-  flex: none;
-  align-self: center;
+  position: absolute;
+  left: calc(-1 * var(--dsl-terminal-gutter));
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 /* The dot is aria-hidden; this is its text label for assistive technology. */

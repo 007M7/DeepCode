@@ -34,6 +34,11 @@ function runStateOf(container: HTMLElement): { state: string | null; label: stri
   }
 }
 
+/** The prompt rows as `<label><command>`, one per command line (the visual gap is CSS). */
+function promptRows(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[class^="_promptLine_"]')].map(row => (row.textContent ?? '').trim())
+}
+
 /** `count` numbered output lines, without the terminating newline. */
 function body(count: number): string {
   return Array.from({ length: count }, (_value, index) => `line ${index + 1}`).join('\n')
@@ -203,8 +208,28 @@ describe('TerminalBlock run-state dot', () => {
   // state OF this command rather than of the card's chrome.
   it('places the dot ahead of the prompt label and the command', () => {
     const view = render(<TerminalBlock command="ls" cwd="/srv/app" output="a" />)
-    const prompt = view.container.querySelector('[class^="_prompt_"]')
-    expect([...prompt!.children].map(node => node.textContent)).toEqual(['', '已完成', 'app', 'ls'])
+    const row = view.container.querySelector('[class^="_promptLine_"]')
+    expect([...row!.children].map(node => node.textContent)).toEqual(['', 'app', 'ls'])
+  })
+
+  it('gives a multi-line command one row per line', () => {
+    const view = render(<TerminalBlock command={'echo one\necho two'} output="a" exitCode={0} />)
+    expect(promptRows(view.container)).toEqual(['$echo one', '$echo two'])
+  })
+
+  // The exit status the view carries is the whole call's — bash reports no
+  // per-command status — so exactly one dot and one label are correct however
+  // many lines the command spans. A dot per row would assert, of a line that
+  // succeeded inside a failing call, that the line itself failed.
+  it('marks the call once, on the first row, never per line', () => {
+    const view = render(<TerminalBlock command={'true\nfalse\ntrue'} output="x" exitCode={1} />)
+    expect(view.container.querySelectorAll('[class*="_runState_"][data-state]')).toHaveLength(1)
+    expect(view.container.querySelectorAll('[class^="_runStateLabel_"]')).toHaveLength(1)
+    expect(runStateOf(view.container)).toEqual({ state: 'error', label: '失败' })
+    const rows = view.container.querySelectorAll('[class^="_promptLine_"]')
+    expect(rows[0]!.querySelector('[data-state]')).not.toBeNull()
+    expect(rows[1]!.querySelector('[data-state]')).toBeNull()
+    expect(rows[2]!.querySelector('[data-state]')).toBeNull()
   })
 
   it('keeps the running dot even while a settled-looking status pill is supplied', () => {
