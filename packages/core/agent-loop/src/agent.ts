@@ -101,10 +101,9 @@ export class ReactLoopAgent implements Agent {
 
   /** Accept and route one unified send item. */
   send(
-    input: UserMessage,
+    message: UserMessage,
     options: SendOptions,
   ): void {
-    const message = freezeMessage(input)
     const { target, wakeup } = options
     if (target === 'next-step' && !wakeup) {
       if (this.acceptsNextStep) {

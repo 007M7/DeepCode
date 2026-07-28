@@ -148,7 +148,7 @@ export interface Agent {
    *   immediately without opening a turn. If admission closes without a turn,
    *   a context-only boundary appends immediately; context staged beside
    *   steering remains pending with it.
-   * The agent snapshots and freezes the identified message before publishing or queueing it.
+   * The agent publishes or queues the identified frozen message as-is.
    * @param message - identified model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
    */

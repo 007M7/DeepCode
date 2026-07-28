@@ -79,7 +79,7 @@ describe('agent/prompt-submit', () => {
     expect(userMsg?.type === 'user/message' && userMsg.data.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
-  it('snapshots and freezes input before publishing or awaiting admission', async () => {
+  it('publishes frozen input without replacing its identity', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('owned-input'), { provider: 'mock', model: 'mock' })
@@ -123,6 +123,7 @@ describe('agent/prompt-submit', () => {
     await idle
 
     expect(observed).toHaveLength(1)
+    expect(observed[0]).toBe(input)
     expect(observed[0]).toMatchObject({
       content: [{ type: 'text', text: 'accepted text' }],
       source: { kind: 'plugin', plugin: 'accepted source' },
