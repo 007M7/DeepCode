@@ -1,6 +1,7 @@
 /** E2B PTY allocation and process-session ownership for the subprocess seam. */
 
 import { Buffer } from 'node:buffer'
+import { randomUUID } from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { posix } from 'node:path'
 import {
@@ -28,11 +29,13 @@ const TERMINAL_RUNNER_SOURCE = [
   'dsh_state=$1',
   'mapfile -d \'\' -t dsh_env < "$dsh_state/environment"',
   'mapfile -d \'\' -t dsh_argv < "$dsh_state/argv"',
-  'rm -f -- "$dsh_state/environment" "$dsh_state/argv" "$dsh_state/runner.bash"',
+  'dsh_output_marker=$(<"$dsh_state/output-marker")',
+  'rm -f -- "$dsh_state/environment" "$dsh_state/argv" "$dsh_state/output-marker" "$dsh_state/runner.bash"',
   'if (( ${#dsh_argv[@]} == 0 )); then',
   "  printf 'terminal runner received empty argv\\n' >&2",
   '  exit 125',
   'fi',
+  'printf \'%s\' "$dsh_output_marker"',
   "printf 'ready\\n' > \"$dsh_state/ready\"",
   'exec env -i "${dsh_env[@]}" "${dsh_argv[@]}"',
   '',
@@ -42,6 +45,7 @@ interface TerminalPaths {
   runner: string
   environment: string
   argv: string
+  outputMarker: string
   ready: string
 }
 
@@ -51,6 +55,73 @@ function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+class BootstrapOutputFilter {
+  readonly ready: Promise<void>
+
+  private readonly readyState = Promise.withResolvers<void>()
+  private pending = Buffer.alloc(0)
+  private published = false
+
+  constructor(
+    private readonly marker: Buffer,
+    private readonly output: PassThrough,
+  ) {
+    this.ready = this.readyState.promise
+  }
+
+  push(data: Uint8Array): void {
+    if (this.published) {
+      this.write(data)
+      return
+    }
+    const combined = Buffer.concat([this.pending, Buffer.from(data)])
+    const markerOffset = combined.indexOf(this.marker)
+    if (markerOffset < 0) {
+      const retained = Math.min(combined.length, this.marker.length - 1)
+      this.pending = Buffer.from(combined.subarray(combined.length - retained))
+      return
+    }
+    this.published = true
+    this.pending = Buffer.alloc(0)
+    this.readyState.resolve()
+    this.write(combined.subarray(markerOffset + this.marker.length))
+  }
+
+  private write(data: Uint8Array): void {
+    if (data.length > 0 && !this.output.destroyed) this.output.write(data)
+  }
+}
+
+async function waitForBootstrapOutput(
+  ready: Promise<void>,
+  completion: Promise<CommandResult>,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    let removeAbort: (() => void) | undefined
+    const finish = (complete: () => void): void => {
+      if (settled) return
+      settled = true
+      removeAbort?.()
+      complete()
+    }
+    const onExit = (): void => {
+      finish(() => { reject(new Error('subprocess-e2b: terminal exited before publishing its output boundary')) })
+    }
+    if (signal !== undefined) {
+      const onAbort = (): void => {
+        finish(() => { reject(asError(signal.reason)) })
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      removeAbort = () => { signal.removeEventListener('abort', onAbort) }
+    }
+    void ready.then(() => { finish(resolve) })
+    void completion.then(onExit, onExit)
+  })
 }
 
 function asError(error: unknown): Error {
@@ -374,9 +445,12 @@ export async function spawnE2BTerminal(
     runner: posix.join(stateDir, 'runner.bash'),
     environment: posix.join(stateDir, 'environment'),
     argv: posix.join(stateDir, 'argv'),
+    outputMarker: posix.join(stateDir, 'output-marker'),
     ready: posix.join(stateDir, 'ready'),
   }
+  const outputMarker = Buffer.from(`dsh-e2b-bootstrap:${randomUUID()}`)
   const output = new PassThrough()
+  const outputFilter = new BootstrapOutputFilter(outputMarker, output)
   let handle: CommandHandle | undefined
   let completion: Promise<CommandResult> | undefined
   let stateDirectoryCreated = false
@@ -391,9 +465,10 @@ export async function spawnE2BTerminal(
       { path: paths.runner, data: TERMINAL_RUNNER_SOURCE },
       { path: paths.environment, data: environment },
       { path: paths.argv, data: argv },
+      { path: paths.outputMarker, data: outputMarker.toString('utf8') },
     ], signalOpts(spec.signal))
     await sandbox.commands.run(
-      `chmod 600 -- ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(paths.environment)} ${quoteE2BShellArg(paths.argv)}`,
+      `chmod 600 -- ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(paths.environment)} ${quoteE2BShellArg(paths.argv)} ${quoteE2BShellArg(paths.outputMarker)}`,
       signalOpts(spec.signal),
     )
     handle = await sandbox.pty.create({
@@ -403,7 +478,7 @@ export async function spawnE2BTerminal(
       envs: { TERM: 'dumb' },
       timeoutMs: 0,
       ...signalOpts(spec.signal),
-      onData: (data) => { if (!output.destroyed) output.write(Buffer.from(data)) },
+      onData: (data) => { outputFilter.push(data) },
     })
     completion = handle.wait()
     void completion.catch(() => {})
@@ -413,6 +488,7 @@ export async function spawnE2BTerminal(
     const command = `exec /bin/bash ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(stateDir)}\r`
     await sandbox.pty.sendInput(handle.pid, Buffer.from(command), signalOpts(spec.signal))
     await waitUntilReady(sandbox, paths, completion, spec.signal)
+    await waitForBootstrapOutput(outputFilter.ready, completion, spec.signal)
     const sessionId = await terminalSessionId(sandbox, handle.pid, spec.signal)
     return new E2BTerminalHandle(
       sandbox,

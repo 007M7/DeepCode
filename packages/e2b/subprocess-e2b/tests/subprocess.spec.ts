@@ -599,6 +599,12 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.waitForExit()).resolves.toBe(true)
     expect(fake.commandsSeen).toContain('kill -TERM -- -4242')
     expect(fake.commandsSeen).not.toContain('kill -KILL -- -4242')
+    const signals = fake.commandsSeen.filter(command => command.startsWith('kill -')).length
+    fake.alive = true
+    handle.terminate()
+    await flush()
+    expect(fake.alive).toBe(true)
+    expect(fake.commandsSeen.filter(command => command.startsWith('kill -'))).toHaveLength(signals)
   })
 
   it('escalates a TERM-trapping process group to KILL and uses the SDK kill as fallback', async () => {
@@ -1123,6 +1129,24 @@ describe('E2BSubprocessService', () => {
     expect(fake.alive).toBe(false)
   })
 
+  it('awaits SDK settlement after the remote process group becomes quiescent', async () => {
+    const fake = new FakeSandbox()
+    fake.trapsTerm = true
+    const { ctx, fiber } = await service(fake)
+    const handle = ctx.subprocess.spawn(spec())
+    await flush()
+    fake.alive = false
+
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await flush()
+    expect(disposed).toBe(false)
+
+    fake.finish()
+    await disposing
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+  })
+
   it('reports a failed termination transaction from disposal instead of waiting on done', async () => {
     const fake = new FakeSandbox()
     fake.signalErrors.push(new Error('TERM transport failed'), new Error('KILL transport failed'))
@@ -1178,6 +1202,7 @@ describe('E2BSubprocessService', () => {
     const { ctx, fiber } = await service(fake)
     const handle = ctx.subprocess.spawn(spec())
     const disposing = fiber.dispose()
+    expect(() => ctx.subprocess.spawn(spec())).toThrow('service is disposing')
     fake.releaseStart()
     await expect(disposing).resolves.toBeUndefined()
     await expect(handle.done).rejects.toThrow('start failed during disposal')

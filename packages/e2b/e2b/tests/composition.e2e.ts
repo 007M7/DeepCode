@@ -185,7 +185,10 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       oversizedReply: { error: { kind: 'worker-exit' } },
       lingeringCodeRunners: 0,
     })
-    expect((output.terminal as { motd: string }).motd.length).toBeGreaterThan(0)
+    const terminalMotd = (output.terminal as { motd: string }).motd
+    expect(terminalMotd.length).toBeGreaterThan(0)
+    expect(terminalMotd).not.toContain('exec /bin/bash')
+    expect(terminalMotd).not.toContain('.dsh-e2b/terminals/')
     expect((output.terminal as { echo: { viewport: string } }).echo.viewport).toContain('PTY-你好')
     expect((output.terminal as { scrollback: string }).scrollback).toContain('PTY-你好')
     expect((output.terminal as { signal: { targetPgid: number } }).signal.targetPgid).toBeGreaterThan(0)

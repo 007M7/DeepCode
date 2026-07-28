@@ -8,10 +8,10 @@
 
 - **异步远程启动**：同步 seam 会立即返回一个句柄，同时由 `Sandbox.commands.run(..., { background: true })` 在远程启动进程。包装层发布进程组 ID 并由适配器完成验证之前，`pid` 为 `-1`；stdin 和常规观察会等待该发布，而取消操作可以先停止临时 SDK 句柄。
 - **执行世界坐标**：`cwd` 和私有 `runtimeRoot` 来自共享所有者；可执行文件查找会验证绝对路径，或根据沙箱 PATH 加显式覆盖来解析裸名称。
-- **Linux 进程组**：带引号保护的包装层会在 `exec setsid --wait` 下启动每组 argv，并在 `ctx.e2b.runtimeRoot/processes` 下记录实际进程组 ID 和私有状态文件。句柄会等待该文件，而不会把 SDK 命令 PID 当作已发布的身份。终止操作以记录的负数 ID 发送 `SIGTERM`，等待调用方的 `graceMs`，再升级到 `SIGKILL` 和 SDK kill 回退；TERM 信号发送或探测失败也会强制触发该升级。失败的事务可通过 `waitForExit()` 观察，并可重试。发布前，取消操作使用临时 SDK 句柄；如果发布失败，回滚会终止并验证临时进程组，随后启动操作才会拒绝。服务 dispose（资源释放）会在沙箱所有者释放前终止并等待每个保留句柄退出。
+- **Linux 进程组**：带引号保护的包装层会在 `exec setsid --wait` 下启动每组 argv，并在 `ctx.e2b.runtimeRoot/processes` 下记录实际进程组 ID 和私有状态文件。句柄会等待该文件，而不会把 SDK 命令 PID 当作已发布的身份。终止操作以记录的负数 ID 发送 `SIGTERM`，等待调用方的 `graceMs`，再升级到 `SIGKILL` 和 SDK kill 回退；TERM 信号发送或探测失败也会强制触发该升级。失败的事务可通过 `waitForExit()` 观察，并可重试；成功终止后，重复终止将永久为空操作。发布前，取消操作使用临时 SDK 句柄；如果发布失败，回滚会终止并验证临时进程组，随后启动操作才会拒绝。服务 dispose（资源释放）会拒绝新的启动请求、终止并等待每个保留进程组退出，再等待 SDK 结算和私有清理完成，之后沙箱所有者才会释放。
 - **环境边界**：包装层从沙箱命令环境开始，移除环境中的 `DSH_*` 和形似凭据的名称（`*KEY*`、`*SECRET*`、`*TOKEN*`），再把每个 `spec.env` 条目恢复为调用方显式选择。宿主环境变量绝不会隐式进入沙箱。私有环境文件在使用后会被删除；命令或终端设置失败时，会先删除其私有状态再拒绝。
 - **stdio 投影**：远程包装层先把原始字节分流到可选的有界 spill 文件，再把每个实时分片编码为换行分隔的 base64 ASCII 帧；宿主会跨任意 SDK 回调边界增量恢复字节。pipe 模式把这些字节写入宿主 Node 流；inherit 模式把字节写入 harness 进程流；collect 模式保留有界的宿主尾部，并支持基于偏移量读取。包装层会在等待继承管道的写入方之前发布直接命令状态；超过 `graceMs` 后，适配器会断开未完成的 SDK 流，不公开其中不完整的 spill，并返回该状态，同时保留远程进程组供 `waitForExit()` 和终止操作使用。批量 stdin 和流式 stdin 都使用 SDK 句柄。
-- **终端会话**：`spawnTerminal()` 使用 E2B 的字节 PTY API，以 mode 为 `0600` 的私有文件传入原样 argv 与清理后的环境，报告前台进程组，发送真实信号，并在结算前清理远程终端会话中的每个进程组。setup 与 teardown 负责私有状态事务，包括失败清理。提示符检测、scrollback、就绪状态与所有者策略仍归 `dsh-pty-local` 所有。
+- **终端会话**：`spawnTerminal()` 使用 E2B 的字节 PTY API，以 mode 为 `0600` 的私有文件传入原样 argv 与清理后的环境，报告前台进程组，发送真实信号，并在结算前清理远程终端会话中的每个进程组。私有随机输出边界会丢弃 E2B 引导 shell 的提示符和回显的 runner 命令，同时保留请求进程的每个字节，包括其第一个提示符。setup 与 teardown 负责私有状态事务，在服务 dispose 期间阻止发布，并包括失败清理。提示符检测、scrollback、就绪状态与所有者策略仍归 `dsh-pty-local` 所有。
 
 基础 E2B 镜像提供该适配器调用的运行时和 Bash/GNU 工具：`node`、`bash`、`setsid`、`ps`、`awk`、`tr`、`env`、`chmod`、`tee`、`head`、`rm` 和 `kill`。自定义模板必须保留兼容的命令和 E2B PTY 支持。
 

@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { once } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CommandExitError,
   FileNotFoundError,
@@ -91,6 +91,7 @@ class FakeTerminalSandbox {
   ambient = 'KEEP=visible\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   ready: string | Error = 'ready\n'
   readyMisses = 0
+  readyReads = 0
   sessionId = '123\n'
   foreground = '456\n'
   groups = [123]
@@ -108,6 +109,20 @@ class FakeTerminalSandbox {
   settleOnPtyKill = true
   ptyKills = 0
   resolvedExecutable = '/usr/bin/node\n'
+  requestedOutput = 'requested-shell$ '
+  emitOutputMarker = true
+  private createGate: Promise<void> | undefined
+  private releaseCreateGate: (() => void) | undefined
+
+  deferCreate(): void {
+    const gate = Promise.withResolvers<undefined>()
+    this.createGate = gate.promise
+    this.releaseCreateGate = () => { gate.resolve(undefined) }
+  }
+
+  releaseCreate(): void {
+    this.releaseCreateGate?.()
+  }
 
   readonly sandbox = {
     files: {
@@ -121,6 +136,7 @@ class FakeTerminalSandbox {
         return files.map(() => ({}))
       },
       read: async (): Promise<string> => {
+        this.readyReads += 1
         if (this.readyMisses > 0) {
           this.readyMisses -= 1
           throw new FileNotFoundError('not ready')
@@ -170,6 +186,7 @@ class FakeTerminalSandbox {
     pty: {
       create: async (options: Parameters<Sandbox['pty']['create']>[0]): Promise<CommandHandle> => {
         this.createOptions = options
+        await this.createGate
         if (this.createError !== undefined) throw this.createError
         await options.onData(Buffer.from('buffered banner\n'))
         return this.handle.asHandle()
@@ -178,6 +195,17 @@ class FakeTerminalSandbox {
         options?.signal?.throwIfAborted()
         this.inputs.push({ pid, data: Buffer.from(data) })
         if (this.sendError !== undefined) throw this.sendError
+        if (this.emitOutputMarker && Buffer.from(data).includes(Buffer.from('runner.bash'))) {
+          const marker = [...this.writes].find(([path]) => path.endsWith('/output-marker'))?.[1]
+          const onData = this.createOptions?.onData
+          if (marker !== undefined && onData !== undefined) {
+            await onData(Buffer.from(Buffer.from(data).toString().replace(/\r$/, '\r\n')))
+            const split = Math.floor(marker.length / 2)
+            await onData(Buffer.from(marker.slice(0, split)))
+            await onData(Buffer.from(marker.slice(split)))
+            await onData(Buffer.from(this.requestedOutput))
+          }
+        }
       },
       kill: async (pid: number): Promise<boolean> => {
         this.ptyKills += 1
@@ -211,7 +239,7 @@ function spec(overrides: Partial<SubprocessTerminalSpawnSpec> = {}): SubprocessT
 }
 
 describe('E2B terminal allocation', () => {
-  it('boots the requested argv through a private runner and preserves buffered bytes', async () => {
+  it('hides bootstrap-shell bytes and preserves requested-shell bytes across the output boundary', async () => {
     const fake = new FakeTerminalSandbox()
     fake.readyMisses = 1
     const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/terminal-one')
@@ -219,7 +247,9 @@ describe('E2B terminal allocation', () => {
     terminal.output.on('data', (chunk) => { output += String(chunk) })
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    expect(output).toBe('buffered banner\n')
+    expect(output).toBe('requested-shell$ ')
+    expect(output).not.toContain('buffered banner')
+    expect(output).not.toContain('runner.bash')
     expect(fake.createOptions).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace', timeoutMs: 0, envs: { TERM: 'dumb' } })
     expect(fake.inputs[0]?.data.toString()).toContain("exec /bin/bash '/runtime/terminal-one/runner.bash'")
     expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('KEEP=visible\0')
@@ -227,10 +257,17 @@ describe('E2B terminal allocation', () => {
     expect(fake.writes.get('/runtime/terminal-one/environment')).not.toContain('secret')
     expect(fake.writes.get('/runtime/terminal-one/environment')).not.toContain('DSH_STALE')
     expect(fake.writes.get('/runtime/terminal-one/argv')).toBe('/bin/bash\0--noprofile\0--norc\0')
+    const marker = fake.writes.get('/runtime/terminal-one/output-marker') ?? ''
+    expect(marker).toMatch(/^dsh-e2b-bootstrap:/)
+    expect(fake.inputs[0]?.data.toString()).not.toContain(marker)
     const runner = fake.writes.get('/runtime/terminal-one/runner.bash') ?? ''
     expect(runner).toContain('if (( ${#dsh_argv[@]} == 0 )); then')
+    expect(runner).toContain('printf \'%s\' "$dsh_output_marker"')
     expect(runner).toContain('exec env -i "${dsh_env[@]}" "${dsh_argv[@]}"')
     expect(runner).not.toContain('\u007f')
+    terminal.output.destroy()
+    await fake.createOptions?.onData(Buffer.from('late bootstrap callback'))
+    expect(output).toBe('requested-shell$ ')
 
     await terminal.write(Buffer.from('echo ok\r'))
     expect(fake.inputs.at(-1)?.data.toString()).toBe('echo ok\r')
@@ -394,6 +431,29 @@ describe('E2B terminal allocation', () => {
     readFailed.ready = new Error('ready transport failed')
     await expect(spawnE2BTerminal(runtime(readFailed), spec(), '/runtime/read'))
       .rejects.toThrow('ready transport failed')
+  })
+
+  it('bounds a missing bootstrap-output boundary by process exit or cancellation', async () => {
+    const exited = new FakeTerminalSandbox()
+    exited.emitOutputMarker = false
+    const exiting = spawnE2BTerminal(runtime(exited), spec(), '/runtime/missing-output-boundary')
+    await vi.waitFor(() => { expect(exited.inputs).toHaveLength(1) })
+    exited.handle.succeed(0)
+    await expect(exiting).rejects.toThrow('terminal exited before publishing its output boundary')
+
+    const cancelled = new FakeTerminalSandbox()
+    cancelled.emitOutputMarker = false
+    const controller = new AbortController()
+    const cancelling = spawnE2BTerminal(
+      runtime(cancelled),
+      spec({ signal: controller.signal }),
+      '/runtime/cancel-output-boundary',
+    )
+    await vi.waitFor(() => { expect(cancelled.inputs).toHaveLength(1) })
+    await vi.waitFor(() => { expect(cancelled.readyReads).toBeGreaterThan(0) })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort(new Error('cancel output boundary'))
+    await expect(cancelling).rejects.toThrow('cancel output boundary')
   })
 })
 
@@ -635,6 +695,29 @@ describe('E2B subprocess terminal service', () => {
     await fiber.dispose()
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
     expect(fake.handle.disconnects).toBe(1)
+  })
+
+  it('joins and rejects terminal setup that completes during service disposal', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.deferCreate()
+    const { ctx, fiber } = await service(fake)
+    const spawning = ctx.subprocess.spawnTerminal(spec())
+    const rejected = expect(spawning).rejects.toThrow('service disposed during terminal setup')
+    await vi.waitFor(() => { expect(fake.createOptions).toBeDefined() })
+
+    let disposed = false
+    const subprocess = ctx.subprocess
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(disposed).toBe(false)
+    await expect(subprocess.spawnTerminal(spec())).rejects.toThrow('service is disposing')
+    fake.releaseCreate()
+
+    await rejected
+    await disposing
+    expect(fake.groups).toEqual([])
+    expect(fake.handle.disconnects).toBe(1)
+    expect(fake.removed.some(path => path.includes('/terminals/'))).toBe(true)
   })
 
   it('releases naturally settled terminals and validates terminal requests', async () => {

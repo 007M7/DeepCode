@@ -28,6 +28,8 @@ export class E2BSubprocessService extends SubprocessService {
 
   private readonly live = new Set<E2BSubprocessHandle>()
   private readonly terminals = new Set<SubprocessTerminalHandle>()
+  private readonly terminalSetups = new Set<Promise<void>>()
+  private disposing = false
 
   /** @inheritdoc */
   readonly cwd: string
@@ -41,12 +43,17 @@ export class E2BSubprocessService extends SubprocessService {
     this.cwd = ctx.e2b.cwd
     this.runtimeRoot = ctx.e2b.runtimeRoot
     ctx.effect(() => async () => {
+      this.disposing = true
+      await Promise.all([...this.terminalSetups])
       const handles = [...this.live]
       const terminals = [...this.terminals]
       const pending: Promise<unknown>[] = []
       for (const handle of handles) {
         handle.terminate()
-        pending.push(handle.waitForExit().then(() => { this.live.delete(handle) }))
+        pending.push(handle.waitForExit().then(async () => {
+          await handle.done.catch(() => undefined)
+          this.live.delete(handle)
+        }))
       }
       for (const terminal of terminals) {
         terminal.terminate()
@@ -89,6 +96,7 @@ export class E2BSubprocessService extends SubprocessService {
 
   /** @inheritdoc */
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    if (this.isDisposing()) throw new Error('subprocess-e2b: service is disposing')
     const program = spec.argv[0]
     if (program === undefined || program.length === 0) {
       throw new Error('invalid argv: expected a non-empty program name at argv[0]')
@@ -112,6 +120,7 @@ export class E2BSubprocessService extends SubprocessService {
 
   /** @inheritdoc */
   async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    if (this.isDisposing()) throw new Error('subprocess-e2b: service is disposing')
     const program = spec.argv[0]
     if (program === undefined || program.length === 0) {
       throw new Error('subprocess-e2b: terminal argv must contain a program')
@@ -123,14 +132,31 @@ export class E2BSubprocessService extends SubprocessService {
     }
     spec.signal?.throwIfAborted()
     const stateDir = posix.join(this.runtimeRoot, 'terminals', randomUUID())
-    const terminal = await spawnE2BTerminal(this.ctx.e2b, spec, stateDir)
-    this.terminals.add(terminal)
-    const release = async (): Promise<void> => {
-      await terminal.waitForExit()
-      this.terminals.delete(terminal)
+    const setup = Promise.withResolvers<void>()
+    this.terminalSetups.add(setup.promise)
+    try {
+      const terminal = await spawnE2BTerminal(this.ctx.e2b, spec, stateDir)
+      this.terminals.add(terminal)
+      if (this.isDisposing()) {
+        terminal.terminate()
+        await terminal.waitForExit()
+        this.terminals.delete(terminal)
+        throw new Error('subprocess-e2b: service disposed during terminal setup')
+      }
+      const release = async (): Promise<void> => {
+        await terminal.waitForExit()
+        this.terminals.delete(terminal)
+      }
+      void terminal.done.then(release, release).catch(() => {})
+      return terminal
+    } finally {
+      this.terminalSetups.delete(setup.promise)
+      setup.resolve()
     }
-    void terminal.done.then(release, release).catch(() => {})
-    return terminal
+  }
+
+  private isDisposing(): boolean {
+    return this.disposing
   }
 }
 

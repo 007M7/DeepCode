@@ -213,6 +213,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private invalidHandleQuiescent = false
   private provisionalHandleQuiescent = false
   private terminationStarted = false
+  private terminationSucceeded = false
   private terminationAttempt: Promise<void> | undefined
   private terminationFailure: Error | undefined
   private terminationSignal: NodeJS.Signals | null = null
@@ -264,13 +265,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   /** @inheritdoc */
   terminate(): void {
-    if (this.terminationAttempt !== undefined) return
+    if (this.terminationSucceeded || this.terminationAttempt !== undefined) return
     this.terminationStarted = true
     this.terminationFailure = undefined
     const attempt = this.terminateRemote()
     this.terminationAttempt = attempt
     void attempt.then(
       () => {
+        this.terminationSucceeded = true
         this.terminationAttempt = undefined
       },
       (error: unknown) => {
