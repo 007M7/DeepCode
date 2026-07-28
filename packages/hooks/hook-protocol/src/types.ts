@@ -71,10 +71,10 @@ export interface MatcherGroup {
 }
 
 /**
- * How a matcher pattern is interpreted. Claude Code uses {@link literal} when the
- * pattern is purely `[A-Za-z0-9_|]+` (pipe = exact-match alternation) and
- * {@link regex} otherwise; Codex is always {@link regex}. The bridge picks the
- * mode for its dialect.
+ * How a matcher pattern is interpreted. Both dialects use an exact-match fast
+ * path when the pattern is purely `[A-Za-z0-9_|]+` (pipe = alternation), then
+ * use their native regex dialect otherwise: JavaScript for Claude Code and Rust
+ * `regex` for Codex. The bridge picks the mode for its dialect.
  */
 export type MatcherMode = 'claude' | 'codex'
 

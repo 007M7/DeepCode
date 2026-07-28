@@ -66,11 +66,11 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-codex bridge', () => {
-  it('a PreToolUse hook (exit 2) denies a tool the regex matcher matches as a substring', async () => {
+  it('a PreToolUse hook (exit 2) honors a Rust-regex inline flag matcher', async () => {
     const dir = configDir()
     const deny = script(dir, 'deny.sh', '#!/usr/bin/env bash\necho "codex blocked it" >&2\nexit 2\n')
-    // Codex regex matcher: "Bash" is /Bash/ — matches the tool name "Bash".
-    writeHooks(dir, { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: deny }] }] })
+    // `(?i)` is accepted by Rust regex but rejected by JavaScript RegExp.
+    writeHooks(dir, { PreToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: deny }] }] })
 
     const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'ls' }), textResponse('done')])
     const ctx = await harness(dir, adapter)

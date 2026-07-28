@@ -61,15 +61,21 @@ describe('parseCodexConfig', () => {
     expect('matcher' in config.Stop![0]!).toBe(false)
   })
 
-  it('keeps a matcher when present', () => {
-    const { config } = parseCodexConfig({ PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
-    expect(config.PreToolUse![0]!.matcher).toBe('^Bash$')
+  it('keeps a valid Rust-regex matcher when present', () => {
+    const { config } = parseCodexConfig({ PreToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
+    expect(config.PreToolUse![0]!.matcher).toBe('(?i)^bash$')
   })
 
   it('rejects an invalid regex matcher with its event name', () => {
     expect(() => parseCodexConfig({
       PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 's.sh' }] }],
     })).toThrow('invalid codex regex matcher "[" on event "PreToolUse"')
+  })
+
+  it('rejects JavaScript-only regex syntax that Codex cannot execute', () => {
+    expect(() => parseCodexConfig({
+      PreToolUse: [{ matcher: '(?=Bash)', hooks: [{ type: 'command', command: 's.sh' }] }],
+    })).toThrow('invalid codex regex matcher "(?=Bash)" on event "PreToolUse"')
   })
 
   it('discards matcher fields on events without matcher subjects before validation', () => {

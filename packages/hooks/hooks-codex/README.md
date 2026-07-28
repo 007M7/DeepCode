@@ -7,7 +7,7 @@ A cordis plugin that runs the supported subset of a user's existing **Codex** ho
 This bridge implements a deliberate subset of Codex's current hook protocol:
 
 - **Five of ten hook points:** `PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`.
-- **Regex-only matchers** (no literal fast path; the matcher is always an unanchored regex).
+- **Native Codex matcher semantics:** pure word/pipe patterns are exact alternatives; other patterns are unanchored Rust `regex` expressions (including inline flags such as `(?i)`).
 - **snake_case stdin payloads** with `turn_id`/`model` extras, written **without** a trailing newline.
 - **No Codex plugin env injection and no config-time placeholder substitution** (the command still receives the executor's environment and runs through its shell).
 - **No pre-tool approval or rewrite path** — a hook can block, but the bridge does not pre-approve or replace tool input.

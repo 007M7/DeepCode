@@ -34,17 +34,24 @@ describe('matchesMatcher — claude dialect (literal-or-regex)', () => {
   })
 })
 
-describe('matchesMatcher — codex dialect (always regex)', () => {
-  it('a word pattern is an unanchored regex (substring matches, unlike claude literal)', () => {
+describe('matchesMatcher — codex dialect (literal-or-Rust-regex)', () => {
+  it('a word pattern uses Codex exact-match semantics', () => {
     expect(matchesMatcher('Bash', 'Bash', 'codex')).toBe(true)
-    // codex has NO literal fast path: "Bash" is /Bash/, so it DOES match a substring
-    expect(matchesMatcher('Bash', 'BashOutput', 'codex')).toBe(true)
+    expect(matchesMatcher('Bash', 'BashOutput', 'codex')).toBe(false)
   })
 
   it('regex alternation and anchors work', () => {
     expect(matchesMatcher('Edit|Write', 'Edit', 'codex')).toBe(true)
     expect(matchesMatcher('^Bash$', 'Bash', 'codex')).toBe(true)
     expect(matchesMatcher('^Bash$', 'BashOutput', 'codex')).toBe(false)
+  })
+
+  it('uses Rust regex syntax and matching semantics', () => {
+    expect(matchesMatcher('(?i)bash', 'xxBASHyy', 'codex')).toBe(true)
+    expect(matchesMatcher('(?x)^ b a s h $ # policy matcher', 'bash', 'codex')).toBe(true)
+    expect(matchesMatcher('^\\p{Greek}+$', 'αβ', 'codex')).toBe(true)
+    // JavaScript accepts look-around, but Rust regex deliberately does not.
+    expect(matchesMatcher('(?=Bash)', 'Bash', 'codex')).toBe(false)
   })
 })
 
@@ -65,10 +72,13 @@ describe('matcherDiagnostic — parse-time diagnostics', () => {
     expect(matcherDiagnostic('Edit|Write', 'claude')).toBeUndefined()
     expect(matcherDiagnostic('^Bash$', 'claude')).toBeUndefined()
     expect(matcherDiagnostic('Edit|Write', 'codex')).toBeUndefined()
+    expect(matcherDiagnostic('(?i)bash', 'codex')).toBeUndefined()
+    expect(matcherDiagnostic('(?x)^ b a s h $ # policy matcher', 'codex')).toBeUndefined()
   })
 
   it('returns a stable diagnostic for invalid regexes in either dialect', () => {
     expect(matcherDiagnostic('(', 'claude')).toBe('invalid claude regex matcher "("')
     expect(matcherDiagnostic('[', 'codex')).toBe('invalid codex regex matcher "["')
+    expect(matcherDiagnostic('(?=Bash)', 'codex')).toBe('invalid codex regex matcher "(?=Bash)"')
   })
 })

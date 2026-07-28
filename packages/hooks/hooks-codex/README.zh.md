@@ -7,7 +7,7 @@
 该桥接实现 Codex 当前 hook 协议的一个明确子集：
 
 - **10 个 hook 点中的 5 个：** `PreToolUse`、`PostToolUse`、`SessionStart`、`UserPromptSubmit` 和 `Stop`。
-- **只使用正则 matcher**（没有字面快速路径；matcher 始终是未锚定正则）。
+- **原生 Codex matcher 语义：**纯 word／pipe pattern 是精确匹配的多选；其他 pattern 是未锚定的 Rust `regex` 表达式（包括 `(?i)` 等内联 flag）。
 - **snake_case stdin payload**，携带 `turn_id`／`model` 额外字段，写入时**不带** 尾随换行符。
 - **没有 Codex 插件 env 注入，也没有配置时 placeholder 替换**（命令仍会接收执行器环境，并通过其 shell 运行）。
 - **没有工具前批准或改写路径**：hook 可以阻塞，但桥接不会预批准或替换工具输入。
