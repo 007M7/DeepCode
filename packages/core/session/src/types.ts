@@ -1,5 +1,16 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type {
+  AssistantMessage,
+  CallId,
+  LlmCallConfig,
+  LlmFailure,
+  MessageSource,
+  StreamChunk,
+  TokenUsage,
+  ToolResultMessage,
+  ToolSchema,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -187,20 +198,6 @@ export interface EpochHeader {
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
- * Shared payload for user, injected-context, and steering messages. A
- * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
- * steering all project into the model transcript as verbatim user-role content;
- * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type.
- */
-export interface UserMessageData {
-  /** Exact model-facing blocks. */
-  content: ContentBlock[]
-  /** Producer provenance. */
-  source: MessageSource
-}
-
-/**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
  * sequence numbers stay contiguous, including raw chunks, so persistence can
@@ -230,7 +227,7 @@ export interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart. An idle
    * injection may append this event between turns without running the model.
    */
-  'user/message': UserMessageData
+  'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -239,7 +236,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -260,14 +257,12 @@ export interface SessionEventMap {
   'tool/result': {
     turn: number
     step: number
-    callId: CallId
-    content: ContentBlock[]
-    isError: boolean
+    message: ToolResultMessage
     error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': UserMessageData & { turn: number }
+  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**

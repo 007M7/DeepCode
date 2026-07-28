@@ -13,9 +13,9 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
-  Message,
   StreamChunk,
 } from './types.ts'
+import { freezeMessage, type Message } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
@@ -30,6 +30,7 @@ export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
+export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
@@ -50,7 +51,8 @@ declare module 'cordis' {
      *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
      *   (mutation throws): its content is a pure function of the session log (the
      *   reconstructability Agent Note), so listeners read it, never rewrite it.
-     *   Hand-built calls own their mutability policy and do not carry that marker.
+     *   Hand-built calls do not carry that marker; their messages already obey
+     *   the immutable creation contract.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -457,13 +459,13 @@ export class LlmService extends Service {
   /** Remove replay state whose historical route is owned by another adapter. */
   private forAdapter(options: GenerateOptions, adapter: LlmAdapter): GenerateOptions {
     const messages: Message[] = options.messages.map((message) => {
-      const provenance = message.provenance
-      if (message.role !== 'assistant' || provenance?.replayState === undefined) return message
-      if (this.adapters.get(provenance.provider)?.adapter === adapter) return message
-      return {
+      const source = message.source
+      if (message.role !== 'assistant' || source.kind !== 'model' || source.replayState === undefined) return message
+      if (this.adapters.get(source.provider)?.adapter === adapter) return message
+      return freezeMessage({
         ...message,
-        provenance: { provider: provenance.provider, model: provenance.model },
-      }
+        source: { kind: 'model', provider: source.provider, model: source.model },
+      })
     })
     if (messages.every((message, index) => message === options.messages[index])) return options
     const filtered = { ...options, messages }

@@ -1,3 +1,4 @@
+import { createUserMessage, CallId, createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 /**
  * FoldAdapter over the real core SurfaceManager: padding sentinels for paged
  * windows, incremental append with node-cache identity, six-variant
@@ -39,8 +40,16 @@ describe('FoldAdapter', () => {
     const events = [
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
-      at(2, { type: 'steering/message', surfaceOp: 'append', data: { turn: 0, content: [{ type: 'text', text: '插话' }], source: { kind: 'user' } } }),
-      at(3, { type: 'user/message', surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' } } }),
+      at(2, { type: 'steering/message', surfaceOp: 'append', data: {
+        turn: 0,
+        message: createUserMessage({
+          content: [{ type: 'text', text: '插话' }],
+          source: { kind: 'user' },
+        }),
+      } }),
+      at(3, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' },
+      }) }),
       ev.toolCall(4, 0, 'c1', 'echo', '{"x":1}'),
       ev.toolResult(5, 0, 'c1', '结果'),
     ]
@@ -76,7 +85,17 @@ describe('FoldAdapter', () => {
     // An invalid surfaceOp on a surface-eligible event deterministically throws in the core fold.
     const window = [
       ev.user(10, '正常'),
-      at(11, { type: 'assistant/message', surfaceOp: 'bogus-op', data: { turn: 0, step: 0, content: [{ type: 'text', text: '坏 op' }], provenance: { provider: 'x', model: 'y' } } }),
+      at(11, { type: 'assistant/message', surfaceOp: 'bogus-op', data: {
+        turn: 0, step: 0,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: '坏 op' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'x', model: 'y' },
+          },
+        }),
+      } }),
     ]
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
@@ -98,7 +117,15 @@ describe('FoldAdapter', () => {
   it('materializes a tool-result error field when present', () => {
     const adapter = new FoldAdapter()
     adapter.reset([
-      at(0, { type: 'tool/result', surfaceOp: 'append', data: { turn: 0, step: 0, callId: 'c1', content: [], isError: true, error: { name: 'Boom', code: 'boom' } } }),
+      at(0, { type: 'tool/result', surfaceOp: 'append', data: {
+        turn: 0, step: 0,
+        message: createToolResultMessage({
+          callId: CallId('c1'),
+          content: [],
+          isError: true,
+        }),
+        error: { name: 'Boom', code: 'boom' },
+      } }),
     ], 0)
     expect(adapter.nodes().nodes[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
   })
@@ -203,7 +230,15 @@ describe('FoldAdapter', () => {
         adapter.reset([
           ev.commandRun(0, 'cmd-5', 'plan'),
           ev.commandDone(1, 'cmd-5'),
-          at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: { turn: 0, step: 0, content: [{ type: 'text', text: '坏 op' }], provenance: { provider: 'x', model: 'y' } } }),
+          at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: {
+            turn: 0,
+            step: 0,
+            message: createMessage({
+              role: 'assistant',
+              content: [{ type: 'text', text: '坏 op' }],
+              source: { kind: 'model', provider: 'x', model: 'y' },
+            }),
+          } }),
         ], 0)
         const { nodes, degraded } = adapter.nodes()
         expect(degraded).toBe(true)

@@ -423,7 +423,7 @@ function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
   }
   const assistant = snapshot.events.findLast(item => item.type === 'assistant/message')
   return assistant?.type === 'assistant/message'
-    ? { provider: assistant.data.provenance.provider, model: assistant.data.provenance.model }
+    ? { provider: assistant.data.message.source.provider, model: assistant.data.message.source.model }
     : undefined
 }
 

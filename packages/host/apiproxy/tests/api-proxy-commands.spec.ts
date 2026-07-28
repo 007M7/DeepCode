@@ -1,3 +1,4 @@
+import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Command/skill RPC handlers and the two new frames over createApiProxy:
  * command.list serves the addressed agent's effective catalog (missing
@@ -10,10 +11,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentMessage } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -246,9 +247,10 @@ describe('host/commands-changed frame', () => {
 })
 
 /** Build one frozen inbox message for the live `agent/inbox/*` events. */
-function inboxMessage(id: string, text: string, rpcId?: string): AgentMessage {
-  return Object.freeze({
-    id: AgentMessageId(id),
+function inboxMessage(id: string, text: string, rpcId?: string): UserMessage {
+  return freezeMessage({
+    id: MessageId(id),
+    role: 'user',
     content: [{ type: 'text' as const, text }],
     source: rpcId === undefined ? { kind: 'user' as const } : { kind: 'user' as const, rpcId: RpcId(rpcId) },
   })
@@ -271,8 +273,8 @@ describe('session/queued frames', () => {
 
     const liveFrames = (await liveCollected).filter(f => f.type === 'session/queued')
     expect(liveFrames).toEqual([
-      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' }, steering: false },
-      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' }, steering: true },
+      { type: 'session/queued', sessionId: agent.id, message: queued, steering: false },
+      { type: 'session/queued', sessionId: agent.id, message: steering, steering: true },
     ])
 
     // A fresh mux connection replays the still-pending entries as its baseline.
@@ -290,13 +292,31 @@ describe('session/queued frames', () => {
     const steering = inboxMessage('m-4', 'x', 'r-1')
     ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
     ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
-    ctx.emit('agent/inbox/dequeue', agent, queued)
-    ctx.emit('agent/inbox/dequeue', agent, steering)
+    ctx.emit('agent/inbox/dequeue', agent, queued, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, steering, 'steering')
 
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(
       api.events.mux({ rpcId: RpcId('t-mux-after'), payload: {} }, abort.signal), 1, abort)
     expect(frames.filter(f => f.type === 'session/queued')).toHaveLength(0)
+  })
+
+  it('retires the matching placement when one message identity is queued and steering', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const agent = stubAgent(ctx)
+    const repeated = inboxMessage('m-repeat', 'same prompt')
+    ctx.emit('agent/inbox/enqueue', agent, repeated, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, repeated, 'steering')
+    ctx.emit('agent/inbox/dequeue', agent, inboxMessage('unknown', 'not queued'), 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, repeated, 'steering')
+
+    const abort = new AbortController()
+    const frames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-repeat'), payload: {} }, abort.signal), 2, abort)
+    expect(frames.filter(f => f.type === 'session/queued')).toEqual([
+      { type: 'session/queued', sessionId: agent.id, message: repeated, steering: false },
+    ])
   })
 
   it('retires mirror entries on a batch discard (cancel path)', async () => {
@@ -314,6 +334,6 @@ describe('session/queued frames', () => {
       api.events.mux({ rpcId: RpcId('t-mux-swept'), payload: {} }, abort.signal), 2, abort)
     const remaining = frames.filter(f => f.type === 'session/queued')
     expect(remaining).toHaveLength(1)
-    expect(remaining[0]).toMatchObject({ content: survivor.content })
+    expect(remaining[0]).toMatchObject({ message: survivor })
   })
 })

@@ -31,7 +31,7 @@ import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -150,7 +150,11 @@ function registerDelegate(ctx: Context, captured: Agent[], raceSwitch?: 'danger-
 function toolResultTexts(agent: Agent): string[] {
   return agent.session.events
     .filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
-    .map(e => e.data.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join(''))
+    .map(e => e.data.message.content
+      .flatMap(block => block.content)
+      .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+      .map(block => block.text)
+      .join(''))
 }
 
 /** Count the policy-override events in a session log. */
@@ -186,7 +190,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       toolCallResponse('c-write', 'write', { file_path: blocked, content: 'escaped' }),
       textResponse('child done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage the session policy' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage the session policy' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const parentLogLength = parent.session.events.length
 
@@ -229,7 +233,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       },
       textResponse('child done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -264,9 +268,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('fork child done'),
       textResponse('turn two done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'turn one' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'turn one' }], source: { kind: 'user' } }))
     await parent.whenIdle()
-    parent.followup({ content: [{ type: 'text', text: 'turn two: delegate' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'turn two: delegate' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -297,9 +301,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('race child done'),
       textResponse('turn two done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
-    parent.followup({ content: [{ type: 'text', text: 'delegate' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'delegate' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -329,9 +333,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('child done'),
       textResponse('parent done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
-    parent.followup({ content: [{ type: 'text', text: 'delegate twice' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'delegate twice' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     expect(captured).toHaveLength(2)
@@ -350,7 +354,7 @@ describe('inheritance survives prompt vetoes', () => {
     // A veto-capable listener registered BEFORE the child exists — the
     // Claude/Codex UserPromptSubmit hook shape: it blocks the child's prompt
     // and never delegates. Inheritance must still run for the first turn.
-    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
+    ctx.on('agent/prompt-submit', (agent, _message, _signal, next) => {
       if (agent.session.header.parentSession !== undefined) {
         return Promise.resolve({ kind: 'block' as const, reason: 'vetoed by test hook' })
       }
@@ -363,7 +367,7 @@ describe('inheritance survives prompt vetoes', () => {
       },
       // No child model entries: the blocked prompt closes a zero-step turn.
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -432,7 +436,7 @@ describe('what a blocked child experiences', () => {
       },
       textResponse('child done'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -468,7 +472,7 @@ describe('what a blocked child experiences', () => {
       }),
       textResponse('child gave up'),
     )
-    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId, HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
@@ -364,7 +364,9 @@ describe('ToolRegistry', () => {
       return {
         kind: 'accept',
         value: { text: 'policy value' },
-        additionalContexts: [{ content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' } }],
+        additionalContexts: [createUserMessage({
+          content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' },
+        })],
       }
     })
 
@@ -383,7 +385,12 @@ describe('ToolRegistry', () => {
       value: { text: 'policy value' },
       content: [{ type: 'text', text: 'render:policy value' }],
       meta: { projected: 'policy value' },
-      additionalContexts: [{ content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'value context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
     })
   })
 
@@ -505,7 +512,9 @@ describe('ToolRegistry', () => {
       error: { message: 'wrapped failure' },
       content: [{ type: 'text', text: 'wrapper content' }],
       meta: { wrapped: true },
-      additionalContexts: [{ content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [createUserMessage({
+        content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' },
+      })],
     }))
 
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('wrapper-failure'), name: 'echo', arguments: {} })
@@ -514,7 +523,12 @@ describe('ToolRegistry', () => {
       error: { message: 'wrapped failure' },
       content: [{ type: 'text', text: 'wrapper content' }],
       meta: { wrapped: true },
-      additionalContexts: [{ content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'wrapper context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
     })
   })
 
@@ -901,7 +915,9 @@ describe('ToolRegistry', () => {
       ({
         kind: 'block',
         feedback: [{ type: 'text', text: 'rejected' }],
-        additionalContexts: [{ content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } }],
+        additionalContexts: [createUserMessage({
+          content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' },
+        })],
       }))
 
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
@@ -915,7 +931,9 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
 
     ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }] }))
+      ({ kind: 'accept', additionalContexts: [createUserMessage({
+        content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' },
+      })] }))
 
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.additionalContexts).toMatchObject([{ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } }])
@@ -928,8 +946,12 @@ describe('ToolRegistry', () => {
       description: 'composite',
       parameters: {},
       async execute(_args, exec) {
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' } })
+        exec.deferContext(createUserMessage({
+          content: [{ type: 'text', text: 'nested-1' }], source: { kind: 'plugin', plugin: 'nested-1' },
+        }))
+        exec.deferContext(createUserMessage({
+          content: [{ type: 'text', text: 'nested-2' }], source: { kind: 'plugin', plugin: 'nested-2' },
+        }))
         return [{ type: 'text', text: 'done' }]
       },
     }))
@@ -939,7 +961,9 @@ describe('ToolRegistry', () => {
         ...result,
         additionalContexts: [
           ...result.additionalContexts ?? [],
-          { content: [{ type: 'text', text: 'wrapper' }], source: { kind: 'plugin', plugin: 'wrapper' } },
+          createUserMessage({
+            content: [{ type: 'text', text: 'wrapper' }], source: { kind: 'plugin', plugin: 'wrapper' },
+          }),
         ],
       }
     })
@@ -948,7 +972,9 @@ describe('ToolRegistry', () => {
       return {
         ...downstream,
         additionalContexts: [
-          { content: [{ type: 'text', text: 'post' }], source: { kind: 'plugin', plugin: 'post' } },
+          createUserMessage({
+            content: [{ type: 'text', text: 'post' }], source: { kind: 'plugin', plugin: 'post' },
+          }),
           ...downstream.additionalContexts ?? [],
         ],
       }
@@ -971,7 +997,9 @@ describe('ToolRegistry', () => {
       description: 'failing composite',
       parameters: {},
       async execute(_args, exec) {
-        exec.deferContext({ content: [{ type: 'text', text: 'nested' }], source: { kind: 'plugin', plugin: 'nested' } })
+        exec.deferContext(createUserMessage({
+          content: [{ type: 'text', text: 'nested' }], source: { kind: 'plugin', plugin: 'nested' },
+        }))
         throw new Error('outer failure')
       },
     }))
@@ -983,7 +1011,9 @@ describe('ToolRegistry', () => {
     ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
       kind: 'block',
       feedback: [{ type: 'text', text: 'blocked' }],
-      additionalContexts: [{ content: [{ type: 'text', text: 'block-only' }], source: { kind: 'plugin', plugin: 'blocker' } }],
+      additionalContexts: [createUserMessage({
+        content: [{ type: 'text', text: 'block-only' }], source: { kind: 'plugin', plugin: 'blocker' },
+      })],
     }))
     const blocked = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('blocked'), name: 'failing-composite', arguments: {} })
     expect(blocked.isError).toBe(true)
@@ -1224,10 +1254,10 @@ describe('ToolRegistry', () => {
         value: 'wrapper success',
         content: [{ type: 'text', text: 'wrapper success' }],
         isError: false,
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: 'wrapper context' }],
           source: { kind: 'plugin', plugin: 'wrapper' },
-        }],
+        })],
       }
     })
     const controller = new AbortController()
@@ -1257,10 +1287,10 @@ describe('ToolRegistry', () => {
       ...echoTool,
       name: 'completed-before-wrapper',
       async execute(_args, exec) {
-        exec.deferContext({
+        exec.deferContext(createUserMessage({
           content: [{ type: 'text', text: 'completed child work' }],
           source: { kind: 'plugin', plugin: 'child' },
-        })
+        }))
         return 'body complete'
       },
     })
@@ -1294,10 +1324,10 @@ describe('ToolRegistry', () => {
       ...echoTool,
       name: 'completed-before-post',
       async execute(_args, exec) {
-        exec.deferContext({
+        exec.deferContext(createUserMessage({
           content: [{ type: 'text', text: 'completed child work' }],
           source: { kind: 'plugin', plugin: 'child' },
-        })
+        }))
         return 'body complete'
       },
     })
@@ -1309,10 +1339,10 @@ describe('ToolRegistry', () => {
       await release.promise
       return {
         ...decision,
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: 'post context' }],
           source: { kind: 'plugin', plugin: 'post' },
-        }],
+        })],
       }
     })
     const controller = new AbortController()
@@ -1499,10 +1529,10 @@ describe('ToolRegistry', () => {
       ...echoTool,
       name: 'uncooperative',
       execute(_args, exec) {
-        exec.deferContext({
+        exec.deferContext(createUserMessage({
           content: [{ type: 'text', text: 'nested outcome' }],
           source: { kind: 'plugin', plugin: 'nested' },
-        })
+        }))
         entered.resolve(undefined)
         return release.promise
       },
@@ -1789,10 +1819,10 @@ describe('ToolRegistry', () => {
       content: [{ type: 'text', text: 'short-circuited with context' }],
       isError: false,
       value: 'short-circuited with context',
-      additionalContexts: [{
+      additionalContexts: [createUserMessage({
         content: [{ type: 'text', text: 'from around dispatch' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }],
+      })],
     }))
 
     const result = await ctx.tools.execute({
@@ -1800,6 +1830,8 @@ describe('ToolRegistry', () => {
       callId: CallId('around-context'), name: 'echo', arguments: {},
     })
     expect(result.additionalContexts).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'from around dispatch' }],
       source: { kind: 'plugin', plugin: 'test' },
     }])

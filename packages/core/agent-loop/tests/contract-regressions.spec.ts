@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
@@ -50,7 +50,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 describe('assistant replay provenance', () => {
@@ -66,11 +66,11 @@ describe('assistant replay provenance', () => {
     await waitForIdle(ctx, agent)
 
     const recorded = agent.session.events.find(event => event.type === 'assistant/message')
-    expect(recorded?.type === 'assistant/message' && recorded.data.provenance).toEqual({
-      provider: 'mock', model: 'next-model', replayState,
+    expect(recorded?.type === 'assistant/message' && recorded.data.message.source).toEqual({
+      kind: 'model', provider: 'mock', model: 'next-model', replayState,
     })
-    expect(agent.session.deriveMessages().at(-1)?.provenance).toEqual({
-      provider: 'mock', model: 'next-model', replayState,
+    expect(agent.session.deriveMessages().at(-1)?.source).toEqual({
+      kind: 'model', provider: 'mock', model: 'next-model', replayState,
     })
   })
 })
@@ -85,17 +85,17 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.inject({ content: [{ type: 'text', text: 'accepted before abort' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'accepted before abort' }], source: { kind: 'plugin', plugin: 'test' } }))
         agent.cancel({ kind: 'user' })
         return [{ type: 'text', text: 'done' }]
       },
     }))
     ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
       kind: 'accept',
-      additionalContexts: [{
+      additionalContexts: [createUserMessage({
         content: [{ type: 'text', text: 'accepted result context after abort' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }],
+      })],
     }))
 
     send(agent, 'go')
@@ -148,10 +148,10 @@ describe('abort during tool execution ends the turn', () => {
       if (exec.callId !== CallId('c1')) return next()
       return {
         kind: 'accept',
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: 'accepted after first result' }],
           source: { kind: 'plugin', plugin: 'test' },
-        }],
+        })],
       }
     })
 
@@ -185,7 +185,7 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute(_args, exec) {
-        agent.inject({ content: [{ type: 'text', text: 'accepted before disposal' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'accepted before disposal' }], source: { kind: 'plugin', plugin: 'test' } }))
         started.resolve(undefined)
         const signal = exec.signal
         if (!signal) throw new Error('tool execution signal is missing')
@@ -198,10 +198,10 @@ describe('abort during tool execution ends the turn', () => {
     }))
     ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
       kind: 'accept',
-      additionalContexts: [{
+      additionalContexts: [createUserMessage({
         content: [{ type: 'text', text: 'accepted result context during disposal' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }],
+      })],
     }))
 
     send(agent, 'go')
@@ -254,7 +254,7 @@ describe('abort during tool execution ends the turn', () => {
     await waitForIdle(ctx, agent)
     ctx.on('agent/step', (subject, turn) => {
       if (subject === agent && turn === 2) {
-        agent.inject({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
     })
     send(agent, 'start a text-only turn')
@@ -282,7 +282,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('agent/turn-stopping', () => {
       if (!steeredOnce) {
         steeredOnce = true
-        agent.steer({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } }))
       }
     })
 
@@ -307,7 +307,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/end' || steeredOnce) return
       steeredOnce = true
-      agent.steer({ content: [{ type: 'text', text: 'goal reminder from step/end' }], source: { kind: 'user' } })
+      agent.steer(createUserMessage({ content: [{ type: 'text', text: 'goal reminder from step/end' }], source: { kind: 'user' } }))
     })
 
     send(agent, 'go')
@@ -339,7 +339,7 @@ describe('steering from late extension points is never stranded', () => {
       if (event.type === 'turn/end' && !steeredOnce) {
         steeredOnce = true
         expect(agent.acceptsNextStep).toBe(false)
-        agent.steer({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } }))
       }
     })
 
@@ -494,7 +494,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.steer({ content: [{ type: 'text', text: 's' }], source: { kind: 'plugin', plugin: 'goal' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 's' }], source: { kind: 'plugin', plugin: 'goal' } }))
         return []
       },
     }))
@@ -516,13 +516,13 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       { kind: 'plugin', plugin: 'goal' },
     ])
     expect(queuedShapes).toEqual([
-      ['content', 'id', 'source'],
-      ['content', 'id', 'source'],
+      ['content', 'id', 'role', 'source'],
+      ['content', 'id', 'role', 'source'],
     ])
     expect(placements).toEqual(['queued', 'steering'])
     // The drain appends the durable steering/message with the caller's source
     // intact — the log, not a transient emit, is where consumers read it.
-    const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
+    const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.message.source] : [])
     expect(steeringSources).toEqual([{ kind: 'plugin', plugin: 'goal' }])
   })
 
@@ -554,7 +554,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
-    forked.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
+    forked.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
         if (subject === forked && status === 'idle') resolve()
@@ -1105,7 +1105,7 @@ describe('tool result call identity', () => {
     const resultEvent = [...agent.session.events].find(e => e.type === 'tool/result')
     expect(resultEvent?.type).toBe('tool/result')
     if (resultEvent?.type === 'tool/result') {
-      expect(resultEvent.data.callId).toBe(CallId('c1'))
+      expect(resultEvent.data.message.source.callId).toBe(CallId('c1'))
     }
 
     // And deriveMessages pairs the tool-result with the assistant tool-call:

@@ -38,7 +38,7 @@ The store pairs announced creation with disposal, publishes post-commit append n
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, complete replacement coverage, and content-only single-result `tool/result` rewrites, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
-- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
+- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over the complete identified, frozen messages stored by those entries. Assistant messages preserve provider/model provenance and adapter-private replay state in their model source. A surface rewrite rebuilds the projection; there is no raw-log fallback.
 - `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and request checks.
 - `session.surface` exposes the readonly `SessionSurface` view owned by the session's single incremental surface manager; `replaceGeneration` changes on every committed rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
@@ -65,9 +65,9 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-A `user/message` renders its `content` verbatim as a user-role message whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
+A `user/message` stores the complete `UserMessage` directly, including the identity created before routing or prompt admission. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message`, `tool/result`, and `steering/message` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
 
-`tool/result` persists the model-facing content, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message. This preserves the existing event shape and does not change `SESSION_FORMAT_VERSION`.
+`tool/result` persists one identified user-role tool-result message, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message.
 
 ### Session event vocabulary (`types.ts`)
 
@@ -100,7 +100,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 #### What the model sees
 
-The model receives projections of `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives the complete messages from `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim. Their identities, roles, sources, and content blocks are the same values established at creation; projections do not mint identities. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
@@ -54,10 +54,10 @@ describe('tool-session-query with the real SQLite provider', () => {
       type: 'user/message',
       seq: 0,
       time: 2,
-      data: {
+      data: createUserMessage({
         content: [{ type: 'text', text: 'persisted integration needle' }],
         source: { kind: 'user' },
-      },
+      }),
       surfaceOp: 'append',
     }])
 
@@ -67,7 +67,9 @@ describe('tool-session-query with the real SQLite provider', () => {
     caller.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     caller.append(
       'user/message',
-      { content: [{ type: 'text', text: 'live integration needle' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'live integration needle' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     caller.append('step/start', { turn: 1, step: 1 })
@@ -123,40 +125,40 @@ describe('tool-session-query with the real SQLite provider', () => {
         type: 'user/message',
         seq: 0,
         time: base + 123,
-        data: {
+        data: createUserMessage({
           content: [{ type: 'text', text: 'fractional integration needle' }],
           source: { kind: 'user' },
-        },
+        }),
         surfaceOp: 'append',
       },
       {
         type: 'user/message',
         seq: 1,
         time: base + 124,
-        data: {
+        data: createUserMessage({
           content: [{ type: 'text', text: 'fractional integration needle' }],
           source: { kind: 'user' },
-        },
+        }),
         surfaceOp: 'append',
       },
       {
         type: 'user/message',
         seq: 2,
         time: -124,
-        data: {
+        data: createUserMessage({
           content: [{ type: 'text', text: 'pre-epoch fractional needle' }],
           source: { kind: 'user' },
-        },
+        }),
         surfaceOp: 'append',
       },
       {
         type: 'user/message',
         seq: 3,
         time: -123,
-        data: {
+        data: createUserMessage({
           content: [{ type: 'text', text: 'pre-epoch fractional needle' }],
           source: { kind: 'user' },
-        },
+        }),
         surfaceOp: 'append',
       },
     ])
