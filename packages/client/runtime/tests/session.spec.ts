@@ -270,12 +270,12 @@ describe('paging', () => {
     }
 
     await session.open()
-    await session.history.loadAll()
+    await session.loadAllHistory()
 
     expect(api.callsOf('session.history')).toHaveLength(3)
-    expect(session.history.getSnapshot().hasMore).toBe(false)
-    expect(session.history.getSnapshot().entries.map(entry => entry.event.seq))
-      .toEqual([...Array(18).keys()])
+    expect(session.getSnapshot().hasMore).toBe(false)
+    expect(session.getSnapshot().inspection?.eventNodes.map(node => node.seq))
+      .toEqual([1, 3, 7, 9, 13, 15])
     expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9, 13, 15])
   })
 
@@ -286,10 +286,10 @@ describe('paging', () => {
       : Promise.resolve(err({ code: 'internal', message: 'page unavailable', details: {} }))
 
     await session.open()
-    await session.history.loadAll()
+    await session.loadAllHistory()
 
     expect(api.callsOf('session.history')).toHaveLength(2)
-    expect(session.history.getSnapshot().hasMore).toBe(true)
+    expect(session.getSnapshot().hasMore).toBe(true)
   })
 
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {

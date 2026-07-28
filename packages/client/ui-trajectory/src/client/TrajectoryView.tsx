@@ -1,12 +1,9 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  AssistantMessageNode, ConversationContext, SessionHistory,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  inspectRequests, projectConversationHistory,
+  AssistantMessageNode, ConversationContext, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { deriveTrajectoryContextBranches } from './context-branches.ts'
 import {
@@ -19,10 +16,11 @@ import { deriveTrajectoryLayout } from './layout.ts'
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
+const EMPTY_REQUESTS: readonly RequestView[] = []
 
-/** Raw session-history source needed by the event-complete trajectory view. */
+/** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
-  history: SessionHistory
+  loadAllHistory: () => Promise<void>
 }
 
 interface UsageLike {
@@ -69,47 +67,29 @@ function addUsage(
   }
 }
 
-export function TrajectoryView({ useSession, history }: ConvViewProps & TrajectoryViewInjected) {
+export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & TrajectoryViewInjected) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<number>>(EMPTY_IDS)
   const nodes = useSession(s => s.nodes)
+  const inspection = useSession(s => s.inspection)
+  const hasMore = useSession(s => s.hasMore)
+  const openState = useSession(s => s.openState)
   const partial = useSession(s => s.partial)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
-  const subscribeHistory = useMemo(
-    () => (listener: () => void) => history.subscribe(listener),
-    [history],
-  )
-  const getHistorySnapshot = useMemo(
-    () => () => history.getSnapshot(),
-    [history],
-  )
-  const historySnapshot = useSyncExternalStore(
-    subscribeHistory,
-    getHistorySnapshot,
-    getHistorySnapshot,
-  )
+  const loadAllHistoryRef = useRef(loadAllHistory)
+  loadAllHistoryRef.current = loadAllHistory
   useEffect(() => {
-    if (historySnapshot.openState === 'open' && historySnapshot.hasMore) {
-      void history.loadAll()
-    }
-  }, [history, historySnapshot.hasMore, historySnapshot.openState])
-  const projectedHistory = useMemo(
-    () => projectConversationHistory(historySnapshot.entries),
-    [historySnapshot.entries],
-  )
-  const requestInspection = useMemo(
-    () => inspectRequests(historySnapshot.entries),
-    [historySnapshot.entries],
-  )
-  const requests = requestInspection.requests
-  const callSchemas = requestInspection.callSchemas
+    if (openState === 'open' && hasMore) void loadAllHistoryRef.current()
+  }, [hasMore, openState])
+  const requests = inspection?.requests ?? EMPTY_REQUESTS
+  const callSchemas = inspection?.callSchemas
   const contexts = useMemo<readonly ConversationContext[]>(
-    () => projectedHistory.contexts.length === 0
+    () => inspection === undefined || inspection.contexts.length === 0
       ? [{ id: 0, nodes }]
-      : projectedHistory.contexts,
-    [nodes, projectedHistory.contexts],
+      : inspection.contexts,
+    [inspection, nodes],
   )
   const branches = useMemo(
     () => deriveTrajectoryContextBranches(contexts),
@@ -117,9 +97,9 @@ export function TrajectoryView({ useSession, history }: ConvViewProps & Trajecto
   )
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = projectedHistory.eventNodes.length === 0
+  const selectedNodes = inspection === undefined || inspection.eventNodes.length === 0
     ? nodes
-    : projectedHistory.eventNodes
+    : inspection.eventNodes
   const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
@@ -256,7 +236,7 @@ export function TrajectoryView({ useSession, history }: ConvViewProps & Trajecto
       partial,
       runningCalls,
       requests,
-      callSchemas,
+      ...(callSchemas === undefined ? {} : { callSchemas }),
       codeDispatches,
     }),
     [

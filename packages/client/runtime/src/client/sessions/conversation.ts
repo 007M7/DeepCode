@@ -8,6 +8,7 @@ import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionHistoryInspection } from './history.ts'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
 
@@ -238,6 +239,8 @@ export interface ConversationSnapshot {
   sessionId: SessionId
   /** Surface fold product (finalized conversation nodes in surface order). */
   nodes: readonly ConversationNode[]
+  /** Lazy history-only projections consumed by inspection views. */
+  inspection?: SessionHistoryInspection
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean
   partial: PartialAssistant | null

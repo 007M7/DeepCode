@@ -39,10 +39,8 @@ export type {
 export type {
   ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
 } from './sessions/request-inspection.ts'
-export { inspectRequests } from './sessions/request-inspection.ts'
-export { projectConversationHistory } from './sessions/fold-adapter.ts'
 export type { ConversationHistoryProjection } from './sessions/fold-adapter.ts'
-export type { SessionHistory, SessionHistorySnapshot } from './sessions/history.ts'
+export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'

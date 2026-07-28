@@ -15,7 +15,9 @@ import type {
   CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot,
   OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
-import type { SessionHistory, SessionHistorySnapshot } from './history.ts'
+import {
+  createHistoryInspection, type SessionHistoryInspection,
+} from './history.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
@@ -112,6 +114,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Raw history revision; published entries are copied so later live appends never mutate a prior snapshot. */
   private historyRev = 0
   private historyEntriesCache: { rev: number; value: readonly HistoryEntry[] } | null = null
+  private historyInspectionCache: {
+    rev: number
+    value: SessionHistoryInspection
+  } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -132,13 +138,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private subscribedLastSeq: number | null = null
 
   private snapshotCache: ConversationSnapshot
-  private historySnapshotCache: SessionHistorySnapshot | undefined
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
-    this.historySnapshotCache = this.buildHistorySnapshot()
   })
-  /** Raw log read surface; trajectory-like consumers project their own model from it. */
-  readonly history: SessionHistory
   /**
    * Agent-scoped cordis context, bound once by SessionsService when it
    * mints the scope (the client mirror of the host Agent's loopCtx). The
@@ -159,19 +161,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     private readonly options: SessionOptions = {},
   ) {
     this.snapshotCache = this.buildSnapshot()
-    this.historySnapshotCache = this.buildHistorySnapshot()
-    this.history = {
-      getSnapshot: () => {
-        this.notifier.ensureFresh()
-        /* v8 ignore next -- constructor initializes the cache before history is published. */
-        if (this.historySnapshotCache === undefined) {
-          throw new Error(`session ${this.sessionId} history cache is uninitialized`)
-        }
-        return this.historySnapshotCache
-      },
-      subscribe: listener => this.notifier.subscribe(listener),
-      loadAll: () => this.loadAllHistory(),
-    }
   }
 
   /**
@@ -307,7 +296,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * backend failure cannot become an automatic retry loop.
    * @returns When the available history has been exhausted or paging stops making progress.
    */
-  private async loadAllHistory(): Promise<void> {
+  async loadAllHistory(): Promise<void> {
     while (this.openState === 'open' && this.hasMore && !this.loadingOlder) {
       const previousBaseSeq = this.baseSeq
       await this.loadOlder()
@@ -572,7 +561,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (tailSeq !== null && event.seq <= tailSeq) return // replay overlap, drop
     this.events.push(event)
     this.views.push(view)
-    this.historyRev++
+    if (event.type !== 'assistant/chunk') this.historyRev++
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
   }
@@ -831,6 +820,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return {
       sessionId: this.sessionId,
       nodes,
+      inspection: this.buildHistoryInspection(),
       foldDegraded: degraded,
       partial,
       runningCalls: this.callsCache.value,
@@ -854,8 +844,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
-  /** Build the raw history read surface without leaking the mutable window arrays. */
-  private buildHistorySnapshot(): SessionHistorySnapshot {
+  /** Build the lazy history inspection wrapper without leaking mutable window arrays. */
+  private buildHistoryInspection(): SessionHistoryInspection {
     if (this.historyEntriesCache === null || this.historyEntriesCache.rev !== this.historyRev) {
       this.historyEntriesCache = {
         rev: this.historyRev,
@@ -865,27 +855,16 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         }),
       }
     }
-    const previous = this.historySnapshotCache
     if (
-      previous !== undefined
-      && previous.entries === this.historyEntriesCache.value
-      && previous.baseSeq === this.baseSeq
-      && previous.openState === this.openState
-      && previous.openError === this.openError
-      && previous.hasMore === this.hasMore
-      && previous.loadingOlder === this.loadingOlder
+      this.historyInspectionCache === null
+      || this.historyInspectionCache.rev !== this.historyRev
     ) {
-      return previous
+      this.historyInspectionCache = {
+        rev: this.historyRev,
+        value: createHistoryInspection(this.historyEntriesCache.value),
+      }
     }
-    return {
-      sessionId: this.sessionId,
-      entries: this.historyEntriesCache.value,
-      baseSeq: this.baseSeq,
-      openState: this.openState,
-      openError: this.openError,
-      hasMore: this.hasMore,
-      loadingOlder: this.loadingOlder,
-    }
+    return this.historyInspectionCache.value
   }
 }
 

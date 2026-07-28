@@ -16,8 +16,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, SessionHistory, SessionHistorySnapshot, SessionId,
-  SessionListState, WorkspaceListState,
+  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -83,42 +82,11 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
   } as unknown as ConvViewProps
 }
 
-function emptyHistory(): SessionHistory {
-  const store = createSnapshotStore<SessionHistorySnapshot>({
-    sessionId: SID,
-    entries: [],
-    baseSeq: 0,
-    openState: 'open',
-    openError: null,
-    hasMore: false,
-    loadingOlder: false,
-  })
-  return {
-    getSnapshot: () => store.getSnapshot(),
-    subscribe: listener => store.subscribe(listener),
-    loadAll: () => Promise.resolve(),
-  }
-}
-
 /** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
 async function bench() {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
   const loadAllHistory = vi.fn(() => Promise.resolve())
-  const historyStore = createSnapshotStore<SessionHistorySnapshot>({
-    sessionId: SID,
-    entries: [],
-    baseSeq: 0,
-    openState: 'open',
-    openError: null,
-    hasMore: true,
-    loadingOlder: false,
-  })
-  const history: SessionHistory = {
-    getSnapshot: () => historyStore.getSnapshot(),
-    subscribe: listener => historyStore.subscribe(listener),
-    loadAll: loadAllHistory,
-  }
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
     name: 'root',
@@ -132,7 +100,7 @@ async function bench() {
   ctx.provide('conversation', {})
   ctx.provide('sessions', {
     binding: (sessionId: SessionId) => sessionId === SID
-      ? { session: { history } }
+      ? { session: { loadAllHistory } }
       : undefined,
   })
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -295,7 +263,7 @@ describe('span derivation', () => {
     expect(container.firstChild).toBeNull()
     render(createElement(
       TrajectoryView,
-      { ...standaloneProps([]), history: emptyHistory() },
+      { ...standaloneProps([]), loadAllHistory: () => Promise.resolve() },
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
