@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { once } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,7 +13,7 @@ import {
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
 import type { SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
-import { spawnE2BTerminal } from '../src/terminal.ts'
+import { E2BTerminalHandle, spawnE2BTerminal } from '../src/terminal.ts'
 
 function commandError(exitCode: number): CommandExitError {
   return new CommandExitError({ exitCode, stdout: '', stderr: '', error: `exit ${exitCode}` })
@@ -80,6 +81,7 @@ class FakeTerminalSandbox {
   createOptions: Parameters<Sandbox['pty']['create']>[0] | undefined
   ambient = 'KEEP=visible\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   ready: string | Error = 'ready\n'
+  readyMisses = 0
   sessionId = '123\n'
   foreground = '456\n'
   groups = [123]
@@ -106,6 +108,10 @@ class FakeTerminalSandbox {
         return files.map(() => ({}))
       },
       read: async (): Promise<string> => {
+        if (this.readyMisses > 0) {
+          this.readyMisses -= 1
+          throw new FileNotFoundError('not ready')
+        }
         if (this.ready instanceof Error) throw this.ready
         return this.ready
       },
@@ -191,6 +197,7 @@ function spec(overrides: Partial<SubprocessTerminalSpawnSpec> = {}): SubprocessT
 describe('E2B terminal allocation', () => {
   it('boots the requested argv through a private runner and preserves buffered bytes', async () => {
     const fake = new FakeTerminalSandbox()
+    fake.readyMisses = 1
     const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/terminal-one')
     let output = ''
     terminal.output.on('data', (chunk) => { output += String(chunk) })
@@ -281,6 +288,9 @@ describe('E2B terminal allocation', () => {
     await expect(spawnE2BTerminal(runtime(invalidSession), spec(), '/runtime/session'))
       .rejects.toThrow('cannot resolve process session')
     expect(invalidSession.handle.sdkKills).toBe(1)
+    const lateData = invalidSession.createOptions?.onData
+    if (lateData === undefined) throw new Error('missing captured terminal callback')
+    expect(lateData(Buffer.from('late bytes'))).toBeUndefined()
 
     const cleanupFailed = new FakeTerminalSandbox()
     cleanupFailed.handle.pid = 0
@@ -321,6 +331,26 @@ describe('E2B terminal lifecycle', () => {
     await expect(terminal.write(Buffer.from('late'))).rejects.toThrow('exited')
     fake.foregroundFailure = commandError(1)
     await expect(terminal.inspectForeground()).resolves.toBeUndefined()
+    await expect(terminal.signalForeground('SIGINT')).rejects.toThrow('cannot resolve foreground process group')
+  })
+
+  it('starts cleanup when the lifetime signal is already aborted at handle publication', async () => {
+    const fake = new FakeTerminalSandbox()
+    const controller = new AbortController()
+    controller.abort(new Error('publication cancelled'))
+    const terminal = new E2BTerminalHandle(
+      fake.sandbox,
+      fake.handle.asHandle(),
+      new PassThrough(),
+      fake.handle.wait(),
+      123,
+      '/runtime/pre-aborted',
+      1,
+      controller.signal,
+    )
+
+    await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+    await expect(terminal.waitForExit()).resolves.toBe(true)
   })
 
   it.each([
@@ -398,6 +428,27 @@ describe('E2B terminal lifecycle', () => {
     const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/signal-failure')
     terminal.terminate()
     await expect(terminal.waitForExit()).rejects.toThrow('signal transport failed')
+
+    fake.groups = []
+    fake.handle.succeed(0)
+    await terminal.done
+    terminal.terminate()
+    await expect(terminal.waitForExit()).resolves.toBe(true)
+
+    const alreadyExited = new FakeTerminalSandbox()
+    alreadyExited.termFailure = commandError(1)
+    const tolerant = await spawnE2BTerminal(runtime(alreadyExited), spec({ graceMs: 1 }), '/runtime/group-exited')
+    tolerant.terminate()
+    await expect(tolerant.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+    await expect(tolerant.waitForExit()).resolves.toBe(true)
+  })
+
+  it('normalizes a non-Error cleanup rejection for an observing wait', async () => {
+    const fake = new FakeTerminalSandbox()
+    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/non-error-cleanup')
+    fake.commandFailure = 'cleanup transport gone'
+    terminal.terminate()
+    await expect(terminal.waitForExit(new AbortController().signal)).rejects.toThrow('cleanup transport gone')
 
     fake.groups = []
     fake.handle.succeed(0)

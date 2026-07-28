@@ -591,7 +591,7 @@ Owns one lazily consumable E2B SDK handle and its final kill/pause/leave decisio
 async getSandbox(): Promise<Sandbox>
 ```
 
-Source: [`packages/e2b/e2b/src/index.ts:119`](../../packages/e2b/e2b/src/index.ts)
+Source: [`packages/e2b/e2b/src/index.ts:97`](../../packages/e2b/e2b/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -1180,7 +1180,7 @@ list(owner: Agent): PtySessionSnapshot[]
 
 Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
 
-Source: [`packages/pty/pty/src/index.ts:114`](../../packages/pty/pty/src/index.ts)
+Source: [`packages/pty/pty/src/index.ts:105`](../../packages/pty/pty/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 

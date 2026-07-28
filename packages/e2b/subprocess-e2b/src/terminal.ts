@@ -10,7 +10,7 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
-import { SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
+import { SENSITIVE_ENV_PATTERN, SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessOutcome,
   SubprocessTerminalForeground,
@@ -127,9 +127,8 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   readonly done: Promise<SubprocessOutcome>
 
   private topLevelExited = false
-  private termination: Promise<void> | undefined
+  private readonly lifecycle: SubprocessTerminalLifecycle
   private terminationSignal: NodeJS.Signals | null = null
-  private removeAbort: (() => void) | undefined
 
   constructor(
     private readonly sandbox: Sandbox,
@@ -143,13 +142,11 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   ) {
     this.pid = handle.pid
     this.done = this.waitForCommand()
-    void this.done.then(() => { this.terminate() }, () => { this.terminate() })
-    if (signal !== undefined) {
-      const onAbort = (): void => { this.terminate() }
-      signal.addEventListener('abort', onAbort, { once: true })
-      this.removeAbort = () => { signal.removeEventListener('abort', onAbort) }
-      if (signal.aborted) this.terminate()
-    }
+    this.lifecycle = new SubprocessTerminalLifecycle({
+      done: this.done,
+      cleanup: () => this.closeOnce(),
+      signal,
+    })
   }
 
   /** @inheritdoc */
@@ -192,36 +189,12 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
 
   /** @inheritdoc */
   terminate(): void {
-    this.termination ??= this.closeOnce().catch((error: unknown) => {
-      this.termination = undefined
-      throw error
-    })
-    void this.termination.catch(() => {})
+    this.lifecycle.terminate()
   }
 
   /** @inheritdoc */
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
-    const quiescence = this.termination ?? this.done.then(
-      () => { this.terminate(); return this.termination },
-      () => { this.terminate(); return this.termination },
-    )
-    if (signal === undefined) {
-      await quiescence
-      return true
-    }
-    if (signal.aborted) return false
-    return await new Promise<boolean>((resolve, reject) => {
-      const onAbort = (): void => { cleanup(); resolve(false) }
-      const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      void quiescence.then(
-        () => { cleanup(); resolve(true) },
-        (error: unknown) => {
-          cleanup()
-          reject(error instanceof Error ? error : new Error(String(error)))
-        },
-      )
-    })
+    return await this.lifecycle.waitForExit(signal)
   }
 
   private async waitForCommand(): Promise<SubprocessOutcome> {
@@ -261,7 +234,6 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async signalGroups(groups: number[], signal: 'TERM' | 'KILL'): Promise<void> {
-    if (groups.length === 0) return
     try {
       await this.sandbox.commands.run(`kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`)
     } catch (error: unknown) {
@@ -301,8 +273,6 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     if (!this.topLevelExited) {
       throw new Error(`subprocess-e2b: terminal cleanup failed; surviving pid: ${this.pid}`)
     }
-    this.removeAbort?.()
-    this.removeAbort = undefined
     await this.handle.disconnect()
     await this.sandbox.files.remove(this.stateDir).catch(() => {})
   }
