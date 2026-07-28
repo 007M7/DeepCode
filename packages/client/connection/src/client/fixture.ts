@@ -863,12 +863,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, directoryPicker: 'browse' as const }),
-      pickDirectory: request => err(request, {
-        code: 'directory-picker-unavailable',
-        message: 'the fixture host serves the browse capability',
-        details: { capability: 'browse' },
-      }),
+      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
+      // Deterministic native pick: the keyless lanes drive the full
+      // pick-then-adopt path without an OS chooser (design-mock content,
+      // same tree the browse primitives serve).
+      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
       listDirectory: (request) => {
         const target = request.payload.path ?? FIXTURE_HOME
         const children = childrenOf(target)

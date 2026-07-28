@@ -238,15 +238,6 @@ describe('WorkspacesService', () => {
     await expect(workspaces.pickDirectory()).rejects.toThrow(/no chooser/)
   })
 
-  it('reads the picker kind from describe per call, failing loud on an unreachable host', async () => {
-    const ctx = new Context()
-    const api = new FakeApiClient()
-    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api))
-    await expect(workspaces.directoryPickerKind()).resolves.toBe('browse')
-    api.onDescribe = () => Promise.resolve(err({ code: 'internal', message: 'down', details: {} }))
-    await expect(workspaces.directoryPickerKind()).rejects.toThrow(/host describe failed/)
-  })
-
   it('passes listings and creation through the browse wire, wrapping business failures', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

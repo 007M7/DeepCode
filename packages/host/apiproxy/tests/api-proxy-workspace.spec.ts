@@ -192,17 +192,14 @@ describe('host.listDirectory / host.createDirectory', () => {
     })
   })
 
-  it('refuses the browse RPCs under a native composition and advertises the kind in describe', async () => {
+  it('refuses the browse RPCs under a native composition', async () => {
     const { api } = await harness()
-    expect((await api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'native' } })
     expect((await api.host.listDirectory(request({}))).result).toMatchObject({
       ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'native' } },
     })
     expect((await api.host.createDirectory(request({ path: '/x', name: 'y' }))).result).toMatchObject({
       ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'native' } },
     })
-    const browse = await harness(undefined, BROWSE_STUB)
-    expect((await browse.api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'browse' } })
   })
 })
 

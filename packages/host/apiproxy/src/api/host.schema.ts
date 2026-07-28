@@ -19,7 +19,6 @@ export const hostDescribeValueSchema = z.object({
   attachedSessions: z.number().int().nonnegative(),
   // Open string, not a literal union: unknown kinds must survive the wire so
   // a merge-added capability can advertise (the client hides the affordance).
-  directoryPicker: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
 /** host.pickDirectory request payload (empty object literal). */

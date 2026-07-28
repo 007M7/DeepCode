@@ -2,18 +2,20 @@
  * Workspace pick/create flow. WorkspaceCreateFlow is the reusable core
  * (menu + path/create dialogs) consumed directly by WorkspaceBrowser (same
  * package) and wrapped by WorkspacePicker for the conversation empty-state
- * slot registration.
+ * slot registration. Directory picking itself lives in the composed flow
+ * package's slot occupant (see the contract module doc): this core only
+ * opens the flow, adopts the picked path, and owns the error surface.
  */
-import type { RefObject } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   WorkspaceCreateError,
-  type DirectoryPickerKind, type WorkspaceId, type WorkspaceListState, type WorkspaceView,
+  type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePickerProps } from './contract/slots.ts'
+import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
 const OPEN_LOCAL_FOLDER = '::open-local-folder'
@@ -31,10 +33,10 @@ export interface WorkspaceCreateFlowProps {
   useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
   /** Create or adopt a real Host Workspace. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Open the Host's native single-directory picker. */
-  pickDirectory: () => Promise<string | null>
-  /** The Host's advertised picker interaction (read per flow open); gates which picking affordance renders. */
-  directoryPickerKind: () => Promise<DirectoryPickerKind>
+  /** Whether this surface's directory-flow hole is occupied (read per menu render; empty hides the local-folder entry). */
+  hasDirectoryFlow: () => boolean
+  /** Render this surface's directory-flow hole with the owner conversation (the entry's narrowed renderSlot). */
+  renderDirectoryFlow: (owner: DirectoryFlowOwnerProps) => ReactNode
   /** A real Workspace was picked or created. */
   onPick: (workspaceId: WorkspaceId) => void
   /** Close the popover (outside click / Escape / post-pick). */
@@ -57,8 +59,8 @@ export function WorkspaceCreateFlow({
   anchorRef,
   useWorkspaces,
   createWorkspace,
-  pickDirectory,
-  directoryPickerKind,
+  hasDirectoryFlow,
+  renderDirectoryFlow,
   onPick,
   onClose,
   createOnly = false,
@@ -75,6 +77,7 @@ export function WorkspaceCreateFlow({
   const [workspaceName, setWorkspaceName] = useState('')
   const [creating, setCreating] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
+  const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderConflict, setFolderConflict] = useState(false)
   const composingRef = useRef(false)
@@ -82,36 +85,12 @@ export function WorkspaceCreateFlow({
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
-  // The advertised interaction gates the picking affordance: 'native' is the
-  // only kind pickDirectory() can serve, so its entry renders under that kind
-  // alone; 'browse' (until the in-app browser UI lands) and unknown kinds
-  // hide the entry, the seam's documented unknown-kind default. Re-read per
-  // flow open — no cache to go stale across reconnects.
-  const [nativePicker, setNativePicker] = useState(false)
-  useEffect(() => {
-    if (!open) {
-      // Close discards the answer: a reconnect or HMR can swap the composed
-      // backend while the menu is closed, and the reopened menu must never
-      // paint the previous host's entry before the fresh read lands.
-      setNativePicker(false)
-      return
-    }
-    // Reset before each read: the injected reader can also change identity
-    // while the flow stays open, and that prior answer must not leak either;
-    // a settlement from a superseded read is discarded via the
-    // cleanup-toggled flag.
-    setNativePicker(false)
-    let stale = false
-    void directoryPickerKind()
-      .then((kind) => { if (!stale) setNativePicker(kind === 'native') })
-      // A failed describe hides the entry too: the same Host that cannot
-      // answer describe cannot serve pickDirectory.
-      .catch(() => { if (!stale) setNativePicker(false) })
-    return () => { stale = true }
-  }, [open, directoryPickerKind])
-
+  // The occupied hole gates the picking affordance: with no composed flow the
+  // entry simply is not there (the seam's documented no-flow default). Read
+  // per render while the menu is open — registrations land through plugin
+  // activation, and the menu re-renders on every toggle.
   const createEntries: MenuEntry[] = [
-    ...(nativePicker
+    ...(hasDirectoryFlow()
       ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder }]
       : []),
     { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
@@ -134,15 +113,10 @@ export function WorkspaceCreateFlow({
     setModalError(null)
   }
 
-  const openLocalFolder = (): void => {
-    onClose()
-    setModalKind(null)
-    setModalError(null)
-    setFolderConflict(false)
-    setPickingFolder(true)
-    void pickDirectory().then(async (path) => {
-      if (path === null) return
-      const workspace = await createWorkspace({ path })
+  /** Adopt a picked directory; failures land in the folder-error dialog (Choose again reopens the flow). */
+  const adoptDirectory = (path: string): Promise<void> =>
+    createWorkspace({ path }).then((workspace) => {
+      setFlowOpen(false)
       onPick(workspace.workspaceId)
     }).catch((reason: unknown) => {
       setFolderConflict(
@@ -150,8 +124,33 @@ export function WorkspaceCreateFlow({
         && reason.rpcError.code === 'workspace-name-conflict',
       )
       setModalError(reason instanceof Error ? reason.message : String(reason))
+      setFlowOpen(false)
       setModalKind('folder-error')
-    }).finally(() => { setPickingFolder(false) })
+    })
+
+  const openLocalFolder = (): void => {
+    onClose()
+    setModalKind(null)
+    setModalError(null)
+    setFolderConflict(false)
+    setFlowOpen(true)
+  }
+
+  /** Owner side of the flow conversation: adopt keeps the flow open (busy) until the Host answers. */
+  const flowOwner: DirectoryFlowOwnerProps = {
+    open: flowOpen,
+    busy: pickingFolder,
+    onPicked: (path) => {
+      setPickingFolder(true)
+      void adoptDirectory(path).finally(() => { setPickingFolder(false) })
+    },
+    onCancel: () => { setFlowOpen(false) },
+    onError: (message) => {
+      setFlowOpen(false)
+      setFolderConflict(false)
+      setModalError(message)
+      setModalKind('folder-error')
+    },
   }
 
   const handleSelect = (id: string): void => {
@@ -205,6 +204,7 @@ export function WorkspaceCreateFlow({
         getAnchorRect={getAnchorRect}
       />
       {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">Loading workspaces…</div>}
+      {renderDirectoryFlow(flowOwner)}
       <Modal
         open={modalKind === 'folder-error'}
         onClose={closeModal}
@@ -282,8 +282,8 @@ export function WorkspacePicker({
   onPick,
   onClose,
   createWorkspace,
-  pickDirectory,
-  directoryPickerKind,
+  hasDirectoryFlow,
+  renderSlot,
 }: WorkspacePickerProps) {
   return (
     <WorkspaceCreateFlow
@@ -291,8 +291,8 @@ export function WorkspacePicker({
       anchorRef={anchorRef}
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
-      pickDirectory={pickDirectory}
-      directoryPickerKind={directoryPickerKind}
+      hasDirectoryFlow={hasDirectoryFlow}
+      renderDirectoryFlow={owner => renderSlot('conversation.hero.workspace.directoryFlow', owner)}
       selectedId={selectedId}
       onPick={onPick}
       onClose={onClose}

@@ -1,19 +1,16 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src"
   ],
   "references": [
-    {
-      "path": "../../../vendor/cosmokit"
-    },
-    {
-      "path": "../../../vendor/cordis"
-    },
     {
       "path": "../directory-picker"
     },
@@ -22,6 +19,15 @@
     },
     {
       "path": "../../util/native-command"
+    },
+    {
+      "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../client/runtime"
+    },
+    {
+      "path": "../../client/ui-workspace"
     }
   ]
 }

@@ -59,8 +59,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
-    pickDirectory: vi.fn(async () => null),
-    directoryPickerKind: vi.fn(async () => 'native' as const),
+    hasDirectoryFlow: () => true,
+    renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
     ...overrides,
   }
   const view = render(<WorkspaceBrowser {...props} />)
@@ -264,13 +264,11 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('rail create-workspace toggles the create-only picker in place, without expanding', async () => {
+  it('rail create-workspace toggles the create-only picker in place, without expanding', () => {
     const expandSidebar = vi.fn()
     mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     expect(expandSidebar).not.toHaveBeenCalled()
-    // Flush the advertised-kind read that gates the local-folder entry.
-    await act(async () => {})
     // createOnly: existing workspaces are not listed, only the create actions.
     expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
     expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()

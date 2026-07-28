@@ -1,4 +1,4 @@
-/** Cross-platform native single-directory chooser behind the dialog backend's capability. */
+/** Cross-platform native single-directory chooser behind the native backend's capability. */
 
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 

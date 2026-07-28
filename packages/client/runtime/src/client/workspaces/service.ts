@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type {
-  DirectoryListing, DirectoryPickerKind, IApiClient, RpcError,
+  DirectoryListing, IApiClient, RpcError,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
@@ -189,21 +189,6 @@ export class WorkspacesService {
       throw new Error(`directory picker failed: ${response.result.error.message}`)
     }
     return response.result.value.path
-  }
-
-  /**
-   * The directory-picking interaction the Host composed — the fact the picker
-   * UI branches on (`native` opens the native chooser; `browse` opens the
-   * in-app browser). Read per flow open: one describe round trip, no cache to
-   * go stale across reconnects.
-   * @returns the Host's advertised picker kind.
-   */
-  async directoryPickerKind(): Promise<DirectoryPickerKind> {
-    const response = await this.api.host.describe({})
-    if (!response.result.ok) {
-      throw new Error(`host describe failed: ${response.result.error.message}`)
-    }
-    return response.result.value.directoryPicker
   }
 
   /**

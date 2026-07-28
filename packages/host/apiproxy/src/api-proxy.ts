@@ -1009,7 +1009,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           provider: defaults.provider,
           model: defaults.model,
           attachedSessions: ctx.agents.list().length,
-          directoryPicker: ctx.directoryPicker.capability().kind,
         }))
       },
 

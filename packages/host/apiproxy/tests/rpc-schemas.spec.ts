@@ -218,12 +218,9 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, directoryPicker: 'native' })
+    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
     expect(value.attachedSessions).toBe(2)
-    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'browse' }).provider).toBeUndefined()
-    // A kind beyond the two with methods survives the wire (merge-added
-    // capabilities advertise; the client hides the affordance).
-    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'other' }).directoryPicker).toBe('other')
+    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 
   it('validates the browse listing/creation payloads', () => {
