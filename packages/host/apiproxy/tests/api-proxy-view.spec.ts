@@ -16,7 +16,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -111,7 +111,12 @@ describe('mux live view computation', () => {
     const events = frames.filter(f => f.type === 'session/event')
     const byCall = new Map(events
       .filter(f => f.event.type === 'tool/call' || f.event.type === 'tool/result')
-      .map(f => [`${f.event.type}:${(f.event.data as { callId: string }).callId}`, f]))
+      .map(f => [
+        `${f.event.type}:${f.event.type === 'tool/call'
+          ? f.event.data.callId
+          : (f.event.data as SessionEvent<'tool/result'>['data']).message.source.callId}`,
+        f,
+      ]))
 
     expect(byCall.get('tool/call:c-gen')?.view).toEqual({ for: 'call', view: { card: 'generic', title: 'gen call' } })
     expect(byCall.get('tool/call:c-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'echo hi' } })
@@ -189,7 +194,12 @@ describe('mux live view computation', () => {
     const entries = response.result.value.events
     const byKey = new Map(entries
       .filter(entry => entry.event.type === 'tool/call' || entry.event.type === 'tool/result')
-      .map(entry => [`${entry.event.type}:${(entry.event.data as { callId: string }).callId}`, entry]))
+      .map(entry => [
+        `${entry.event.type}:${entry.event.type === 'tool/call'
+          ? entry.event.data.callId
+          : (entry.event.data as SessionEvent<'tool/result'>['data']).message.source.callId}`,
+        entry,
+      ]))
     expect(byKey.get('tool/call:h-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'ls' } })
     expect(byKey.get('tool/result:h-term')?.view).toEqual({ for: 'result', view: { card: 'terminal', output: 'done' } })
     expect('view' in (byKey.get('tool/result:h-orphan') ?? {})).toBe(false)

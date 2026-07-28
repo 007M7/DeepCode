@@ -10,6 +10,7 @@ import type {
   SessionLineageTrace,
   SessionRecord,
 } from './types.ts'
+import { snapshotEvent } from './snapshot.ts'
 
 interface EventLogAnalysis {
   records: SessionEventRecord[]
@@ -51,7 +52,7 @@ export function currentSurfaceEvents(
         'SESSION_QUERY_INVALID_SURFACE',
       )
     }
-    return structuredClone(event)
+    return snapshotEvent(event)
   })
 }
 

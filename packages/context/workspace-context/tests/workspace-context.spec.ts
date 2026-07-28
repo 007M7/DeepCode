@@ -3056,6 +3056,8 @@ describe('dynamic nested workspace context injection', () => {
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
       expect(blocksText(workspaceContextOf(result)?.content)).not.toContain('downstream context')
       expect(result.additionalContexts?.[1]).toEqual({
+        id: expect.any(String) as unknown,
+        role: 'user',
         content: [{ type: 'text', text: 'downstream context' }],
         source: { kind: 'plugin', plugin: 'downstream' },
       })

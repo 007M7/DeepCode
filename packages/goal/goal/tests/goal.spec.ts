@@ -126,7 +126,7 @@ describe('GoalService creation and replay', () => {
     if (change === undefined) throw new Error('expected decoded goal change')
     expect(change).toMatchObject({ operation: 'create', goal: { id: goal.id } })
     expect(context.data.content).toEqual(renderGoalChange(change))
-    expect(session.deriveMessages()).toEqual([{ role: 'user', content: context.data.content }])
+    expect(session.deriveMessages()).toEqual([context.data])
     expect(foldGoal(session.events)).toMatchObject({ goal: { id: goal.id }, roundsStarted: 0 })
     vi.useRealTimers()
   })

@@ -45,6 +45,7 @@ import {
   materializeSessionResultFilters,
 } from './filters.ts'
 import * as tracing from './tracing.ts'
+import { snapshotEvent } from './snapshot.ts'
 
 export type * from './types.ts'
 export { SessionSearchCursor } from './cursor.ts'
@@ -146,7 +147,7 @@ export abstract class SessionQueryService extends Service {
     new Session(sessionId, loaded.events, loaded.header)
     return {
       session: structuredClone(loaded.header),
-      events: loaded.events.map(event => structuredClone(event)),
+      events: loaded.events.map(snapshotEvent),
     }
   }
 
@@ -330,10 +331,13 @@ export abstract class SessionQueryService extends Service {
     }
     const startSeq = Math.max(0, seq - before)
     const endSeq = Math.min(loaded.events.length - 1, seq + after)
+    const targetSnapshot = snapshotEvent(target)
+    const events = loaded.events.slice(startSeq, endSeq + 1)
+      .map(event => event === target ? targetSnapshot : snapshotEvent(event))
     return {
-      session: loaded.header,
-      target,
-      events: loaded.events.slice(startSeq, endSeq + 1),
+      session: structuredClone(loaded.header),
+      target: targetSnapshot,
+      events,
       startSeq,
       endSeq,
     }

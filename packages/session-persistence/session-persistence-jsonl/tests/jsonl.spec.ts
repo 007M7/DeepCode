@@ -1,4 +1,4 @@
-import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
+import { MessageId, createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
@@ -1291,9 +1291,18 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('rejects non-JSON event data: BigInt, function, circular, Map, undefined property', async () => {
     const m = meta('serial')
     await ctx.sessionPersistence.create(m)
-    const bad = (extra: unknown) => [{ type: 'user/message', seq: 0, time: 1, data: createUserMessage({
-      content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra,
-    }) }] as unknown as SessionEvent[]
+    const bad = (extra: unknown) => [{
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: {
+        id: MessageId('invalid-json'),
+        role: 'user',
+        content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'user' },
+        extra,
+      },
+    }] as unknown as SessionEvent[]
     await expect(ctx.sessionPersistence.append(m.id, bad(1n))).rejects.toThrow(/non-JSON-serializable/)
     await expect(ctx.sessionPersistence.append(m.id, bad(() => 0))).rejects.toThrow(/non-JSON-serializable/)
     await expect(ctx.sessionPersistence.append(m.id, bad(Symbol('s')))).rejects.toThrow(/non-JSON-serializable/)

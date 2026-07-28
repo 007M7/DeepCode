@@ -216,9 +216,10 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(item => item.type === 'step/start').map(item => item.data))
       .toEqual([{ turn: 1, step: 1 }, { turn: 2, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toEqual({
+      id: expect.any(String) as unknown,
       role: 'assistant',
       content: [{ type: 'text', text: 'done' }],
-      provenance: { provider: 'mock', model: 'mock' },
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
     })
   })
 
@@ -296,7 +297,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'recovered' }],
-      provenance: { provider: 'mock', model: 'mock' },
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
     })
   })
 

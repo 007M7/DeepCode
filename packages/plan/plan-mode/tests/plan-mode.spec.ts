@@ -527,6 +527,8 @@ describe('/plan', () => {
     })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
     expect(messageSteer).toHaveBeenCalledExactlyOnceWith({
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'draft the migration' }],
       source: { kind: 'user' },
     })

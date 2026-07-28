@@ -385,7 +385,12 @@ describe('ToolRegistry', () => {
       value: { text: 'policy value' },
       content: [{ type: 'text', text: 'render:policy value' }],
       meta: { projected: 'policy value' },
-      additionalContexts: [{ content: [{ type: 'text', text: 'value context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'value context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
     })
   })
 
@@ -518,7 +523,12 @@ describe('ToolRegistry', () => {
       error: { message: 'wrapped failure' },
       content: [{ type: 'text', text: 'wrapper content' }],
       meta: { wrapped: true },
-      additionalContexts: [{ content: [{ type: 'text', text: 'wrapper context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'wrapper context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
     })
   })
 
@@ -1820,6 +1830,8 @@ describe('ToolRegistry', () => {
       callId: CallId('around-context'), name: 'echo', arguments: {},
     })
     expect(result.additionalContexts).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'from around dispatch' }],
       source: { kind: 'plugin', plugin: 'test' },
     }])

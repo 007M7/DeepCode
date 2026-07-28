@@ -265,8 +265,8 @@ describe('session/queued frames', () => {
 
     const liveFrames = (await liveCollected).filter(f => f.type === 'session/queued')
     expect(liveFrames).toEqual([
-      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' }, steering: false },
-      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' }, steering: true },
+      { type: 'session/queued', sessionId: agent.id, message: queued, steering: false },
+      { type: 'session/queued', sessionId: agent.id, message: steering, steering: true },
     ])
 
     // A fresh mux connection replays the still-pending entries as its baseline.
@@ -308,6 +308,6 @@ describe('session/queued frames', () => {
       api.events.mux({ rpcId: RpcId('t-mux-swept'), payload: {} }, abort.signal), 2, abort)
     const remaining = frames.filter(f => f.type === 'session/queued')
     expect(remaining).toHaveLength(1)
-    expect(remaining[0]).toMatchObject({ content: survivor.content })
+    expect(remaining[0]).toMatchObject({ message: survivor })
   })
 })

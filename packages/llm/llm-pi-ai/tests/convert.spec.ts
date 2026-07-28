@@ -364,7 +364,7 @@ describe('toPiContext', () => {
   it.each([
     ['provider', { ...validReplay, provider: 'openai' }],
     ['model', { ...validReplay, model: 'deepseek-v4-pro' }],
-  ])('rejects replay metadata whose %s differs from assistant provenance', (field, replayState) => {
+  ])('rejects replay metadata whose %s differs from assistant source', (field, replayState) => {
     try {
       toPiContext({
         provider: 'deepseek',
@@ -382,7 +382,7 @@ describe('toPiContext', () => {
     } catch (error: unknown) {
       expect(error).toBeInstanceOf(LlmError)
       expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
-      expect((error as Error).message).toContain(`${field} does not match assistant provenance`)
+      expect((error as Error).message).toContain(`${field} does not match assistant source`)
     }
   })
 

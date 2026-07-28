@@ -2365,7 +2365,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
         type: 'user/message',
         seq: 0,
         time: 1,
-        data: { content: [{ type: 'text', text: 'source background' }], source: { kind: 'user' } },
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'source background' }],
+          source: { kind: 'user' },
+        }),
         surfaceOp: 'append',
       },
       {

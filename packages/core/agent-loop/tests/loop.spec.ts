@@ -744,9 +744,24 @@ describe('agent loop', () => {
     expect(steps).toBe(2)
     expect(adapter.requests).toHaveLength(2)
     expect(adapter.requests[1]!.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'first half' }], provenance: { provider: 'mock', model: 'mock' } },
-      { role: 'user', content: [{ type: 'text', text: 'continue after truncation' }] },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'go' }],
+        source: { kind: 'user' },
+      },
+      {
+        id: expect.any(String) as unknown,
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first half' }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'continue after truncation' }],
+        source: { kind: 'plugin', plugin: 'max-tokens-test' },
+      },
     ])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
   })
@@ -799,13 +814,26 @@ describe('agent loop', () => {
 
     expect(executions).toBe(0)
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
-    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
+    expect(agent.session.deriveMessages()).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'go' }],
+      source: { kind: 'user' },
+    }])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
     // Empty content still needs an assistant/message to carry usage; derivation
     // skips that host so it does not create a spurious assistant turn.
     const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
     expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
-      turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' }, usage: { inputTokens: 10, outputTokens: 5 },
+      turn: 1,
+      step: 1,
+      message: {
+        id: expect.any(String) as unknown,
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      },
+      usage: { inputTokens: 10, outputTokens: 5 },
     })
   })
 
@@ -839,11 +867,20 @@ describe('agent loop', () => {
     expect(assistant.type === 'assistant/message' && assistant.data).toEqual({
       turn: 1,
       step: 1,
-      content: [],
-      provenance: { provider: 'mock', model: 'mock' },
+      message: {
+        id: expect.any(String) as unknown,
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      },
     })
     expect(assistant.sourceEventSeqs?.length).toBeGreaterThan(0)
-    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
+    expect(agent.session.deriveMessages()).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'go' }],
+      source: { kind: 'user' },
+    }])
   })
 
   it('appends an empty completion anchor for a normal stop with no usage', async () => {
@@ -864,11 +901,20 @@ describe('agent loop', () => {
     expect(assistant.type === 'assistant/message' && assistant.data).toEqual({
       turn: 1,
       step: 1,
-      content: [],
-      provenance: { provider: 'mock', model: 'mock' },
+      message: {
+        id: expect.any(String) as unknown,
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      },
     })
     expect(assistant.sourceEventSeqs?.length).toBe(1)
-    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
+    expect(agent.session.deriveMessages()).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'go' }],
+      source: { kind: 'user' },
+    }])
   })
 
   it('keeps safe max-tokens assistant content while dropping truncated tool calls', async () => {
@@ -889,8 +935,18 @@ describe('agent loop', () => {
 
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'go' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'partial text' }], provenance: { provider: 'mock', model: 'mock' } },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'go' }],
+        source: { kind: 'user' },
+      },
+      {
+        id: expect.any(String) as unknown,
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial text' }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      },
     ])
   })
 

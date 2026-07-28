@@ -95,7 +95,12 @@ describe('SessionStore.fork', () => {
 
     expect(child.events).toEqual(source.events.slice(0, firstBoundary + 1))
     expect(child.header.seedLength).toBe(firstBoundary + 1)
-    expect(child.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'first' }] }])
+    expect(child.deriveMessages()).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'first' }],
+      source: { kind: 'user' },
+    }])
   })
 
   it('accepts every turn/end reason as an explicit fork boundary', async () => {

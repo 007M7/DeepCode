@@ -338,8 +338,10 @@ describe('Agent.cancel()', () => {
     const result = agent.session.events.find(event => event.type === 'tool/result')
     expect(call?.type === 'tool/call' ? call.data.callId : undefined).toBe('c1')
     expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
-      callId: 'c1',
-      isError: true,
+      message: {
+        source: { kind: 'tool', callId: 'c1' },
+        content: [{ type: 'tool-result', toolCallId: 'c1', isError: true }],
+      },
       error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
 

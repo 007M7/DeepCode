@@ -230,7 +230,7 @@ describe('in-process structured output', () => {
     const child = ctx.agents.get(run.id)!
     const results = child.session.events.filter(e => e.type === 'tool/result')
     expect(results.length).toBe(2)
-    expect((results[0]!.data as { isError?: boolean }).isError).toBe(true)
+    expect(results[0]!.data.message.content[0].isError).toBe(true)
     await run.dispose()
   })
 

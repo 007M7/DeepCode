@@ -150,7 +150,9 @@ describe('dsh-tool-skill', () => {
 
     expect(prefix).toEqual([
       {
+        id: expect.any(String) as unknown,
         role: 'user',
+        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
         content: [{
           type: 'text',
           text: [
@@ -167,7 +169,12 @@ describe('dsh-tool-skill', () => {
           ].join('\n'),
         }],
       },
-      { role: 'user', content: [{ type: 'text', text: 'later contribution' }] },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      },
     ])
     const rendered = JSON.stringify(prefix[0])
     expect(rendered).not.toContain('whenToUse')

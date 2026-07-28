@@ -128,8 +128,8 @@ export function createAssistantMessage(
     role: 'assistant',
     content: input.content,
     source: {
-      ...input.source,
       kind: 'model',
+      ...input.source,
     },
   })
 }

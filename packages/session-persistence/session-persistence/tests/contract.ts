@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION, Session, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
-import { createUserMessage, CallId , createMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, MessageId, createMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
 /** A backend under test plus its teardown. */
@@ -34,13 +34,16 @@ export function meta(id: string, cwd?: string): SessionHeader {
 export function oneTurnLog(): SessionEvent[] {
   return [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
+    { type: 'user/message', seq: 1, time: 2, data: freezeMessage({
+      id: MessageId('one-turn-user'),
+      role: 'user',
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
     { type: 'assistant/message', seq: 3, time: 4, data: {
       turn: 1, step: 1,
-      message: createMessage({
+      message: freezeMessage({
+        id: MessageId('one-turn-assistant'),
         role: 'assistant',
         content: [{ type: 'text', text: 'hello' }],
         source: {
@@ -201,7 +204,11 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         ])
         const synthetic = loaded.events.find(e => e.type === 'tool/result')
         expect(synthetic?.type === 'tool/result' && synthetic.data).toMatchObject({
-          callId: CallId('call-x'), isError: true, error: { code: TOOL_NOT_STARTED },
+          message: {
+            source: { kind: 'tool', callId: CallId('call-x') },
+            content: [{ type: 'tool-result', toolCallId: CallId('call-x'), isError: true }],
+          },
+          error: { code: TOOL_NOT_STARTED },
         })
         // The synthetic result carries the SAME callId as the orphaned tool-call,
         // so deriveMessages() pairs them — no provider-invalid dangling call.
@@ -365,9 +372,18 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           const mi = meta(`s5-${i}`)
           await persistence.create(mi)
           const events = [
-            { type: 'user/message', seq: 0, time: 1, data: createUserMessage({
-              content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: bad,
-            }) },
+            {
+              type: 'user/message',
+              seq: 0,
+              time: 1,
+              data: {
+                id: MessageId(`invalid-json-${i}`),
+                role: 'user',
+                content: [{ type: 'text', text: 'x' }],
+                source: { kind: 'user' },
+                extra: bad,
+              },
+            },
           ] as unknown as SessionEvent[]
           await expect(persistence.append(mi.id, events)).rejects.toThrow(/losslessly JSON-serializable/)
         }
