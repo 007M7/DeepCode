@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
@@ -26,7 +26,7 @@ const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
 async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
   // A live store session when a store is mounted (the command executor logs
   // lifecycle events through it); bare otherwise (fold/tool-only benches).
-  const session = ctx.get('sessions')?.create(SessionId(id)) ?? new Session(SessionId(id))
+  const session = new Session(SessionId(id))
   const agent = { id: SessionId(id), session, options: {} } as unknown as Agent & { session: Session }
   let scoped!: Context
   await ctx.plugin(Object.assign((inner: Context) => { scoped = createScope(inner, agent).ctx }, {
@@ -490,7 +490,6 @@ describe('/plan', () => {
     expect(bare.get('commands')).toBeUndefined()
 
     const ctx = await setup()
-    await ctx.plugin(SessionStore)
     await ctx.plugin(CommandService)
     // The `ctx.inject` child mounts asynchronously once `commands` resolves.
     await new Promise(resolve => setImmediate(resolve))
@@ -529,7 +528,6 @@ describe('/plan', () => {
 
   it('leaves active plan mode, cancels a pending entry, and treats inactive exit as idempotent', async () => {
     const ctx = await setup()
-    await ctx.plugin(SessionStore)
     await ctx.plugin(CommandService)
     await new Promise(resolve => setImmediate(resolve))
     const signal = new AbortController().signal
@@ -568,7 +566,6 @@ describe('/plan', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(SessionStore)
     await ctx.plugin(CommandService)
     const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
     await new Promise(resolve => setImmediate(resolve))
