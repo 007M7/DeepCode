@@ -12,6 +12,7 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { PlanModeControl } from '../src/client/PlanModeControl.tsx'
 import type { PlanModeControlInjected } from '../src/client/index.ts'
 import { apply, inject } from '../src/client/index.ts'
+import { apply as nodeApply } from '../src/index.ts'
 
 const SID = 's-plan' as SessionId
 
@@ -33,6 +34,10 @@ async function bench() {
 describe('ui-plan browser apply', () => {
   it('declares every service it binds', () => {
     expect(inject).toEqual(['slots', 'connection', 'conversation'])
+  })
+
+  it('node-half apply is an intentional no-op', () => {
+    expect(() => { nodeApply() }).not.toThrow()
   })
 
   it('fails loud when conversation did not declare the plan seat', async () => {

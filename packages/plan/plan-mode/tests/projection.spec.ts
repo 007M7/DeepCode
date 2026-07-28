@@ -73,6 +73,9 @@ describe('plan projection unit', () => {
     const bench = await harness(true)
     runPlanCommand(bench.session, '', 0)
     expect(bench.values().plan).toEqual({ active: false, pending: true })
+    // A repeated identical selection returns the same state reference (no frame).
+    runPlanCommand(bench.session, '', 1)
+    expect(bench.values().plan).toEqual({ active: false, pending: true })
     commitPlanMode(bench.session, true, 0)
     expect(bench.values().plan).toEqual({ active: true, pending: false })
   })
