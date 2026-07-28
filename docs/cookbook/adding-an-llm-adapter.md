@@ -2,7 +2,7 @@
 
 English | [中文](adding-an-llm-adapter.zh.md)
 
-How to connect a new model provider. Reference implementations: `packages/llm/llm-deepseek` (hand-rolled HTTP/SSE) and `packages/llm/llm-pi-ai` (wrapping an LLM library). Read the `StreamChunk` doc in `packages/llm/llm/src/types.ts` first — it records the protocol conventions both adapters were verified against.
+How to connect a new model provider. Reference implementations: `packages/llm/llm-deepseek` (direct HTTP, SSE framed by `eventsource-parser`) and `packages/llm/llm-pi-ai` (wrapping an LLM library). Read the `StreamChunk` doc in `packages/llm/llm/src/types.ts` first — it records the protocol conventions both adapters were verified against.
 
 ## The shape
 
@@ -32,7 +32,7 @@ Registration is effect-based (HMR-safe); one adapter per provider route — dupl
 - A `GenerateOptions` field your provider cannot honor (e.g. a `stop` list on a provider without stop sequences): throw `LlmError(..., 'UNSUPPORTED')` rather than silently dropping it.
 - If the provider requires response ids, signatures, or other native metadata on follow-up calls, emit the minimal lossless-JSON projection as `finish.replayState`. Validate it when rebuilding history. `LlmService` passes it only when the historical provider route and target provider route are currently owned by the exact same adapter instance; your adapter decides whether same-model, cross-model, or cross-provider restoration is legal. Never infer native replay from provider/model names alone when state is absent.
 
-Provider-specific request knobs (thinking modes, effort levels) belong in the ADAPTER's Config, not in `GenerateOptions` — the core vocabulary stays provider-neutral.
+Provider-specific thinking-mode toggles remain in the adapter's Config. Exact model metadata uses one provider-neutral capability seam: implement `resolveModel()` with provider/model identity and optional `context` and `reasoning` fields, declare a configured `defaultEffort` only when one exists, and honor the resolver's optional `AbortSignal`. Reasoning efforts are ordered opaque ids mapped to provider requests by the adapter. Preserve the adapter's authoritative selectable list, including an adapter-defined `off` when supported, without exposing final wire spellings or clamping unsupported values; an id need not equal its wire representation.
 
 ## Structure that worked
 

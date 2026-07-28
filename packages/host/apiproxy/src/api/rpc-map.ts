@@ -6,18 +6,37 @@
 
 import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
+import type { WorkspaceApi } from './workspace.ts'
+import type { CommandsApi } from './commands.ts'
+import type { SkillsApi } from './skills.ts'
 import type { RpcResponse } from './rpc.ts'
 
-/** Method name → method signature. Signatures are the single source of truth; payload/value types are always derived from here. */
+/**
+ * Method name → method signature. Signatures are the single source of truth; payload/value
+ * types are always derived from here. A method may declare a trailing AbortSignal after the
+ * request (command.execute): the carrier passes its request signal, never a wire field.
+ */
 export interface RpcMethodMap {
   'session.list': SessionsApi['list']
   'session.create': SessionsApi['create']
   'session.history': SessionsApi['history']
+  'session.models': SessionsApi['models']
+  'session.selectModel': SessionsApi['selectModel']
   'session.prompt': SessionsApi['prompt']
   'session.cancel': SessionsApi['cancel']
   'session.planMode': SessionsApi['planMode']
   'session.setPlanMode': SessionsApi['setPlanMode']
   'host.describe': HostApi['describe']
+  'host.pickDirectory': HostApi['pickDirectory']
+  'host.openPath': HostApi['openPath']
+  'workspace.list': WorkspaceApi['list']
+  'workspace.create': WorkspaceApi['create']
+  'workspace.rename': WorkspaceApi['rename']
+  'workspace.delete': WorkspaceApi['delete']
+  'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
+  'command.list': CommandsApi['list']
+  'command.execute': CommandsApi['execute']
+  'skill.list': SkillsApi['list']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

@@ -24,10 +24,19 @@
       "path": "../runtime"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../ui-slash"
+    },
+    {
       "path": "../ui-layout"
     },
     {
-      "path": "../i18n"
+      "path": "../locale"
     },
     {
       "path": "../../support/invariants"

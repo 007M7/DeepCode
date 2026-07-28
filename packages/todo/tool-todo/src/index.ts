@@ -6,8 +6,17 @@
  */
 
 import type { Context } from 'cordis'
+import { z } from 'zod'
+import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+// The `todos` projection-key declaration lives in src/types.ts (its one home);
+// this re-export projects the type face onto the package root AND keeps the
+// module edge in the emitted index.d.ts, so aggregate programs consuming the
+// declarations still receive the SessionProjectionMap merge.
+export type * from './types.ts'
 
 export const name = 'tool-todo'
 export const inject = ['tools']
@@ -29,7 +38,10 @@ const DESCRIPTION =
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
  * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
- * has already enforced the status enum; the cast below records that guarantee.
+ * has already enforced the status enum and rejected unknown item keys (`additionalProperties:
+ * false` — the logged snapshot must equal what the model believes it wrote, so a nested/extended
+ * item shape fails loud at the schema boundary instead of silently flattening); the cast below
+ * records that guarantee.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []
@@ -54,8 +66,37 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   return todos
 }
 
-/** Register the `todo_write` tool on `ctx.tools`. */
+/** Wire payload schema of the `todos` projection (whole list or pre-first-write null). */
+const todosProjectionSchema: ZodType<TodoItem[] | null> = z.union([
+  z.array(z.object({
+    content: z.string(),
+    status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
+  })),
+  z.null(),
+])
+
+/** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` unit. */
 export function apply(ctx: Context): void {
+  // The unit child activates only when a projection registry is composed
+  // (headless assemblies without the seam stay unaffected). Standing-plan fold:
+  // latest whole todo/write list, cleared by the next turn/start (turn/end keeps
+  // the finished checklist visible); null before the first write or after a
+  // later turn begins; every other event returns the same state reference.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
+      key: 'todos',
+      schema: todosProjectionSchema,
+      init: () => null,
+      apply: (state, event) => {
+        if (event.type === 'todo/write') return event.data.todos
+        if (event.type === 'turn/start') return null
+        return state
+      },
+      view: state => state,
+      // Fold semantics changed: turn/start clears the standing plan (was last-write-wins only).
+      stateVersion: 2,
+    })
+  })
   ctx.tools.register(defineTool({
     name: 'todo_write',
     description: DESCRIPTION,
@@ -66,7 +107,7 @@ export function apply(ctx: Context): void {
         description: 'The COMPLETE task list, replacing any previous list.',
         items: {
           type: 'object',
-          additionalProperties: true,
+          additionalProperties: false,
           properties: {
             content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
             status: {

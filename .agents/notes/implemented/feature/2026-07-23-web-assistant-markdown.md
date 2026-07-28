@@ -12,13 +12,17 @@ The Web conversation preserves assistant Markdown source through session events,
 
 `@deepseek-ai/dsh-client-ui-primitives` exports `MarkdownText` as the untrusted assistant-text renderer, and `ui-conversation` selects it only for assistant `text` blocks. Finalized history, the streaming tail, and interrupted partials already share `AssistantMarkdown`, so they receive the same renderer without changing events or snapshots. User and steering messages keep `MessageText` and remain literal.
 
-`MarkdownText` uses `react-markdown` with `remark-gfm` to build React elements from an AST. It covers CommonMark blocks plus GFM tables, task lists, strikethrough, and autolinks without `dangerouslySetInnerHTML`, raw-HTML parsing, or syntax highlighting. The dependency is explicit in `ui-primitives`; because that pure library is seeded by the Web shell, the parser is part of the initial browser bundle.
+`MarkdownText` uses `react-markdown` with `remark-gfm` to build React elements from an AST. It covers CommonMark blocks plus GFM tables, task lists, strikethrough, and autolinks without raw-HTML parsing. Fenced code routes through the shared `CodeBlock`, which highlights registered grammars with the client's shiki singleton (`--shiki-*` tokens) and falls back to plain monospace otherwise. While a turn streams, fences stay on the plain arm so growing fences are not retokenized every chunk.
+
+Visual spacing, tables, links, blockquotes, inline code, and code-block chrome follow deepsuite `@deepseek/md` (`markdown.css` / `code-block.css`) and the same `--dsw-alias-markdown-*`, `--dsw-font-markdown-*`, `--dsw-alias-border-l*`, and `--dsw-alias-label-*` tokens. Links use `--dsw-alias-state-business-primary` (deepsuite's sheet uses `--dsw-alias-brand-text`, which is blue only under newDesign; design-platform keeps brand-text near-black and is not retuned here). `CodeBlock` ships a language banner and a copy control (`复制` / `复制成功`). Citation pills, KaTeX, heading anchors, the thinking-small markdown variant, and custom □/☑ task markers are out of scope until matching product DOM exists; GFM task lists keep native checkboxes.
+
+The dependency is explicit in `ui-primitives`; because that pure library is seeded by the Web shell, the parser and highlighter are part of the initial browser bundle.
 
 ## Untrusted output policy
 
-Assistant-authored destinations are restricted to absolute HTTP, HTTPS, and mailto URLs. HTTP(S) links open in a new tab with `rel="noopener noreferrer"`; relative destinations and other protocols render as non-navigable text. Markdown images render only their alt text, so model output cannot initiate a remote image request. Raw HTML remains inert source text because no HTML parser enters the pipeline.
+Assistant-authored destinations are restricted to absolute HTTP, HTTPS, and mailto URLs. HTTP(S) links open in a new tab with `rel="noopener noreferrer"`; relative destinations and other protocols render as non-navigable text. Markdown images render only their alt text, so model output cannot initiate a remote image request. Raw HTML remains inert source text because no HTML parser enters the pipeline. Shiki output is a static span tree generated from the fence text (no scripts or user HTML).
 
-The renderer uses existing `--dsw-*` typography and color tokens. Fenced code and GFM tables own horizontal overflow so long content cannot widen the conversation column.
+Fenced code and GFM tables own horizontal overflow so long content cannot widen the conversation column.
 
 ## Alternatives considered
 
@@ -30,6 +34,8 @@ The renderer uses existing `--dsw-*` typography and color tokens. Fenced code an
 
 **Enable raw HTML or remote images with sanitization.** Neither capability has a current product need, while both enlarge the executable or network privacy boundary. They remain disabled rather than adding sanitizer and image-policy dependencies.
 
+**Port deepsuite Prism `highlight.css` and the mdast pipeline.** Appearance parity is owned by CSS Modules and shared `--dsw-*` tokens; highlighting stays on the existing shiki allowlist so the client does not take a second highlighter or Prism class contract.
+
 ## Consequences
 
-Assistant replies render semantic Markdown consistently during streaming and replay, while tool cards, reasoning rows, interactions, user bubbles, and the host protocol remain unchanged. Streaming reparses the current text after each accumulated update; incomplete Markdown can temporarily change structure, but the isolated tail bounds React invalidation and the final event does not switch renderers. The initial Web shell grows by the Markdown parser and GFM runtime, and future extensions such as syntax highlighting or remote media require a separate bundle and security decision.
+Assistant replies render semantic Markdown consistently during streaming and replay, while tool cards, reasoning rows, interactions, user bubbles, and the host protocol remain unchanged. Streaming reparses the current text after each accumulated update; incomplete Markdown can temporarily change structure, but the isolated tail bounds React invalidation and the final event does not switch renderers. Code fences share one chrome and copy path with tool and details surfaces. The initial Web shell includes the Markdown parser, GFM runtime, and shiki allowlist; cite/math/anchor/thinking-small surfaces remain deferred.

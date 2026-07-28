@@ -1,5 +1,7 @@
 # dsh-sandbox-policy — the sandbox policy home (`ctx.sandboxPolicy`)
 
+English | [中文](README.zh.md)
+
 The single owner of sandbox-policy resolution: the deployment's default [`SandboxMode`](../sandbox/README.md) and fallback root, plus each session's durable mode override and immutable workspace root. Every enforcing capability family receives one resolved mode-and-root policy per call.
 
 ## Why a shared home
@@ -19,11 +21,11 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 - `setSandboxMode(session, mode)` — THE write path for a per-session override: appends exactly one `sandbox/mode` event. The switch IS its event; nothing mutates the mode out of band.
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
 
-The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and turn-enclosure rules.
+The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and core execution-enclosure rules.
 
 ## The per-session store
 
-A runtime switch (an ACP `session/set_config_option`, a test scenario) is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
+A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event.
 
 ## Model Experience
 

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md)
+
 ## Problem
 
 The hooks subsystem runs external hook commands the way Claude Code and Codex do: a hook is a shell command that receives its event payload as **JSON on stdin** and reads context from a handful of **environment variables** (`CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, `PLUGIN_ROOT`, …). The harness already has a perfectly good command runner behind the `ctx.bash` capability seam ([dsh-bash](../../../../packages/bash/bash) → [dsh-bash-local](../../../../packages/bash/bash-local)), with process-group kills, output truncation/spill, and a credential scrub. Reusing it for hook execution means a hook bridge does not re-implement subprocess plumbing — but the seam had no way to write stdin or set extra env. This Agent Note adds those two inputs.
@@ -16,7 +18,7 @@ Three deliberate choices:
 
 1. **The model-facing tool omits `stdin` and `env`.** Shell syntax already covers those needs, so duplicate parameters would add surface without authority separation. The tool builds requests only from declared model arguments, signal, and owner; trusted in-process callers may set the seam fields directly. Harness-owned variables use the separate `dshEnv` channel from the [managed environment decision](../feature/2026-07-10-agent-session-identity-and-log-location.md), so ordinary `env` cannot replace them.
 
-2. **`env` merges AFTER the credential scrub, so an explicit caller entry wins even on a credential-shaped name.** The later managed-namespace decision reserves `DSH_*`: ambient entries are removed, ordinary `env` cannot set them, and trusted `dshEnv` merges last. The complete order is `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → ordinary `env` → `dshEnv`.
+2. **`env` merges AFTER the credential scrub, so an explicit caller entry wins even on a credential-shaped name.** The later managed-namespace decision manages `DSH_*`: ambient entries are removed, and trusted `dshEnv` merges last, so an ordinary `env` entry can never displace a managed value. The complete order is `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → ordinary `env` → `dshEnv`.
 
 3. **`stdin`/`env` are required-absent-OK (plain optional) on the resolved spec, NOT required-but-nullable like `owner`.** `owner` is required-but-nullable because a *silently* missing owner yields an unowned, cross-session-readable task — a security footgun that a visible `undefined` guards against. `stdin`/`env` have no such hazard: a missing one means "no stdin / no extra env", which is the safe, ordinary case (every model-driven call). So they stay plain optionals, matching `signal`.
 

@@ -11,15 +11,16 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, PromptMessageData, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
+export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
@@ -30,17 +31,8 @@ export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 /**
- * Return the human-facing prompt blocks from a durable prompt message.
- * @param data - ordinary or steering prompt event data.
- * @returns the effective direct prompt, excluding baked prefix context.
- */
-export function displayPromptContent(data: PromptMessageData): ContentBlock[] {
-  return data.envelope?.displayContent ?? data.content
-}
-
-/**
- * Find the latest closed message-triggered turn, excluding injection and
- * plugin-owned zero-step turns.
+ * Find the latest closed message-triggered turn, ignoring other triggers and
+ * between-turn events.
  * @param events - session events, or an owned suffix, to inspect.
  * @returns the latest matching turn end, or `undefined`.
  */
@@ -129,8 +121,10 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   if (record.id !== id) {
     throw new Error(`session header id "${String(record.id)}" does not match session id "${id}"`)
   }
-  if (typeof record.createdAt !== 'number' || !Number.isFinite(record.createdAt)) {
-    throw new Error('session header createdAt must be a finite number')
+  if (typeof record.createdAt !== 'number'
+    || !Number.isSafeInteger(record.createdAt)
+    || record.createdAt < 0) {
+    throw new Error('session header createdAt must be a non-negative safe integer')
   }
   if (record.cwd !== undefined) {
     if (typeof record.cwd !== 'string') throw new Error('session header cwd must be a string')
@@ -150,6 +144,33 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     throw new Error('session header delegationDepth must be a non-negative safe integer')
   }
   return deepFreeze(record as unknown as SessionHeader)
+}
+
+/**
+ * Detach one event while preserving deep immutability for its identified message.
+ * @param event - event imported across a query or persistence boundary.
+ * @returns a detached event snapshot with a validated, deeply frozen message.
+ */
+export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
+  const snapshot = structuredClone(event)
+  assertMessageEventShape(
+    snapshot,
+    `session event at seq ${snapshot.seq}`,
+  )
+  switch (snapshot.type) {
+    case 'user/message':
+      deepFreeze(snapshot.data)
+      break
+    case 'assistant/message':
+    case 'tool/result':
+    case 'steering/message':
+      deepFreeze(snapshot.data.message)
+      break
+    default:
+      // SessionEventMap is merge-extensible; plugin-owned events carry no core message.
+      break
+  }
+  return snapshot
 }
 
 /** Validate the fixed event envelope after one-pass JSON materialization. */
@@ -172,18 +193,79 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   assertCurrentTurnEndShape(event, index)
 }
 
-/** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
+/** Reject obsolete request headers and malformed messages at the seed/load boundary. */
 function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
   const data = event['data']
-  if (typeof data !== 'object' || data === null) return
-  const record = data as Record<string, unknown>
+  const record = typeof data === 'object' && data !== null
+    ? data as Record<string, unknown>
+    : undefined
   if (event['type'] === 'request/header') {
-    const header = record['header']
+    const header = record?.['header']
     const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    if (reasoningEffort !== undefined
+      && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
+      throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
+    }
   }
-  if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
-    throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  const type = event['type']
+  if (type !== 'user/message' && type !== 'assistant/message'
+    && type !== 'tool/result' && type !== 'steering/message') return
+  assertMessageEventShape(event, `seed ${type} at index ${index}`)
+}
+
+/** Validate only the event-specific invariants needed to safely replay a message. */
+function assertMessageEventShape(event: Record<string, unknown>, subject: string): void {
+  const type = event['type']
+  if (type !== 'user/message' && type !== 'assistant/message'
+    && type !== 'tool/result' && type !== 'steering/message') return
+  const data = event['data']
+  const record = typeof data === 'object' && data !== null
+    ? data as Record<string, unknown>
+    : undefined
+  const message = type === 'user/message' ? record : record?.['message']
+  if (typeof message !== 'object' || message === null
+    || typeof (message as Record<string, unknown>)['id'] !== 'string'
+    || (message as Record<string, unknown>)['id'] === '') {
+    throw new Error(`${subject} lacks an identified message`)
+  }
+  const messageRecord = message as Record<string, unknown>
+  const expectedRole = type === 'assistant/message' ? 'assistant' : 'user'
+  if (messageRecord['role'] !== expectedRole) {
+    throw new Error(`${subject} message must have role "${expectedRole}"`)
+  }
+  const source = messageRecord['source']
+  if (typeof source !== 'object' || source === null
+    || typeof (source as Record<string, unknown>)['kind'] !== 'string'
+    || (source as Record<string, unknown>)['kind'] === '') {
+    throw new Error(`${subject} message has invalid source`)
+  }
+  if (!Array.isArray(messageRecord['content'])) {
+    throw new Error(`${subject} message has invalid content`)
+  }
+  const sourceRecord = source as Record<string, unknown>
+  if (type === 'assistant/message') {
+    if (sourceRecord['kind'] !== 'model' || !hasProviderModel(sourceRecord)) {
+      throw new Error(`${subject} message must have model source`)
+    }
+    return
+  }
+  if (type !== 'tool/result') return
+  if (sourceRecord['kind'] !== 'tool'
+    || typeof sourceRecord['callId'] !== 'string'
+    || sourceRecord['callId'] === '') {
+    throw new Error(`${subject} message must have tool source`)
+  }
+  const content = messageRecord['content'] as unknown[]
+  const block = content[0]
+  if (content.length !== 1 || typeof block !== 'object' || block === null
+    || (block as Record<string, unknown>)['type'] !== 'tool-result'
+    || !Array.isArray((block as Record<string, unknown>)['content'])) {
+    throw new Error(`${subject} message must contain one tool-result block`)
+  }
+  if ((block as Record<string, unknown>)['toolCallId'] !== sourceRecord['callId']) {
+    throw new Error(`${subject} message has mismatched tool call ids`)
   }
 }
 
@@ -259,7 +341,6 @@ interface SessionEntry {
   announced: boolean
   announcing: boolean
   appending: boolean
-  outOfBand: boolean
   detachRequested: boolean
   detach(): void
 }
@@ -298,6 +379,19 @@ export class Session {
     return this.header.id
   }
 
+  /**
+   * The first seq appended IN THIS PROCESS: the length of the constructor
+   * seed (0 without one). Events below it entered through construction —
+   * replay, fork, or resume — and were never published on the `session/event`
+   * firehose (constructor seeds do not emit), so consumers that replay the
+   * log as a publication substitute (telemetry adoption) start here. Distinct
+   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
+   * session's constructor seed is its full stored log, while its header keeps
+   * the original fork value — this field is the in-process construction fact
+   * and is deliberately not persisted.
+   */
+  readonly firstLiveSeq: number
+
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed) {
       // Validate the seed to the SAME invariants `append` enforces, so a
@@ -330,6 +424,7 @@ export class Session {
         this.log.push(deepFreeze(snapshot))
       }
     }
+    this.firstLiveSeq = this.log.length
     this.header = snapshotSessionHeader(id, header)
   }
 
@@ -434,7 +529,7 @@ export class Session {
     } finally {
       if (entry !== undefined) {
         entry.appending = false
-        if (entry.detachRequested && !entry.announcing && !entry.outOfBand) entry.detach()
+        if (entry.detachRequested && !entry.announcing) entry.detach()
       }
     }
   }
@@ -506,7 +601,7 @@ export class Session {
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
-      if (msg) this.derived.push(deepFreeze(msg))
+      if (msg) this.derived.push(msg)
     }
     this.derivedNodes = nodes.length
     return [...this.derived]
@@ -519,10 +614,9 @@ export class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message wrapper is
-   * fresh; its content reuses the logged event's already deep-frozen durable
-   * data, so changing the wrapper cannot rewrite the log and changing content
-   * throws.
+   * built from (the reconstructability Agent Note). The returned message is
+   * the already frozen message nested in the event wrapper and shared by
+   * delivery, durable history, and model requests.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */
@@ -532,35 +626,30 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      // Injected context, ordinary prompts, and mid-turn steering project
+      // Ordinary prompts, injected context, and mid-turn steering project
       // identically in user role: the event's model-facing content stays
-      // verbatim. A prompt envelope is model-hidden display metadata; its
-      // prefix bytes are already present in content. context's `source`/`meta`
-      // and steering's `turn` are also log-only. Do NOT
+      // verbatim. Steering's `turn` is log-only. Do NOT
       // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
       // caller-owned — a producer bakes it into `content`, as workspace-context
       // does with `<system-reminder>` — or, if reintroduced, must be driven by
       // the event `meta` map and a dedicated renderer, keeping this projection a
       // verbatim pass-through. See the deferred design note in
       // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
-      case 'user/message':
-      case 'context/message':
+      case 'user/message': {
+        return event.data
+      }
       case 'steering/message': {
-        return { role: 'user', content: event.data.content }
+        return event.data.message
       }
       case 'assistant/message': {
         // Skip an empty-content assistant/message: it exists only to host a
         // max-tokens step's usage and must not inject a content-less assistant
         // turn into the provider transcript.
-        if (event.data.content.length === 0) return null
-        return { role: 'assistant', content: event.data.content, provenance: event.data.provenance }
+        if (event.data.message.content.length === 0) return null
+        return event.data.message
       }
       case 'tool/result': {
-        const { callId, content, isError } = event.data
-        return {
-          role: 'user',
-          content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
-        }
+        return event.data.message
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to
@@ -578,8 +667,8 @@ export type SessionForkSource = Session | SessionId
  * live store (`SESSION_NOT_FOUND`) or names a session object that is not the
  * store's live instance (`SESSION_NOT_LIVE`); the requested child id is
  * already taken (`SESSION_ALREADY_EXISTS`); the boundary is not a contiguous
- * existing seq (`INVALID_BOUNDARY`); or the boundary event is not a
- * `turn/end` — a fork must cut on a closed turn (`OPEN_TURN`).
+ * existing seq (`INVALID_BOUNDARY`); or the selected prefix ends inside an
+ * open turn (`OPEN_TURN`).
  */
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
@@ -720,7 +809,6 @@ export class SessionStore extends Service {
       announced: false,
       announcing: false,
       appending: false,
-      outOfBand: false,
       detachRequested: false,
       detach: () => { this.detachEntered(entry) },
     }
@@ -733,7 +821,7 @@ export class SessionStore extends Service {
       // A lifecycle listener may own the advanced detach capability. Keep the
       // entry and its publication hooks live until synchronous creation or append
       // publication unwinds, then publish the paired disposal edge.
-      if (entry.announcing || entry.appending || entry.outOfBand) {
+      if (entry.announcing || entry.appending) {
         entry.detachRequested = true
         return
       }
@@ -787,7 +875,7 @@ export class SessionStore extends Service {
       }
     } finally {
       entry.announcing = false
-      if (entry.detachRequested && !entry.appending && !entry.outOfBand) entry.detach()
+      if (entry.detachRequested && !entry.appending) entry.detach()
     }
   }
 
@@ -831,87 +919,6 @@ export class SessionStore extends Service {
     if (failure !== undefined) throw failure.reason
   }
 
-  /**
-   * Append one plugin-declared log-only event without borrowing the agent
-   * loop's lifecycle. An open turn receives the event directly and remains
-   * responsible for its ordinary checkpoint. A closed log receives one
-   * zero-step turn around the event, followed by an awaited flush.
-   *
-   * Once the synthetic `turn/start` commits, this method always attempts its
-   * matching `turn/end` and flush, including when the target append fails.
-   * Detachment requested by an event or flush listener is deferred until that
-   * sequence settles, so publication cannot switch from a live scoped session
-   * to an unobserved bare `Session` halfway through the update.
-   *
-   * @param session - exact live session that owns the target log.
-   * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
-   * @param data - typed JSON payload for the target event.
-   * @param trigger - plugin-owned turn trigger used only when the log is closed.
-   * @returns the accepted target event with its assigned sequence and timestamp.
-   * @throws when the session is detached, another out-of-band append is active,
-   *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
-   */
-  async appendOutOfBand<T extends OutOfBandSessionEventType>(
-    session: Session,
-    type: T,
-    data: SessionEventMap[T],
-    trigger: TurnTrigger,
-  ): Promise<SessionEvent<T>> {
-    const entry = this.liveEntryFor(session)
-    if (entry.outOfBand) {
-      throw new Error(`session "${session.id}" already has an out-of-band append in progress`)
-    }
-    entry.outOfBand = true
-    // `T` is excluded from SurfaceEventType by OutOfBandSessionEventType, but
-    // TypeScript does not reduce Session.append's conditional rest parameter
-    // through a generic intersection. Preserve that proven two-argument call
-    // shape without widening the public Session.append overload.
-    const appendLogOnly = session.append.bind(session) as unknown as <K extends OutOfBandSessionEventType>(
-      eventType: K,
-      eventData: SessionEventMap[K],
-    ) => SessionEvent<K>
-    try {
-      const lastBoundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
-      if (lastBoundary?.type === 'turn/start') {
-        return appendLogOnly(type, data)
-      }
-
-      const lastStart = session.events.findLast(event => event.type === 'turn/start')
-      const turn = (lastStart?.data.turn ?? 0) + 1
-      let accepted: SessionEvent<T> | undefined
-      let failure: unknown
-      let opened = false
-      try {
-        session.append('turn/start', { turn, trigger })
-        opened = true
-        accepted = appendLogOnly(type, data)
-      } catch (error: unknown) {
-        failure = error
-      } finally {
-        if (opened) {
-          // The only target types admitted by OutOfBandSessionEventMap are
-          // log-only plugin events, so the synthetic turn remains open here.
-          session.append('turn/end', { turn, reason: { kind: 'completed' } })
-          try {
-            await this.flush(session)
-          } catch (error: unknown) {
-            if (failure === undefined) failure = error
-          }
-        }
-      }
-      if (failure !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error -- preserve an arbitrary flush-listener rejection exactly
-        throw failure
-      }
-      /* v8 ignore next -- accepted is assigned unless an append failure was captured above. */
-      if (accepted === undefined) throw new Error('out-of-band append completed without an accepted event')
-      return accepted
-    } finally {
-      entry.outOfBand = false
-      if (entry.detachRequested && !entry.announcing && !entry.appending) entry.detach()
-    }
-  }
-
   /** Return the exact live entry; detached/prepared objects reject. */
   private liveEntryFor(session: Session): SessionEntry {
     const entry = attachments.get(session)
@@ -939,9 +946,10 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Create a live child session from a turn-enclosed prefix of a live source.
+   * Create a live child session from a stable prefix of a live source.
    * `boundary` is an inclusive source event seq; omitted means the source's
-   * current last event. A non-empty selected slice must end at `turn/end`.
+   * current last event. The selected slice may end with a between-turn event
+   * but must not end inside an open turn.
    *
    * @param source - Live source session object or id.
    * @param boundary - Inclusive source event seq to fork through; omitted means
@@ -998,9 +1006,11 @@ export class SessionStore extends Service {
         'INVALID_BOUNDARY',
       )
     }
-    if (boundaryEvent.type !== 'turn/end') {
+    const lastTurnBoundary = events.slice(0, boundary + 1)
+      .findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    if (lastTurnBoundary?.type === 'turn/start') {
       throw new SessionForkError(
-        `fork boundary ${boundary} in session "${session.id}" must be turn/end, got ${boundaryEvent.type}`,
+        `fork boundary ${boundary} in session "${session.id}" ends inside open turn ${lastTurnBoundary.data.turn}`,
         'OPEN_TURN',
       )
     }

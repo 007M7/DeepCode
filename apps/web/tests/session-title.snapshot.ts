@@ -3,18 +3,24 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules'
-import { bootWebShell } from '@deepseek-ai/dsh-client-web'
+import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules/client'
+import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 
 const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', url: '/plugins/i18n.js', rev: 'fx', inject: [], immediately: true },
+  { id: '@deepseek-ai/dsh-client-locale', dir: 'locale', url: '/plugins/locale.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-settings', dir: 'ui-settings', url: '/plugins/ui-settings.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-sidebar'] },
+  { id: '@deepseek-ai/dsh-client-ui-settings-general', dir: 'ui-settings-general', url: '/plugins/ui-settings-general.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-client-locale'] },
+  { id: '@deepseek-ai/dsh-client-ui-models', dir: 'ui-models', url: '/plugins/ui-models.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-settings'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-plan', dir: 'ui-plan', url: '/plugins/ui-plan.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-slash', dir: 'ui-slash', url: '/plugins/ui-slash.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-command', dir: 'ui-command', url: '/plugins/ui-command.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-slash', '@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-model', dir: 'ui-model', url: '/plugins/ui-model.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-command'] },
+  { id: '@deepseek-ai/dsh-client-ui-workspace', dir: 'ui-workspace', url: '/plugins/ui-workspace.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-sidebar'] },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
@@ -73,32 +79,31 @@ afterEach(() => {
 function titleSurfaces(label: string): { sidebar: string; breadcrumb: string; documentTitle: string } {
   const tree = screen.getByRole('tree', { name: 'Sessions' })
   const sidebar = within(tree).getByText(label).textContent ?? ''
-  const breadcrumb = within(screen.getByRole('navigation', { name: '会话层级' }))
+  const breadcrumb = within(screen.getByRole('navigation', { name: 'Session hierarchy' }))
     .getByRole('button', { name: label }).textContent ?? ''
   return { sidebar, breadcrumb, documentTitle: document.title }
 }
 
-/** Boot the built fixture graph into the per-test root. */
-function bootFixtureApp(): void {
+it('projects titles and routes the next turn through the selected model in the built fixture app', async () => {
   const root = document.querySelector<HTMLElement>('#root')
   if (root === null) throw new Error('snapshot root missing')
   act(() => {
-    unmount = bootWebShell(root, {
+    const entry = new AppWebEntry(root, {
       fetchBundle: (url) => {
         const code = bundles.get(url)
         return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
       },
       executeBundle: (code) => { (0, eval)(code) },
     })
+    void entry.run()
+    unmount = () => { entry.dispose() }
   })
-}
 
-it('projects initial and revised durable titles through the built nine-plugin fixture app', async () => {
-  bootFixtureApp()
-  const projectLabel = await screen.findByText('fixture', {}, { timeout: 10_000 })
-  const projectRow = projectLabel.closest<HTMLElement>('[role="treeitem"]')
-  if (projectRow === null) throw new Error('fixture project row missing')
-  fireEvent.click(projectRow)
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  // The fixture Intent selects the workspace, so the current-group effect
+  // already expanded it; clicking the header would now collapse (the twist
+  // stays live since intent stopped forcing expansion).
+  await within(tree).findByText('4 sessions')
 
   const initialLabel = 'Fixture 历史会话'
   const initialRowLabel = await screen.findByText(initialLabel)
@@ -114,56 +119,31 @@ it('projects initial and revised durable titles through the built nine-plugin fi
   await waitFor(() => { expect(document.title).toBe(`${revisedLabel} — DeepSeek Harness`) })
   const revised = titleSurfaces(revisedLabel)
 
+  const modelTrigger = await screen.findByRole('button', {
+    name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
+  })
+  fireEvent.click(modelTrigger)
+  fireEvent.click(screen.getByRole('menuitem', { name: /Model/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /GPT-5/ }))
+  await waitFor(() => {
+    expect(modelTrigger.getAttribute('aria-label')).toBe('选择模型，当前 GPT-5，推理等级 Medium')
+  })
+  fireEvent.click(modelTrigger)
+  fireEvent.click(screen.getByRole('menuitem', { name: /Effort/ }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Max' }))
+  await waitFor(() => {
+    expect(modelTrigger.getAttribute('aria-label')).toBe('选择模型，当前 GPT-5，推理等级 Max')
+  })
+
+  // fx-alpha starts in the running state. Selecting above is intentionally
+  // allowed for the next turn; stop the fixture's resident run before sending
+  // the route-report prompt.
+  fireEvent.click(screen.getByRole('button', { name: 'Stop generating' }))
+  const composer = await screen.findByPlaceholderText('Message the agent')
+  fireEvent.change(composer, { target: { value: 'report model' } })
+  fireEvent.keyDown(composer, { key: 'Enter' })
+  await screen.findByText('当前模型：openai/gpt-5 · 推理等级：max', {}, { timeout: 10_000 })
+
   await expect(`${JSON.stringify({ initial, revised }, null, 2)}\n`)
     .toMatchFileSnapshot('./snapshots/session-title.json')
-})
-
-it('snapshots pending and committed plan targets without implicit turn cancellation', async () => {
-  bootFixtureApp()
-  await screen.findByText('fixture', {}, { timeout: 10_000 })
-  fireEvent.click(screen.getByRole('button', { name: 'New session' }))
-  const select: HTMLSelectElement = await screen.findByRole('combobox', { name: '协作模式' }, { timeout: 10_000 })
-  const capture = (stage: string) => {
-    const chip = select.parentElement?.querySelector('span')?.textContent ?? ''
-    return {
-      stage,
-      label: chip,
-      value: select.value,
-      title: select.parentElement?.getAttribute('title') ?? '',
-      primary: screen.getByRole('button', { name: /^(发送|停止)$/ }).getAttribute('aria-label'),
-    }
-  }
-
-  const initial = capture('initial')
-  fireEvent.change(select, { target: { value: 'plan' } })
-  await screen.findByTitle(/计划模式将在下一次模型请求时生效/)
-  const planPending = capture('plan-pending')
-
-  const input = screen.getByPlaceholderText(/输入消息/)
-  fireEvent.change(input, { target: { value: 'commit plan' } })
-  fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await screen.findByTitle('当前为计划模式')
-  const planCommitted = capture('plan-committed')
-
-  fireEvent.change(select, { target: { value: 'default' } })
-  await screen.findByTitle(/默认模式将在下一次模型请求时生效/)
-  const defaultPendingWhileRunning = capture('default-pending-running')
-  fireEvent.click(screen.getByRole('button', { name: '停止' }))
-  await waitFor(() => { expect(screen.getByRole('button', { name: '发送' })).toBeTruthy() })
-  const defaultPendingAfterStop = capture('default-pending-stopped')
-
-  fireEvent.change(input, { target: { value: 'commit default' } })
-  fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await screen.findByTitle('当前为默认模式')
-  const defaultCommitted = capture('default-committed')
-  fireEvent.click(screen.getByRole('button', { name: '停止' }))
-
-  await expect(`${JSON.stringify({
-    initial,
-    planPending,
-    planCommitted,
-    defaultPendingWhileRunning,
-    defaultPendingAfterStop,
-    defaultCommitted,
-  }, null, 2)}\n`).toMatchFileSnapshot('./snapshots/plan-mode.json')
 })

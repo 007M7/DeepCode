@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -30,16 +30,13 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     options: {},
     session,
     get status() { return status },
+    get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
-    send() {},
-    steer() {},
-    inject(content: ContentBlock[], options?: InjectOptions) {
-      const source = options?.source ?? { kind: 'user' }
-      session.append('context/message', {
-        content,
-        source,
-        ...options?.meta === undefined ? {} : { meta: options.meta },
-      }, { surfaceOp: 'append' })
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },
@@ -53,10 +50,10 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     .filter(event => event.type === 'turn/start')
     .reduce((max, event) => Math.max(max, event.data.turn), 0) + 1
   stub.session.append('turn/start', { turn, trigger: { kind: 'message', source } })
-  stub.session.append('user/message', {
+  stub.session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source,
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   return turn
 }
 
@@ -143,7 +140,16 @@ describe('goal tool registration and presentation', () => {
       goal_id: 'goal-1', revision: 2, action: 'blocked', blocked_reason: 'Waiting for a human choice.',
     })).toEqual({ card: 'generic', title: 'Mark goal', kind: 'other', rawInput: 'Waiting for a human choice.' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: 'ship', max_goal_rounds: 0, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 'ship' })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
+      goal_id: 'goal-1', revision: 2, action: 'edit',
+      objective: '', max_goal_rounds: 8, blocked_reason: '',
+    })).toEqual({ card: 'generic', title: 'Edit goal', kind: 'other', rawInput: 8 })
+    expect(ctx.tools.get('update_goal')?.presentCall?.({
       goal_id: 'goal-1', revision: 2, action: 'resume',
+      objective: '', max_goal_rounds: 0, blocked_reason: '',
     })).toEqual({ card: 'generic', title: 'Resume goal', kind: 'other', rawInput: 'goal-1' })
     expect(ctx.tools.get('update_goal')?.presentCall?.({ wrong: true })).toBeUndefined()
   })
@@ -228,7 +234,9 @@ describe('goal tool execution authority', () => {
   it('rejects stale agent objects and agents outside running status through the executor', async () => {
     const { ctx, root } = await harness()
     openTurn(root, { kind: 'user' })
-    const stale = { ...root.agent }
+    // A distinct agent object over root's exact session: same id, not the live
+    // registered instance, so the executor must reject it.
+    const stale = stubAgent('goal-tool-stale', root.agent.session).agent
     const staleResult = await execute(ctx, 'get_goal', {}, stale, stale)
     expect(staleResult.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
 
@@ -295,8 +303,10 @@ describe('goal tool execution authority', () => {
     })
     root.session.append('steering/message', {
       turn: round,
-      content: [{ type: 'text', text: 'pause now' }],
-      source: { kind: 'user' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'pause now' }],
+        source: { kind: 'user' },
+      }),
     }, { surfaceOp: 'append' })
     const paused = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'pause',
@@ -333,7 +343,6 @@ describe('goal tool state transitions', () => {
       goal_id: goal['id'], revision: goal['revision'], action: 'resume',
     }, root.agent))
     expect(goal).toMatchObject({ phase: 'active', revision: 4 })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1, testToolSignal)).toBeUndefined()
   })
 
   it('terminal-stops an autonomous completion but leaves a human pause interactive', async () => {
@@ -344,21 +353,20 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', humanTurn, testToolSignal)).toBeUndefined()
+    expect(paused.concludesTurn).toBeUndefined()
     const resumed = resultGoal(await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: 2, action: 'resume',
     }, root.agent))
     closeTurn(root, humanTurn)
 
-    const roundTurn = openTurn(root, {
+    openTurn(root, {
       kind: 'goal', goalId: created.id, revision: resumed['revision'] as number, round: 1,
     })
     const complete = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: resumed['revision'], action: 'complete',
     }, root.agent)
     expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toEqual({ action: 'stop' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toBeUndefined()
+    expect(complete.concludesTurn).toBe(true)
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {
@@ -421,6 +429,77 @@ describe('goal tool state transitions', () => {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
     }, root.agent)
     expect(malformedRef.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+  })
+
+  it('accepts only empty fillers in fields unused by the selected action', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    let goal = ctx.goals.create(root.agent, { objective: 'valid' })
+
+    const edited = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'edit',
+      objective: 'edited',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(edited)).toMatchObject({ objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const capped = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'edit',
+      objective: '',
+      max_goal_rounds: 8,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(capped)).toMatchObject({ objective: 'edited', maxGoalRounds: 8 })
+    goal = ctx.goals.get(root.agent)!
+
+    const paused = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'pause',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(paused)).toMatchObject({ phase: 'paused', objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const resumed = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'resume',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(resumed)).toMatchObject({ phase: 'active', objective: 'edited' })
+    goal = ctx.goals.get(root.agent)!
+
+    const blocked = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'blocked',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: 'actual blocker',
+    }, root.agent)
+    expect(resultGoal(blocked)).toMatchObject({ phase: 'blocked' })
+    goal = ctx.goals.resume(root.agent, { id: goal.id, revision: goal.revision + 1 })
+
+    const complete = await execute(ctx, 'update_goal', {
+      goal_id: goal.id,
+      revision: goal.revision,
+      action: 'complete',
+      objective: '',
+      max_goal_rounds: 0,
+      blocked_reason: '',
+    }, root.agent)
+    expect(resultGoal(complete)).toMatchObject({ phase: 'complete', objective: 'edited' })
   })
 
   it('allows exact goal rounds to complete but not edit or pause', async () => {

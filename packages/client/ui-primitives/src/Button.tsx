@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import css from './Button.module.css'
 
 /** Visual variant, each backed by its --dsw-alias-button-* token family. */
-export type ButtonVariant = 'primary' | 'ghost' | 'toolbar'
+export type ButtonVariant = 'primary' | 'ghost' | 'outline' | 'toolbar'
 
 /**
  * Render a button.
@@ -19,7 +19,7 @@ export function Button({ variant = 'ghost', size = 'md', icon, className, childr
   variant?: ButtonVariant
   size?: 'md' | 'sm'
   icon?: ReactNode
-  className?: string
+  className?: string | undefined
   children?: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (

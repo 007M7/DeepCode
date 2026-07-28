@@ -15,6 +15,7 @@ import type {
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
+  SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
   SessionSearchCursor,
@@ -25,6 +26,7 @@ import type {
   Config as SessionQueryConfig,
   SessionEventSearchDocument,
   SessionEventSearchHit,
+  SessionEventSearchPage,
   SessionEventSearchRequest,
   SessionSearchExecContext,
   SessionSearchHit,
@@ -86,6 +88,8 @@ export interface Config extends SessionQueryConfig {
   maxLimit?: number
   /** Maximum snippet length in Unicode code points. Defaults to 240. */
   snippetChars?: number
+  /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
+  persistedInspectConcurrency?: number
 }
 
 interface ResolvedConfig {
@@ -95,6 +99,7 @@ interface ResolvedConfig {
   maxLimit: number
   snippetChars: number
   readWindowMax: number
+  persistedInspectConcurrency: number
 }
 
 interface ObservedSession {
@@ -133,7 +138,7 @@ interface IndexedLiveRow {
   generation: number
 }
 
-interface SearchRow {
+interface SessionHeaderRow {
   session_id: string
   version: number
   created_at: number
@@ -141,6 +146,9 @@ interface SearchRow {
   parent_session: string | null
   seed_length: number | null
   delegation_depth: number | null
+}
+
+interface SearchRow extends SessionHeaderRow {
   live: number
   persisted: number
   seq: number
@@ -172,6 +180,11 @@ export class SessionQuerySqlite extends SessionQueryService {
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
     snippetChars: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_SNIPPET_CHARS),
     readWindowMax: z.number().step(1).min(0).default(SESSION_QUERY_READ_WINDOW_MAX),
+    persistedInspectConcurrency: z.number()
+      .step(1)
+      .min(1)
+      .max(Number.MAX_SAFE_INTEGER)
+      .default(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -247,27 +260,30 @@ export class SessionQuerySqlite extends SessionQueryService {
   override async searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
-  ): Promise<SessionSearchPage<SessionEventSearchHit>> {
+  ): Promise<SessionEventSearchPage> {
     const normalized = normalizeEventRequest(request, this.config)
     const signal = exec?.signal
     return this._serialized(signal, async () => {
       await this._ensureReady(signal)
       const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
-      const generation = this._targetGeneration(normalized.sessionId, persistenceBinding)
+      const target = this._targetObservation(normalized.sessionId, persistenceBinding)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
         ? 0
-        : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, generation)
+        : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, target.generation)
       const rows = this._queryEvents(normalized, offset, persistenceBinding)
-      return page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
-        version: 1,
-        instance: this._instance,
-        scope: 'events',
-        fingerprint,
-        generation,
-        offset: cursorOffset,
-      }), offset)
+      return {
+        session: target.header,
+        ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
+          version: 1,
+          instance: this._instance,
+          scope: 'events',
+          fingerprint,
+          generation: target.generation,
+          offset: cursorOffset,
+        }), offset),
+      }
     })
   }
 
@@ -336,6 +352,7 @@ export class SessionQuerySqlite extends SessionQueryService {
   }
 
   private async _reconcile(signal: AbortSignal | undefined): Promise<PersistenceBinding> {
+    assertNotAborted(signal)
     const db = this._requireDb()
     const persistedRows = db.prepare(
       'SELECT id, revision, generation FROM persisted_sessions',
@@ -436,7 +453,8 @@ export class SessionQuerySqlite extends SessionQueryService {
         try {
           const canReuseIndexed = this._lastPersistenceIdentity === undefined
             || this._lastPersistenceIdentity === persistenceBinding.identity
-          const before = await waitWithAbort(persistence.listSnapshots(), signal)
+          const before = await persistence.listSnapshots(signal)
+          assertNotAborted(signal)
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
             if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
@@ -445,13 +463,16 @@ export class SessionQuerySqlite extends SessionQueryService {
             // crash-repair side effects; the live-membership retry below makes
             // the returned observation live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
-            const loaded = await waitWithAbort(persistence.inspect(entry.header.id), signal)
+            assertNotAborted(signal)
+            const loaded = await persistence.inspect(entry.header.id, signal)
+            assertNotAborted(signal)
             assertSessionHeadersCompatible(entry.header, loaded.meta)
             entry.loaded = observeSession(loaded.meta, loaded.events)
           }
-          const after = materializePersistenceSnapshots(
-            await waitWithAbort(persistence.listSnapshots(), signal),
-          )
+          assertNotAborted(signal)
+          const afterSnapshots = await persistence.listSnapshots(signal)
+          assertNotAborted(signal)
+          const after = materializePersistenceSnapshots(afterSnapshots)
           if (!samePersistenceSnapshots(persisted, after)) continue
           if (this._persistenceBinding !== persistenceBinding) continue
         } catch (error: unknown) {
@@ -643,17 +664,33 @@ export class SessionQuerySqlite extends SessionQueryService {
     `).all(...bindings) as unknown as SearchRow[]
   }
 
-  private _targetGeneration(sessionId: SessionId, persistenceBinding: PersistenceBinding): string {
+  private _targetObservation(
+    sessionId: SessionId,
+    persistenceBinding: PersistenceBinding,
+  ): { header: SessionHeader; generation: string } {
     const db = this._requireDb()
     const live = db.prepare(
-      'SELECT generation FROM temp.live_sessions WHERE id = ?',
-    ).get(sessionId) as { generation: number } | undefined
-    if (live !== undefined) return `live:${live.generation}`
+      `SELECT
+        id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+      FROM temp.live_sessions
+      WHERE id = ?`,
+    ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
+    if (live !== undefined) {
+      return { header: rowHeader(live), generation: `live:${live.generation}` }
+    }
     if (persistenceBinding.service !== undefined) {
       const persisted = db.prepare(
-        'SELECT generation FROM persisted_sessions WHERE id = ?',
-      ).get(sessionId) as { generation: number } | undefined
-      if (persisted !== undefined) return `persisted:${this._persistenceEpoch}:${persisted.generation}`
+        `SELECT
+          id AS session_id, version, created_at, cwd, parent_session, seed_length, delegation_depth, generation
+        FROM persisted_sessions
+        WHERE id = ?`,
+      ).get(sessionId) as (SessionHeaderRow & { generation: number }) | undefined
+      if (persisted !== undefined) {
+        return {
+          header: rowHeader(persisted),
+          generation: `persisted:${this._persistenceEpoch}:${persisted.generation}`,
+        }
+      }
     }
     throw new SessionQueryError(
       `session "${sessionId}" not found`,
@@ -835,7 +872,7 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
     && (a.delegationDepth ?? 0) === (b.delegationDepth ?? 0)
 }
 
-function rowHeader(row: SearchRow): SessionHeader {
+function rowHeader(row: SessionHeaderRow): SessionHeader {
   return {
     version: row.version,
     id: row.session_id as SessionId,
@@ -914,6 +951,8 @@ function resolveConfig(config: Config): ResolvedConfig {
     maxLimit: config.maxLimit ?? SESSION_QUERY_SQLITE_MAX_LIMIT,
     snippetChars: config.snippetChars ?? SESSION_QUERY_SQLITE_SNIPPET_CHARS,
     readWindowMax: config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX,
+    persistedInspectConcurrency: config.persistedInspectConcurrency
+      ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
@@ -923,6 +962,12 @@ function resolveConfig(config: Config): ResolvedConfig {
   assertPositiveInteger('snippetChars', resolved.snippetChars)
   if (!Number.isInteger(resolved.readWindowMax) || resolved.readWindowMax < 0) {
     throw invalidConfig('readWindowMax must be a non-negative integer')
+  }
+  if (
+    !Number.isSafeInteger(resolved.persistedInspectConcurrency)
+    || resolved.persistedInspectConcurrency < 1
+  ) {
+    throw invalidConfig('persistedInspectConcurrency must be a positive safe integer')
   }
   if (resolved.defaultLimit > resolved.maxLimit) {
     throw invalidConfig('defaultLimit must be less than or equal to maxLimit')

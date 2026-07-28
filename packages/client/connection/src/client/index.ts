@@ -1,10 +1,7 @@
 /**
- * Browser half of the wire consumer layer (contract: api-contracts v3
- * section 3; export inventory = v3 §3.2). The wire is this package's client
- * half in its entirety — apply mounts ctx.connection: the shared api client
- * plus the connection controller handle. Mode selection (?fixture) happens
- * here so the rest of the client tree is mode-blind; the controller's sinks
- * are wired by the runtime plugin (object layer), which injects this service.
+ * Browser wire client. The plugin selects fixture or HTTP transport, provides
+ * the shared API client, and lets the runtime object layer start the stream
+ * controller with its sinks.
  */
 import type { Context } from 'cordis'
 import type { IApiClient } from './api.ts'
@@ -15,17 +12,19 @@ import { WebApiClient } from './web-api-client.ts'
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
-  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, PlanModeState, ToolEventView,
-  ToolCallView, ToolResultView,
+  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
+  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
+  CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
+  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionModels,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
 } from './api.ts'
 export { RpcId, AbstractApiClient, transportError } from './api.ts'
 
-// ---- Connection loop types (part of the ConnectionHandle.start contract;
-// the controller class itself stays package-internal — apply owns the loop,
-// tests reach it via src) ----
+// Connection loop types are public through ConnectionHandle.start; the
+// controller remains package-internal.
 export type { ConnectionConfig, ConnectionSinks, ConnectionState }
 
 

@@ -64,8 +64,8 @@ export interface Config {
   /**
    * Shell command template the TUI prints on exit and lists under `/resume`,
    * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes via this app's env var, e.g.
-   * `RESUME_SESSION_ID={session} dsh`.
+   * door). Set it to a command that resumes the session, e.g.
+   * `dsh --resume {session}`.
    */
   resumeCommand?: string
   /** Full-screen TUI presentation settings. */
@@ -131,6 +131,7 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') })
   ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
+  ctx.plugin(uiTui.TuiPromptService)
   ctx.plugin(uiTui, {
     ...config.ui,
     ...config.welcome === undefined ? {} : { welcome: config.welcome },

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 
 afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { classifyTool, toolRowModel } from '../src/client/contract/tool-call-model.ts'
+import { classifyTool, resolveToolPath, toolRowModel } from '../src/client/contract/tool-call-model.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
@@ -12,12 +12,13 @@ import type { ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
-  turn: 1, step: 1, callView: null, ...over,
+  turn: 1, step: 1, time: 1_000, callView: null, ...over,
 })
 
 const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
-  kind: 'tool-result', seq: 10, callId: 'c1',
+  kind: 'tool-result', seq: 10, time: 2_000, callId: 'c1',
   call: { name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}' },
+  callTime: 1_000,
   content: [], isError: false, callView: null, resultView: null, ...over,
 })
 
@@ -30,6 +31,9 @@ describe('tool-call-model', () => {
     expect(classifyTool('grep')).toBe('search')
     expect(classifyTool('write')).toBe('write')
     expect(classifyTool('edit')).toBe('edit')
+    expect(classifyTool('cordis_inspect')).toBe('read')
+    expect(classifyTool('cordis_mount')).toBe('code')
+    expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
   })
 
@@ -60,11 +64,64 @@ describe('tool-call-model', () => {
     expect(toolRowModel('', running({ argsRaw: '' })).summary).toBe('c1')
   })
 
+  it('exposes filePath for path/file_path args and skips URL-only reads', () => {
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"src/a.ts"}' })).filePath).toBe('src/a.ts')
+    expect(toolRowModel('write', running({ name: 'write', argsRaw: '{"file_path":"src/a.ts"}' })).filePath).toBe('src/a.ts')
+    expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"src/a.ts"}' })).filePath).toBe('src/a.ts')
+    expect(toolRowModel('web_fetch', running({ name: 'web_fetch', argsRaw: '{"url":"https://example.com"}' })).filePath)
+      .toBeUndefined()
+    expect(toolRowModel('bash', running()).filePath).toBeUndefined()
+  })
+
+  it('resolveToolPath joins relative paths under cwd and passes absolute through', () => {
+    expect(resolveToolPath('/w', 'src/a.ts')).toBe('/w/src/a.ts')
+    expect(resolveToolPath('/w/', '/abs/a.ts')).toBe('/abs/a.ts')
+    expect(resolveToolPath(undefined, 'src/a.ts')).toBe('src/a.ts')
+    expect(resolveToolPath('/w', 'C:\\x\\a.ts')).toBe('C:\\x\\a.ts')
+  })
+
+  it('displays workspace-rooted paths relative to the session cwd', () => {
+    const cwd = '/Users/u/ws/'
+    expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"/Users/u/ws/src/x.ts"}' }), cwd).summary).toBe('src/x.ts')
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/Users/u/ws/a.md"}' }), cwd).summary).toBe('a.md')
+    // Paths outside the workspace (and non-path summaries) stay verbatim.
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/etc/hosts"}' }), cwd).summary).toBe('/etc/hosts')
+    expect(toolRowModel('bash', running({ argsRaw: '{"command":"pwd"}' }), cwd).summary).toBe('pwd')
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/Users/u/ws/a.md"}' }), '').summary).toBe('/Users/u/ws/a.md')
+  })
+
   it('body pretty-prints JSON args, keeps raw non-JSON, null when empty', () => {
     expect(toolRowModel('bash', running({ argsRaw: '{"a":1}' })).body).toBe('{\n  "a": 1\n}')
     expect(toolRowModel('bash', running({ argsRaw: 'raw' })).body).toBe('raw')
     expect(toolRowModel('bash', running({ argsRaw: '' })).body).toBeNull()
     expect(toolRowModel('bash', result({ call: null })).body).toBeNull()
+  })
+
+  it('gives Cordis lifecycle tools action titles over their generic variants', () => {
+    expect(toolRowModel('cordis_inspect', running({
+      name: 'cordis_inspect',
+      argsRaw: '{"what":"api","name":"tools"}',
+    }))).toMatchObject({
+      variant: 'read',
+      title: 'Inspect',
+      summary: 'api',
+    })
+    expect(toolRowModel('cordis_mount', running({
+      name: 'cordis_mount',
+      argsRaw: '{"code":"return { name: \\"audit\\", apply(ctx) {} }"}',
+    }))).toMatchObject({
+      variant: 'code',
+      title: 'Mount temporary Plugin',
+      summary: 'return { name: "audit", apply(ctx) {} }',
+      body: 'return { name: "audit", apply(ctx) {} }',
+    })
+    expect(toolRowModel('cordis_unmount', result({
+      call: { name: 'cordis_unmount', argsRaw: '{"id":"dyn-2"}' },
+    }))).toMatchObject({
+      variant: 'others',
+      title: 'Unmount temporary Plugin',
+      summary: 'dyn-2',
+    })
   })
 })
 
@@ -94,12 +151,12 @@ describe('ToolRow', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
-  it('running and error states replace the icon with a StateDot', () => {
+  it('running keeps the icon (row sweep carries the signal); error swaps in a StateDot', () => {
     const runningView = render(<ToolRow {...rowProps} state="running" />)
-    expect(runningView.queryByTestId('tool-icon')).toBeNull()
+    expect(runningView.queryByTestId('tool-icon')).not.toBeNull()
     expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
     const errorView = render(<ToolRow {...rowProps} state="error" />)
-    expect(errorView.queryByTestId('tool-icon')).toBeNull()
+    expect(errorView.container.querySelector('[data-testid="tool-icon"]')).toBeNull()
   })
 
   it('non-expandable rows render a passive leading slot', () => {
@@ -108,13 +165,34 @@ describe('ToolRow', () => {
     expect(view.queryByTestId('tool-icon')).not.toBeNull()
   })
 
-  it('row click hands off to onOpenDetails; the expand toggle does not', () => {
+  it('file-path summary opens through onOpenFile; the leading slot is not an expand control', () => {
     const open = vi.fn()
-    const view = render(<ToolRow {...rowProps} onOpenDetails={open} />)
+    const view = render(
+      <ToolRow {...rowProps} variant="read" title="Read" summary="src/a.ts" filePath="src/a.ts" onOpenFile={open} />,
+    )
+    fireEvent.click(view.getByText('src/a.ts'))
+    expect(open).toHaveBeenCalledWith('src/a.ts')
+    // Only the path link is a button — no args-expand affordance on file rows.
+    expect(view.container.querySelectorAll('button')).toHaveLength(1)
+    expect(view.container.querySelector('[aria-expanded]')).toBeNull()
+    expect(view.queryByText(/"a": 1/)).toBeNull()
+  })
+
+  it('a single-file path disables expand even when onOpenFile is absent', () => {
+    const view = render(
+      <ToolRow {...rowProps} variant="write" title="Write" summary="作文.md" filePath="作文.md" />,
+    )
+    expect(view.container.querySelector('button')).toBeNull()
+    expect(view.container.querySelector('[aria-expanded]')).toBeNull()
+    fireEvent.click(view.getByText('作文.md'))
+    expect(view.queryByText(/"a": 1/)).toBeNull()
+  })
+
+  it('non-file rows do not open anything when the summary is clicked', () => {
+    const open = vi.fn()
+    const view = render(<ToolRow {...rowProps} onOpenFile={open} />)
     fireEvent.click(view.getByText('List files'))
-    expect(open).toHaveBeenCalledTimes(1)
-    fireEvent.click(view.container.querySelector('button')!)
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(open).not.toHaveBeenCalled()
   })
 })
 
@@ -139,7 +217,7 @@ describe('ThinkRow', () => {
 
 describe('GenericToolCard', () => {
   const props = (toolName: string, block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName, block, openDetails: vi.fn(),
+    callId: 'c1', toolName, block, openFile: vi.fn(),
   })
 
   it('renders the classified variant row from the frozen slice', () => {
@@ -184,10 +262,15 @@ describe('GenericToolCard', () => {
     expect(view.container.querySelector('svg')).not.toBeNull()
   })
 
-  it('row click reaches openDetails', () => {
-    const p = props('bash', result())
-    const view = render(<GenericToolCard {...p} />)
-    fireEvent.click(view.getByText('List files'))
-    expect(p.openDetails).toHaveBeenCalledTimes(1)
+  it('file-path summary click reaches openFile; bash summary does not', () => {
+    const file = props('read', running({ name: 'read', argsRaw: '{"path":"src/x.ts"}' }))
+    const fileView = render(<GenericToolCard {...file} />)
+    fireEvent.click(fileView.getByText('src/x.ts'))
+    expect(file.openFile).toHaveBeenCalledWith('src/x.ts')
+
+    const bash = props('bash', result())
+    const bashView = render(<GenericToolCard {...bash} />)
+    fireEvent.click(bashView.getByText('List files'))
+    expect(bash.openFile).not.toHaveBeenCalled()
   })
 })

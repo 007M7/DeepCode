@@ -3,7 +3,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
+import {} from '@deepseek-ai/dsh-agent'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -35,7 +37,24 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
 }
 
 function agentForCwd(cwd: string): Agent {
-  return { session: { header: { cwd } } } as unknown as Agent
+  const id = SessionId(`tool-skill-${cwd}`)
+  const session = new Session(id, [], { version: 0, id, createdAt: 0, cwd })
+  return {
+    ctx: new Context(),
+    id,
+    options: {},
+    session,
+    status: 'idle',
+    acceptsNextStep: false,
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
+    },
+    cancel() {},
+    whenIdle: () => Promise.resolve(),
+  }
 }
 
 async function composePrefix(ctx: Context, cwd: string, signal = new AbortController().signal): Promise<Message[]> {
@@ -43,11 +62,8 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 }
 
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
-  const empty: Message[] = []
-  return await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, signal,
-    () => Promise.resolve(empty),
-  )
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, signal)
+  return agent.session.deriveMessages()
 }
 
 async function mintAgentScope(ctx: Context, cwd: string): Promise<{ agent: Agent; scope: Scope }> {
@@ -86,7 +102,7 @@ describe('dsh-tool-skill', () => {
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['skill'])
   })
 
-  it('forwards the session-prefix abort signal to skill discovery', async () => {
+  it('forwards the step abort signal to skill discovery', async () => {
     const home = await tempDir('tool-prefix-signal')
     const ctx = await setup(home)
     let seenSignal: AbortSignal | undefined
@@ -107,7 +123,7 @@ describe('dsh-tool-skill', () => {
     expect(seenSignal).toBe(controller.signal)
   })
 
-  it('contributes a stable name-and-description catalog through the session prefix', async () => {
+  it('injects a stable durable name-and-description catalog at the first step', async () => {
     const home = await tempDir('tool-catalog')
     const ctx = await setup(home, { catalogDescriptionMaxLength: 50 })
     ctx.skills.register({
@@ -126,16 +142,17 @@ describe('dsh-tool-skill', () => {
       provider: 'runtime',
       content: 'A body.',
     })
-    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => [
-      { role: 'user', content: [{ type: 'text', text: 'later contribution' }] },
-      ...await next(),
-    ])
+    ctx.on('agent/step', (agent) => {
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } }))
+    })
 
     const prefix = await composePrefix(ctx, '/workspace')
 
     expect(prefix).toEqual([
       {
+        id: expect.any(String) as unknown,
         role: 'user',
+        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
         content: [{
           type: 'text',
           text: [
@@ -152,7 +169,12 @@ describe('dsh-tool-skill', () => {
           ].join('\n'),
         }],
       },
-      { role: 'user', content: [{ type: 'text', text: 'later contribution' }] },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      },
     ])
     const rendered = JSON.stringify(prefix[0])
     expect(rendered).not.toContain('whenToUse')
@@ -162,7 +184,7 @@ describe('dsh-tool-skill', () => {
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/workspace') }))).not.toContain('<available_skills>')
   })
 
-  it('does not contribute a session-prefix message when no skills are available', async () => {
+  it('does not inject a catalog when no skills are available', async () => {
     const home = await tempDir('tool-empty-catalog')
     const ctx = await setup(home)
 

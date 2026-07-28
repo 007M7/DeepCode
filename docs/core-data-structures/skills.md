@@ -1,5 +1,7 @@
 # Skills
 
+English | [中文](skills.zh.md)
+
 The [skill capability family](../../packages/skill) is split across three packages: the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`) merges provider catalogs; the local provider ([dsh-skill-local](../../packages/skill/skill-local)) scans project/custom/user directories; the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)) owns the session-prefix catalog and model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
@@ -45,6 +47,7 @@ The shipped local provider scans roots in rank order:
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not ship built-in system skills; deployments supply built-ins through another provider.
 
@@ -54,7 +57,7 @@ Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider ac
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | (string & {})
+type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
 ```
 
 ## Summaries, candidates, and complete definitions
@@ -140,7 +143,7 @@ interface SkillLookupOptions {
 }
 ```
 
-The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, and `customSkillDirs`). The consumer owns its catalog description bound.
+The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, `customSkillDirs`, and optional `bundledSkillDir`/`DSH_BUNDLED_SKILL_DIR`). The consumer owns its catalog description bound.
 
 ```ts type-equiv
 /** Skill registry configuration. */
@@ -152,6 +155,6 @@ interface Config {
 
 ## Session catalog and tool contract
 
-`dsh-tool-skill` contributes a user-role `<system-reminder>` through `agent/session-prefix`. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Prefix discovery forwards the caller's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`. Its request-only, header-logged lifecycle is defined by the [session-prefix Agent Note](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md).
+`dsh-tool-skill` injects a durable user-role `<system-reminder>` at the first `agent/step` of a live session. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Discovery forwards the step's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`.
 
 The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rejects `disableModelInvocation` skills, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. The tool result is the model-visible path for complete instructions.

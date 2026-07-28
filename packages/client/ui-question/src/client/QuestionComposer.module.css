@@ -19,6 +19,13 @@
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-shadow-lv1-blur);
   color: var(--dsw-alias-label-primary);
+  /* Elevated surface in dark, same as the menus: the option list inside scrolls
+     once the card hits the cap above, so the thumb takes the l2 pair. Declared
+     on the card because the elevation belongs to the surface, and the custom
+     properties inherit down to `.options` (see ui-theme styles/scrollbar.css
+     for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .card,
@@ -130,6 +137,11 @@
   gap: 10px;
   width: 100%;
   min-height: 42px;
+  /* Rows are the scroll content, never the slack absorber: a shrinkable row
+     collapses to min-height while its wrapped copy keeps the taller
+     intrinsic height, and centered content then paints outside the row box —
+     over the title and the next row. Overflow belongs to .options. */
+  flex-shrink: 0;
   padding: 5px 8px;
   border: 1px solid transparent;
   border-radius: 12px;
@@ -210,6 +222,9 @@
 }
 
 .custom {
+  /* Same reason as .option: the custom block is scroll content, and shrinking
+     it pushes its trigger row (and the open textarea) past the footer. */
+  flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: 12px;
 }

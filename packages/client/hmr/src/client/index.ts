@@ -5,7 +5,7 @@
  * `rebuilt` frame it re-fetches the entry's bundle and swaps the cordis
  * fiber in place. Every graph entry is a plugin bundle under the web2 model
  * — `immediately` rows differ only in stage-one prefetch (a boot
- * optimization), so all nine plugin packages share these reload semantics;
+ * optimization), so all rostered plugin packages share these reload semantics;
  * normal packages (react family, cordis, shell, pure libs) are not entries
  * and shell changes still mean a page reload. Cascade is zero-touch:
  * downstream fibers key their activation epoch on provider fiber uids
@@ -64,20 +64,11 @@
  */
 import type { Context } from 'cordis'
 import type { Entry, Loader } from '@cordisjs/plugin-loader'
-import type { WebBootGraph } from '@deepseek-ai/dsh-client-modules'
+import type { PluginsEventFrame } from '../events.ts'
+import { EVENTS_ENDPOINT } from '../events.ts'
 
-/**
- * Frames on the `GET /plugins/events` system SSE channel (owned host-side by
- * dsh-host-webserver's PluginEventFrame). Mirrored here because this is a
- * wire boundary: frames arrive as JSON text and are validated at the parse
- * point, not shared as a same-process typed seam.
- */
-export type PluginsEventFrame =
-  | { type: 'graph'; graph: WebBootGraph }
-  | { type: 'rebuilt'; id: string; rev: string }
-
-/** System SSE endpoint pushing graph/rebuilt frames (wire protocol constant). */
-export const EVENTS_ENDPOINT = '/plugins/events'
+export type { PluginsEventFrame } from '../events.ts'
+export { EVENTS_ENDPOINT } from '../events.ts'
 
 /** Cordis plugin name. */
 export const name = 'client-hmr'

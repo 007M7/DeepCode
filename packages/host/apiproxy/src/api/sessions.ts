@@ -6,8 +6,12 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+// The pure-type outlet: api/ is browser-importable, and the package root's
+// cordis Context merge (via dsh-agent) must not enter client aggregates.
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
+import type { WorkspaceId } from './workspace.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -31,6 +35,95 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
+/**
+ * The projection baseline riding the history tail page: one synchronous cut
+ * over every registered projection unit, read from the registry's watermark
+ * cache. `asOfSeq` is the seq of the last committed event every value
+ * reflects — the window tail event seq (`-1` for an empty log, mirroring
+ * `session/subscribed.lastSeq`), directly comparable with
+ * `session/projection` frame seqs under the client's higher-seq-wins rule. A
+ * key absent from `values` means the capability is absent (its domain plugin
+ * is unmounted).
+ */
+export interface SessionProjectionsBlock {
+  /** Seq of the last event the values reflect; -1 for an empty log. */
+  asOfSeq: number
+  /** Whole current value per registered projection key. */
+  values: Partial<SessionProjectionMap>
+}
+
+/** Complete model target selected for one session. */
+export interface ModelTarget {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+  /** Adapter-owned reasoning effort; absence preserves adapter/provider default behavior. */
+  reasoningEffort?: string
+}
+
+/** One adapter-owned reasoning effort displayed for an exact model route. */
+export interface ModelReasoningEffort {
+  /** Opaque value submitted back to the owning adapter. */
+  id: string
+  /** Adapter-supplied display name. */
+  name: string
+  /** Optional adapter-supplied description. */
+  description?: string
+}
+
+/** Selectable reasoning metadata for one exact model route. */
+export interface ModelReasoning {
+  /** Efforts in adapter-preferred display order. */
+  efforts: ModelReasoningEffort[]
+  /** Adapter-configured default; absence preserves the provider default. */
+  defaultEffort?: string
+}
+
+/** One model displayed inside its provider group. */
+export interface ModelCatalogModel {
+  /** Provider-owned model id. */
+  id: string
+  /** Provider-supplied display name. */
+  name: string
+  /** Optional provider-supplied description. */
+  description?: string
+  /** The current model was inserted because the advisory catalog omitted it. */
+  unlisted?: true
+  /** Exact-route reasoning metadata when the adapter exposes it. */
+  reasoning?: ModelReasoning
+}
+
+/** One provider and the models it advertised successfully. */
+export interface ModelProviderGroup {
+  /** Provider route id used for requests. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Models in provider-preferred order. */
+  models: ModelCatalogModel[]
+}
+
+/** A provider whose asynchronous catalog lookup failed. */
+export interface ModelCatalogFailure {
+  /** Provider route id. */
+  id: string
+  /** Provider display name. */
+  name: string
+  /** Lookup failure diagnostic. */
+  message: string
+}
+
+/** Detached model-directory snapshot for one session. */
+export interface SessionModels {
+  /** Target selected for the session's next assembled step. */
+  current: ModelTarget
+  /** Successfully loaded provider groups. */
+  groups: ModelProviderGroup[]
+  /** Provider-local failures; successful groups remain usable. */
+  failures: ModelCatalogFailure[]
+}
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
@@ -38,6 +131,14 @@ export interface SessionSummary {
   updatedAt: number
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
+  /**
+   * Derived emptiness bit: true while the session log holds zero events (no
+   * user message yet). Clients hide blank sessions from lists and reuse them
+   * for New Session on the same workspace. Always false for cold sessions —
+   * lazy persistence keeps a never-appended session out of the store, so a
+   * listed cold session necessarily has events.
+   */
+  blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
@@ -59,8 +160,16 @@ export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
   list(request: RpcRequest<{ cursor?: string }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
 
-  /** Creates a new session (and its agent, idle and standing by). */
-  create(request: RpcRequest<{ cwd?: string }>): Promise<RpcResponse<{ sessionId: SessionId }>>
+  /**
+   * Creates a real session and its idle agent. At most one of `workspaceId` /
+   * `cwd` is accepted; an omitted project uses the Host cwd. A caller may
+   * preallocate `sessionId`: retries with the same id and cwd return the same
+   * session, while a different cwd fails with `session-conflict`. Workspace
+   * creation attaches the session after publication; an attach failure
+   * returns `workspace-attach-failed` with the published session id.
+   */
+  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
    * Reads a window of history events; page boundaries align to message boundaries: one page =
@@ -70,9 +179,30 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
+   * The tail page — and only the tail page — additionally carries `projections`
+   * when the deployment mounts the session-projection registry: every moment
+   * the client needs a fresh baseline already pulls the tail page, and
+   * loadOlder (the only beforeSeq path) is the only path that never needs one.
+   * A deployment without the registry serves histories without the block.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
+
+  /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
+  models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
+
+  /**
+   * Selects the complete target for this session. Exact model metadata
+   * validates an optional reasoning effort, while catalog membership remains
+   * advisory.
+   */
+  selectModel(request: RpcRequest<{
+    sessionId: SessionId
+    provider: string
+    model: string
+    reasoningEffort?: string
+  }>):
+  Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /**
    * Sends a message. `content` is core's ContentBlock[] verbatim and `mode`

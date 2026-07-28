@@ -1,3 +1,4 @@
+import { createUserMessage, CallId, createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 /**
  * FoldAdapter over the real core SurfaceManager: padding sentinels for paged
  * windows, incremental append with node-cache identity, six-variant
@@ -39,8 +40,16 @@ describe('FoldAdapter', () => {
     const events = [
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
-      at(2, { type: 'steering/message', surfaceOp: 'append', data: { turn: 0, content: [{ type: 'text', text: '插话' }], source: { kind: 'user' } } }),
-      at(3, { type: 'context/message', surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' } } }),
+      at(2, { type: 'steering/message', surfaceOp: 'append', data: {
+        turn: 0,
+        message: createUserMessage({
+          content: [{ type: 'text', text: '插话' }],
+          source: { kind: 'user' },
+        }),
+      } }),
+      at(3, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' },
+      }) }),
       ev.toolCall(4, 0, 'c1', 'echo', '{"x":1}'),
       ev.toolResult(5, 0, 'c1', '结果'),
     ]
@@ -76,7 +85,17 @@ describe('FoldAdapter', () => {
     // An invalid surfaceOp on a surface-eligible event deterministically throws in the core fold.
     const window = [
       ev.user(10, '正常'),
-      at(11, { type: 'assistant/message', surfaceOp: 'bogus-op', data: { turn: 0, step: 0, content: [{ type: 'text', text: '坏 op' }], provenance: { provider: 'x', model: 'y' } } }),
+      at(11, { type: 'assistant/message', surfaceOp: 'bogus-op', data: {
+        turn: 0, step: 0,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: '坏 op' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'x', model: 'y' },
+          },
+        }),
+      } }),
     ]
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
@@ -98,7 +117,15 @@ describe('FoldAdapter', () => {
   it('materializes a tool-result error field when present', () => {
     const adapter = new FoldAdapter()
     adapter.reset([
-      at(0, { type: 'tool/result', surfaceOp: 'append', data: { turn: 0, step: 0, callId: 'c1', content: [], isError: true, error: { name: 'Boom', code: 'boom' } } }),
+      at(0, { type: 'tool/result', surfaceOp: 'append', data: {
+        turn: 0, step: 0,
+        message: createToolResultMessage({
+          callId: CallId('c1'),
+          content: [],
+          isError: true,
+        }),
+        error: { name: 'Boom', code: 'boom' },
+      } }),
     ], 0)
     expect(adapter.nodes().nodes[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
   })
@@ -141,5 +168,84 @@ describe('FoldAdapter', () => {
     adapter.reset([ev.toolResult(50, 3, 'outside', '窗外配对')], 50, [resultView] as never)
     const node = adapter.nodes().nodes[0]
     expect(node).toMatchObject({ kind: 'tool-result', call: null, callView: null, resultView: { title: '孤儿' } })
+  })
+
+  describe('command lifecycle nodes', () => {
+    it('folds a run/done pair into one settled node merged into flow order by seq', () => {
+      const adapter = new FoldAdapter()
+      adapter.reset([
+        ev.user(0, '先说话'),
+        ev.commandRun(1, 'cmd-1', 'plan'),
+        ev.commandDone(2, 'cmd-1', 'success', '已进入 plan mode'),
+        ev.assistant(3, 0, '然后回答'),
+      ], 0)
+      const { nodes } = adapter.nodes()
+      expect(nodes.map(n => [n.kind, n.seq])).toEqual([['user', 0], ['command', 1], ['assistant', 3]])
+      expect(nodes[1]).toMatchObject({
+        kind: 'command', commandId: 'cmd-1', name: 'plan', args: '',
+        outcome: { kind: 'success', text: '已进入 plan mode' },
+      })
+    })
+
+    it('renders a run with no done as still executing (outcome null)', () => {
+      const adapter = new FoldAdapter()
+      adapter.reset([ev.commandRun(0, 'cmd-2', 'goal', ' ship it')], 0)
+      expect(adapter.nodes().nodes[0]).toMatchObject({
+        kind: 'command', name: 'goal', args: ' ship it', outcome: null,
+      })
+    })
+
+    it('soft-falls a done-only window into a node built from the done (cross-window cut)', () => {
+      const adapter = new FoldAdapter()
+      adapter.reset([ev.commandDone(80, 'cmd-3', 'error', '失败了')], 80)
+      expect(adapter.nodes().nodes[0]).toMatchObject({
+        kind: 'command', seq: 80, commandId: 'cmd-3', name: null, args: null,
+        outcome: { kind: 'error', text: '失败了' },
+      })
+    })
+
+    it('settles a live-appended done in place, keeping the node at the run seq', () => {
+      const adapter = new FoldAdapter()
+      adapter.reset(plainTurn(0, 0, 'q', 'a'), 0)
+      adapter.append(ev.commandRun(6, 'cmd-4', 'clear'))
+      const running = adapter.nodes().nodes.find(n => n.kind === 'command')
+      expect(running).toMatchObject({ outcome: null })
+      adapter.append(ev.commandDone(7, 'cmd-4'))
+      const settled = adapter.nodes().nodes.find(n => n.kind === 'command')
+      expect(settled).toMatchObject({ seq: 6, outcome: { kind: 'success' } })
+      // Settlement replaced the node object rather than mutating the published one.
+      expect(settled).not.toBe(running)
+    })
+
+    it('tails command nodes whose seq is past every surface node', () => {
+      const adapter = new FoldAdapter()
+      adapter.reset([ev.user(0, '问'), ev.commandRun(1, 'cmd-tail', 'plan')], 0)
+      expect(adapter.nodes().nodes.map(n => n.kind)).toEqual(['user', 'command'])
+    })
+
+    it('command nodes survive the degraded linear-scan branch', () => {
+      const adapter = new FoldAdapter()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        adapter.reset([
+          ev.commandRun(0, 'cmd-5', 'plan'),
+          ev.commandDone(1, 'cmd-5'),
+          at(2, { type: 'assistant/message', surfaceOp: 'bogus-op', data: {
+            turn: 0,
+            step: 0,
+            message: createMessage({
+              role: 'assistant',
+              content: [{ type: 'text', text: '坏 op' }],
+              source: { kind: 'model', provider: 'x', model: 'y' },
+            }),
+          } }),
+        ], 0)
+        const { nodes, degraded } = adapter.nodes()
+        expect(degraded).toBe(true)
+        expect(nodes.some(n => n.kind === 'command')).toBe(true)
+      } finally {
+        errorSpy.mockRestore()
+      }
+    })
   })
 })

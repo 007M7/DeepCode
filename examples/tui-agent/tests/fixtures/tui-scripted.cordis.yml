@@ -4,6 +4,10 @@
 - id: scripted-llm
   name: './tui-scripted-llm.ts'
 
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
@@ -29,6 +33,8 @@
     # The smoke's log inspection reads plain `.jsonl`; keep the scripted
     # fixture uncompressed like the other snapshot-facing configs.
     persistenceCompression: none
+    resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
+    resumeCommand: 'dsh --resume {session}'
     workspaceContext:
       maxBytes: 65536
     welcome: 'scripted TUI ready.'

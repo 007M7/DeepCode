@@ -29,12 +29,18 @@ const result = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+function startTurn(session: Session, turn = 1): void {
+  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+}
+
 describe('hook-protocol invariants', () => {
   it('pairs serial and repeated handler invocations', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
+    startTurn(session)
     session.append('hook/invoked', invoked())
     session.append('hook/invoked', invoked())
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('hook/result', result())
     session.append('hook/result', result())
   })
@@ -56,12 +62,35 @@ describe('hook-protocol invariants', () => {
     const session = new Session(SessionId('bare-hook-session'))
     expect(() => {
       ctx.emit('session/event', session, {
-        type: 'hook/invoked', seq: 0, time: 0, data: invoked(),
+        type: 'turn/start', seq: 0, time: 0,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       })
       ctx.emit('session/event', session, {
-        type: 'hook/result', seq: 1, time: 1, data: result(),
+        type: 'hook/invoked', seq: 1, time: 1, data: invoked(),
+      })
+      ctx.emit('session/event', session, {
+        type: 'hook/result', seq: 2, time: 2, data: result(),
       })
     }).not.toThrow()
+  })
+
+  it('rejects hook events outside or for a different open turn', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    expect(() => session.append('hook/invoked', invoked())).toThrow(/outside any open turn/)
+    startTurn(session)
+    expect(() => session.append('hook/invoked', invoked({ turn: 2 }))).toThrow(/but open turn is 1/)
+  })
+
+  it('rejects an unenclosed hook event when replaying an existing session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    startTurn(session)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('hook/invoked', invoked())
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(HookInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 
   it.each([
@@ -70,12 +99,15 @@ describe('hook-protocol invariants', () => {
     [invoked({ dialect: 'other' }), /unknown dialect/],
   ])('rejects malformed hook invocation %#', async (data, message) => {
     const ctx = await setup()
-    expect(() => ctx.sessions.create().append('hook/invoked', data as never)).toThrow(message)
+    const session = ctx.sessions.create()
+    startTurn(session)
+    expect(() => session.append('hook/invoked', data as never)).toThrow(message)
   })
 
   it('rejects unmatched and malformed results', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
+    startTurn(session)
     expect(() => session.append('hook/result', result())).toThrow(/no matching hook\/invoked/)
     session.append('hook/invoked', invoked())
     expect(() => session.append('hook/result', result({ durationMs: -1 })))

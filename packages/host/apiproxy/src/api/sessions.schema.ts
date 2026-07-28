@@ -9,11 +9,23 @@ import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { HistoryEntry, PlanModeState, SessionSummary } from './sessions.ts'
+import type {
+  HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSummary,
+} from './sessions.ts'
 import type { ToolEventView } from './events.ts'
+import type { WorkspaceId } from './workspace.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
+
+/**
+ * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
+ * than in workspace.schema because session.create references it while
+ * workspace.schema references sessionIdSchema — schema modules must stay a
+ * DAG (both casts used at module top level; a cycle is a load-time TDZ).
+ */
+export const workspaceIdSchema = z.string().min(1) as unknown as z.ZodType<WorkspaceId>
 
 /** SessionEvent passthrough: strict envelope, wide data (the client fold handles unknown types via its documented default). */
 export const sessionEventSchema = z.object({
@@ -30,6 +42,7 @@ export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
   running: z.boolean(),
+  blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
   cwd: z.string().optional(),
 }) satisfies z.ZodType<Wire<SessionSummary>>
@@ -44,10 +57,15 @@ export const sessionListValueSchema = z.object({
   items: z.array(sessionSummarySchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.list'>>>
 
-/** session.create request payload. */
+/** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({
+  workspaceId: workspaceIdSchema.optional(),
   cwd: z.string().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.create'>>>
+  sessionId: sessionIdSchema.optional(),
+}).refine(
+  payload => payload.workspaceId === undefined || payload.cwd === undefined,
+  { message: 'session.create accepts workspaceId or cwd, not both' },
+) satisfies z.ZodType<Wire<RequestPayload<'session.create'>>>
 
 /** session.create response value. */
 export const sessionCreateValueSchema = z.object({
@@ -60,6 +78,49 @@ export const sessionHistoryRequestSchema = z.object({
   beforeSeq: z.number().int().nonnegative().optional(),
   maxMessages: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
+
+/** Complete provider/model target. */
+export const modelTargetSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelTarget>>
+
+/** One adapter-owned reasoning effort. */
+export const modelReasoningEffortSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+}) satisfies z.ZodType<Wire<ModelReasoningEffort>>
+
+/** Exact-model reasoning metadata. */
+export const modelReasoningSchema = z.object({
+  efforts: z.array(modelReasoningEffortSchema).min(1),
+  defaultEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelReasoning>>
+
+/** One advisory model entry inside a provider group. */
+export const modelCatalogModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  unlisted: z.literal(true).optional(),
+  reasoning: modelReasoningSchema.optional(),
+}) satisfies z.ZodType<Wire<ModelCatalogModel>>
+
+/** One successfully loaded provider group. */
+export const modelProviderGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  models: z.array(modelCatalogModelSchema),
+}) satisfies z.ZodType<Wire<ModelProviderGroup>>
+
+/** One provider-local catalog failure. */
+export const modelCatalogFailureSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  message: z.string(),
+}) satisfies z.ZodType<Wire<ModelCatalogFailure>>
 
 /**
  * ToolEventView passthrough: lock only the `for` discriminant and the presence
@@ -78,11 +139,48 @@ export const historyEntrySchema = z.object({
   view: toolEventViewSchema.optional(),
 }) satisfies z.ZodType<Wire<HistoryEntry>>
 
-/** session.history response value. */
+/**
+ * Projection baseline passthrough: `values` stays a wide record — each value
+ * was already parsed by its provider's own schema on the host side, and
+ * deep-validating here would import every domain's schema into the carrier.
+ */
+export const sessionProjectionsBlockSchema = z.object({
+  // -1 = empty log (the lastSeq convention of session/subscribed).
+  asOfSeq: z.number().int().min(-1),
+  values: z.record(z.string(), z.unknown()),
+}) as unknown as z.ZodType<SessionProjectionsBlock>
+
+/** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
+  projections: sessionProjectionsBlockSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
+
+/** session.models request payload. */
+export const sessionModelsRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.models'>>>
+
+/** session.models response value. */
+export const sessionModelsValueSchema = z.object({
+  current: modelTargetSchema,
+  groups: z.array(modelProviderGroupSchema),
+  failures: z.array(modelCatalogFailureSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
+
+/** session.selectModel request payload. */
+export const sessionSelectModelRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.selectModel'>>>
+
+/** session.selectModel response value. */
+export const sessionSelectModelValueSchema = z.object({
+  selected: modelTargetSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.selectModel'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })
@@ -92,7 +190,6 @@ export const sessionPromptRequestSchema = z.object({
   sessionId: sessionIdSchema,
   mode: z.union([z.literal('queue'), z.literal('steer')]),
   content: z.array(contentBlockSchema),
-  planMode: z.boolean().optional(),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
 /** session.prompt response value. */
@@ -109,31 +206,3 @@ export const sessionCancelRequestSchema = z.object({
 export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
-
-/** Plan state shared by the read and selection responses. */
-export const planModeStateSchema = z.object({
-  active: z.boolean(),
-  pending: z.boolean().optional(),
-}).refine(
-  state => state.pending === undefined || state.pending !== state.active,
-  { message: 'pending must differ from active when present', path: ['pending'] },
-) satisfies z.ZodType<Wire<PlanModeState>>
-
-/** session.planMode request payload. */
-export const sessionPlanModeRequestSchema = z.object({
-  sessionId: sessionIdSchema,
-}) satisfies z.ZodType<Wire<RequestPayload<'session.planMode'>>>
-
-/** session.planMode response value; null means the optional service is absent. */
-export const sessionPlanModeValueSchema =
-  planModeStateSchema.nullable() satisfies z.ZodType<Wire<ResponseValue<'session.planMode'>>>
-
-/** session.setPlanMode request payload. */
-export const sessionSetPlanModeRequestSchema = z.object({
-  sessionId: sessionIdSchema,
-  active: z.boolean(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.setPlanMode'>>>
-
-/** session.setPlanMode response value; null means the optional service is absent. */
-export const sessionSetPlanModeValueSchema =
-  planModeStateSchema.nullable() satisfies z.ZodType<Wire<ResponseValue<'session.setPlanMode'>>>

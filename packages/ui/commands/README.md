@@ -1,12 +1,14 @@
 # @deepseek-ai/dsh-commands
 
-Plugin-owned human-command registry shared by the TUI and ACP adapters. The [plugin command registration Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns the boundary and protocol mapping.
+English | [中文](README.zh.md)
+
+Plugin-owned human-command registry consumed by interactive UI adapters. The [plugin command registration Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns the boundary and dispatch contract.
 
 ## Service contract
 
-`ctx.commands.register(definition)` registers one lowercase command name, description, optional ACP-compatible unstructured-input hint, and abortable handler. A registered command is available to every composed command adapter; a plugin that is incompatible with a deployment does not register there. A plain-context registration is global. A command-producing plugin mounted beneath `agent.ctx` declares its own `commands` injection and creates an exact agent-scoped definition; it shadows a global definition with the same name. This child-injection shape preserves the agent scope without making the core agent loop depend on a UI service. Duplicate names within one layer fail during registration. Every disposer is the exact Cordis effect disposer, and registration or removal notifies every `commands/change` observer so live adapters can refresh discovery; observer failures are logged and cannot veto the registry mutation or starve later observers.
+`ctx.commands.register(definition)` registers one lowercase command name, description, optional unstructured-input hint, and abortable handler. A registered command is available to every composed command adapter; a plugin that is incompatible with a deployment does not register there. A plain-context registration is global. A command-producing plugin mounted beneath `agent.ctx` declares its own `commands` injection and creates an exact agent-scoped definition; it shadows a global definition with the same name. This child-injection shape preserves the agent scope without making the core agent loop depend on a UI service. Duplicate names within one layer fail during registration. Every disposer is the exact Cordis effect disposer, and registration or removal notifies every `commands/change` observer so live adapters can refresh discovery; observer failures are logged and cannot veto the registry mutation or starve later observers.
 
-`list(agent)` returns immutable, name-sorted descriptors after scoped shadowing. `find(agent, name)` returns the corresponding definition. `execute(agent, line, signal)` uses `parseCommand()` and runs only a known command, returning `undefined` for invalid syntax or unknown names.
+`list(agent)` returns immutable, name-sorted descriptors after scoped shadowing. `find(agent, name)` returns the corresponding definition. `execute(agent, line, signal)` uses `parseCommand()` and runs only a known command, returning the settled `CommandExecution` (the normalized result plus the lifecycle pairing `commandId`) or `undefined` for invalid syntax or unknown names. A resolved command's lifecycle is logged on the receiving agent's session as the log-only pair `command/run` (before the handler, with a minted `commandId`, the parser's structured `name`/`args` split, and the issuing `CommandSource`) and `command/done` (at settlement, with the outcome kind and verbatim text; a thrown or aborted handler settles as `kind: 'error'`). Admission misses log nothing. Both are direct standalone appends on the receiving agent's session: no turn wraps them, and persistence drains them through ordinary checkpoints and teardown.
 
 `parseCommand()` recognizes a slash at byte zero, a lowercase name containing letters, digits, `_`, or `-`, and either end-of-input or whitespace. It returns every byte after the name as `rawInput`, including separator whitespace; consumers own their command-specific grammar and may normalize only what that grammar permits.
 
@@ -14,7 +16,7 @@ Handlers return `success` or `error` plus optional UI text. Results are rendered
 
 ## Composition
 
-The terminal and ACP app bundles mount this service with their consuming front door; the UI-less agent spine does not. Custom compositions that use `dsh-tui`, `dsh-acp`, or a command producer mount `@deepseek-ai/dsh-commands` explicitly.
+The terminal app bundle mounts this service with `dsh-tui`; the UI-less agent spine and ACP automation app do not. Custom interactive compositions and command producers mount `@deepseek-ai/dsh-commands` explicitly.
 
 ## Model Experience
 
@@ -34,6 +36,5 @@ Registry metadata, command input, and direct output never enter a model request 
 
 ## Known Limitations and Deferred Work
 
-- **Only unstructured text input** — the descriptor intentionally matches ACP's current unstructured command input; forms, completion schemas, and typed arguments remain command-owned parsing concerns.
-- **No persisted command output** — adapters display results live, but the generic registry does not add them to the session log or reconstruct them after reconnect.
+- **Only unstructured text input** — forms, completion schemas, and typed arguments remain command-owned parsing concerns.
 - **Cooperative side-effect cancellation** — dispatch stops awaiting on abort; handlers must honor the signal to stop work that has already escaped into external systems.

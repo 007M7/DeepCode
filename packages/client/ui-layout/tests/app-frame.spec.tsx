@@ -17,9 +17,13 @@ import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
+import type {
+  SessionId, SessionListState, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 // Session-mode switch for the SessionProvider stub prop.
 const sessionMode = { current: true }
+const baselinesReady = { current: true }
 
 // Render-prop contract stub fed through the standard seat prop (the renderer
 // injects the real one in production): session mode runs children(id), empty
@@ -35,16 +39,16 @@ let fireResize: (() => void) | null = null
 class ResizeObserverStub {
   #cb: ResizeObserverCallback
   constructor(cb: ResizeObserverCallback) { this.#cb = cb }
-  observe(): void { fireResize = () => { this.#cb([], this as unknown as ResizeObserver) } }
+  observe(): void { fireResize = () => { this.#cb([], this) } }
   unobserve(): void {}
   disconnect(): void { fireResize = null }
 }
 
 let frameWidth = 1920
 
-/** Minimal selector hook over an engine instance (the engine carries no hook since the store migration; the renderer binds in production, the spec binds here). */
+/** Test-local selector hook over a framework-neutral store instance. */
 function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
-  return <S,>(sel: (s: T) => S): S => sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot))
+  return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
 function mountFrame() {
@@ -57,15 +61,30 @@ function mountFrame() {
     if (key === 'sidebar') return <div data-testid="sidebar-content" />
     if (key === 'conversation') return <div data-testid="center-content" />
     if (key === 'details') return <div data-testid="details-content" />
-    return <div data-testid="empty-content" />
+    if (key === 'conversation.empty') return <div data-testid="empty-content" />
+    return <div data-testid="other-content" />
   }) as AppFrameProps['renderSlot']
-  const useSessions = ((sel: (s: unknown) => unknown) => sel({ ids: [], byId: {} })) as never
+  const sessionId = 's-test' as SessionId
+  const sessionState = {
+    ids: sessionMode.current ? [sessionId] : [],
+    byId: sessionMode.current
+      ? { [sessionId]: { id: sessionId, displayTitle: 'Test', running: false, blank: false, updatedAt: 1 } }
+      : {},
+    current: sessionMode.current ? sessionId : undefined,
+    phase: 'ready',
+  } as SessionListState
+  const useSessions = ((sel: (s: SessionListState) => unknown) => sel(sessionState)) as never
+  const workspaceState: WorkspaceListState = {
+    items: [], state: 'idle', phase: 'ready', error: null,
+    baselinesReady: baselinesReady.current, recentWorkspaceId: undefined,
+  }
   const utils = render(
     <AppFrame
       useStore={hookOf(instance) as never}
       actions={instance.actions}
       renderSlot={renderSlot}
       useSessions={useSessions}
+      useWorkspaces={((sel: (s: WorkspaceListState) => unknown) => sel(workspaceState)) as never}
       SessionProvider={SessionProviderStub}
     />,
   )
@@ -91,6 +110,7 @@ function drag(handle: Element, fromX: number, toX: number): void {
 beforeEach(() => {
   frameWidth = 1920
   sessionMode.current = true
+  baselinesReady.current = true
   localStorage.clear() // the layout store persists; instances must not bleed across tests
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
@@ -98,7 +118,7 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (h: number) => { clearTimeout(h) })
   window.innerWidth = frameWidth
   Element.prototype.getBoundingClientRect = function () {
-    return { width: frameWidth, height: 1080, top: 0, left: 0, right: frameWidth, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+    return { width: frameWidth, height: 1080, top: 0, left: 0, right: frameWidth, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) }
   }
   // jsdom lacks pointer capture: emulate per-element so hasPointerCapture gates pass.
   const captured = new WeakSet<Element>()
@@ -123,26 +143,35 @@ describe('AppFrame', () => {
     const { slotCalls, getByTestId } = mountFrame()
     expect(getByTestId('center-content')).toBeTruthy()
     expect(getByTestId('details-content')).toBeTruthy()
-    const keys = slotCalls.map((c) => c.key)
+    const keys = slotCalls.map(c => c.key)
     expect(keys).toContain('conversation')
     expect(keys).toContain('details')
     expect(keys).not.toContain('conversation.empty')
-    expect(slotCalls.find((c) => c.key === 'conversation')!.props).toEqual({})
-    expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
+    expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
+    expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
   })
 
-  it('renders the empty branch through conversation.empty when no session is current', () => {
+  it('keeps the conversation slot mounted while no session is current', () => {
+    // No current session: the session-maybe conversation shell owns the New
+    // Session view itself — the center column renders it unconditionally.
     sessionMode.current = false
-    const { slotCalls, getByTestId, queryByTestId } = mountFrame()
-    expect(getByTestId('empty-content')).toBeTruthy()
-    expect(queryByTestId('center-content')).toBeNull()
-    expect(slotCalls.map((c) => c.key)).toContain('conversation.empty')
-    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+    const { slotCalls, getByTestId } = mountFrame()
+    expect(getByTestId('center-content')).toBeTruthy()
+    expect(slotCalls.map(c => c.key)).toContain('conversation')
+  })
+
+  it('renders both column occupants before baselines settle (no loading gate)', () => {
+    // User ruling: the bare loading status looked worse than the shell's own
+    // pending rendering — both occupants mount from first paint.
+    baselinesReady.current = false
+    const { slotCalls } = mountFrame()
+    expect(slotCalls.map(c => c.key)).toContain('conversation')
+    expect(slotCalls.map(c => c.key)).toContain('details')
   })
 
   it('sidebar slot receives live concession output as owner props', () => {
     const { slotCalls } = mountFrame()
-    expect(slotCalls.find((c) => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
+    expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
   })
 
   it('sidebar drag widens through rAF-batched pointer moves', () => {
@@ -182,7 +211,7 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 360])
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
-    const lastSidebarCall = slotCalls.filter((c) => c.key === 'sidebar').at(-1)!
+    const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
     expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
   })
 

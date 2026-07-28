@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-generated-cordis-catalog.zh.md)
+
 ## Problem
 
 A plugin author needs two reference surfaces that no single document gave them: every cordis **event** they can listen to (with its exact signature and dispatch mode) and every `ctx.<key>` **service** they can call (with its exact interface). The pieces existed but were scattered — a hand-maintained event-taxonomy *table* in `docs/architecture.md` (names + prose Mode/Purpose, name-set-checked by `verify-event-taxonomy`), a Service-map table (8 rows of role prose), and the `interface Events` / `interface Context` declarations themselves. The taxonomy table also could not catch a brand-new *undocumented* event: a name-set verifier only checks the names that are already in the table on both sides.
@@ -23,7 +25,7 @@ Specific choices:
 - **Cross-links to the data-structure catalog.** Every repository-owned type name in a signature (`GenerateOptions`, `StreamChunk`, `ToolDefinition`, …) links to its primary core-data-structures page through a curated map. The AST walk is fail-closed: each parameter, generic constraint/default, and return-type reference must be mapped, be the signature's own type parameter, be a named TypeScript/Cordis foundation type, or carry a named exception with its non-catalog documentation owner. Violations aggregate with source pointers and name the appropriate owning lists. The map does NOT reuse `type-equiv.manifest.json`, which documents `…Map` symbols while signatures reference derived union names and lists some symbols on multiple pages.
 - **A dedicated fence.** Signature blocks use a ` ```ts cordis-catalog ` info string and place the original event or public-method JSDoc immediately before its declaration. `doc-typecheck` recognizes and skips the bare fragments, excluding them from the opt-out ratio — the same treatment `type-equiv` blocks get.
 
-This **supersedes the event-taxonomy half** of [doc-sync enforcement](2026-06-11-doc-sync-enforcement.md): `verify-event-taxonomy` and its `docs/architecture.md` table are retired (the architecture.md heading stays, its body now points at the catalog; the Service-map role table stays as curated prose). doc-typecheck, verify-md-wrap, verify-md-links, and verify-type-equiv are unchanged.
+This **supersedes the event-taxonomy half** of [doc-sync enforcement](../../archived/process/2026-06-11-doc-sync-enforcement.md): `verify-event-taxonomy` and its `docs/architecture.md` table are retired (the architecture.md heading stays, its body now points at the catalog; the Service-map role table stays as curated prose). doc-typecheck, verify-md-wrap, verify-md-links, and verify-type-equiv are unchanged.
 
 ## Alternatives considered
 

@@ -235,19 +235,16 @@ export class SlotsService extends Service {
     }
   }
 
-  /** Build (once) the host face the installed renderer reads; sessions resolve lazily at first render. */
+  /** Build once after both object-layer services mount; per-session provide bundles still resolve lazily. */
   private hostFace(): SlotRendererHost {
     if (this._host !== undefined) return this._host
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) {
       throw new Error("renderSlot('root') before the sessions service mounted — boot order puts runtime apply first")
     }
-    // Identity-stable view: current rides the list snapshot (arbitrated), but
-    // the provider consumes it as its own observable; one cached object keeps
-    // the renderer's per-source hook cache stable.
-    const current = {
-      getSnapshot: () => sessions.list.getSnapshot().current as string | undefined,
-      subscribe: (fn: () => void) => sessions.list.subscribe(fn),
+    const workspaces = this.ctx.get('workspaces')
+    if (workspaces === undefined) {
+      throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
     this._host = {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
@@ -259,9 +256,9 @@ export class SlotsService extends Service {
         entry.store === undefined ? undefined : this.resolveStore(entry.store as unknown as EngineStoreHandle, scopeKey),
       sessions: {
         list: sessions.list,
-        current,
-        cell: id => sessions.cell(id),
+        provideInfo: sessions.currentProvideInfo,
       },
+      workspaces: { list: workspaces.list },
     }
     return this._host
   }
@@ -270,13 +267,13 @@ export class SlotsService extends Service {
   private resolveStore(handle: EngineStoreHandle, sessionId: string | undefined): StoreInstanceLike {
     const record = this._stores.get(handle)
     if (record === undefined) throw new Error('store handle is not registered (entry unloaded, or the handle never went through register)')
-    const key = record.scope === 'session' ? sessionId : ROOT_INSTANCE_KEY
-    if (key === undefined) throw new Error('session-scoped store resolution requires a session id')
+    const key = record.scope === 'root' ? ROOT_INSTANCE_KEY : sessionId
+    if (key === undefined) throw new Error(`${record.scope} store resolution requires a session id`)
     let instance = record.instances.get(key)
     if (instance === undefined) {
       // Session instances get the scope key (the engine suffixes the persist
       // key per session); root instances stay keyless.
-      instance = record.scope === 'session' ? handle.create(key) : handle.create()
+      instance = record.scope === 'root' ? handle.create() : handle.create(key)
       record.instances.set(key, instance)
     }
     return instance

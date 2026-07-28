@@ -1,5 +1,7 @@
 # lsp/ - LSP capability family
 
+English | [中文](README.zh.md)
+
 The language-server capability seam: an abstract LSP interface, a generic stdio provider, and the model-facing `lsp` tool. All **product** packages.
 
 | Package | Role | ctx key |

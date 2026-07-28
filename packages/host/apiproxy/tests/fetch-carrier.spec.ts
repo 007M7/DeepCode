@@ -1,3 +1,4 @@
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
@@ -25,9 +26,45 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
+        if (request.payload.sessionId === ('with-projections' as never)) {
+          return {
+            rpcId: request.rpcId,
+            result: { ok: true, value: { events: [], hasMore: false, projections: { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' as const }] } } } },
+          }
+        }
         return {
           rpcId: request.rpcId,
           result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: request.payload.sessionId } } },
+        }
+      },
+      async models(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              groups: [],
+              failures: [],
+            },
+          },
+        }
+      },
+      async selectModel(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              selected: {
+                provider: request.payload.provider,
+                model: request.payload.model,
+                ...request.payload.reasoningEffort === undefined
+                  ? {}
+                  : { reasoningEffort: request.payload.reasoningEffort },
+              },
+            },
+          },
         }
       },
       async prompt(request) {
@@ -36,16 +73,66 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
-      async planMode(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: null } }
-      },
-      async setPlanMode(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: null } }
-      },
     },
     host: {
       async describe(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
+      },
+      async pickDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
+      },
+      async openPath(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+      },
+    },
+    workspace: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
+      },
+      async create(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' }, created: true } },
+        }
+      },
+      async rename(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+      async delete(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { deleted: true as const } } }
+      },
+      async insertSessionBefore(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+    },
+    commands: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } } }
+      },
+      async execute(request, signal) {
+        if (request.payload.line === '/hang') {
+          // Cooperative hang: settles only through the carrier signal (sticky
+          // abort checked first — listeners never fire retroactively).
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+          }
+          return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
+        }
+        if (request.payload.line.startsWith('/plan')) {
+          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, commandId: CommandId('cmd-x') } } }
+        }
+        return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
+      },
+    },
+    skills: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
       },
     },
     events: {
@@ -58,8 +145,8 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
   }
 }
 
-function client(api: ApiProxy = fakeApi()): InProcessApiClient {
-  return new InProcessApiClient(toFetchHandler(api))
+function client(api: ApiProxy = fakeApi(), timeoutMs?: number): InProcessApiClient {
+  return new InProcessApiClient(toFetchHandler(api), timeoutMs)
 }
 
 async function collect<F>(stream: AsyncIterable<RpcRequest<F>>): Promise<RpcRequest<F>[]> {
@@ -75,25 +162,117 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
   })
 
+  it('carries the tail-page projections block through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-projections' as never })
+    expect(response.result.ok).toBe(true)
+    if (response.result.ok) {
+      expect(response.result.value.projections).toEqual(
+        { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' }] } },
+      )
+    }
+  })
+
   it('carries a business error as 200 + error result', async () => {
     const response = await client().sessions.history({ sessionId: 'missing' as never })
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('covers create/prompt/cancel/plan/describe passthrough', async () => {
+  it('covers create/prompt/cancel/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
-    expect((await c.sessions.prompt({
+    expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
+    const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
-      mode: 'queue',
-      content: [{ type: 'text', text: 'x' }],
-      planMode: true,
-    })).result.ok).toBe(true)
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'max',
+    })
+    expect(selected.result).toMatchObject({
+      ok: true,
+      value: {
+        selected: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          reasoningEffort: 'max',
+        },
+      },
+    })
+    expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
-    expect((await c.sessions.planMode({ sessionId: 's' as never })).result).toEqual({ ok: true, value: null })
-    expect((await c.sessions.setPlanMode({ sessionId: 's' as never, active: true })).result).toEqual({ ok: true, value: null })
     expect((await c.host.describe({})).result.ok).toBe(true)
+  })
+
+  it('round-trips the native picker without the default unary timeout', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request) => {
+      await new Promise(resolve => setTimeout(resolve, 15))
+      return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/project' } } }
+    }
+    const response = await client(api, 1).host.pickDirectory({})
+    expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
+  })
+
+  it('round-trips host.openPath through the wire form', async () => {
+    const api = fakeApi()
+    let opened: string | undefined
+    api.host.openPath = async (request) => {
+      opened = request.payload.path
+      return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+    }
+    const response = await client(api).host.openPath({ path: '/tmp/a.txt' })
+    expect(opened).toBe('/tmp/a.txt')
+    expect(response.result).toEqual({ ok: true, value: { opened: true } })
+  })
+
+  it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
+    const c = client()
+    const list = await c.commands.list({ sessionId: 's' as never })
+    expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
+    const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
+    expect(hit.result).toEqual({ ok: true, value: { matched: true, commandId: 'cmd-x' } })
+    const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
+    expect(miss.result).toEqual({ ok: true, value: { matched: false } })
+    const skills = await c.skills.list({ sessionId: 's' as never })
+    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
+  })
+
+  it('propagates the carrier Request signal into command.execute', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
+    // The fake's /hang settles only when the invoke-level signal aborts: a
+    // completed response with the cancelled error proves req.signal reached it.
+    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', body, signal: controller.signal }))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
+    expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into host.pickDirectory', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request, signal) => {
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const handler = toFetchHandler(api)
+    const controller = new AbortController()
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
+    const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
+      method: 'POST', body, signal: controller.signal,
+    }))
+    controller.abort()
+    const parsed = await (await pending).json() as { result: { error?: { code: string } } }
+    expect(parsed.result.error?.code).toBe('cancelled')
   })
 })
 

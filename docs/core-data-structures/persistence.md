@@ -1,5 +1,7 @@
 # Session Persistence
 
+English | [中文](persistence.zh.md)
+
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
 The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, crash-repairing load, non-mutating inspect, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
@@ -10,7 +12,7 @@ The seam is a textbook [capability seam](../../.agents/notes/implemented/archite
 
 ## Crash recovery preserves an interrupted turn
 
-A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the log balanced and the turn-enclosure invariant intact. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
+A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the interrupted execution balanced without changing any standalone events before or after it. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
 
 Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` snapshots the in-memory log, waits until that snapshot is durable, and returns it with the stored header only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. A coordinator-backed cold load reserves the id across backend reads and repair writes, so concurrent publication of a same-id live session rejects and rolls back. HMR also adopts a live prefix without closing its active turn.
 
@@ -18,7 +20,7 @@ Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id
 
 ## `SessionLocation` — optional per-session artifact target
 
-`SessionPersistence.locate(meta)` synchronously resolves a backend-owned independent artifact without reading, creating, or flushing it. JSONL returns its absolute target path; SQLite returns `undefined` because sessions share one database. A returned path can therefore name a file that does not yet exist or lacks the current unflushed turn; it is a location hint, not authorization or a freshness guarantee.
+`SessionPersistence.locate(meta)` synchronously resolves a backend-owned independent artifact without reading, creating, or flushing it. JSONL returns the absolute transcript path inside its project/session directory; SQLite returns `undefined` because sessions share one database. A returned path can therefore name a file that does not yet exist or lacks the current unflushed turn; it is a location hint, not authorization or a freshness guarantee.
 
 ```ts type-equiv
 /**
@@ -53,7 +55,7 @@ interface SessionHeader {
   readonly version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   readonly id: SessionId
-  /** Unix epoch milliseconds when the session was created. */
+  /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
@@ -126,7 +128,7 @@ interface SessionPersistenceSnapshot {
 
 ## The backends
 
-Both implement the same abstract `SessionPersistence` (locate/create/append/load/inspect/list/listSnapshots over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
+Both implement the same abstract `SessionPersistence` (locate/create/append/load/inspect/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.

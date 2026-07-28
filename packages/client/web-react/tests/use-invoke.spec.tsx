@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import { useInvoke } from '@deepseek-ai/dsh-client-web-react'
 
-function deferred<T>() {
-  let resolve!: (v: T) => void
+function deferred() {
+  let resolve!: () => void
   let reject!: (e: unknown) => void
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej })
   return { promise, resolve, reject }
 }
 
@@ -28,7 +28,7 @@ const newProbe = (): Probe => ({ invoke: () => {}, pending: false, renders: 0 })
 
 describe('useInvoke', () => {
   it('tracks pending across the action lifecycle', async () => {
-    const d = deferred<void>()
+    const d = deferred()
     const probe = newProbe()
     render(<Harness fn={() => d.promise} probe={probe} />)
     expect(probe.pending).toBe(false)
@@ -39,8 +39,8 @@ describe('useInvoke', () => {
   })
 
   it('keeps pending true until the last concurrent call settles', async () => {
-    const d1 = deferred<void>()
-    const d2 = deferred<void>()
+    const d1 = deferred()
+    const d2 = deferred()
     const queue = [d1, d2]
     const probe = newProbe()
     render(<Harness fn={() => queue.shift()!.promise} probe={probe} />)
@@ -68,7 +68,7 @@ describe('useInvoke', () => {
 
   it('resets pending and logs when the action rejects', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const d = deferred<void>()
+    const d = deferred()
     const probe = newProbe()
     render(<Harness fn={() => d.promise} probe={probe} />)
     act(() => { probe.invoke() })

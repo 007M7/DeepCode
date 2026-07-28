@@ -1,11 +1,14 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
+import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { packChunkRuns, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
-const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
 const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const codeModeConfigPath = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
@@ -44,26 +47,83 @@ function seedWorkspace(
   }
 }
 
-/** The rendered system prompt from the first `request/header` in the workspace's persisted session log. */
-async function readLoggedSystemPrompt(cwd: string): Promise<string> {
+/** Seed one real plaintext JSONL session for the `/resume` selector and host handoff smoke. */
+async function seedResumeSession(cwd: string): Promise<void> {
+  const sessionCwd = realpathSync.native(cwd)
+  const id = SessionId('resume-target')
+  const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
+  const events: SessionEvent[] = [
+    { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: createUserMessage({
+      content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: 1_700_000_000_003, data: { turn: 1, step: 1 } },
+    { type: 'request/header', seq: 3, time: 1_700_000_000_004, data: { header: { config: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, reason: 'initial' } },
+    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'persisted answer' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'tui-scripted', model: 'tui-scripted-model' },
+        },
+      }),
+    }, surfaceOp: 'append' },
+    { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
+    { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
+    { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },
+    { type: 'turn/end', seq: 8, time: 1_700_000_000_009, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const file = logPath(join(cwd, '.sessions'), sessionCwd, id, 'none')
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, [
+    JSON.stringify(toHeaderLine(meta)),
+    ...packChunkRuns(events).map(record => JSON.stringify(record)),
+    '',
+  ].join('\n'))
+}
+
+/** Model-visible startup context from the first request in the workspace's persisted session log. */
+interface LoggedRequestContext {
+  /** The system prompt string the launcher sends. */
+  system: string
+  /** The durable skill-catalog message serialized to text. */
+  skillCatalog: string
+}
+
+async function readLoggedRequestContext(cwd: string): Promise<LoggedRequestContext> {
   const sessionsDir = join(cwd, '.sessions')
   const entries = await readdir(sessionsDir, { recursive: true })
   // A single keyless run writes one session log; the source section is global, so any log carries it.
   const logRelPath = entries.find(name => name.endsWith('.jsonl'))
   if (logRelPath === undefined) throw new Error(`no session log written under ${sessionsDir}`)
   const lines = (await readFile(join(sessionsDir, logRelPath), 'utf8')).split('\n').filter(Boolean)
+  let skillCatalog = ''
   for (const line of lines) {
-    const event = JSON.parse(line) as { type: string; data: { header?: { system?: string } } }
-    if (event.type === 'request/header') return event.data.header?.system ?? ''
+    const event = JSON.parse(line) as SessionEvent
+    if (
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'dsh-tool-skill'
+    ) {
+      skillCatalog = JSON.stringify(event.data.content)
+    }
+    if (event.type === 'request/header') {
+      return {
+        system: event.data.header.system ?? '',
+        skillCatalog,
+      }
+    }
   }
   throw new Error(`session log ${logRelPath} has no request/header event`)
 }
 
-/** Shared defaults: the keyless key, the tui-demo bin, and the live cordis.yml. */
+/** Shared defaults: the keyless key, the dsh bin, and the live cordis.yml (passed as the positional config). */
 function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Promise<string> {
   return runTuiPtySmoke({
     tempDirPrefix: 'tui-agent-smoke-',
-    binScript,
+    binScript: dshBinScript,
     configPath,
     tsconfigPath,
     env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
@@ -76,7 +136,7 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Prom
 // other route (see fixtures/tui-scripted-llm.ts).
 const SELECT_PRO_MODEL = [
   { waitFor: 'scripted TUI ready.', send: '/model\r' },
-  { waitFor: 'Select model', send: '\x1b[B\r' },
+  { waitFor: 'Select model', send: '\x1b[B\x1b[Z\r' },
 ] as const
 
 describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
@@ -129,6 +189,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
+    expect(output).toContain('Reasoning effort: Max.')
     expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
     expect(output).toContain('Leaving plan mode (applies from the next step).')
     expect(output).toContain('Default mode confirmed.')
@@ -148,6 +209,10 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('KV cache')
     expect(output).toContain('Context')
     expect(output).toContain('128,000')
+    expect(output).toContain('System prompt')
+    expect(output).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
+    expect(output).toContain('Registered tools')
+    expect(output).toContain('ask_user_question')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
@@ -180,6 +245,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         { waitFor: 'Scripted skill body received.', send: '/exit\r' },
       ],
     })
+    expect(output).not.toContain('[instructions]')
     expect(output).toContain('Scripted skill body received.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
@@ -218,21 +284,30 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('prints a config-resume failure and exits instead of leaving a blank terminal', async () => {
-    const output = await smoke({
-      label: 'tui-agent resume failure',
-      tempDirPrefix: 'tui-agent-resume-',
-      env: {
-        DEEPSEEK_API_KEY: 'keyless-tui-no-call',
-        RESUME_SESSION_ID: 'missing-session',
-      },
-      expectedExitCode: 1,
-    })
-    expect(output).toContain('ui-tui: session "missing-session" failed to start:')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
+  it('exec-replaces the TUI for /resume and restores the same session state', async () => {
+    const output = await smoke({
+      label: 'dsh in-place resume',
+      tempDirPrefix: 'dsh-in-place-resume-',
+      binScript: dshBinScript,
+      configPath: scriptedConfigPath,
+      prepare: seedResumeSession,
+      actions: [
+        { waitFor: 'scripted TUI ready.', send: '/resume\r' },
+        { waitFor: 'Resume selector design', send: 'Resume selector design' },
+        { waitFor: '⌕ Resume selector design', send: '\r' },
+        { waitFor: 'Preserve restored state', send: '/exit\r' },
+      ],
+    })
+    const released = output.indexOf('\u001B[?2004l')
+    const restored = output.indexOf('Resume selector design — DeepSeek Harness')
+    expect(released).toBeGreaterThanOrEqual(0)
+    expect(restored).toBeGreaterThan(released)
+    expect(output).toContain('Preserve restored state')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('boots the shipped default config with no arguments and no personal overlay', async () => {
     const output = await smoke({
       label: 'dsh default boot',
@@ -292,9 +367,9 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
 
   it('routes the --resume flag into the config resume intake, failing loud on a missing id', async () => {
     // The flag path end to end: apps/cli parses `--resume missing-session` and
-    // sets RESUME_SESSION_ID, the shipped config's `!!js` reads it, and the
-    // resume fails loud — proving the printed `dsh --resume <id>` hint reaches
-    // the same intake as the env var.
+    // provides the id on the boot context, the shipped config's `!!js` reads it
+    // as a bare identifier, and the resume fails loud — proving the printed
+    // `dsh --resume <id>` hint reaches the config resume intake with no env var.
     const output = await smoke({
       label: 'dsh resume flag failure',
       tempDirPrefix: 'dsh-resume-flag-',
@@ -305,24 +380,29 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('ui-tui: session "missing-session" failed to start:')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('tells the model where its own source lives, in the system prompt it sends', async () => {
+  it('tells the model its source path and offers the bundled maintenance skills', async () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
     // this test file sits an equal depth under the same root, so the same hop applies.
+    // The source-path line is a system-prompt section; the bundled skills reach the
+    // model through a durable user message, so each assertion targets its own field.
     const sourceRoot = fileURLToPath(new URL('../../..', import.meta.url))
-    let loggedSystem = ''
+    let context: LoggedRequestContext = { system: '', skillCatalog: '' }
     await smoke({
       label: 'dsh source-path prompt',
       tempDirPrefix: 'dsh-source-path-',
       binScript: dshBinScript,
-      configArgs: [scriptedConfigPath],
+      configPath: scriptedConfigPath,
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
         { waitFor: 'How should the scripted run proceed?', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
-      inspect: async (cwd) => { loggedSystem = await readLoggedSystemPrompt(cwd) },
+      inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },
     })
-    expect(loggedSystem).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(context.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(context.skillCatalog).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
+    expect(context.skillCatalog).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
+    expect(context.skillCatalog).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

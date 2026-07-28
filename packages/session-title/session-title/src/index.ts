@@ -5,16 +5,21 @@
 
 import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
+import { z as zod } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {
-  OutOfBandSessionEventType,
   Session,
   SessionEvent,
-  SessionEventMap,
 } from '@deepseek-ai/dsh-session'
-import { displayPromptContent } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+// The `title` projection-key declaration lives in src/types.ts (its one home);
+// this re-export projects the type face onto the package root AND keeps the
+// module edge in the emitted index.d.ts, so aggregate programs consuming the
+// declarations still receive the SessionProjectionMap merge.
+export type * from './types.ts'
 import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
 
 export { fallbackSessionTitle, normalizeSessionTitle, truncateTitleUtf8 } from './normalize.ts'
@@ -83,61 +88,12 @@ declare module 'cordis' {
 }
 
 declare module '@deepseek-ai/dsh-session' {
-  interface TurnTriggerMap {
-    /** Zero-step turn opened only to durably append a late title update. */
-    'session-title': { kind: 'session-title' }
-  }
-
   interface SessionEventMap {
     /**
      * Latest-wins session title snapshot. Log-only: it never enters the model
      * surface or derived history.
      */
     'session/title': SessionTitleEventData
-  }
-
-  interface OutOfBandSessionEventMap {
-    'session/title': true
-  }
-}
-
-/** Per-session settlement tails for title-capability out-of-band writes. */
-const SESSION_TITLE_WRITE_TAILS = new WeakMap<Session, Promise<void>>()
-
-/** Convert either write outcome into a fulfilled queue tail. */
-function settleSessionTitleWrite(): void {}
-
-/**
- * Serialize one title-capability out-of-band event with its session peers.
- * Cancellation is checked when the write reaches the head of the queue; once
- * the core append starts, its durability contract runs to completion.
- * @param ctx - context exposing the live session store.
- * @param session - exact live session that owns the title-capability event.
- * @param type - plugin-declared log-only title event type.
- * @param data - typed JSON payload for the event.
- * @param signal - service or provider lifetime checked before publication starts.
- * @returns the durably accepted event.
- */
-export async function appendSessionTitleOutOfBand<T extends OutOfBandSessionEventType>(
-  ctx: Context,
-  session: Session,
-  type: T,
-  data: SessionEventMap[T],
-  signal: AbortSignal,
-): Promise<SessionEvent<T>> {
-  const predecessor = SESSION_TITLE_WRITE_TAILS.get(session)
-  const run = Promise.resolve(predecessor).then(() => {
-    signal.throwIfAborted()
-    return ctx.sessions.appendOutOfBand(session, type, data, { kind: 'session-title' })
-  })
-  const tail = run.then(settleSessionTitleWrite, settleSessionTitleWrite)
-  SESSION_TITLE_WRITE_TAILS.set(session, tail)
-  try {
-    return await run
-  } finally {
-    if (SESSION_TITLE_WRITE_TAILS.get(session) === tail) {
-      SESSION_TITLE_WRITE_TAILS.delete(session)
-    }
   }
 }
 
@@ -164,7 +120,7 @@ export interface SessionTitleProviderRequest {
   readonly signal: AbortSignal
 }
 
-/** Provider output before service-owned normalization and durable acceptance. */
+/** Provider output before service-owned normalization and log acceptance. */
 export interface SessionTitleProviderResult {
   /** Proposed title text. */
   readonly title: string
@@ -202,7 +158,7 @@ export function collectSessionTitleMessages(
   for (const event of events) {
     if (throughSeq !== undefined && event.seq > throughSeq) break
     if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue
-    const content = displayPromptContent(event.data)
+    const content = event.data.content
     const text = content
       .filter((block): block is Extract<(typeof content)[number], { type: 'text' }> => block.type === 'text')
       .map(block => block.text)
@@ -324,6 +280,21 @@ export class SessionTitleService extends Service {
       this.work.clear()
     }, 'sessionTitle lifecycle')
 
+    // The title projection unit: pure last-wins fold of session/title events
+    // (the same events foldSessionTitle consumes), serving the plain title
+    // string clients list rows read. The unit child activates only when a
+    // projection registry is composed (headless assemblies stay unaffected).
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'title', string | null>({
+        key: 'title',
+        schema: zod.union([zod.string().min(1), zod.null()]),
+        init: () => null,
+        apply: (state, event) => (event.type === 'session/title' ? event.data.title : state),
+        view: state => state,
+        stateVersion: 1,
+      })
+    })
+
     ctx.on('session/event', (session, event) => {
       switch (event.type) {
         case 'user/message':
@@ -361,7 +332,7 @@ export class SessionTitleService extends Service {
    * Explicitly retry the registered provider, or materialize the built-in
    * fallback when no provider is registered.
    * @param session - exact live session to refresh.
-   * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+   * @param signal - optional caller cancellation.
    * @returns latest accepted title, or `undefined` when no eligible text exists.
    */
   async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined> {
@@ -510,7 +481,7 @@ export class SessionTitleService extends Service {
     return this.track(run, work.registration)
   }
 
-  /** Execute and durably accept one current provider revision. */
+  /** Execute and accept one current provider revision. */
   private async runProvider(
     session: Session,
     work: ActiveProviderWork,
@@ -529,7 +500,7 @@ export class SessionTitleService extends Service {
       })
       this.assertCurrent(session, work)
       const accepted = this.validateResult(result, messages)
-      await appendSessionTitleOutOfBand(this.ctx, session, 'session/title', {
+      session.append('session/title', {
         title: accepted.title,
         messageSeqs: [...accepted.messageSeqs],
         source: {
@@ -537,7 +508,7 @@ export class SessionTitleService extends Service {
           provider: work.registration.provider.id,
           ...accepted.model === undefined ? {} : { model: accepted.model },
         },
-      }, work.signal)
+      })
       return this.get(session)
     } finally {
       const state = this.work.get(session)
@@ -712,11 +683,20 @@ export class SessionTitleService extends Service {
     if (title.length === 0) return undefined
     const state = this.stateFor(session)
     if (state.fallback !== undefined) return state.fallback
-    const fallback = appendSessionTitleOutOfBand(this.ctx, session, 'session/title', {
-      title,
-      messageSeqs: [first.seq],
-      source: { kind: 'fallback' },
-    }, this.lifetime.signal).then(() => this.get(session))
+    const fallback = Promise.resolve().then(() => {
+      this.assertServiceActive()
+      if (this.ctx.sessions.get(session.id) !== session) {
+        throw new Error(`session "${session.id}" is not live in this store`)
+      }
+      const accepted = this.get(session)
+      if (accepted !== undefined) return accepted
+      session.append('session/title', {
+        title,
+        messageSeqs: [first.seq],
+        source: { kind: 'fallback' },
+      })
+      return this.get(session)
+    })
     state.fallback = fallback
     try {
       return await fallback

@@ -10,9 +10,9 @@ import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } fr
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue, UserMessage } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -69,7 +69,7 @@ export { defineContentToolFixture, type ContentToolFixtureOptions } from './test
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
-// stays the single public surface for consumers (producers + the ACP bridge).
+// stays the single public surface for tool producers and UI adapters.
 export type {
   ToolCallKind,
   FileLocation,
@@ -123,6 +123,19 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+    /**
+     * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
+     * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+     * content unchanged; a listener may return replacement blocks (e.g. the
+     * spill policy's preview + locator for an oversized text result). Only the
+     * logged copy is affected — the program already received the complete
+     * value, and the model sees neither. A throwing listener is contained:
+     * the bridge falls back to logging the unshaped content.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
+     * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
+     * @mode waterfall
+     */
+    'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
     /**
      * Observe the frozen, lossless-JSON final outcome. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): keyed by `exec.agent`.
@@ -273,6 +286,30 @@ export type ToolExecutionMode =
   | { kind: 'exclusive' }
 
 /**
+ * One settled `run_code` sub-dispatch about to be logged, as seen by the
+ * `tools/code-dispatch-log` waterfall: the parent execution (session owner,
+ * outer call identity), the sub-call identity, and the outcome whose durable
+ * copy a listener may reshape. `content` is the RENDERED result projection
+ * (what a native `tool/result` would carry) — the program itself received
+ * the structured `value` (or just the error message on failure); only the
+ * `tool/code-dispatch` event's copy changes.
+ */
+export interface CodeDispatchLog {
+  /** The outer `run_code` execution. */
+  readonly exec: ToolExecution
+  /** The calling agent (the scope routing key and the spill owner), when the outer call has one. */
+  readonly agent?: Agent
+  /** Deterministic sub-call id (`<parent>:code:<n>`). */
+  readonly subCallId: CallId
+  /** The dispatched sub-tool name. */
+  readonly name: string
+  /** Whether the sub-call settled as an error. */
+  readonly isError: boolean
+  /** The sub-call's complete model-facing content (the settle event's default payload). */
+  readonly content: ContentBlock[]
+}
+
+/**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
  * one lossless-JSON materialization boundary before policy and are deep-frozen;
  * call identity, the caller signal, and the registry-assigned {@link token} are
@@ -306,7 +343,16 @@ export interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: HookContext): void
+  deferContext(context: UserMessage): void
+  /**
+   * Mark a successful final result as terminal for the current agent turn.
+   * The marker rides this execution's own result (`concludesTurn` exists only
+   * on {@link ToolExecutionSuccess}); a composite that dispatches nested
+   * calls forwards it from the nested result, exactly like
+   * `additionalContexts`, so only an authoritative nested success can
+   * conclude the enclosing run.
+   */
+  concludeTurn(): void
 }
 
 /** Registry-owned live execution object; public pipeline views stay readonly. */
@@ -438,7 +484,9 @@ export interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessage[]
+  /** The agent loop stops after committing this successful result batch. */
+  readonly concludesTurn?: true
 }
 
 /** Failed canonical tool execution; failures never carry a successful value. */
@@ -448,7 +496,8 @@ export interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessage[]
+  readonly concludesTurn?: never
 }
 
 /** The discriminated, execution-local outcome of one tool call. */
@@ -470,9 +519,9 @@ export type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessage[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -534,6 +583,14 @@ export interface Config {
    * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
+  /**
+   * Concurrency cap for a `run_code` program's overlapping sub-calls
+   * (default 10, the loop scheduler's own default). Sub-calls follow the
+   * native scheduling contract — only calls whose tools classify
+   * concurrency-safe overlap; exclusive calls form barriers — so `1`
+   * restores strictly serial dispatch. Must be a positive integer.
+   */
+  maxParallelSubCalls?: number
 }
 
 /**
@@ -627,6 +684,15 @@ interface FusedToolSignal {
   dispose(): void
 }
 
+/** Resolve the run_code overlap cap at the owning config boundary (direct construction bypasses the Loader schema). */
+function resolveMaxParallelSubCalls(value: number | undefined): number {
+  const maxParallelSubCalls = value ?? 10
+  if (!Number.isInteger(maxParallelSubCalls) || maxParallelSubCalls < 1) {
+    throw new Error('maxParallelSubCalls must be a positive integer')
+  }
+  return maxParallelSubCalls
+}
+
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
@@ -636,6 +702,7 @@ export class ToolRegistry extends Service {
 
   static Config: z<Config> = z.object({
     mode: z.union(['native', 'code', 'both'] as const).default('native'),
+    maxParallelSubCalls: z.natural().min(1).default(10),
   })
 
   /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
@@ -647,7 +714,9 @@ export class ToolRegistry extends Service {
   }
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
-  private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
+  private deferredContexts = new WeakMap<ToolRunContext, UserMessage[]>()
+  /** Executions whose tool body declared the current turn complete. */
+  private concludingExecutions = new WeakSet<ToolExecution>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -672,7 +741,11 @@ export class ToolRegistry extends Service {
     // the filterable global/scoped capability layers.
     this.codeTransport = this.mode === 'native'
       ? undefined
-      : createRunCodeTool(this, () => this.requireCodeRuntime())
+      : createRunCodeTool(this, {
+        requireRuntime: () => this.requireCodeRuntime(),
+        maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
+        shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+      })
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.mode !== 'native') {
       ctx.systemPrompt.section({
@@ -924,6 +997,27 @@ export class ToolRegistry extends Service {
   }
 
   /**
+   * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
+   * and return the content the bridge should log on `tool/code-dispatch`.
+   * Contained: a throwing listener falls back to the unshaped content — log
+   * shaping must never fail the dispatch or lose the settle event. Private:
+   * the ONE consumer is the `run_code` bridge this registry constructs, which
+   * receives it as a capability parameter (the `requireRuntime` idiom) — the
+   * waterfall, not this invoker, is the public extension seam.
+   */
+  private async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
+    try {
+      return await this.ctx.waterfall(
+        scopeTarget(this, dispatch.agent), 'tools/code-dispatch-log', dispatch,
+        () => Promise.resolve(dispatch.content),
+      )
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
+      return dispatch.content
+    }
+  }
+
+  /**
    * Execute through pre-policy, guards, around-dispatch, post-policy,
    * definition-owned content finalization, and final notification. Tool and
    * listener failures resolve as materialized error results; an invisible tool
@@ -960,7 +1054,7 @@ export class ToolRegistry extends Service {
   }
 
   private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: MutableToolRunContext } {
-    const deferredContexts: HookContext[] = []
+    const deferredContexts: UserMessage[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -969,6 +1063,7 @@ export class ToolRegistry extends Service {
     const signal = exec.signal
     const definition = this.get(name, agent)
     const finalizeContent = definition?.finalizeContent?.bind(definition)
+    const concludingExecutions = this.concludingExecutions
     const base = {
       token,
       callId,
@@ -976,8 +1071,11 @@ export class ToolRegistry extends Service {
       signal,
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
-      deferContext(context: HookContext): void {
+      deferContext(context: UserMessage): void {
         deferredContexts.push(context)
+      },
+      concludeTurn(): void {
+        concludingExecutions.add(this as unknown as ToolExecution)
       },
     }
     try {
@@ -1362,11 +1460,13 @@ export class ToolRegistry extends Service {
       }
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
+    const concludesTurn = this.concludingExecutions.has(exec)
     return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,
       content,
       ...meta !== undefined ? { meta } : {},
+      ...concludesTurn ? { concludesTurn: true as const } : {},
     }) as ToolExecutionSuccess)
   }
 
@@ -1401,7 +1501,11 @@ export class ToolRegistry extends Service {
     if (result.isError) {
       return materializePresentation({ isError: true as const, error: result.error, ...presentation })
     }
-    const detached = materializePresentation({ isError: false as const, ...presentation })
+    const detached = materializePresentation({
+      isError: false as const,
+      ...presentation,
+      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+    })
     return deepFreeze({ ...detached, value: result.value })
   }
 }

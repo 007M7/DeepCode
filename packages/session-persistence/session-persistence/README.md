@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-session-persistence
 
+English | [中文](README.zh.md)
+
 The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage, seed boundary, delegation depth) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
@@ -11,10 +13,10 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | `locate(meta): SessionLocation \| undefined` | Resolve an absolute per-session artifact target without I/O or materialization. Backends without an independent local artifact return `undefined`. |
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
 | `append(id, events): Promise<void>` | Durably persist a batch. Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
-| `load(id): Promise<{ meta; events }>` | Return a stored header plus a balanced contiguous log. A live load first flushes its snapshot and rejects while its turn is open; a cold load preserves an interrupted final turn and closes it with synthetic `tool/result`/`step/end?`/`turn/end {interrupted}` events. Only a torn tail fragment is dropped; committed corruption and unknown `version` reject. |
-| `inspect(id): Promise<{ meta; events }>` | Return a detached valid stored prefix without truncating a torn tail, synthesizing recovery closers, or publishing coordinator state. Serialized with same-id writes; intended for read models and other observers that must never recover a log. |
-| `list(): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. A zero-event lazily-materialized session is absent from `list`. |
-| `listSnapshots(): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log and its backing store are unchanged, changes after append or mutating load repair, and cannot collide solely because two stores use the same local counter. |
+| `load(id): Promise<{ meta; events }>` | Return a stored header plus a balanced contiguous log whose events are detached and validated and whose identified messages are deeply frozen. A live load first flushes its snapshot and rejects while its turn is open; a cold load preserves an interrupted final turn and closes it with synthetic `tool/result`/`step/end?`/`turn/end {interrupted}` events. Only a torn tail fragment is dropped; committed corruption, malformed messages, and unknown `version` reject. |
+| `inspect(id, signal?): Promise<{ meta; events }>` | Return a detached valid stored prefix with validated, deeply frozen identified messages, without truncating a torn tail, synthesizing recovery closers, or publishing coordinator state. Serialized with same-id writes; the optional signal promptly rejects a queued caller, prevents that queued backend read from starting, and cancels active backend read work. Intended for read models and other observers that must never recover a log. |
+| `list(signal?): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. The optional signal cancels backend listing work. A zero-event lazily-materialized session is absent from `list`. |
+| `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | Lightweight metadata plus an opaque branded per-log revision, without loading event logs. A revision stays equal while that log and its backing store are unchanged, changes after append or mutating load repair, and cannot collide solely because two stores use the same local counter. The optional signal requests cancellation of backend discovery work; first-party backends settle any started listing work before rejecting so an awaited call is quiescent. |
 
 ## Invariants every backend must honor
 
@@ -33,17 +35,17 @@ Crash repair is cold-only. For a live id, `load(id)` snapshots the authoritative
 
 When a live session emits `session/disposed`, the coordinator waits for its controller, serializes a final drain, then releases state owned by that exact `Session` object. Failed retirement leaves the controller in the live-session map, so backend teardown can retry it. Backend teardown stops event admission first, flushes every remaining controller, awaits per-id operations, and only then closes the storage handle.
 
-The side-effect-free `locate` and lightweight `listSnapshots` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration.
+The side-effect-free `locate` and lightweight `listSnapshots` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration. `listSnapshots(signal?)` passes the caller's exact signal into backend discovery so observers can cancel that work without detaching it.
 
 The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
 
 | Hook | Role |
 |---|---|
 | `name` | Backend label for the dispose-failure `AggregateError`. |
-| `loadStored(id)` | Read a stored prefix by id across every storage scope. Used by resume/load, non-mutating inspect, live adoption, and the create-collision probe. Returned metadata identifies `id`; an opaque `tornMarker` is present iff a torn tail must be truncated. |
+| `loadStored(id, signal?)` | Read a stored prefix by id across every storage scope. Used by resume/load, non-mutating inspect, live adoption, and the create-collision probe. The optional signal belongs to observation-only reads. Returned metadata identifies `id`; an opaque `tornMarker` is present iff a torn tail must be truncated. |
 | `appendBatch(meta, events, isMaterialized)` | Durably append a contiguous batch, lazily materializing ATOMICALLY when not yet materialized. |
 | `commitRepair(meta, tornMarker, closers)` | Make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined` — a marker may be falsy, e.g. seq/offset `0`) and append `closers`. NOT required to be atomic. Used by load (truncate + closers) and live-adoption (truncate only). |
-| `list()` | List all stored metadata. |
+| `list(signal?)` | List all stored metadata, observing optional cancellation. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 
 The coordinator asserts the stored id and compares stored/live cwd before repair or live adoption. Its `inspect()` path validates and clones the prefix without calling `commitRepair` or publishing write state. The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). A third-party backend MAY implement the abstract service directly without the coordinator, but it must provide the same non-mutating inspection and trustworthy lightweight snapshot revisions. See [the write-coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

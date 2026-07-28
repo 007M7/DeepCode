@@ -1,37 +1,52 @@
 /**
  * Code Mode `run_code` transport. Programs call the registry's agent-visible
- * tools through nested, sequential executions; each sub-dispatch is logged for
- * reconstruction, while only the outer curated result enters model history.
+ * tools through nested executions scheduled under the native concurrency
+ * contract; each sub-dispatch is logged for reconstruction, while only the
+ * outer curated result enters model history.
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
-import { parse } from 'node:path'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
-import type { ToolDefinition, ToolRegistry } from './index.ts'
+import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
+import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * One bridged sub-dispatch from a `run_code` program: the parent
-     * `run_code` call id, the deterministic sub-call id
-     * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
-     * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
-     * so this append can never fail on payload shape — whether the sub-call
-     * errored, and a bounded `resultSummary` of its model-facing text. Before
-     * bounding, occurrences of a non-root session workspace path are
-     * normalized to `.` so host-specific absolute path lengths cannot change
-     * the summary.
+     * One sub-dispatch STARTING inside a `run_code` program: the parent
+     * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,
+     * numbered in submission order), and the tool `name` with its
+     * JSON-normalized `arguments` — the exact value dispatched, normalized
+     * BEFORE dispatch, so this append can never fail on payload shape.
+     * Appended when the scheduler actually starts the call (not at
+     * submission), so a start means the tool body pipeline was entered; a
+     * call abandoned in the queue logs nothing. Log-only: `deriveMessages()`
+     * ignores it; UIs use it for live per-sub-call running state and pair it
+     * with `tool/code-dispatch` by `subCallId` (timing = the two events'
+     * `time` fields).
+     */
+    'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+    /**
+     * One bridged sub-dispatch SETTLING: the pairing ids (matching the
+     * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
+     * with the same JSON-normalized `arguments`, and the sub-call's complete
+     * model-facing outcome in `tool/result`'s own vocabulary
+     * (`content` + `isError`), so UIs render a sub-call through the exact
+     * code path that renders a native call. Every started sub-call settles
+     * with exactly one of these (abort included: the aborted pipeline result
+     * is an `isError` outcome).
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
-     * parent `run_code`'s execution (the bridge drains its queue before
-     * returning), so the turn-enclosure invariant holds by construction.
+     * parent `run_code`'s execution (the bridge drains in-flight dispatches
+     * before returning), so its execution-enclosure relation holds by
+     * construction.
      */
-    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
+    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
   }
 }
 
@@ -53,35 +68,6 @@ export class CodeRunFailedError extends HarnessError {
     super(message, 'CODE_RUN_FAILED')
     this.name = 'CodeRunFailedError'
   }
-}
-
-/**
- * Cap for a `tool/code-dispatch` event's `resultSummary`. A log-ergonomics
- * constant, not config: the full result already flows to the program; the
- * summary exists so log readers see what a sub-call returned at a glance.
- */
-const SUMMARY_MAX_CHARS = 200
-
-/** Join Native content for the bounded durable sub-dispatch summary; non-text blocks become diagnostic placeholders. */
-function textOf(content: ContentBlock[]): string {
-  return content
-    .map((block) => {
-      switch (block.type) {
-        case 'text': return block.text
-        // ContentBlockMap is merge-extensible — future block kinds land here
-        // deliberately (no assertNever on merge-extensible unions).
-        default: return `[${block.type} content]`
-      }
-    })
-    .join('\n')
-}
-
-/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
-function summarize(text: string, cwd: string | undefined): string {
-  const stableText = cwd === undefined || cwd === parse(cwd).root
-    ? text
-    : text.replaceAll(cwd, '.')
-  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
@@ -201,17 +187,32 @@ function renderValue(value: JsonValue): string {
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
- * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
- * executed through the dispatch bridge described above. The
+ * Registry-private capabilities the bridge receives at construction — the
+ * `requireRuntime` idiom: operations only the owning registry can mint stay
+ * off its public service surface and flow here as closures instead.
+ */
+export interface RunCodeBridgeOptions {
+  /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
+  requireRuntime: () => CodeRuntime
+  /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */
+  maxParallel: number
+  /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
+  shapeDispatchLog: (dispatch: CodeDispatchLog) => Promise<ContentBlock[]>
+}
+
+/**
+ * Build the `run_code` {@link ToolDefinition}: required `code` and
+ * `description` parameters, executed through the dispatch bridge described
+ * above. The
  * registry reserves it as presentation infrastructure under non-native modes,
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
  *   bindings cover its registered tools).
- * @param requireRuntime - resolves `ctx.codeRuntime` or throws the loud
- *   misconfiguration error (shared with the registry's assembly-time checks).
+ * @param options - the registry-private capabilities described above.
  * @returns the registry-ready definition.
  */
-export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => CodeRuntime): ToolDefinition {
+export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
+  const { requireRuntime, maxParallel, shapeDispatchLog } = options
   return defineTool({
     name: RUN_CODE_NAME,
     description:
@@ -221,6 +222,13 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       + 'Only what you print or return comes back — curate it.',
     parameters: {
       code: { type: 'string', required: true, description: 'The program: the body of an async TypeScript function.' },
+      description: {
+        type: 'string',
+        required: true,
+        description: 'Clear, concise description of what this program does in active voice, '
+          + '5-10 words (shown in the UI). Examples: "Count TODO markers across packages"; '
+          + '"Read failing test and its fixture"; "Rename config key in every cordis.yml".',
+      },
     },
     output: {
       schema: {
@@ -238,6 +246,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       },
     },
     async execute(args, exec): Promise<RunCodeOutput> {
+      if (args.description.trim().length === 0) {
+        throw new Error('invalid description: expected a non-empty string')
+      }
       const runtime = requireRuntime()
 
       // The run-scoped abort: follows the outer signal in, and fires when the
@@ -249,19 +260,120 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
-      // The per-run serialization queue: every binding call chains onto the tail, so even
-      // `Promise.all` executes the underlying tool calls one at a time in submission order (the
-      // tool contract carries no concurrency-safety metadata yet).
-      let queue: Promise<void> = Promise.resolve()
-      const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
-        const turn = queue.then(() => {
-          if (runController.signal.aborted) {
-            throw new Error(`run_code run is over (${String(runController.signal.reason)}); tool call abandoned`)
+      // The per-run scheduler, reusing the NATIVE concurrency contract through
+      // the registry's staged view (the loop scheduler's own seam) — and the
+      // native loop's SEQUENCING: every ordered stage (the dispatch-start
+      // append, prepare = pre-execute/guards, finalize/finish = post-execute,
+      // context deferral, the settle append) runs inside ONE driver lane, so
+      // ordered policy stages never overlap each other and only the
+      // around-dispatch/body stage runs concurrently. Starts are strictly
+      // submission-ordered; results commit in submission order through the
+      // head-of-line cursor. Consecutive parallel-classified calls overlap up
+      // to maxParallel; an exclusive call waits for the pool to drain, runs
+      // alone, and holds its barrier until its COMMIT (post-execute included)
+      // completes, exactly like a native exclusive group. Classification is
+      // re-read via executionMode() immediately before each start (a registry
+      // mutation while queued can flip a call exclusive), matching the native
+      // scheduler's lazy reclassification.
+      interface PendingDispatch {
+        /** Ordered stage: append the start event, await prepare (pre-execute/guards), launch the body into `flight`. */
+        start(): Promise<void>
+        classify(): 'parallel' | 'exclusive'
+        abandon(): void
+        /** Ordered stage: post-execute + context deferral + settle event, in submission order. */
+        commit(): Promise<void>
+        /** The launched around-dispatch/body stage; resolved until start() replaces it. */
+        flight: Promise<void>
+        /** True once the dispatch stage parked its outcome; the commit cursor waits on it. */
+        settled: boolean
+        /** The classification this entry started under; an exclusive holds its barrier through commit(). */
+        mode?: 'parallel' | 'exclusive'
+      }
+      const pendingQueue: PendingDispatch[] = []
+      const inFlight = new Set<Promise<void>>()
+      /** Tracked settle-event side work (log shaping + append), drained at run settlement. */
+      const logWork = new Set<Promise<void>>()
+      const commitQueue: PendingDispatch[] = []
+      let exclusiveActive = false
+      let driving = false
+      let driverRun: Promise<void> = Promise.resolve()
+      let wake: (() => void) | undefined
+      const wakeup = (): void => {
+        const release = wake
+        wake = undefined
+        release?.()
+      }
+      /**
+       * The single ordered lane. Each pass commits the head-of-line settled
+       * dispatch (ordered post-execute), then starts the next queued entry if
+       * its slot is free (ordered pre-execute), and otherwise sleeps until a
+       * body settles or a new submission arrives. One run reaching the
+       * empty-queues/empty-pool state is quiescence.
+       */
+      const drive = (): Promise<void> => {
+        if (driving) return driverRun
+        driving = true
+        driverRun = (async () => {
+          try {
+            for (;;) {
+              // Arm before inspecting state so a settle or submission landing
+              // between the checks and the await below cannot be lost.
+              const signal = new Promise<void>((resolve) => { wake = resolve })
+              const commitHead = commitQueue[0]
+              if (commitHead !== undefined && commitHead.settled) {
+                commitQueue.shift()
+                await commitHead.commit()
+                // The barrier covers post-execute: later starts wait for the
+                // exclusive call's full pipeline, as under the native loop.
+                if (commitHead.mode === 'exclusive') exclusiveActive = false
+                continue
+              }
+              const head = pendingQueue[0]
+              if (head !== undefined) {
+                if (runController.signal.aborted) {
+                  pendingQueue.shift()
+                  head.abandon()
+                  continue
+                }
+                // Reclassify at start time (fail-closed on registry changes).
+                const mode = head.classify()
+                const capacity = !exclusiveActive
+                  && (mode === 'exclusive' ? inFlight.size === 0 : inFlight.size < maxParallel)
+                if (capacity) {
+                  if (mode === 'exclusive') exclusiveActive = true
+                  head.mode = mode
+                  pendingQueue.shift()
+                  // Joined before start() so the commit cursor sees submission
+                  // order; nothing commits it until `settled` flips.
+                  commitQueue.push(head)
+                  await head.start()
+                  const flight: Promise<void> = head.flight.finally(() => {
+                    inFlight.delete(flight)
+                    wakeup()
+                  })
+                  inFlight.add(flight)
+                  continue
+                }
+              }
+              if (pendingQueue.length === 0 && commitQueue.length === 0 && inFlight.size === 0) return
+              await signal
+            }
+          } finally {
+            driving = false
+            wake = undefined
           }
-          return task()
-        })
-        queue = turn.then(() => undefined, () => undefined)
-        return turn
+        })()
+        return driverRun
+      }
+      /** Every dispatch settled AND committed; nothing can start (the run is aborted at call time). */
+      const drainDispatches = async (): Promise<void> => {
+        // The abort already fired: the driver abandons queued-unstarted
+        // entries, awaits the live pool, and drains the ordered commit lane —
+        // including a commit already in progress when the program returned.
+        await drive()
+        // Every settle's shaped append lands inside the open run_code turn
+        // (tasks self-remove on settlement).
+        while (logWork.size > 0) await Promise.allSettled([...logWork])
       }
 
       // Read through a call, not a bare property: the abort state genuinely
@@ -274,35 +386,116 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
         const normalized = jsonNormalizeArgs(rawArgs)
-        const outcome = await enqueue(async () => {
-          const n = ++dispatches
-          const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
-          const result = await registry.execute({
-            callId: subCallId,
-            name,
-            arguments: normalized.dispatched,
-            ...exec.agent ? { agent: exec.agent } : {},
-            parent: exec.token,
-            signal: runController.signal,
-          })
-          for (const context of result.additionalContexts ?? []) {
-            exec.deferContext(context)
+        const n = ++dispatches
+        const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
+        const input = {
+          callId: subCallId,
+          name,
+          arguments: normalized.dispatched,
+          ...exec.agent ? { agent: exec.agent } : {},
+          parent: exec.token,
+          signal: runController.signal,
+        }
+        type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
+        const scheduler = registry[TOOL_REGISTRY_SCHEDULER]
+        const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
+          // Set by the dispatch stage (or start() for a pre-settled result): what commit() finalizes in submission order.
+          let parked:
+            | { kind: 'post-result' | 'final-result'; exec: ToolRunContext; result: ToolExecutionResult }
+            | undefined
+          const settle = (result: ToolExecutionResult): void => {
+            // The program gets its value NOW: log shaping (e.g. a spill
+            // backend) must never delay the binding or occupy a dispatch
+            // slot. The shaped append is tracked side work; the run's
+            // settlement drains logWork so every settle event still lands
+            // inside the open turn (shapeDispatchLog is contained, so this
+            // chain cannot reject).
+            resolve(result.isError
+              ? { isError: true, message: result.error.message }
+              : { isError: false, value: result.value })
+            const agent = exec.agent
+            if (agent === undefined) return
+            const task: Promise<void> = (async () => {
+              // The durable copy may be reshaped (e.g. spilled to a preview +
+              // locator) by the log-shaping waterfall; the program's value
+              // and the model contract are untouched.
+              const logged = await shapeDispatchLog({
+                exec, agent, subCallId, name, isError: result.isError,
+                // The registry deep-froze this projection at result
+                // finalization; append snapshots the final copy again, so
+                // the log stays detached.
+                content: result.content,
+              })
+              agent.session.append('tool/code-dispatch', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                // The SIBLING parse of the dispatched value: byte-identical JSON,
+                // but a separate object — a tool mutating its args cannot desync
+                // this record from what it actually received.
+                arguments: normalized.logged,
+                isError: result.isError,
+                content: logged,
+              })
+            })().finally(() => { logWork.delete(task) })
+            logWork.add(task)
           }
-          const text = textOf(result.content)
-          exec.agent?.session.append('tool/code-dispatch', {
-            parentCallId: exec.callId,
-            subCallId,
-            name,
-            // The SIBLING parse of the dispatched value: byte-identical JSON,
-            // but a separate object — a tool mutating its args cannot desync
-            // this record from what it actually received.
-            arguments: normalized.logged,
-            isError: result.isError,
-            resultSummary: summarize(text, exec.agent.session.header.cwd),
+          pendingQueue.push({
+            flight: Promise.resolve(),
+            settled: false,
+            // Re-read per driver pass against the same agent view the SDK
+            // declared; fail-closed exclusive when undeclared/invalid.
+            classify: () => registry.executionMode(input).kind,
+            abandon: () => {
+              reject(new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} tool call abandoned`))
+            },
+            async start(): Promise<void> {
+              exec.agent?.session.append('tool/code-dispatch-start', {
+                parentCallId: exec.callId,
+                subCallId,
+                name,
+                arguments: normalized.logged,
+              })
+              // Ordered prepare runs INSIDE the driver lane: the next entry's
+              // pre-execute waits for this resolution, as under the native
+              // scheduler. Only the launched body below overlaps.
+              const prepared = await scheduler.prepare(input)
+              if (prepared.kind === 'dispatch') {
+                this.flight = scheduler.dispatch(prepared.exec).then((dispatchOutcome) => {
+                  parked = { kind: dispatchOutcome.kind, exec: prepared.exec, result: dispatchOutcome.result }
+                  this.settled = true
+                })
+                return
+              }
+              parked = { kind: prepared.kind, exec: prepared.exec, result: prepared.result }
+              this.settled = true
+            },
+            async commit(): Promise<void> {
+              /* v8 ignore next -- commit() runs only after `settled` flipped, which set parked. */
+              if (parked === undefined) return
+              const result = parked.kind === 'post-result'
+                ? await scheduler.finalize(parked.exec, parked.result)
+                : scheduler.finish(parked.exec, parked.result)
+              for (const context of result.additionalContexts ?? []) {
+                exec.deferContext(context)
+              }
+              // Like the context forwarding above, cross-boundary facts travel
+              // on the nested result and the composite forwards them: only a
+              // successful nested result can carry the terminal marker
+              // (ToolExecutionFailure types it never), so a policy-converted
+              // failure cannot stop the turn through a recovering program.
+              if (result.concludesTurn) exec.concludeTurn()
+              settle(result)
+              // Backpressure on the shaped-append side channel: pending log
+              // tasks (each retaining a full result while a slow backend
+              // stores it) are bounded by the pool cap — beyond it the
+              // ordered lane waits, so later sub-calls cannot start and
+              // pending I/O/memory cannot grow without bound.
+              while (logWork.size > maxParallel) await Promise.race(logWork)
+            },
           })
-          return result.isError
-            ? { isError: true as const, message: result.error.message }
-            : { isError: false as const, value: result.value }
+          wakeup()
+          void drive()
         })
         // A budget expiry or outer cancel that lands while this call was in
         // flight already aborted the dispatch; stop the program now rather
@@ -345,10 +538,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             signal: runController.signal,
           })
         } finally {
-          // Abort sub-dispatches and drain the folded queue before closing the turn.
+          // Abort sub-dispatches and drain every in-flight dispatch before
+          // closing the turn (queued-unstarted ones are abandoned unlogged).
           // Binding failures remain observable through their individual promises.
           runController.abort('run_code settled')
-          await queue
+          await drainDispatches()
         }
 
         if (result.error) {
@@ -363,10 +557,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
-    // ACP execute cards use the program as their visible title.
+    // The model-authored description is the call's always-visible UI label
+    // (the bash `description` precedent); the program itself rides rawInput.
     presentCall: args => ({
       card: 'generic',
-      title: args.code,
+      title: args.description,
       kind: 'execute',
       rawInput: args.code,
     }),

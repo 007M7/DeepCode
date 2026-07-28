@@ -12,6 +12,7 @@ import type {
   SessionId,
   SurfaceEvent,
 } from '@deepseek-ai/dsh-session'
+import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type { SessionSearchCursor } from './cursor.ts'
 
 export type { SessionSearchCursor } from './cursor.ts'
@@ -37,6 +38,14 @@ export interface SessionSurfaceSnapshot {
   capturedThroughSeq: number | null
   /** Cloned current surface events in model-history order. */
   events: SurfaceEvent[]
+}
+
+/** One validated detached observation of a logical session's complete raw log. */
+export interface SessionLogSnapshot {
+  /** Cloned session header selected from the same observation as `events`. */
+  session: SessionHeader
+  /** Cloned contiguous raw events after persistence repair and replay validation. */
+  events: SessionEvent[]
 }
 
 /** Lightweight metadata for one event within a logical session. */
@@ -108,6 +117,12 @@ export interface SessionEventTrace {
   derivedEventSeqs: number[]
 }
 
+/** Event relationships bound to the same session-header observation. */
+export interface SessionEventTraceObservation extends SessionEventTrace {
+  /** Cloned header selected with the event log used for the trace. */
+  session: SessionHeader
+}
+
 /** Request for one event plus raw neighboring log context. */
 export interface SessionEventReadRequest {
   /** Session that owns the target event. */
@@ -133,6 +148,33 @@ export interface SessionEventWindow {
   /** Last seq included in `events`. */
   endSeq: number
 }
+
+/** Latest folded title bound to the same session-header observation. */
+export interface SessionTitleObservation {
+  /** Cloned header selected with the event log used for the title fold. */
+  session: SessionHeader
+  /** Latest title snapshot, absent when the observed log has no title. */
+  title?: SessionTitleSnapshot
+}
+
+/** One ordered result from a batch title observation. */
+export type SessionTitleObservationResult =
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Successful atomic header/title observation. */
+    status: 'fulfilled'
+    /** Header and optional latest title from one logical source. */
+    value: SessionTitleObservation
+  }
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Operational failure isolated to this session. */
+    status: 'rejected'
+    /** Original failure from logical-source resolution or title folding. */
+    reason: unknown
+  }
 
 /** Inclusive numeric interval used by time and sequence filters. */
 export interface SessionResultRange {
@@ -182,6 +224,12 @@ export interface SessionSearchPage<T> {
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+}
+
+/** Event-search results bound to the indexed target-session observation. */
+export interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit> {
+  /** Cloned target header from the same indexed generation as `items`. */
+  session: SessionHeader
 }
 
 /** Controls shared by cross-session and within-session search calls. */

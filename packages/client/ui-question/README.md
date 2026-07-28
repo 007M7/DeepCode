@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-question
 
+English | [中文](README.zh.md)
+
 Web `ask_user_question` feature plugin. Its host half mounts `dsh-tool-ask-user` only when the Web feature is selected; its browser half registers the `question` entry in the conversation-owned `conversation.composer` keyed slot.
 
 The component renders one question at a time with progress navigation, single- and multi-select choices, recommendation badges derived from label suffixes, and custom answers. Question detail reuses the assistant-output `MarkdownText` primitive, including its GFM rendering and untrusted-content policy. The capped card keeps its title, navigation, and submission actions fixed while long detail and choices share an internal scroll region. Single-select choices advance immediately, and Enter submits once every question is answered or skipped; Enter during IME composition confirms the input candidate without advancing. It submits one structured answer batch for the whole request: “Skip this question” retains other drafts and emits the existing blank `{ selected: [] }` shape for that item, while close rejects the whole wait as `ASK_CANCELLED`.

@@ -22,4 +22,20 @@ export interface HostApi {
     model?: string
     attachedSessions: number
   }>>
+
+  /** Open the operating system's single-directory picker; cancellation returns null. */
+  pickDirectory(
+    request: RpcRequest<{}>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ path: string | null }>>
+
+  /**
+   * Open a filesystem path with the operating system's default application
+   * (Finder / Explorer / xdg-open hand-off). The browser carrier restricts this
+   * privileged method to loopback, same-origin requests.
+   */
+  openPath(
+    request: RpcRequest<{ path: string }>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>>
 }

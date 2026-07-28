@@ -1,5 +1,7 @@
 # Core Data Structures
 
+English | [中文](core.zh.md)
+
 This folder catalogs the **data structures** of the DeepSeek Harness — what each core type represents, its literal shape, and where the full detail lives. It complements [architecture.md](../architecture.md), which describes *behavior* (the service map, the session/turn/step lifecycle, the event taxonomy); this page describes the *vocabulary* that behavior moves around.
 
 ## What counts as "core"
@@ -20,7 +22,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
 | [goal.md](goal.md) | persisted goal identity, lifecycle snapshots, activation, change records, and round attribution |
 | [commands.md](commands.md) | the human-command seam: definitions, adapter discovery, direct invocation, results, and parsing views |
-| [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
+| [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, execution enclosure, and standalone events |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
 | [session-query.md](session-query.md) | logical records, bounded exact-event reads, relationship traces, semantic filters/documents, and full-text result pages |
 | [session-title.md](session-title.md) | durable title snapshots, source provenance, and the asynchronous provider contract |
@@ -29,6 +31,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [approval.md](approval.md) | the one-shot user-approval seam: `ApprovalRequest`, `ApprovalOutcome`, per-session policy, audit and answerer contracts |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashProcess` handles |
+| [subprocess.md](subprocess.md) | the subprocess seam: fully-explicit `SubprocessSpawnSpec`, offset-based output readers, unclassified `SubprocessOutcome`, and the managed `DSH_*` environment vocabulary |
 | [pty.md](pty.md) | persistent terminal ids, backend/session contracts, send readiness, bounded reads, and owner-visible snapshots |
 | [sandbox.md](sandbox.md) | per-session policy resolution and the process-confinement seam: file-effect modes, execution/provider policies, `ConfinedArgv`, enforcement and fail-closed errors |
 | [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
@@ -113,7 +116,9 @@ interface ContentBlockMap {
 
 The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
 
-A `Message` is a role plus blocks. Loop-derived assistant messages carry their durable provider/model identity and optional adapter-private replay metadata:
+Source: [`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
+
+A `Message` is one identified, immutable role/source/content value. Model-produced assistant messages carry provider/model ownership and optional adapter-private replay metadata in their source:
 
 ```ts type-equiv
 /** Provider ownership and adapter-private replay data for an assistant message. */
@@ -132,15 +137,16 @@ interface AssistantProvenance {
 ```
 
 ```ts type-equiv
-/**
- * A single message in a conversation history. Loop-derived assistant messages
- * always carry provenance; callers may omit it on hand-built foreign history.
- */
+/** One immutable message representation shared by delivery, durable history, and model requests. */
 interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: ContentBlock[]
-  /** Present only on assistant messages produced by a routed adapter. */
-  provenance?: AssistantProvenance
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
 }
 ```
 
@@ -154,6 +160,8 @@ Where a message came from is itself a merge-extensible sum type:
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
 }
 ```
 
@@ -162,6 +170,8 @@ interface MessageSourceMap {
 Adapters emit a raw **chunk** protocol; the loop logs the chunks (replay fidelity) while feeding the same chunks through a `BlockAssembler` to rebuild blocks and messages. `StreamChunk` is a closed discriminated union over `type` — `block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`.
 
 The full union, the adapter contract (usage-before-finish, raw-JSON tool arguments, the two sanctioned error paths), and `BlockAssembler` live on **[llm-streaming.md](llm-streaming.md)**.
+
+<a id="the-model-request-and-result"></a>
 
 ## The model request
 
@@ -195,7 +205,7 @@ interface LlmModelInfo {
 }
 ```
 
-Correctness-sensitive model capacity is queried separately from the advisory catalog and is owned by the adapter serving the exact route.
+Correctness-sensitive metadata is resolved separately from the advisory catalog and is owned by the adapter serving the exact route. Context capacity and reasoning choices share one exact-model result so consumers do not repeat authoritative model resolution.
 
 ```ts type-equiv
 /** Provider-owned context capacity for one exact provider/model route. */
@@ -205,17 +215,60 @@ interface LlmModelContext {
 }
 ```
 
+Reasoning effort is another exact-route capability. The core brands identifiers but does not enumerate their values; each adapter owns the ordered set, display names, and optional deployment default.
+
+```ts type-equiv
+/** Adapter-owned identifier for one model's selectable reasoning effort. */
+type ReasoningEffortId = Branded<'ReasoningEffortId'>
+```
+
+```ts type-equiv
+/** Display metadata for one adapter-owned reasoning effort. */
+interface LlmReasoningEffortInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
+  id: ReasoningEffortId
+  /** Human-readable effort name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar efforts. */
+  description?: string
+}
+```
+
+```ts type-equiv
+/** Selectable reasoning efforts for one exact provider/model route. */
+interface LlmModelReasoningInfo {
+  /** Supported efforts in adapter-preferred display order. */
+  efforts: readonly LlmReasoningEffortInfo[]
+  /**
+   * Adapter-configured default materialized into requests when callers omit
+   * an effort. Absence preserves the provider's own default.
+   */
+  defaultEffort?: ReasoningEffortId
+}
+```
+
+```ts type-equiv
+/** Exact-route model metadata resolved by its owning adapter. */
+interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+```
+
 ```ts type-equiv
 /** A single model request, fully assembled. */
 interface GenerateOptions {
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
+  /** Adapter-owned reasoning effort selected for this exact model. */
+  reasoningEffort?: ReasoningEffortId
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
-   * hand-built one-shot passes any list.
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */
@@ -285,23 +338,25 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, and authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset) through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, or sampling. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records the exact result used. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
+`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, reasoning effort, or sampling. After the waterfall, the loop prepares the exact model capability under the turn signal, rejects unsupported explicit effort ids without clamping, materializes an adapter-configured default, and logs the effective value. The prepared call keeps one adapter registration through dispatch. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
 
-On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the frozen session prefix) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The prefix never enters the derived history; its durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
+On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
 
-FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
+FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
 
 ```ts type-equiv
 /**
- * Provider + model + sampling scalars of one conversation's requests. Every field maps
- * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
- * from the logged header rather than accepting these per call.
+ * Provider, model, reasoning effort, and sampling scalars of one conversation's
+ * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
+ * the loop builds requests from the logged header rather than accepting these
+ * per call.
  */
 interface LlmCallConfig {
   provider: string
   model: string
+  reasoningEffort?: ReasoningEffortId
   temperature?: number
   maxTokens?: number
   stop?: string[]
@@ -323,7 +378,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -351,7 +406,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `context/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the turn-enclosure invariant are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
+The twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
 ## The agent handle
 
@@ -361,27 +416,54 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 
 ```ts type-equiv
 /**
- * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
- * and may authorize policy consumers, so non-human producers must label their content.
+ * Which inbox queue a {@link Agent.send} item joins:
+ * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
+ * - `next-step` — during prompt admission or an open turn, the item stages for
+ *   the next safe step boundary; otherwise it is promoted per its `wakeup`
+ *   flag.
+ */
+type SendTarget = 'next-turn' | 'next-step'
+```
+
+```ts type-equiv
+/** Resolved inbox placement reported when an accepted message is enqueued. */
+type InboxPlacement = 'queued' | 'steering'
+```
+
+```ts type-equiv
+/**
+ * Options for the unified {@link Agent.send} primitive over the
+ * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
+ * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
+ * {@link Agent.inject} (`next-step`/no-wakeup).
+ *
+ * The object is complete so routing policy is explicit.
  */
 interface SendOptions {
-  source?: MessageSource
+  /** Queue the item joins. */
+  target: SendTarget
   /**
-   * Model-facing contexts captured with this inbox item. A queued prompt exposes
-   * them through the default `agent/prompt-submit` allow decision, while steering
-   * records them directly at its next checkpoint.
+   * Whether this item makes the model run: wake a parked driver (`next-turn`)
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
+   * `next-step` item attaches durable context without forcing another step
+   * (the injection preset).
    */
-  contexts?: HookContext[]
+  wakeup: boolean
 }
 ```
 
-`InjectOptions` accepts ordinary message attribution and durable model-hidden JSON metadata. Attached contexts belong only to queued or steering input, so synthetic injection cannot accept them:
+The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable across that message's `agent/inbox/*` events without being returned by the delivery methods. Injection bypasses the FIFOs and never appears on those events.
 
 ```ts type-equiv
-/** Options specific to durable synthetic context injection. */
-interface InjectOptions extends Omit<SendOptions, 'contexts'> {
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
+/** Options for {@link Agent.cancel}. */
+interface CancelOptions {
+  /**
+   * Preserve queued and steering inbox items instead of discarding them. The
+   * active turn is still aborted, but un-started and pending work survives for a
+   * later turn and no `agent/inbox/discard` fires.
+   */
+  keepInbox?: boolean
 }
 ```
 
@@ -392,65 +474,100 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
+`Agent` is an interface over the public live-agent contract. Concrete drivers own the `followup`/`steer`/`inject` aliases and route them through `send`'s (`target` × `wakeup`) matrix.
+
 ```ts type-equiv
-/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
+/** Public live-agent handle with aliases over the unified delivery primitive. */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
+  /** The provider route and model this agent's requests use. */
   readonly options: AgentOptions
+  /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
+  /**
+   * Whether a `next-step` send currently stages for prompt admission or the
+   * open turn. Unlike {@link status}, this excludes admission exit and turn
+   * settlement, when a waking `next-step` send becomes a queued follow-up.
+   */
+  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
-   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
-   * that turn's checkpoint.
-   * Attached contexts share the same snapshot and ownership boundary. Invalid
-   * input throws synchronously before notification or enqueue.
+   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
+   * It routes the caller's typed content and source as follows:
+   *
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
+   *   parked driver, while `wakeup:false` queues without waking.
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
+   * - `next-step` with `wakeup:false` injects durable model-facing context
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn. If admission closes without a turn,
+   *   a context-only boundary appends immediately; context staged beside
+   *   steering remains pending with it.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
    */
-  send(content: ContentBlock[], options?: SendOptions): void
+  send(message: UserMessage, options: SendOptions): void
 
   /**
-   * Submit steering while the agent is `running`. An open turn records it at
-   * the next steering checkpoint before a request or continuation decision;
-   * policy may stop before another step. After turn close and its checkpoint,
-   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
-   * cancellation, or disposal may discard it. Uses the same synchronous
-   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
-   */
-  steer(content: ContentBlock[], options?: SendOptions): void
-
-  /**
-   * Append detached model-facing context without running the model. An open-turn
-   * injection joins at the current log position unless the current tool batch is
-   * executing; then it waits FIFO until that batch settles and drains before turn
-   * close even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
-   */
-  inject(content: ContentBlock[], options?: InjectOptions): void
-
-  /**
-   * Clear all queued and steering work, including items waiting to start, and
-   * abort the active turn. An effective call first emits
-   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
-   * for the active turn, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
-   * and does not arm later work. The active turn snapshots and freezes the cause.
+   * Clear queued and steering work — unless `keepInbox` — and abort the active
+   * turn. An effective call first emits `agent/cancel-requested` with the
+   * resolved typed cause. The first cause wins for the active turn, and
+   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
+   * cancellation is a no-op and does not arm later work.
    * @param cause - the stable caller intent carried by the current turn signal.
+   * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  cancel(cause?: AgentCancelCause): void
+  cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
 
+  /**
+   * Queue an ordinary follow-up turn and wake the driver — the
+   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
+   * ordinary message of its own turn.
+   * @param message - identified prompt content and its producer provenance.
+   */
+  followup(message: UserMessage): void
+
+  /**
+   * Submit steering during prompt admission or an open turn — the
+   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
+   * checkpoint before a request or stop decision. If the activity fails before
+   * that boundary, the remainder stays staged without waking the agent; retry
+   * or a later prompt takes it. Outside that window steering falls back to a
+   * woken follow-up turn, while cancellation or disposal may discard pending
+   * steering.
+   * @param message - identified steering content and its producer provenance.
+   */
+  steer(message: UserMessage): void
+
+  /**
+   * Append model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
+   * stages it at the next safe log position; outside that window it appends
+   * immediately without opening a turn. If admission closes without a turn,
+   * a context-only boundary appends immediately; context staged beside
+   * steering remains pending with it.
+   * @param message - identified injected context and its producer provenance.
+   */
+  inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible: core declares `provider?` and `model?` (dispatch requires both after `agent/request`). Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `acceptsNextStep` is the narrower routing predicate for callers that must choose between steering the current admission/turn and submitting a fresh admitted prompt. `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission leaves the provider default in control. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
-The cause is a TypeScript-enforced same-process input. An active holder copies its discriminant into the runtime-only `AbortSignal.reason`; it is retired before `turn/end` publication. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active `TurnCancellation` holder copies its discriminant into the runtime-only `AbortSignal.reason` and is retired before `turn/end` publication; the frozen `AbortSignal.reason` remains readable after that retirement. Only the loop reads the cause (`user`, `parent`, or lifecycle-only `disposed`) back off its own machine-private signal at settlement — there is no public reader, and a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -460,78 +577,37 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input, while JSON `meta` persists plugin state without exposing it to the model. Absent or `separate` placement becomes `context/message`; `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, metadata, and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
+Prompt and post-tool decisions use the same identified `UserMessage` shape as durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its identity and provenance. Hook bridges map their native decision fields onto these typed results.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-```ts type-equiv
-/** Model-facing context injected by a listener or atomically attached to one inbox message. */
-interface HookContext {
-  content: ContentBlock[]
-  source: MessageSource
-  /**
-   * Model placement. Absent or `separate` records an independent
-   * `context/message`; `prompt-prefix` prepends this context and a stable
-   * request delimiter to the same user-role message as its attached prompt.
-   */
-  placement?: 'separate' | 'prompt-prefix'
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
-}
-```
-
-`agent/prompt-submit` returns a `PromptDecision` (allow the turn's claimed queued message — optionally rewriting its `content` or attaching `additionalContexts` — or record `prompt/blocked` and end that zero-step turn as `rejected`):
+`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow may rewrite the claimed prompt or attach `additionalContexts`; block rejects admission without creating turn events:
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt. Each
- * `additionalContexts` entry follows its declared placement: separate context
- * message by default, or a prefix inside the prompt's user-role message.
- * `block` records a durable `prompt/blocked` and ends the claimed prompt's
- * zero-step turn as rejected. An `allow` returned by a listener is
- * authoritative: a listener wrapping `next()` preserves downstream `content`
- * and `additionalContexts` unless it intentionally replaces them.
+ * Prompt interception result. `allow.content` replaces the prompt, while
+ * `additionalContexts` appends model-facing context before the turn starts.
+ * An `allow` returned by a listener is authoritative: a listener wrapping
+ * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn and therefore carries no context metadata — the typed `/goal` pattern):
+`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
 
 ```ts type-equiv
-/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
-type ContinuationDecision =
-  | { action: 'stop' }
-  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
+/** Action returned by a listener that owns model-request recovery. */
+type RequestErrorAction = { kind: 'retry' } | undefined
 ```
-
-`agent/request-error` receives the exact original `RequestError` beside its immutable `LlmFailure`, an immutable list of failures that already authorized another request in the consecutive sequence, the turn signal, and `next()`. Recovery plugins route on `failure.code`, not the live error's message; each policy counts only its own codes, and a successful request clears the history:
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` retains the structured failure on `turn/end`:
-
-```ts type-equiv
-/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
-type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
-```
-
-`agent/post-step` is awaited after assistant output, real or synthetic tool results, buffered context, and steering are durable but before `step/end`. A cancelled tool batch reaches it with an aborted signal after draining; its signature is `(agent, turn, step, signal)`, and replayable facts remain in the session log rather than a transient payload.
-
-`agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
-
-```ts type-equiv
-/**
- * The terminal subset of {@link ContinuationDecision}. A listener on
- * `agent/turn-stop` returns this to make the already-composed continuation
- * outcome terminal; `undefined` abstains.
- */
-type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
-```
+`agent/step` is the single serial boundary before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
 
@@ -539,8 +615,6 @@ type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
-
-`agent/session-prefix` composes a `Message[]` once per loop instance. The deep-frozen result is recorded in the request header and prepended to every derived history, making it the home for session-stable openers. A resumed instance recomposes; mid-session changes use append-only context channels. The waterfall returns content directly because it contributes rather than decides.
 
 ## `ToolDefinition`
 

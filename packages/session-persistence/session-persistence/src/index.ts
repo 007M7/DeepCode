@@ -92,6 +92,8 @@ export abstract class SessionPersistence extends Service {
    * open live turn rejects.
    * A coordinator-backed cold load reserves the identity across storage awaits,
    * so concurrent publication of a same-id live Session rejects.
+   * Returned events are detached, and every identified message is deeply
+   * frozen; malformed identified messages reject before any stored event is returned.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */
@@ -101,17 +103,20 @@ export abstract class SessionPersistence extends Service {
    * Inspect a header and its valid contiguous stored prefix without repairing
    * a torn tail, closing an interrupted turn, or publishing coordinator state.
    * This read is serialized with writes for the same id and returns detached
-   * values, so observers cannot mutate backend-owned state.
+   * values with deeply frozen identified messages, so observers cannot mutate message
+   * identity/content or backend-owned state. Malformed identified messages reject.
    * @param id - the persisted session to inspect.
+   * @param signal - optional cancellation for queued and backend read work.
    * @returns the header and valid stored event prefix exactly as observed.
    */
-  abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+  abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
   /**
    * Lightweight listing from metadata, without a full-log parse.
+   * @param signal - optional cancellation for backend listing work.
    * @returns one header per materialized session.
    */
-  abstract list(): Promise<SessionHeader[]>
+  abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
    * List materialized sessions with cheap per-log change tokens.
@@ -120,9 +125,10 @@ export abstract class SessionPersistence extends Service {
    * successful mutating {@link load} repair changes the next listed revision.
    * Revisions also distinguish independently backed stores so backend-local
    * counters cannot compare equal across different persistence sources.
+   * @param signal - optional cancellation for backend snapshot-listing work.
    * @returns one header and opaque revision per materialized session without loading full logs.
    */
-  abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
+  abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 }
 
 export default SessionPersistence

@@ -59,6 +59,7 @@ const GROUP_ORDER = [
   'llm',
   'core',
   'goal',
+  'process',
   'bash',
   'pty',
   'sandbox',
@@ -77,7 +78,11 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'telemetry',
+  'storage',
+  'workspace',
   'support',
+  'acp',
   'ui',
 ]
 
@@ -129,8 +134,42 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Durable session persistence seam',
     mode: 'seam',
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
-    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'acp', 'session-query', 'session-query-sqlite'],
+    consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'telemetry',
+    pkg: 'session-telemetry',
+    title: 'Session telemetry seam',
+    mode: 'seam',
+    implementations: ['session-telemetry-otel'],
+    consumers: [],
+    note: 'The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process.',
+  },
+  {
+    key: 'storage',
+    pkg: 'storage',
+    title: 'Non-session storage hub',
+    mode: 'seam',
+    implementations: ['storage-json', 'storage-sqlite'],
+    consumers: ['storage-domain'],
+    note: 'Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives.',
+  },
+  {
+    key: 'storageDomain',
+    pkg: 'storage-domain',
+    title: 'Domain data facility',
+    mode: 'core',
+    consumers: ['workspace'],
+    note: 'Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state.',
+  },
+  {
+    key: 'workspace',
+    pkg: 'workspace',
+    title: 'Workspace entity registry',
+    mode: 'core',
+    consumers: ['apiproxy'],
+    note: 'Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections.',
   },
   {
     key: 'sessionQuery',
@@ -138,15 +177,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Session reads, traces, filters, and search',
     mode: 'seam',
     implementations: ['session-query-sqlite'],
-    consumers: ['session-reference'],
-    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations on the same service.',
+    consumers: ['session-reference', 'tool-session-query'],
+    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering.',
   },
   {
     key: 'sessionReferences',
     pkg: 'session-reference',
     title: 'Cross-session snapshot preparation',
     mode: 'core',
-    consumers: ['tui', 'acp'],
+    consumers: ['tui'],
     note: 'Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax.',
   },
   {
@@ -170,7 +209,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-pty', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-pty', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web'],
     note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
   },
   {
@@ -178,8 +217,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['tui', 'acp'],
-    consumers: ['tool-ask-user', 'tui', 'acp'],
+    implementations: ['tui'],
+    consumers: ['tool-ask-user', 'tui'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -187,7 +226,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'plan-mode',
     title: 'Plan collaboration state',
     mode: 'core',
-    consumers: ['acp'],
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
@@ -195,8 +233,16 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'commands',
     title: 'Human command registry',
     mode: 'core',
-    consumers: ['tui', 'acp'],
-    note: 'Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model.',
+    consumers: ['tui'],
+    note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
+  },
+  {
+    key: 'sessionProjections',
+    pkg: 'session-projection',
+    title: 'Session projection units',
+    mode: 'core',
+    consumers: ['tool-todo', 'session-title', 'host-apiproxy'],
+    note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
   },
   {
     key: 'tui',
@@ -236,6 +282,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Same-session goal domain',
     mode: 'core',
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
+  },
+  {
+    key: 'subprocess',
+    pkg: 'subprocess',
+    title: 'Subprocess seam',
+    mode: 'seam',
+    implementations: ['subprocess-local'],
+    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
+    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
   },
   {
     key: 'bash',
@@ -295,7 +350,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Permission presets',
     mode: 'core',
     implementations: [],
-    consumers: ['acp'],
     note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
@@ -339,9 +393,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     key: 'tasks',
     pkg: 'tasks',
     title: 'Background task registry',
-    mode: 'core',
+    mode: 'seam',
+    implementations: ['tasks-local'],
     consumers: ['tool-bash', 'tool-pty', 'tool-subagent', 'tool-tasks'],
-    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it; tasks-local is the process-local registry.',
   },
   {
     key: 'web',
@@ -360,6 +415,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['spill-local'],
     consumers: ['spill-policy'],
     note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
+  },
+  {
+    key: 'httpServer',
+    pkg: 'webserver',
+    title: 'HTTP route registration',
+    mode: 'core',
+    consumers: ['connection', 'modules', 'hmr'],
+    note: 'Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes.',
+  },
+  {
+    key: 'clientModuleHost',
+    pkg: 'modules',
+    title: 'Client plugin graph host',
+    mode: 'core',
+    consumers: ['hmr'],
+    note: 'Composes the __DSH_BOOT__ entry graph from an incremental dshClient scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers.',
   },
   {
     key: 'workflows',
@@ -526,15 +597,15 @@ const APP_EXAMPLES = [
     title: 'Cordis Agent App Composition',
     label: 'examples/cordis-agent',
     config: 'examples/cordis-agent/cordis.yml',
-    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its own runtime and mount/unmount plugins into it.',
+    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.',
   },
   {
     id: 'acp',
     rel: 'examples/acp-agent/composition.md',
-    title: 'ACP Agent App Composition',
+    title: 'ACP Automation App Composition',
     label: 'examples/acp-agent',
     config: 'examples/acp-agent/cordis.yml',
-    summary: 'The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.',
+    summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
   },
 ]
 
@@ -550,7 +621,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
     `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
@@ -646,28 +717,53 @@ class EventRelationCollector {
   /** Walk one package source file and classify event API calls by receiver type. */
   private visitSource(source: PackageSource): void {
     const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-        const receiverKind = this.receiverKind(node.expression.expression)
-        const method = node.expression.name.text
-        if (receiverKind === 'events-service' && method === 'dispatch') {
-          const argumentList = node.arguments[1]
-          if (argumentList) {
-            for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
-              this.addDispatcher(event, source.pkg, 'events.dispatch')
+      if (ts.isCallExpression(node)) {
+        if (this.isAgentEventEmitter(node.expression)) {
+          const event = node.arguments[2]
+          if (event) {
+            for (const name of this.finiteStringValues(event) ?? []) {
+              this.addDispatcher(name, source.pkg, 'emitAgentEvent')
             }
           }
-        } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
-          const eventNames = this.eventNamesFromCall(node, receiverKind)
-          if (method === 'on' || method === 'once') {
-            for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
-          } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
-            for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
+        } else if (ts.isPropertyAccessExpression(node.expression)) {
+          const receiverKind = this.receiverKind(node.expression.expression)
+          const method = node.expression.name.text
+          if (receiverKind === 'events-service' && method === 'dispatch') {
+            const argumentList = node.arguments[1]
+            if (argumentList) {
+              for (const event of this.eventNamesFromArgumentList(argumentList, new Set())) {
+                this.addDispatcher(event, source.pkg, 'events.dispatch')
+              }
+            }
+          } else if (receiverKind === 'context' || receiverKind === 'agent-dispatch') {
+            const eventNames = this.eventNamesFromCall(node, receiverKind)
+            if (method === 'on' || method === 'once') {
+              for (const event of eventNames) this.ensure(event).listeners.add(source.pkg)
+            } else if (method === 'emit' || method === 'parallel' || method === 'serial' || method === 'waterfall') {
+              for (const event of eventNames) this.addDispatcher(event, source.pkg, method)
+            }
           }
         }
       }
       ts.forEachChild(node, visit)
     }
     visit(source.sourceFile)
+  }
+
+  /** Match the exported contained-notification helper by declaration identity. */
+  private isAgentEventEmitter(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression)) return false
+    const local = this.project.checker.getSymbolAtLocation(expression)
+    if (!local) return false
+    const symbol = local.flags & ts.SymbolFlags.Alias
+      ? this.project.checker.getAliasedSymbol(local)
+      : local
+    const declarations = symbol.declarations ?? []
+    return declarations.some((declaration) => {
+      return ts.isFunctionDeclaration(declaration)
+        && declaration.name?.text === 'emitAgentEvent'
+        && this.project.relativePath(declaration.getSourceFile()) === 'packages/core/agent/src/dispatch.ts'
+    })
   }
 
   /** Classify a receiver using assignability to the repository's actual event API types. */
@@ -874,8 +970,13 @@ function renderEventRelations(pkgs: Pkg[]): string {
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
-  // unrecognized semantic dispatch shape. Listener-free extension points remain valid.
+  // unrecognized semantic dispatch shape. Listener-free extension points remain
+  // valid. Client-declared events are exempt: the relation scan seeds the HOST
+  // aggregate program only (host+client cannot share one program — the cordis
+  // Context merges collide), so client dispatch sites are structurally
+  // invisible here; their rows stay in the table for the declarations' sake.
   const undispatched = [...events]
+    .filter(event => !event.source.startsWith('packages/client/'))
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
     .sort()
@@ -916,18 +1017,21 @@ function renderLifecycle(): string {
     '  participant LLM as ctx.llm',
     '  participant Tools as ctx.tools',
     '  participant Session',
-    '  participant Persistence',
     '  participant SDK as UI or SDK listener',
-    '  User->>Agent: send(content)',
-    `  Agent-->>SDK: ${mermaidCode('agent/queued')}`,
+    '  User->>Agent: followup(content)',
+    `  Agent-->>SDK: ${mermaidCode('agent/inbox/enqueue')}`,
     '  Agent->>Driver: queued work wakes driver',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,
-    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    '  Note over Agent,Driver: next-step acceptance window opens',
     `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
     '  Hooks-->>Driver: authoritative allow, block, or add context',
-    `  Driver->>Session: ${mermaidCode('user/message')} or rejected ${mermaidCode('turn/end')}`,
+    '  alt prompt blocked or admission failed',
+    '    Driver-->>Driver: append context-only batch or keep steering boundary pending',
+    '  else prompt allowed',
+    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    `  Driver->>Session: ${mermaidCode('user/message')}`,
     `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
-    `  Driver-->>Driver: ${mermaidCode('agent/pre-step')} serial checkpoint`,
+    `  Driver-->>Driver: ${mermaidCode('agent/step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/start')}`,
     `  Driver->>LLM: ${mermaidCode('agent/request')} waterfall, then ${mermaidCode('llm/stream')} waterfall`,
     '  LLM-->>Driver: StreamChunk*',
@@ -936,9 +1040,8 @@ function renderLifecycle(): string {
     '  alt final adapter or terminal in-band request failure',
     `    Driver->>Session: ${mermaidCode('step/end')}`,
     `    Driver->>Hooks: ${mermaidCode('agent/request-error')} waterfall`,
-    '    Hooks-->>Driver: retry in a new step or preserve the original error',
+    '    Hooks-->>Driver: return retry action or preserve the original error',
     '  else model request succeeded',
-    `  Driver->>Hooks: ${mermaidCode('agent/step-result')} waterfall`,
     `  Driver->>Session: ${mermaidCode('assistant/message')}`,
     '  Driver->>Tools: classify pending call by executionMode',
     '  loop barriers and bounded rolling pool, reclassify before start',
@@ -953,19 +1056,18 @@ function renderLifecycle(): string {
     '    end',
     '  end',
     '  Driver->>Session: post-tool context and steering (no prompt-submit)',
-    `  Driver->>Hooks: ${mermaidCode('agent/post-step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/end')}`,
-    `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
-    `  Driver->>Hooks: ${mermaidCode('agent/turn-stop')} serial terminal checkpoint`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-stopping')} serial terminal checkpoint`,
     '  end',
+    '  Note over Agent,Driver: next-step acceptance window closes',
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
-    `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
+    '  end',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
-    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
+    '`dsh-compact-basic` uses `agent/step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
     'The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.',
     '',
@@ -998,7 +1100,7 @@ function renderToolPipeline(): string {
     '  normalized["Registry outer normalization<br/>pipeline/result snapshot throws become isError"]',
     '  finalize["ToolDefinition.finalizeContent<br/>last content-only invariant"]',
     `  final["${mermaidCode('tools/result')} synchronous notification<br/>frozen authoritative outcome"]`,
-    '  context["Active-batch additionalContexts FIFO<br/>context/message after recorded tool results"]',
+    '  context["Active-batch additionalContexts FIFO<br/>injected user/message after recorded tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
     '  allResults["Tool batch settled<br/>recorded tool/result events complete"]',
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
@@ -1039,35 +1141,6 @@ function renderToolPipeline(): string {
   ].join('\n')
 }
 
-function renderSnapshotReplay(): string {
-  const maintenance = 'curated Mermaid sequence based on the snapshot test harness'
-  return [
-    ...generatedHeader('ACP Snapshot Replay'),
-    'This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, ACP stdout is normalized and diffed, and scenario workspaces preserve tool side effects that the UI stream alone cannot prove.',
-    '',
-    '```mermaid',
-    'sequenceDiagram',
-    '  participant Recorder as Real API recording',
-    '  participant Fixture as snapshot fixture',
-    '  participant Workspace',
-    '  participant Replay as llm-replay adapter',
-    '  participant ACP as acp-agent subprocess',
-    '  participant Expected as stdout expected output',
-    '  Recorder->>Fixture: session.jsonl + workspace inputs',
-    '  Fixture->>Workspace: seed files and hook configs',
-    '  Fixture->>Replay: recorded StreamChunk script',
-    `  Replay->>ACP: deterministic ${mermaidCode('llm/stream')} chunks`,
-    '  ACP->>Workspace: bash, fs, and hook side effects',
-    '  ACP->>Expected: normalized sessionUpdate stream',
-    '  Expected-->>ACP: diff must be empty',
-    '```',
-    '',
-    'The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.',
-    '',
-    ...maintenanceFooter(maintenance),
-  ].join('\n')
-}
-
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
   const docs: GraphDoc[] = [
@@ -1076,7 +1149,6 @@ function renderDocs(): GraphDoc[] {
     { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
-    { rel: 'packages/ui/acp/snapshot-replay.md', content: renderSnapshotReplay() },
   ]
   docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
   return docs
@@ -1092,7 +1164,6 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
     'docs/tool-execution-pipeline.md': 'tool execution pipeline',
-    'packages/ui/acp/snapshot-replay.md': 'ACP snapshot replay',
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
@@ -1103,7 +1174,6 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',
     'docs/tool-execution-pipeline.md': 'curated',
-    'packages/ui/acp/snapshot-replay.md': 'curated',
   }
   const rows = [
     '| [module dependency graph](module-graph.md) | `generated` |',
@@ -1118,7 +1188,7 @@ function renderIndex(docs: GraphDoc[]): string {
     ...generatedHeader('Documentation Graph Index'),
     'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
-    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/implemented/process/2026-07-03-documentation-graph-atlas.md).',
+    'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',
     '| Graph | Mode |',
     '| --- | --- |',

@@ -12,10 +12,10 @@
 
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
+  ConversationSnapshot, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -24,6 +24,9 @@ import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/clien
 
 const SID = 's1' as SessionId
 
+/** Identity-stable no-session bundle (uSES getSnapshot contract). */
+const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear between cases.
 beforeEach(() => {
@@ -31,23 +34,24 @@ beforeEach(() => {
 })
 
 const toolResult = (seq: number, callId: string, name: string, args = '{"command":"make build","description":"Build"}'): ToolResultNode => ({
-  kind: 'tool-result', seq, callId,
+  kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: args },
+  callTime: seq * 1_000 - 500,
   content: [], isError: false, callView: null, resultView: null,
 })
 
 function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null, planMode: null,
-  } as ConversationSnapshot
+    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+  }
 }
 
-/** Test-owned AppFrame role: declares the layout-owned children and renders the conversation area under the framework session provider. */
-type AppRootProps = PropsRenderSlots<'conversation' | 'details' | 'conversation.empty'>
-function AppRoot({ renderSlot, SessionProvider }: AppRootProps) {
-  return <SessionProvider>{() => renderSlot('conversation', {})}</SessionProvider>
+/** Test-owned AppFrame role: declares and renders the resident conversation area. */
+type AppRootProps = PropsRenderSlots<'conversation' | 'details'>
+function AppRoot({ renderSlot }: AppRootProps) {
+  return <>{renderSlot('conversation', {})}</>
 }
 
 /**
@@ -64,38 +68,84 @@ async function bench(nodes: ToolResultNode[]) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshotWith(nodes))
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', running: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-  } as SessionListState)
-  // Identity-stable cell: the renderer caches hooks per source and inject
-  // results per cell, both by object identity.
-  const cell = { sessionId: SID, session }
+    phase: 'ready',
+  })
+  // Identity-stable provide bundle: the renderer caches hooks per source and
+  // inject results per bundle, both by object identity. Registered providers
+  // (the package's input contribution) materialize into it lazily, once.
+  const providers: ((binding: object) => { hooks?: object; props?: object })[] = []
+  let info: { sessionId: SessionId; hooks: object; props: object } | undefined
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  const actxFake = { get: () => scoped, effect: () => {}, on: () => () => {} }
+  const bindingOf = (id: SessionId) => ({
+    sessionId: id,
+    ctx: actxFake,
+    session: {
+      sessionId: id,
+      loadOlder: vi.fn(),
+      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true } })),
+      // Observable face for the input machine's queue read face.
+      getSnapshot: () => session.getSnapshot(),
+      subscribe: (fn: () => void) => session.subscribe(fn),
+    },
+  })
+  const provideInfo = (id: string) => {
+    if (id !== SID) return undefined
+    if (info === undefined) {
+      const hooks: Record<string, unknown> = { session }
+      const props: Record<string, unknown> = {}
+      for (const provider of providers) {
+        const c = provider(bindingOf(SID))
+        Object.assign(hooks, c.hooks ?? {})
+        Object.assign(props, c.props ?? {})
+      }
+      info = { sessionId: SID, hooks, props }
+    }
+    return info
+  }
   ctx.provide('sessions', {
     list,
-    manager: { get: () => ({ loadOlder: vi.fn() }) },
-    scope: () => ({ get: () => scoped }),
-    cell: (id: string) => (id === SID ? cell : undefined),
+    binding: bindingOf,
+    scope: () => actxFake,
+    provideInfo,
+    currentProvideInfo: {
+      getSnapshot: () => provideInfo(SID),
+      subscribe: () => () => {},
+    },
+    provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
+    scopeOf: () => SID,
     create: vi.fn(),
     open: vi.fn(),
+    updateIntent: vi.fn(),
   })
+  const workspaces = {
+    list: createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    }),
+    startSession: vi.fn(),
+    sendSession: vi.fn(),
+    openPath: vi.fn(async () => {}),
+  }
+  ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  ctx.provide('locale', { bind: () => (key: string) => key })
 
   slots.install(createSlotRenderer())
   slots.register({
     name: 'root',
     children: {
-      'conversation': { kind: 'single', scope: 'session' },
+      'conversation': { kind: 'single', scope: 'session-maybe' },
       'details': { kind: 'single', scope: 'session' },
-      'conversation.empty': { kind: 'single', scope: 'root' },
     },
   }, AppRoot)
 
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, session, list, layout }
+  return { ctx, slots, fiber, session, list, layout, workspaces }
 }
 
 /** Render the whole tree through the ctx-level root seam (the shell's own entry). */
@@ -113,16 +163,47 @@ describe('keyed toolview hole through the real machinery', () => {
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
     expect(view.getByText('Tool call')).toBeTruthy()
   })
 
-  it('row clicks travel owner openDetails → chat inject → layout orchestration', async () => {
+  it('renders top-level Cordis calls with lifecycle titles over the generic variants', async () => {
+    const code = 'return { name: "audit", apply(ctx) {} }'
+    const b = await bench([
+      toolResult(3, 'cordis-1', 'cordis_inspect', '{"what":"api","name":"tools"}'),
+      toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
+      toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
+    ])
+    const view = mountApp(b.slots)
+
+    expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
+    const mounted = view.container.querySelector('[data-variant="code"]')
+    expect(mounted?.textContent).toContain(`Mount temporary Plugin${code}`)
+    expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
+      .toContain('Unmount temporary Plugindyn-2')
+
+    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
+  })
+
+  it('file-path clicks travel owner openFile → chat inject → workspaces.openPath', async () => {
+    const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
+    const view = mountApp(b.slots)
+    view.getByText('src/a.ts').click()
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(b.workspaces.openPath).toHaveBeenCalledWith('src/a.ts')
+    })
+  })
+
+  it('bash summary clicks do not open details or host paths', async () => {
     const b = await bench([toolResult(3, 'c1', 'bash')])
     const view = mountApp(b.slots)
     view.getByText('Build').click()
-    expect(b.layout.openDetails).toHaveBeenCalledTimes(1)
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
+    expect(b.workspaces.openPath).not.toHaveBeenCalled()
   })
 
   it('a live keyed registration takes over its tool row and unload reverts to the fallback', async () => {
@@ -145,8 +226,6 @@ describe('keyed toolview hole through the real machinery', () => {
 
   it('a duplicate key registration fails loud at load', async () => {
     const b = await bench([])
-    // The bash sample already holds the 'bash' key (later-wins retired with
-    // the ring — the keyed ledger throws instead).
     expect(() => b.slots.register(
       { name: 'conversation.chat.toolview', key: 'bash' },
       () => null,
@@ -183,21 +262,37 @@ describe('registrant load-order seam', () => {
     await slotsFiber.await()
     const slots = ctx.get('slots') as SlotsService
     ctx.provide('sessions', {
-      list: createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined } as SessionListState),
-      manager: { get: vi.fn() },
+      list: createSnapshotStore<SessionListState>({
+        ids: [], byId: {}, current: undefined, phase: 'ready',
+      }),
+      binding: () => undefined,
       scope: () => undefined,
-      cell: () => undefined,
+      provideInfo: () => undefined,
+      currentProvideInfo: {
+        getSnapshot: () => ABSENT_INFO,
+        subscribe: () => () => {},
+      },
+      provide: () => () => {},
       create: vi.fn(),
       open: vi.fn(),
+      updateIntent: vi.fn(),
+    })
+    ctx.provide('workspaces', {
+      list: createSnapshotStore<WorkspaceListState>({
+        items: [], state: 'idle', phase: 'ready', error: null,
+        baselinesReady: true, recentWorkspaceId: undefined,
+      }),
+      startSession: vi.fn(),
+      sendSession: vi.fn(),
+      openPath: vi.fn(async () => {}),
     })
     ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('i18n', { bind: () => (key: string) => key })
+    ctx.provide('locale', { bind: () => (key: string) => key })
     slots.register({
       name: 'root',
       children: {
-        'conversation': { kind: 'single', scope: 'session' },
+        'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
-        'conversation.empty': { kind: 'single', scope: 'root' },
       },
     }, AppRoot)
 

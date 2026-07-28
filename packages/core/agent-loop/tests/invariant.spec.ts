@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import { markAgentLoopRequest, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, markAgentLoopRequest, type GenerateOptions  } from '@deepseek-ai/dsh-llm'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
@@ -26,7 +26,9 @@ async function requestSetup() {
   const ctx = await setup()
   const session = ctx.sessions.create(SessionId('req-check'))
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
   const boundary = session.deriveMessages()
   session.append('step/start', { turn: 1, step: 1 })
   session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
@@ -42,20 +44,21 @@ describe('request-reconstruction invariant', () => {
 
   it('uses the step boundary rather than content appended afterward', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    session.append('context/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' },
+    }), { surfaceOp: 'append' })
     const options = loopRequest({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
-  it('requires the folded session prefix ahead of derived history', async () => {
+  it('requires the messages to equal the boundary derivation exactly (no unlogged prefix)', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
-    session.append('request/header', { header: { config: { provider: 'mock', model: 'm' }, messagePrefix: [prefix] }, reason: 'change' })
-    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id })) })
-      .not.toThrow()
+    const extra = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id })) })
+      .not.toThrow()
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([extra, ...boundary]), sessionId: session.id })) })
       .toThrow(/diverges from the boundary derivation/)
-    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary, prefix]), sessionId: session.id })) })
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary, extra]), sessionId: session.id })) })
       .toThrow(/diverges from the boundary derivation/)
   })
 
@@ -120,7 +123,9 @@ describe('request-reconstruction invariant', () => {
     await ctx.plugin(AgentLoopInvariant)
     const session = ctx.sessions.create(SessionId('prepend-check'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
     const divergent = loopRequest({

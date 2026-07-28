@@ -1,4 +1,4 @@
-# Agent Note: Resume command hint and `/resume`
+# Agent Note: 产品级 TUI 会话恢复
 
 Status: implemented
 
@@ -6,36 +6,34 @@ Status: implemented
 
 ## Problem
 
-TUI 本就能通过启动参数恢复会话（`RESUME_SESSION_ID=<id> dsh` 喂给 `dsh-tui-demo` 的 `resumeSessionId`），但没有任何地方告诉用户这条命令。退出时会话 id 只残留在会话日志和 `./.sessions` 文件名里——[移除启动横幅 Agent Note](2026-07-21-tui-no-banner.md) 移除了它最后一处显示位置——因此恢复意味着先翻出 id 再拼回调用命令。也没有任何会话内的方式查看当前 workspace 里哪些会话可恢复。
+原有 `/resume` 只会打印 shell 命令。使用键盘操作的用户无法查看标题或结果、区分日志损坏与适配器缺失，也无法安全移交终端。退出 TUI 后手动启动命令还掩盖了必要的操作顺序：等待当前工作结束并将其刷写，释放 UI 和应用，再恢复持久化的原有身份，绝不能静默创建替代会话。
 
 ## Decision
 
-`dsh-tui` 上一个可选的 `resumeCommand` 配置字段同时管辖两处出口：一个 shell 命令模板，其中每一处 `{session}` 都会被替换为当前会话 id（例如 `dsh --resume {session}`）。未设置时两处都不出现。
+`/resume` 使用 TUI 现有的交互式浮层接口，但以占满 viewport 的选择页呈现，而不是居中弹窗。这个扁平页面把搜索框、workspace、候选项和快捷键页脚放在稳定的屏幕区域，只有当前行使用强调色。搜索编辑器紧跟搜索图标起始，并输出 pi-tui 的光标标记，因此终端输入法的组合文本会锚定在输入框中。查询非空时，第一次按 Escape 会清空查询，第二次才关闭选择页。页面按日志记录的最后活动时间列出当前 workspace 的会话，并支持按日志内标题或 id 搜索。每个候选项都会显示是否为当前会话、是否活跃、是否已持久化，最近一个轮次的结果，最近使用的提供方／模型，以及可用时的持久化目标阶段；id 作为次要信息显示。当前会话和已在本运行时中处于活跃状态的会话仍会显示，但不可选择。
 
-- **退出提示。** 以退出进程方式关闭时，在 `ui.stop()` 之后、`runtime.exit` 之前，经由 `runtime.terminal.write` 打印 `To resume this session: <command>`（弱化的标签）。仅当会话已持久化时才打印：`currentResumeCommand()` 在会话列表中查找当前 id，若不存在则返回 `undefined`，因此在首次刷盘前就被放弃的会话不会宣传一条注定加载失败的命令。
-- **`/resume`。** 按最新在前列出当前 workspace 里已持久化的会话，每条附带其恢复命令，并给当前会话标注 `(current)`。当 `resumeCommand` 未配置或未挂载持久化后端时给出告警，尚无任何会话被持久化时给出提示。列出是异步的，因此提交后文本记录会在下一个 tick 更新。
-- **列出逻辑。** `listWorkspaceSessions()` 读取可选的 `sessionPersistence` 服务的 `list()`，保留 `cwd === agent.session.header.cwd` 的头部，并按 `createdAt` 降序排序。`list()` 拒绝时吞掉为 `[]`——持久化失败绝不能阻塞终端退出或让 `/resume` 崩溃。
+`session-query.readSession()` 提供一份脱离运行时的完整日志，并通过恢复流程所用的同一核心回放边界完成验证。TUI 从该日志中折叠出标题和目标状态。候选项加载失败时只影响该行；选择候选项后会复查日志、`cwd`、路由、当前 agent 的空闲状态，以及针对当前会话和已在本运行时中处于活跃状态的会话的排除规则，避免陈旧列表绕过预检。适配器缺失时会报告会话完整但路由不可用。该预检不会锁定目标，也不会排除其他进程。
 
-`sessionPersistence` 是一个通过 `ctx.get('sessionPersistence')`（而非 `inject`）获取的可选注入服务，声明为可选的对等依赖（peer dependency）。没有后端时该字段仍能解析；退出提示与 `/resume` 分别退化为不做任何事、以及给出未配置/无后端告警。`dsh-tui-demo` 将 `resumeCommand` 转发给 `dsh-tui`，可运行的 `examples/tui-agent` 叶子配置设为 `dsh --resume {session}`。`dsh` CLI（`apps/cli`）通过 [`dsh-app-boot`](../../../../packages/ui/app-boot/README.md) 中的 `parseResumeArg` 解析该 `--resume <id>` 标志，在启动前设置 `RESUME_SESSION_ID`，因此打印出的命令会重新走回配置中既有的 `resumeSessionId` 入口；拼写错误或重复的标志会直接报错退出，而非悄悄开启一个新会话。
+预检通过后，TUI 会刷写当前会话，再次确认其 agent 仍处于空闲状态，然后停止终端并调用 `TuiRuntime.handoffResume`。已交付的 `dsh` 宿主会释放根应用，并使用带有规范化 `--resume` 参数的 `process.execve` 原子替换当前进程，而不是启动子进程。恢复后的应用发布相同的 `SessionId`；常规回放会还原 transcript（文本记录）、标题、待办事项和持久化目标状态。系统会有意解除目标的激活状态，TUI 则要求用户确认继续或执行 `/goal resume`。
+
+`resumeCommand` 保留为退出及无宿主时的回退方案。TUI 仅为显示目的替换 `{session}`，绝不执行任意 shell 文本。只有当前会话已经持久化时，退出提示才会出现。
 
 ## Alternatives considered
 
-**硬编码或自动探测恢复调用命令。** 否决：启动命令与部署强相关——环境变量名、可执行文件、参数都各不相同——因此一个 `DEFAULT_*` 常量只会是固定的可调项，而非可配置项。由叶子拥有的模板把这个选择留在部署所在之处，而 `{session}` 是 TUI 唯一需要知道的替换。
+**让 TUI 创建 `resumeCommand` 进程。** 否决：该模板是部署文本，不是可信的参数列表，且 TUI 不拥有应用拆卸或进程生命周期。受约束的宿主接口只接收经过验证的 `SessionId`。
 
-**两个配置字段，每处出口一个。** 否决：两处渲染的是完全相同的命令，因此单个字段让它们保持对称、不会漂移；不存在只想要提示而不想要列表的部署。
+**在现有 TUI 内构造恢复后的 agent。** 否决：在表现层替换由配置创建的 agent，会跨越 Loader 所有权、作用域插件初始化、持久化资源释放和终端生命周期。释放根应用并替换进程可以复用受支持的启动路径。
 
-**无条件打印退出提示。** 否决：恢复一个从未刷盘的会话 id 会加载失败，宣传它就是一条错误指令。以 id 是否出现在 `list()` 中为条件仅需一次扫描，且只会抑制一条注定失败的命令。
+**把适配器缺失视为会话缺失。** 否决：存储有效性和当前路由可用性是相互独立的事实。选择器会保留该行，并指出不可用的提供方／模型。
 
-**从 `/resume` 就地恢复（重启或重连）。** 否决：TUI 不拥有 agent 生命周期或进程创建（[全屏 TUI 门面 Agent Note](2026-07-17-dedicated-full-screen-tui-front-door.md)）。打印一条可复制的命令尊重这条边界，也契合需求所引用的 `pi --resume` 用法。
-
-**把 `sessionPersistence` 设为必需的 `inject`。** 否决：TUI 必须能在无持久化时运行（fixture（测试前置数据）、临时运行）。一个会优雅退化的可选服务保住了这一点，也与 [`session-query`](../../../../packages/session-query/session-query/package.json) 对同一可选对等依赖的先例一致。
+**恢复会话时延续目标激活状态。** 否决：持久意图并不代表跨越用户或进程边界后仍获授权继续执行。目标阶段会保留，但不会自动续跑。
 
 ## Consequences
 
-- `dsh-tui` 新增对 `@deepseek-ai/dsh-session-persistence` 的可选对等依赖（`peerDependenciesMeta.optional`），与 `session-query` 一致；未挂载后端时该包仍能加载并通过其覆盖率门禁。
-- 帮助行和自动补全新增 `/resume`；两个既有快照因帮助行变宽而重新录制，新增的 `resume-sessions` 检查点固定渲染出的列表。
-- `dsh-tui-demo` 及两个 `examples/tui-agent` 叶子配置都带上 `resumeCommand`，因此真实的 TUI 运行现在退出时会打印自己的恢复命令，且 `dsh` CLI 接受打印出的 `--resume <id>` 标志来运行它。
+- 预检不会串行化不同进程；多个进程可以并发选择或恢复同一个持久化会话。
+- `/resume` 依赖 `session-query` 发现会话并读取完整日志，但持久化和宿主交接仍是可选功能；没有宿主时，命令回退仍可使用。
+- 进程替换会有意重启 Loader 组合。系统会重建仅存在于运行时的状态，而只有日志或会话头部记录的会话状态能够保留。
 
 ## Testing
 
-`packages/ui/tui/tests/tui.spec.ts` 固定这七种行为：退出提示仅在当前会话已持久化时打印，未持久化时以及 `list()` 拒绝时都不打印；`/resume` 按最新在前列出 workspace 会话并带 `(current)` 标注与 cwd 过滤、未配置时告警、无后端时告警、尚无持久化时给出提示。`resume-sessions` 快照验证完整渲染帧。测试脚手架通过 `ctx.provide` 提供一个假的 `sessionPersistence`。对于 `--resume` 标志，`packages/ui/app-boot/tests/app-boot.spec.ts` 固定 `parseResumeArg`（空格形式与内联形式、位置无关性，以及在标志缺值、为空或重复时直接报错退出），`examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 用 `--resume <missing-id>` 启动 `apps/cli` 并断言配置恢复直接报错退出——证明该标志抵达了 `resumeSessionId` 入口。
+TUI 测试覆盖键盘导航、标题／id 搜索、清空搜索后再取消、agent 运行期间拒绝恢复、拒绝恢复当前会话和已在本运行时中处于活跃状态的会话、路由缺失、损坏的候选行、预检复查、回退命令，以及停止终端先于宿主交接的顺序。session-query 测试固定脱离运行时的完整日志验证。agent-loop 恢复测试固定会话身份和历史完全一致；标题、待办事项和目标回放测试套件固定这些投影均可恢复，且目标激活状态已经解除。无密钥 TUI 快照固定全屏选择页和输入法光标锚点，真实 PTY smoke 则覆盖搜索与交接。

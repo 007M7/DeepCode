@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcReceipt } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -22,6 +24,10 @@ const kit = {
   sessionId: SID,
   useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
   useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
+  useWorkspaces: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<WorkspaceListState>,
+  useProjection: (() => undefined) as never,
+  useInput: (() => { throw new Error('unused') }) as never,
+  inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
 }
 
 const QUESTIONS = [
@@ -45,7 +51,7 @@ const QUESTIONS = [
 /** Carrier fixture: a real PendingWait over a scripted respond carrier. */
 function wait(rpcId = 'question-1', respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))) {
   const carrier = new PendingWait(
-    'question', RpcId(rpcId), SID, { questions: QUESTIONS } as PendingWait<'question'>['payload'], respond)
+    'question', RpcId(rpcId), SID, { questions: QUESTIONS }, respond)
   return { carrier, respond }
 }
 
@@ -98,7 +104,7 @@ describe('QuestionComposer', () => {
       { id: 'detail', selected: [], custom: '要能独立排查线上问题' },
       { id: 'signals', selected: ['系统设计', '代码质量'] },
     ]))
-    expect((screen.getByRole('button', { name: '正在提交…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
   })
 
   it('renders plan detail through the shared assistant Markdown primitive', () => {
@@ -195,7 +201,7 @@ describe('QuestionComposer', () => {
     // Receipt rejection surfaces through the domain face's thrown message.
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
     expect(await screen.findByText('question cancellation rejected: bad-response')).toBeTruthy()
-    expect((screen.getByRole('button', { name: '跳过本题' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '跳过本题' }).disabled).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
     expect(await screen.findByText('第二次取消失败')).toBeTruthy()
@@ -221,7 +227,7 @@ describe('QuestionComposer', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('网络中断')).toBeTruthy()
-    expect((screen.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '提交' }).disabled).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('字符串错误')).toBeTruthy()

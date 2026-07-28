@@ -1,5 +1,5 @@
 /**
- * Runtime plugin browser-half apply: slots + sessions mounting over the
+ * Runtime plugin browser-half apply: slots + object services mounting over the
  * connection handle, stream-loop sink wiring into the object layer, and the
  * fiber-scoped loop teardown.
  */
@@ -8,7 +8,9 @@ import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
 import * as RuntimeClient from '../src/client/index.ts'
-import { FakeApiClient } from './fake-api.ts'
+import type { SessionsService } from '../src/client/sessions/service.ts'
+import type { WorkspacesService } from '../src/client/workspaces/service.ts'
+import { FakeApiClient, ok } from './fake-api.ts'
 
 interface Bench {
   ctx: Context
@@ -33,27 +35,71 @@ async function mount(): Promise<Bench> {
   return bench
 }
 
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 12; i++) await Promise.resolve()
+}
+
 describe('runtime client apply', () => {
-  it('mounts ctx.slots + ctx.sessions and wires the stream sinks into the manager', async () => {
+  it('mounts slots, Sessions, and Workspaces and fans host frames into both managers', async () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)
     // The built-in 'root' declaration ships with this package's SlotsService
     // (the SlotMap 'root' merge lives here since the slot-parity rework).
     expect(bench.ctx.slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
     const sessions = bench.ctx.get('sessions')
+    const workspaces = bench.ctx.get('workspaces')
     expect(sessions !== undefined).toBe(true)
+    expect(workspaces !== undefined).toBe(true)
+    if (workspaces === undefined) throw new Error('WorkspacesService missing after runtime apply')
     expect(bench.sinks).toBeDefined()
 
     // Frame sinks reach the object layer: a host session-added lands in the list store.
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r1' as never,
-      payload: { type: 'host/session-added', sessionId: 's-new' } as never,
+      payload: { type: 'host/session-added', blank: true, sessionId: 's-new' } as never,
     })
     await Promise.resolve()
     expect((sessions as { list: { getSnapshot(): { ids: string[] } } }).list.getSnapshot().ids).toContain('s-new')
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r-workspace' as never,
+      payload: {
+        type: 'host/workspace-changed',
+        workspace: {
+          workspaceId: 'w-new', path: '/w/new', title: 'new', sessionIds: [],
+          createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      } as never,
+    })
+    await Promise.resolve()
+    expect(workspaces.list.getSnapshot().items[0]?.workspaceId).toBe('w-new')
     // Mux sink and onConnected route without throwing (manager semantics own the behavior).
     bench.sinks?.onMuxEnvelope?.({ rpcId: 'r2' as never, payload: { type: 'stream/error', message: 'x' } as never })
     bench.sinks?.onConnected?.()
+  })
+
+  it('selects the recent Workspace once when the first baselines have no current session', async () => {
+    const bench = await mount()
+    bench.api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [{
+        workspaceId: 'w-recent', path: '/w/recent', title: 'recent', sessionIds: [],
+        createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      }] as never[],
+    }))
+    bench.api.onList = () => Promise.resolve(ok({ items: [] }))
+
+    bench.sinks?.onConnected?.()
+    await flushMicrotasks()
+
+    const sessions = bench.ctx.get('sessions') as SessionsService
+    const workspaces = bench.ctx.get('workspaces') as WorkspacesService
+    expect(bench.api.callsOf('session.create')).toEqual([{ workspaceId: 'w-recent' }])
+    expect(sessions.list.getSnapshot().current).toBe('fk-new')
+
+    sessions.clear()
+    await workspaces.refresh()
+    await flushMicrotasks()
+    expect(sessions.list.getSnapshot().current).toBeUndefined()
+    expect(bench.api.callsOf('session.create')).toHaveLength(1)
   })
 
   it('stops the stream loop when the plugin fiber unloads', async () => {

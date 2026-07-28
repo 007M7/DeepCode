@@ -5,7 +5,20 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ProviderRequestId } from './brand.ts'
+import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
+import type { Message } from './message.ts'
+
+export type {
+  AssistantMessage,
+  AssistantProvenance,
+  Message,
+  MessageSource,
+  MessageSourceMap,
+  ModelMessageSource,
+  ToolMessageSource,
+  ToolResultMessage,
+  UserMessage,
+} from './message.ts'
 
 /** Serializable provider-boundary facts; policy decides whether they are retryable. */
 export interface LlmFailure {
@@ -67,43 +80,6 @@ export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
-/** Provider ownership and adapter-private replay data for an assistant message. */
-export interface AssistantProvenance {
-  /** Provider route that produced the message. */
-  provider: string
-  /** Provider model id that produced the message. */
-  model: string
-  /**
-   * Lossless-JSON adapter state needed to replay the provider response.
-   * `LlmService` exposes it to a target adapter only when that adapter instance
-   * currently owns both this historical provider and the target provider.
-   */
-  replayState?: unknown
-}
-
-/**
- * A single message in a conversation history. Loop-derived assistant messages
- * always carry provenance; callers may omit it on hand-built foreign history.
- */
-export interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: ContentBlock[]
-  /** Present only on assistant messages produced by a routed adapter. */
-  provenance?: AssistantProvenance
-}
-
-/**
- * Where a message (or injected content) came from.
- * Merge-extensible sum type — plugins add their own `kind`s.
- */
-export interface MessageSourceMap {
-  user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
-}
-
-/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
-export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
-
 /**
  * Why a model response stopped.
  * Merge-extensible so adapters can surface provider-specific reasons.
@@ -161,6 +137,35 @@ export interface LlmModelContext {
   contextWindow: number
 }
 
+/** Display metadata for one adapter-owned reasoning effort. */
+export interface LlmReasoningEffortInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
+  id: ReasoningEffortId
+  /** Human-readable effort name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar efforts. */
+  description?: string
+}
+
+/** Selectable reasoning efforts for one exact provider/model route. */
+export interface LlmModelReasoningInfo {
+  /** Supported efforts in adapter-preferred display order. */
+  efforts: readonly LlmReasoningEffortInfo[]
+  /**
+   * Adapter-configured default materialized into requests when callers omit
+   * an effort. Absence preserves the provider's own default.
+   */
+  defaultEffort?: ReasoningEffortId
+}
+
+/** Exact-route model metadata resolved by its owning adapter. */
+export interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
@@ -201,11 +206,12 @@ export interface GenerateOptions {
   /** Registered provider route selecting the adapter instance. */
   provider: string
   model: string
+  /** Adapter-owned reasoning effort selected for this exact model. */
+  reasoningEffort?: ReasoningEffortId
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
-   * hand-built one-shot passes any list.
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */

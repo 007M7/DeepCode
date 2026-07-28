@@ -1,5 +1,16 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type {
+  AssistantMessage,
+  CallId,
+  LlmCallConfig,
+  LlmFailure,
+  MessageSource,
+  StreamChunk,
+  TokenUsage,
+  ToolResultMessage,
+  ToolSchema,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -36,7 +47,7 @@ export interface SessionHeader {
   readonly version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   readonly id: SessionId
-  /** Unix epoch milliseconds when the session was created. */
+  /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
@@ -82,13 +93,12 @@ export interface CreateSessionOptions {
  */
 export interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
+  /** Recovery turn reopened over the repaired current session log. */
+  retry: { kind: 'retry' }
   /**
-   * An out-of-band context injection (`agent.inject()`) made while the agent
-   * was idle. The loop wraps the injected `context/message` in a one-shot turn
-   * (`turn/start` → `context/message` → `turn/end`) so every event in the log
-   * stays turn-enclosed — the durability/replay boundary is the turn, and a
-   * bare event between turns would otherwise be indistinguishable from a crash
-   * tail on reload.
+   * An out-of-band producer explicitly enclosed injected context in a one-shot
+   * turn. `Agent.inject()` appends idle context directly and does not use this
+   * trigger; the source mirrors the producer of the enclosed `user/message`.
    */
   injection: { kind: 'injection'; source: MessageSource }
 }
@@ -108,7 +118,8 @@ export interface TurnEndReasonMap {
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
    * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other turn failures retain their live Error message/code.
+   * as one `failure`; other thrown values retain their rendered message and a
+   * real `HarnessError` code when present.
    */
   error: { kind: 'error'; step: number } & (
     | { failure: LlmFailure; message?: never; code?: never }
@@ -117,11 +128,6 @@ export interface TurnEndReasonMap {
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
-  /**
-   * Policy blocked the turn's claimed prompt before the first step. The
-   * zero-step turn still records a balanced durable boundary and veto reason.
-   */
-  rejected: { kind: 'rejected'; reason: string }
   /**
    * A persistence backend closed a crash-orphaned turn on reload. The loop never
    * emits this marker, and the events recorded before the crash remain intact.
@@ -138,10 +144,9 @@ export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
  * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity, and the
- * status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a
- * todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally
- * requires).
+ * on every write (last-write-wins), so entries need no stable identity. The
+ * three statuses describe the complete portable lifecycle needed by model and
+ * UI consumers.
  */
 export interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
@@ -151,25 +156,17 @@ export interface TodoItem {
 }
 
 /**
- * Logged request state outside derived history: call config, system prompt,
- * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
- * canonical empty optional fields are absent.
+ * Logged request state outside derived history: call config, system prompt, and
+ * tools. The latest full `request/header` snapshot reconstructs it; canonical
+ * empty optional fields are absent.
  */
 export interface EpochHeader {
-  /** The conversation's call configuration (provider, model, and sampling scalars). */
+  /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
-  /**
-   * The session prefix: request-only messages sent BEFORE the entire derived
-   * history (the `agent/session-prefix` waterfall's product, composed once
-   * per loop instance and reused for every request it sends). Not session
-   * history — `deriveMessages()` never returns it — so the header is its
-   * only durable record; absent when the instance composed none.
-   */
-  messagePrefix?: Message[]
 }
 
 /**
@@ -180,37 +177,6 @@ export interface EpochHeader {
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
-/** Durable model-hidden annotation for one context baked into a prompt message. */
-export interface PromptPrefixContext {
-  /** Producer provenance retained for transcript presentation and inspection. */
-  source: MessageSource
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
-}
-
-/**
- * Human-facing view of a prompt whose exact model content includes prefixed
- * context. `content` on the owning event remains the reconstructable model
- * input; this envelope prevents transcript, title, and re-reference consumers
- * from treating the baked context as direct human text.
- */
-export interface PromptMessageEnvelope {
-  /** Effective user prompt after interception rewrites, without baked context. */
-  displayContent: ContentBlock[]
-  /** Ordered descriptors for contexts already baked into the event content. */
-  prefixContexts: PromptPrefixContext[]
-}
-
-/** Shared payload for ordinary and steering prompt messages. */
-export interface PromptMessageData {
-  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
-  content: ContentBlock[]
-  /** Producer provenance for the direct prompt. */
-  source: MessageSource
-  /** Present only when prompt-prefix contexts were baked into `content`. */
-  envelope?: PromptMessageEnvelope
-}
-
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
@@ -219,10 +185,7 @@ export interface PromptMessageData {
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — one claimed queued
-   * message or an idle-time injection. The turn is the durability/replay
-   * boundary: every event sits between a `turn/start` and its matching
-   * `turn/end` (the turn-enclosure invariant).
+   * Opens turn `turn`. `trigger` records what started the model loop.
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
@@ -236,29 +199,15 @@ export interface SessionEventMap {
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (the queued message claimed for this turn). */
-  'user/message': PromptMessageData
   /**
-   * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, and its turn runs zero steps.
+   * A user-role message on the model-visible surface: a direct human prompt
+   * (the queued message claimed for this turn), a synthetic `agent.inject()`
+   * context (file-change notices, subdir AGENTS.md, skill content, cron
+   * notifications, …), or an admitted goal continuation round. All three
+   * project their `content` verbatim; `source` tells them apart. An idle
+   * injection may append this event between turns without running the model.
    */
-  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
-  /**
-   * In-session context injection (file-change notices, subdir AGENTS.md,
-   * skill content, cron notifications, …). Rendered into the derived history
-   * as a synthetic user-role message carrying `content` verbatim — NOT a
-   * user prompt. `meta` is durable JSON state omitted from the model
-   * projection; it is also the intended channel for any future framing
-   * directive (a producer declares the frame, a dedicated renderer applies it —
-   * see the deferred note in
-   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
-   * so the surface keeps projecting `content` verbatim rather than wrapping it.
-   */
-  'context/message': {
-    content: ContentBlock[]
-    source: MessageSource
-    meta?: JsonValue
-  }
+  'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -267,7 +216,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -288,14 +237,12 @@ export interface SessionEventMap {
   'tool/result': {
     turn: number
     step: number
-    callId: CallId
-    content: ContentBlock[]
-    isError: boolean
+    message: ToolResultMessage
     error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': PromptMessageData & { turn: number }
+  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -305,22 +252,8 @@ export interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
 
-/**
- * Marker map for plugin-owned log-only events accepted by
- * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
- * it adds to {@link SessionEventMap}; surface and lifecycle events stay
- * ineligible unless their owner explicitly opts them into this narrow seam.
- */
-export interface OutOfBandSessionEventMap {}
-
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
-
-/** Plugin-declared non-surface event types accepted by `SessionStore.appendOutOfBand()`. */
-export type OutOfBandSessionEventType = Exclude<
-  Extract<SessionEventType, keyof OutOfBandSessionEventMap>,
-  SurfaceEventType
->
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
@@ -331,7 +264,6 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'context/message'
   | 'steering/message'
 
 /**
@@ -349,7 +281,7 @@ export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: Surface
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -384,7 +316,7 @@ export interface SurfaceIntent {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.

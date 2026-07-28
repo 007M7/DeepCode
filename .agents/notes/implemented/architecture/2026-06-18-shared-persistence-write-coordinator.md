@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-18-shared-persistence-write-coordinator.zh.md)
+
 ## Problem
 
 `dsh-session-persistence-jsonl` and `dsh-session-persistence-sqlite` intentionally prove the same `SessionPersistence` contract over different storage media, but their write-path orchestration was duplicated: per-session state, `session/created` adoption, backend-specific prefix reads, write-behind control, per-id operation serialization, HMR seeding, and dispose drains. The pure seed-prefix collision and serializability guards had already moved into the seam package; the remaining orchestration was still correctness-heavy and received the same fixes twice. Only the storage primitives (write bytes vs. INSERT rows) differed.
@@ -21,7 +23,7 @@ The coordinator retires a session from `session/disposed`: it waits for the cont
 Five required members plus an optional lifecycle hook form the only boundary between the coordinator and storage:
 
 - `name` — backend label for the dispose-failure `AggregateError`.
-- `loadStored(id)` — read one stored prefix by id across every storage scope (every JSONL cwd bucket; SQLite's id is globally unique). Resume/load, non-mutating inspection, live adoption, and the create-collision probe share this lookup. The coordinator asserts the returned id and rejects a stored/live cwd mismatch before repair or state publication.
+- `loadStored(id)` — read one stored prefix by id across every storage scope (every JSONL project directory; SQLite's id is globally unique). Resume/load, non-mutating inspection, live adoption, and the create-collision probe share this lookup. The coordinator asserts the returned id and rejects a stored/live cwd mismatch before repair or state publication.
 - `appendBatch(meta, events, isMaterialized)` — durably append a contiguous batch, lazily materializing the session ATOMICALLY when not yet materialized (the materialize-write and the first event batch must commit together — a crash between them must not leave a materialized-but-empty session; this is why there is no separate `materialize` hook).
 - `commitRepair(meta, tornMarker, closers)` — make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined`) and append `closers`. **NOT required to be atomic** — JSONL legitimately truncates-then-appends in two fsync'd steps, SQLite does DELETE+INSERT in one transaction. Used by `load` (truncate + synthetic closers) and live-adoption (truncate only, `closers = []`).
 - `list()` — list all stored metadata.

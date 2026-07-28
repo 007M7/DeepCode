@@ -15,7 +15,7 @@ export const name = 'workspace-context-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: replay intentionally tolerates unknown or malformed workspace metadata,
+ * No runtime invariant: replay intentionally tolerates unknown or malformed workspace sources,
  * while focused pipeline tests own its private pending/cache state transitions.
  */
 const install: InvariantInstaller = () => {}
