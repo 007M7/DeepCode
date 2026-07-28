@@ -151,6 +151,13 @@ export class SessionsService {
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
   private readonly manager: SessionManager
+  /**
+   * Atomic current-session provide projection: selection changes and
+   * provider-roster changes publish through this one source (the renderer
+   * host's `sessions.provide` feed), so a roster change under a stable
+   * current id republishes the bundle instead of stranding mounted entries.
+   */
+  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -167,6 +174,10 @@ export class SessionsService {
   private readonly providers: SessionProvideDescriptor[] = []
   /** Static no-session projection, rebuilt only when the provider roster changes. */
   private maybeInfo: SessionMaybeProvideInfo
+  /** Latest published {@link SessionsService.currentProvideInfo} bundle (identity comparison dedupes republish). */
+  private currentProvideInfoSnapshot: SessionMaybeProvideInfo
+  /** currentProvideInfo subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
+  private readonly currentProvideInfoListeners = new Set<() => void>()
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -198,7 +209,11 @@ export class SessionsService {
     // dedicated code path. Safe to run synchronously inside the store notify:
     // the follower writes no list state — session.open()'s synchronous prefix
     // touches only session-side state and its own microtask-batched notifier.
-    this.list.subscribe(() => { this.followCurrent() })
+    // The current-provide projection follows the same current writes.
+    this.list.subscribe(() => {
+      this.followCurrent()
+      this.updateCurrentProvideInfo()
+    })
     // The runtime's own contribution comes first: useSession rides the same
     // provide channel every plugin uses (no renderer special case).
     this.providers.push({
@@ -206,6 +221,14 @@ export class SessionsService {
       resolve: binding => ({ hooks: { session: binding.session } }),
     })
     this.maybeInfo = this.materializeMaybeProvideInfo()
+    this.currentProvideInfoSnapshot = this.maybeInfo
+    this.currentProvideInfo = {
+      getSnapshot: () => this.currentProvideInfoSnapshot,
+      subscribe: (fn) => {
+        this.currentProvideInfoListeners.add(fn)
+        return () => { this.currentProvideInfoListeners.delete(fn) }
+      },
+    }
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -237,6 +260,30 @@ export class SessionsService {
     this.maybeInfo = this.materializeMaybeProvideInfo()
     for (const record of this.scopes.values()) {
       record.provideInfo = this.materializeProvideInfo(record.binding)
+    }
+    this.updateCurrentProvideInfo()
+  }
+
+  /**
+   * Re-derive the current selection's provide bundle and publish it when it
+   * changed. Bundles are identity-stable per (scope, roster)
+   * materialization, so an identity compare is exact; synchronous notify —
+   * both call sites (list.subscribe, provide()) already sit behind their own
+   * batching or registration edges.
+   */
+  private updateCurrentProvideInfo(): void {
+    const next = this.maybeProvideInfo(this.list.getSnapshot().current)
+    if (next === this.currentProvideInfoSnapshot) return
+    this.currentProvideInfoSnapshot = next
+    for (const fn of [...this.currentProvideInfoListeners]) {
+      try {
+        fn()
+      } catch (error) {
+        // Contain subscriber failures: this notify runs inside the list
+        // notification, where a throwing render-side subscriber would starve
+        // later listeners and abort the projection pass that scheduled it.
+        console.error('sessions.currentProvideInfo subscriber failed:', error)
+      }
     }
   }
 
@@ -404,25 +451,21 @@ export class SessionsService {
   }
 
   /**
-   * Resolve the render-layer standard-props bundle (SessionProvider's feed
-   * through the renderer host; ctx never enters the render layer). Pure
-   * resolution — render-safe: SessionProvider calls this during render, so no
-   * staging, no window side effects (StrictMode double-invokes and concurrent
-   * discarded passes must stay free).
-   * @param id - session id.
-   * @returns the provide info, or undefined for a session neither listed nor already scoped.
+   * Resolve one session's render-layer standard-props bundle (ctx never
+   * enters the render layer; the renderer subscribes to
+   * {@link SessionsService.currentProvideInfo}). Pure resolution — render-safe:
+   * no staging, no window side effects (StrictMode double-invokes and
+   * concurrent discarded passes must stay free).
    */
-  provideInfo(id: string): SessionProvideInfo | undefined {
+  private provideInfo(id: string): SessionProvideInfo | undefined {
     return this.resolve(id as SessionId)?.provideInfo
   }
 
   /**
    * Resolve the current-session-optional standard kit. Unknown or absent ids
    * return the static no-session projection rather than removing hook props.
-   * @param id - current session id, when selected.
-   * @returns a definite or no-session provide bundle.
    */
-  maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
+  private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
     return (id === undefined ? undefined : this.provideInfo(id)) ?? this.maybeInfo
   }
 

@@ -7,7 +7,7 @@
  * setting never means editing the shell; copy that belongs to no single
  * feature (chrome, the General section) is owned by ui-settings-general.
  */
-import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-sidebar's SlotMap merge (the 'sidebar.settings' entry)
 // into every program that sees this contract.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -72,26 +72,32 @@ export interface SettingsSectionOwnerProps {
   children?: never
 }
 
+/** One nav row projected from a settings.section registration's options. */
+export interface SettingsSectionRow {
+  id: string
+  order: number
+  label: string
+}
+
 /**
  * Registrant-private injected share of the settings shell (assembled in
- * apply): ledger projections only — the shell reads no locale state.
+ * apply): the ledger's nav-row projection as a hooks-compartment source —
+ * the shell reads no locale state and subscribes through the bound hook.
  */
 export type SettingsRootInjected = {
-  /** Read the settings.section ledger version (nav invalidation). */
-  sectionsVersion: () => number
-  /** Subscribe to settings.section ledger changes. */
-  subscribeSections: (listener: () => void) => () => void
-  /** Project the settings.section ledger into nav rows (id/order/label). */
-  sections: () => readonly { id: string; order: number; label: string }[]
+  hooks: {
+    /** settings.section ledger projected into ordered nav rows. */
+    sections: HostObservable<readonly SettingsSectionRow[]>
+  }
 }
 
 /**
  * Full component props of the settings shell root: the sidebar owner share
- * (wide/rail state) plus the declared render shares and the injected face.
- * No store is registered — modal open state and active section id are
- * component-local viewing state.
+ * (wide/rail state) plus the declared render shares and the injected face
+ * (hooks compartment bound to useSections). No store is registered — modal
+ * open state and active section id are component-local viewing state.
  */
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'>
   & PropsRenderSlots<'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section'>
-  & SettingsRootInjected
+  & InjectFace<SettingsRootInjected>

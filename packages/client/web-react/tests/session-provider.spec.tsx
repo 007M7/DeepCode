@@ -9,7 +9,7 @@
 import { useEffect, useRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionMaybeProvideInfo, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSlotRenderer, SessionProvider,
   type SessionProvideInfo, type SlotRendererHost,
@@ -26,12 +26,14 @@ function observable<T>(initial: T) {
 }
 
 /**
- * Minimal host: SessionProvider only reads sessions.current/cell, but it must
+ * Minimal host: SessionProvider only reads sessions.provideInfo, but it must
  * render inside the renderer tree (HostContext), so the harness mounts a real
  * root entry whose body is the test's render-prop provider.
  */
 function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.ReactNode) => React.ReactNode }) {
-  const current = observable<string | undefined>(undefined)
+  const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
+  const provide = observable<SessionMaybeProvideInfo>(absentInfo)
+  let currentId: string | undefined
   const infos = new Map<string, SessionProvideInfo>()
   const sessionEntries: StoredEntry[] = []
   const rootEntry: StoredEntry = {
@@ -49,16 +51,20 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     storeOf: () => undefined,
     sessions: {
       list: observable<unknown>({ ids: [] }),
-      current,
-      provideInfo: id => infos.get(id),
-      maybeProvideInfo: id => (id === undefined ? undefined : infos.get(id))
-        ?? { sessionId: undefined, hooks: { session: undefined }, props: {} },
+      provideInfo: provide,
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }
   return {
     host,
-    current,
+    // Same driver surface as the old current cell: set(id) publishes the
+    // resolved bundle (or the absent projection) through the provide source.
+    current: {
+      set: (id: string | undefined) => {
+        currentId = id
+        provide.set((id === undefined ? undefined : infos.get(id)) ?? absentInfo)
+      },
+    },
     addSession: (id: string) => {
       // Bare source per bundle (identity-stable): the machinery binds useSession from it.
       const info: SessionProvideInfo = {
@@ -67,7 +73,13 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
         props: {},
       }
       infos.set(id, info)
+      if (currentId === id) provide.set(info)
       return info
+    },
+    /** Swap one session's bundle in place (roster-change stand-in); republish when current. */
+    replaceSession: (info: SessionProvideInfo) => {
+      infos.set(info.sessionId, info)
+      if (currentId === info.sessionId) provide.set(info)
     },
     registerSession: (entry: StoredEntry) => { sessionEntries.push(entry) },
   }
@@ -147,6 +159,28 @@ describe('SessionProvider', () => {
     act(() => { h.current.set('s2') })
     expect(seen.at(-1)!['read']).toBe('s2')
     expect(seen.at(-1)!['sessionId']).toBe('s2')
+  })
+
+  it('republishes a mounted session entry when its provide bundle changes under the same id', () => {
+    const seen: unknown[] = []
+    const h = makeHost({
+      root: renderSlot => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>,
+    })
+    const original = h.addSession('s1')
+    h.registerSession({
+      component: (props: { feature?: string }) => {
+        seen.push(props.feature)
+        return null
+      },
+      options: {},
+    })
+    render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    act(() => { h.current.set('s1') })
+    expect(seen.at(-1)).toBeUndefined()
+    // A provider-roster change rematerializes the bundle; the provide source
+    // must carry it to already-mounted entries without a selection change.
+    act(() => { h.replaceSession({ ...original, props: { feature: 'now-live' } }) })
+    expect(seen.at(-1)).toBe('now-live')
   })
 
   it('fails loud when mounted outside the renderer tree (no host channel)', () => {
