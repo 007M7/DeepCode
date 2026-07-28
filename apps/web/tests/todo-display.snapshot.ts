@@ -166,7 +166,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
           "text": "浏览器验收",
         },
       ],
-      "row": "☰更新任务清单1/4 已完成 · 实现 fixture 样本+1",
+      "row": "更新任务清单1/4 已完成 · 实现 fixture 样本+1",
       "rowState": "ok",
     }
   `)

@@ -4,13 +4,13 @@
 // summarizes the written list (counts + active items) from the call args, with
 // the parallel-active count in its own non-shrinking span outside the
 // ellipsized text; the durable list itself renders in the TodoPanel above the
-// composer, so the row stays one line.
+// composer, so the row stays one line. Chrome matches ToolRow (figma 780:53675).
 
 import type { KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { toolRowModel } from '../contract/tool-call-model.ts'
+import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
 import type { PlanItemLike } from './plan-summary.ts'
 import { planSummary } from './plan-summary.ts'
 import css from './todo-row.module.css'
@@ -50,6 +50,17 @@ function summarize(argsRaw: string): RowSummary | null {
   }
 }
 
+/** Leading-slot state substitution matches ToolRow / bash: icon yields to the
+ *  state semantic while running or failed; ok keeps the checklist glyph. */
+function leadingFor(state: ToolRowState) {
+  switch (state) {
+    case 'running': return <StateDot state="ongoing" />
+    case 'error': return <StateDot state="error" />
+    case 'stopped': return <StateDot state="warning" />
+    default: return <IconChecklistOutline16 />
+  }
+}
+
 /** One-line plan update row (click opens the raw args in details). Non-ok
  *  execution states keep the generic row's dot semantics — a cancelled call
  *  wrote no todo/write, so it must not read as a completed update. */
@@ -74,10 +85,9 @@ export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
       onClick={openDetails}
       onKeyDown={openFromKeyboard}
     >
-      {model.state === 'ok'
-        ? <span className={css.badge} aria-hidden>☰</span>
-        : <StateDot state={model.state === 'running' ? 'ongoing' : model.state === 'stopped' ? 'warning' : 'error'} />}
+      <span className={css.leading} aria-hidden>{leadingFor(model.state)}</span>
       <span className={css.title}>更新任务清单</span>
+      <span className={css.sep} aria-hidden />
       <span className={css.summary}>{summary.text}</span>
       {summary.extra > 0 && <span className={css.extra}>+{summary.extra}</span>}
       {model.state === 'error' && <span className={css.err}>failed</span>}
