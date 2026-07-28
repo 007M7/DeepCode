@@ -270,14 +270,11 @@ function planSurfaceEvent(
   }
 }
 
-/** Apply one event and return replacement metadata only when one occurred. */
-function applySurfaceEvent(
+/** Commit one validated transition and return replacement metadata when one occurred. */
+function applySurfacePlan(
   state: SurfaceFoldState,
-  event: SessionEvent,
-  expectedSeq: number,
-  events: readonly SessionEvent[],
+  plan: SurfacePlan | undefined,
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event, expectedSeq, events)
   if (plan?.kind === 'append') {
     state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
@@ -291,6 +288,16 @@ function applySurfaceEvent(
     end: plan.end,
     shadowedSeqs: plan.shadowedSeqs,
   }
+}
+
+/** Apply one event and return replacement metadata only when one occurred. */
+function applySurfaceEvent(
+  state: SurfaceFoldState,
+  event: SessionEvent,
+  expectedSeq: number,
+  events: readonly SessionEvent[],
+): SurfaceFoldReplacement | undefined {
+  return applySurfacePlan(state, planSurfaceEvent(state, event, expectedSeq, events))
 }
 
 /**
@@ -309,14 +316,35 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
   return { nodes: [...state.nodes], replacements }
 }
 
+/** Reconstruct every surface generation only for consumers that request history. */
+function foldSurfaceContexts(events: readonly SessionEvent[]): SurfaceFoldContext[] {
+  const state = createFoldState()
+  const contexts: SurfaceFoldContext[] = []
+  let origin: SurfaceFoldReplacement | undefined
+  for (const [index, event] of events.entries()) {
+    const plan = planSurfaceEvent(state, event, index, events)
+    const priorNodes = plan?.kind === 'replace' ? [...state.nodes] : undefined
+    const replacement = applySurfacePlan(state, plan)
+    if (replacement === undefined || priorNodes === undefined) continue
+    contexts.push({
+      generation: state.replaceGeneration - 1,
+      nodes: priorNodes,
+      ...(origin === undefined ? {} : { origin }),
+    })
+    origin = replacement
+  }
+  contexts.push({
+    generation: state.replaceGeneration,
+    nodes: [...state.nodes],
+    ...(origin === undefined ? {} : { origin }),
+  })
+  return contexts
+}
+
 /** Incremental ordered surface view and append-boundary validator. */
 export class SurfaceManager implements SessionSurface {
   /** Shared transition state for the live surface. */
   private _state = createFoldState()
-  /** Frozen generations completed by replacements. */
-  private _contexts: SurfaceFoldContext[] = []
-  /** Replacement that created the live generation. */
-  private _contextOrigin: SurfaceFoldReplacement | undefined
   /** Last processed seq; -1 folds a seeded log on first access. */
   private _lastProcessedSeq = -1
 
@@ -343,17 +371,10 @@ export class SurfaceManager implements SessionSurface {
     return this._state.nodes
   }
 
-  /** Frozen generations followed by a detached snapshot of the live generation. */
+  /** Surface generations reconstructed on demand without burdening ordinary live sessions. */
   get contexts(): readonly SurfaceFoldContext[] {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
-    return [
-      ...this._contexts,
-      {
-        generation: this._state.replaceGeneration,
-        nodes: [...this._state.nodes],
-        ...(this._contextOrigin === undefined ? {} : { origin: this._contextOrigin }),
-      },
-    ]
+    return foldSurfaceContexts(this.log)
   }
 
   /** Fold events appended since the previous access. */
@@ -361,17 +382,7 @@ export class SurfaceManager implements SessionSurface {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
       const event = this.log[i]!
-      const op = surfaceOpOf(event)
-      const priorNodes = typeof op === 'object' ? [...this._state.nodes] : undefined
-      const replacement = applySurfaceEvent(this._state, event, i, this.log)
-      if (replacement !== undefined && priorNodes !== undefined) {
-        this._contexts.push({
-          generation: this._state.replaceGeneration - 1,
-          nodes: priorNodes,
-          ...(this._contextOrigin === undefined ? {} : { origin: this._contextOrigin }),
-        })
-        this._contextOrigin = replacement
-      }
+      applySurfaceEvent(this._state, event, i, this.log)
       this._lastProcessedSeq = i
     }
   }

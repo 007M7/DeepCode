@@ -114,6 +114,16 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callSchemas = new Map<string, ToolSchema>()
   private callSchemasRev = 0
   private callSchemasCache: { rev: number; value: ReadonlyMap<string, ToolSchema> } | null = null
+  private modelRequestsRev = 0
+  private modelRequestsCache: {
+    rev: number
+    value: readonly ModelRequestView[]
+  } | null = null
+  private compactionRequestsRev = 0
+  private compactionRequestsCache: {
+    rev: number
+    value: readonly CompactionRequestView[]
+  } | null = null
   private promptChangesRev = 0
   private promptChangesCache: {
     rev: number
@@ -614,6 +624,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    if (affectsModelRequests(event)) this.modelRequestsRev++
+    if (affectsCompactionRequests(event)) this.compactionRequestsRev++
     // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
     // the host-side dsh-tools plugin whose types cannot enter the client
     // program (its host Context merges collide with the client's), so this
@@ -783,6 +795,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.activeToolSchemas = new Map()
     this.callSchemas = new Map()
     this.callSchemasRev++
+    this.modelRequestsRev++
+    this.compactionRequestsRev++
     this.promptChangesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
@@ -823,6 +837,24 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.callSchemasCache === null || this.callSchemasCache.rev !== this.callSchemasRev) {
       this.callSchemasCache = { rev: this.callSchemasRev, value: new Map(this.callSchemas) }
     }
+    if (
+      this.modelRequestsCache === null
+      || this.modelRequestsCache.rev !== this.modelRequestsRev
+    ) {
+      this.modelRequestsCache = {
+        rev: this.modelRequestsRev,
+        value: deriveModelRequests(this.events),
+      }
+    }
+    if (
+      this.compactionRequestsCache === null
+      || this.compactionRequestsCache.rev !== this.compactionRequestsRev
+    ) {
+      this.compactionRequestsCache = {
+        rev: this.compactionRequestsRev,
+        value: deriveCompactionRequests(this.events),
+      }
+    }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
       this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
     }
@@ -840,8 +872,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       sessionId: this.sessionId,
       nodes,
       contexts,
-      compactionRequests: deriveCompactionRequests(this.events),
-      requestAttempts: deriveModelRequests(this.events),
+      compactionRequests: this.compactionRequestsCache.value,
+      requestAttempts: this.modelRequestsCache.value,
       promptChanges: this.promptChangesCache.value,
       foldDegraded: degraded,
       partial,
@@ -899,6 +931,28 @@ interface RetryEvent {
 
 function modelRequestKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
+}
+
+function affectsModelRequests(event: SessionEvent): boolean {
+  switch (event.type) {
+    case 'request/header':
+    case 'step/start':
+    case 'assistant/message':
+    case 'step/end':
+      return true
+    case 'turn/end':
+      return event.data.reason.kind === 'error'
+    default:
+      return (event.type as string) === 'llm/retry'
+  }
+}
+
+function affectsCompactionRequests(event: SessionEvent): boolean {
+  const type = event.type as string
+  return type === 'compact/start'
+    || type === 'compact/summary'
+    || type === 'compact/end'
+    || (event.type === 'user/message' && isCompactionSource(event.data.source))
 }
 
 /** Project every durable step into one provider request, retaining failed retry attempts. */
