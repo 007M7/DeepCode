@@ -387,6 +387,27 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     },
   )
 
+  it.each([0, 1.5])(
+    'defensively rejects invalid maxTokens %s when apply is called directly',
+    async (maxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      expect(() => { sdk.apply(ctx, {
+        providerName: 'sdk',
+        command: 'true',
+        args: [],
+        provider: 'p',
+        model: 'm',
+        maxTokens,
+        env: {},
+        shutdownTimeoutMs: DEFAULT_SHUTDOWN_TIMEOUT_MS,
+        disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+        disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+      }) }).toThrow('maxTokens must be a positive safe integer')
+      await ctx.fiber.dispose()
+    },
+  )
+
   it('rejects an empty config cwd at load', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
