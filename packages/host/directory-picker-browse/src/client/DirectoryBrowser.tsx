@@ -211,8 +211,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const confirmCreate = (): void => {
     /* v8 ignore next -- reentry fence: the nested dialog only renders with a target and disables while creating. */
     if (targetPath === null || folderDraft === null || creatingFolder) return
-    const name = folderDraft.trim()
-    if (name === '') return
+    // Trim only rejects an all-whitespace draft; the Host gets the original
+    // spelling — the backend accepts any non-blank single segment verbatim,
+    // and trimming here would create (and select) a different sibling.
+    const name = folderDraft
+    if (name.trim() === '') return
     setCreatingFolder(true)
     setCreateError(null)
     const generation = openGeneration.current

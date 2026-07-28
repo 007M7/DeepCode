@@ -542,6 +542,17 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByText('Documents')).toBeTruthy()
   })
 
+  it('passes the folder name to the Host untrimmed (trim only gates blank drafts)', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const input = screen.getByLabelText('browser.folderName')
+    fireEvent.change(input, { target: { value: 'project ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // A trailing space may be the wanted spelling; trimming would create a sibling.
+    await waitFor(() => { expect(b.createDirectory).toHaveBeenCalledWith(HOME, 'project ') })
+  })
+
   it('creates a folder through the nested dialog and lands with it selected', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
