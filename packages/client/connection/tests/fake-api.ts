@@ -75,8 +75,9 @@ export class FakeApiClient implements IApiClient {
     home: string
     crumbs: { name: string; path: string; hidden: boolean }[]
     entries: { name: string; path: string; hidden: boolean }[]
+    truncated: boolean
   }>> =
-    () => Promise.resolve(ok({ path: '/home/fake', home: '/home/fake', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [] }))
+    () => Promise.resolve(ok({ path: '/home/fake', home: '/home/fake', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false }))
 
   onCreateDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string }>> =
     () => Promise.resolve(ok({ path: '/home/fake/new' }))

@@ -47,6 +47,12 @@ export interface DirectoryListing {
   crumbs: DirectoryEntry[]
   /** Direct child directories, name-sorted; symlinks to directories included. */
   entries: DirectoryEntry[]
+  /**
+   * True when the backend cut `entries` at its complete-result bound: the
+   * level has more child directories than reported, and the missing rows are
+   * the name-sorted tail (hidden rows count toward the bound).
+   */
+  truncated: boolean
 }
 
 /**
@@ -59,7 +65,8 @@ export interface DirectoryPickerBrowseCapability {
   /**
    * List one directory level.
    * @param path - absolute directory to list; absent lists the home directory.
-   * @returns the level's listing with ancestry.
+   * @returns the level's listing with ancestry; backends bound the complete
+   * result, and a cut level reports `truncated`.
    * @throws {DirectoryPickerError} `directory-unreadable` when the target is not fully
    * qualified (a wire value must never resolve against the host cwd or, on
    * Windows, its current drive) or cannot be listed.

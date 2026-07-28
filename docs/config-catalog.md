@@ -523,6 +523,18 @@ export interface Config {
 
 Source: [`packages/host/apiproxy/src/index.ts:33`](../packages/host/apiproxy/src/index.ts)
 
+## `@deepseek-ai/dsh-host-directory-picker-browse`
+
+```ts config-catalog
+/** Validated plugin configuration. */
+export interface Config {
+  /** Complete-result bound of one listing level; see {@link BrowseDirectoryPicker.Config}. */
+  maxEntries: number
+}
+```
+
+Source: [`packages/host/directory-picker-browse/src/index.ts:85`](../packages/host/directory-picker-browse/src/index.ts)
+
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
@@ -2209,7 +2221,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
-- `@deepseek-ai/dsh-host-directory-picker-browse` ([`packages/host/directory-picker-browse/src/index.ts`](../packages/host/directory-picker-browse/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-native` ([`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))

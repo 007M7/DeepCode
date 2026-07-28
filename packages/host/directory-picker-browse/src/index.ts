@@ -12,6 +12,8 @@
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
+import type { Context } from 'cordis'
+import z from 'schemastery'
 import {
   DirectoryPicker, DirectoryPickerError,
 } from '@deepseek-ai/dsh-host-directory-picker'
@@ -79,12 +81,33 @@ async function directoryRow(parent: string, name: string, isDirectory: boolean, 
   return { name, path, hidden: name.startsWith('.') }
 }
 
+/** Validated plugin configuration. */
+export interface Config {
+  /** Complete-result bound of one listing level; see {@link BrowseDirectoryPicker.Config}. */
+  maxEntries: number
+}
+
 /** The `ctx.directoryPicker` browse implementation (stable capability object per service life). */
 export default class BrowseDirectoryPicker extends DirectoryPicker {
+  /**
+   * `maxEntries` bounds the complete listing level a single `list` call may
+   * materialize and put on the wire: at most this many child-directory rows
+   * (hidden rows included), with `truncated` flagging a cut level. The
+   * default follows GitHub's web UI, which truncates directory listings at
+   * 1,000 entries.
+   */
+  static Config: z<Config> = z.object({
+    maxEntries: z.natural().min(1).default(1000),
+  })
+
   private readonly browseCapability: DirectoryPickerCapability = {
     kind: 'browse',
     list: path => this.list(path),
     createDirectory: (path, name) => this.createDirectory(path, name),
+  }
+
+  constructor(ctx: Context, private readonly config: Config) {
+    super(ctx)
   }
 
   /**
@@ -115,10 +138,22 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     } catch (error: unknown) {
       throw new DirectoryPickerError('directory-unreadable', target, `cannot list ${target}: ${messageOf(error)}`)
     }
-    const rows = await Promise.all(names.map(entry => directoryRow(target, entry.name, entry.isDirectory, entry.isSymbolicLink)))
-    const entries = rows.filter((row): row is DirectoryEntry => row !== null)
-      .sort((a, b) => a.name.localeCompare(b.name))
-    return { path: target, home, crumbs: ancestryCrumbs(target), entries }
+    // Sort candidates before probing so the bound keeps the name-sorted head
+    // of the level and probing (symlink stat) stops with the bound instead of
+    // touching every child of an oversized directory.
+    names.sort((a, b) => a.name.localeCompare(b.name))
+    const entries: DirectoryEntry[] = []
+    let truncated = false
+    for (const entry of names) {
+      const row = await directoryRow(target, entry.name, entry.isDirectory, entry.isSymbolicLink)
+      if (row === null) continue
+      if (entries.length === this.config.maxEntries) {
+        truncated = true
+        break
+      }
+      entries.push(row)
+    }
+    return { path: target, home, crumbs: ancestryCrumbs(target), entries, truncated }
   }
 
   private async createDirectory(path: string, name: string): Promise<string> {

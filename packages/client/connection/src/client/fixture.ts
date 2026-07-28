@@ -880,6 +880,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           crumbs: crumbsOf(target),
           entries: [...children].sort((a, b) => a.localeCompare(b))
             .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
         })
       },
       createDirectory: (request) => {
