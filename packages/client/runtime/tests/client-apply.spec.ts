@@ -102,6 +102,53 @@ describe('runtime client apply', () => {
     expect(bench.api.callsOf('session.create')).toHaveLength(1)
   })
 
+  it('clears connection-local Session state on disconnect but not connected', async () => {
+    const bench = await mount()
+    const sessions = bench.ctx.get('sessions') as SessionsService
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'session' as never,
+      payload: { type: 'host/session-added', blank: true, sessionId: 's-state' } as never,
+    })
+    await Promise.resolve()
+    const session = sessions.binding('s-state' as never)?.session
+    if (session === undefined) throw new Error('session binding missing')
+    const currentMetrics = {
+      projectionRevision: 4,
+      logRevision: 10,
+      uncachedInputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 90,
+      cacheWriteTokens: 3,
+      contextTokens: 35,
+    }
+    bench.sinks?.onMuxEnvelope?.({
+      rpcId: 'metrics' as never,
+      payload: { type: 'session/metrics', sessionId: 's-state', metrics: currentMetrics } as never,
+    })
+    bench.sinks?.onMuxEnvelope?.({
+      rpcId: 'capacity' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: 's-state',
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'alpha',
+        contextWindow: 128_000,
+      } as never,
+    })
+
+    bench.sinks?.onConnected?.()
+    expect(session.getSnapshot()).toMatchObject({
+      metrics: currentMetrics,
+      modelRequestContextWindow: 128_000,
+    })
+
+    bench.sinks?.onDisconnected?.()
+    expect(session.getSnapshot().metrics).toBeNull()
+    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+  })
+
   it('stops the stream loop when the plugin fiber unloads', async () => {
     const bench = await mount()
     const fiber = [...bench.ctx.registry.values()].find(f => f.name?.includes('client'))

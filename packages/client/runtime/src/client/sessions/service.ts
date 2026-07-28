@@ -393,6 +393,11 @@ export class SessionsService {
     this.manager.handleConnected()
   }
 
+  /** Clear connection-local Session state before the next stream generation starts. */
+  handleReconnecting(): void {
+    this.manager.handleReconnecting()
+  }
+
   /**
    * Create a session on the host. Resolution guarantee: by the time the
    * promise resolves, the created session is in the list store and

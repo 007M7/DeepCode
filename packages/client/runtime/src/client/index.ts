@@ -143,6 +143,7 @@ export function apply(ctx: Context): void {
       workspaces.handleConnected()
       ctx.emit('connection/reset')
     },
+    onDisconnected: () => { sessions.handleReconnecting() },
   })
   ctx.effect(() => () => { loop.stop() }, 'runtime: connection stream loop')
 }

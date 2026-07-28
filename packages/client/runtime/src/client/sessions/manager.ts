@@ -430,6 +430,12 @@ export class SessionManager {
     for (const session of this.sessions.values()) void session.resync()
   }
 
+  /** Before a replacement stream generation, discard values the Host does not replay. */
+  handleReconnecting(): void {
+    this.modelRequestContextWindows.clear()
+    for (const session of this.sessions.values()) session.handleReconnecting()
+  }
+
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit

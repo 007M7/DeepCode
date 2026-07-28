@@ -46,6 +46,8 @@ export interface ConnectionSinks {
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
   onConnected?: () => void
+  /** After every failed generation closes and before retry starts. Not emitted when the controller is stopped. */
+  onDisconnected?: () => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
    *  span reports nothing — the UI treats "no state yet" as connecting, not as an outage. */
   onStateChange?: (state: ConnectionState) => void
@@ -120,8 +122,8 @@ export class ConnectionController {
           if (gen === this.generation && !ac.signal.aborted) ac.abort()
           resolve()
         }
-        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
+        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, ac.signal, settle)
+        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, ac.signal, settle)
       })
 
       try {
@@ -147,6 +149,7 @@ export class ConnectionController {
 
       await failed
       if (!this.isRunning()) return
+      this.callSink(this.sinks.onDisconnected)
       this.emitState('reconnecting')
       this.attempt += 1
       console.warn(`[web-runtime] connection lost, retry #${this.attempt}`)
@@ -165,10 +168,12 @@ export class ConnectionController {
   private async pumpStream<F extends { type: string }>(
     stream: AsyncIterable<RpcRequest<F>>,
     sink: ((envelope: RpcRequest<F>) => void) | undefined,
+    signal: AbortSignal,
     onEnd: () => void,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
+        if (signal.aborted) break
         if (envelope.payload.type === 'stream/error') break
         if (sink !== undefined) this.callSink(() => { sink(envelope) })
       }

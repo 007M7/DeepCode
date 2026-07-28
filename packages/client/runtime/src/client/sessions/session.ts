@@ -481,6 +481,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
+  /** Connection-loss boundary: clear values that are not replayed before the next stream starts. */
+  handleReconnecting(): void {
+    if (this.metrics === null && this.contextWindow === undefined) return
+    this.metrics = null
+    this.contextWindow = undefined
+    this.notifier.markDirty()
+  }
+
   /** host/session-removed relay: flag the resident snapshot and clear connection-local capacity. */
   handleRemoved(): void {
     const changed = !this.removed || this.contextWindow !== undefined

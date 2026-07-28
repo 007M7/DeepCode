@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId, SessionMetrics } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
@@ -159,6 +159,59 @@ describe('instances', () => {
       rpcId: 'lazy-removed' as never,
       payload: { type: 'host/session-removed', sessionId: S2 },
     })
+    expect(manager.get(S2).getSnapshot().modelRequestContextWindow).toBeUndefined()
+  })
+
+  it('clears resident metrics and capacity plus lazy capacity before reconnect', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    const session = manager.get(S1)
+    const currentMetrics: SessionMetrics = {
+      projectionRevision: 4,
+      logRevision: 10,
+      uncachedInputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 90,
+      cacheWriteTokens: 3,
+      contextTokens: 35,
+    }
+    manager.handleMuxEnvelope({
+      rpcId: 'metrics' as never,
+      payload: { type: 'session/metrics', sessionId: S1, metrics: currentMetrics },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'resident-capacity' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'resident',
+        contextWindow: 128_000,
+      },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'lazy-capacity' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S2,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'lazy',
+        contextWindow: 256_000,
+      },
+    })
+    expect(session.getSnapshot()).toMatchObject({
+      metrics: currentMetrics,
+      modelRequestContextWindow: 128_000,
+    })
+
+    manager.handleReconnecting()
+
+    expect(session.getSnapshot().metrics).toBeNull()
+    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
     expect(manager.get(S2).getSnapshot().modelRequestContextWindow).toBeUndefined()
   })
 
