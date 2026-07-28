@@ -3,7 +3,7 @@
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
  * except workspace Rename; the session hover card is suppressed while a menu
- * is open.
+ * is open. Workspace Rename/Delete are wired; session actions remain visual-only.
  */
 import { useState } from 'react'
 import clsx from 'clsx'
@@ -39,12 +39,12 @@ const WORKSPACE_MENU_ITEMS = [
  * @param props.onCreate - start a frontend Session inside this Workspace.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, onRename }: {
+export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
   group: GroupNode
   onToggle: () => void
   onCreate: () => void
-  /** Open the rename dialog; absent for the ungrouped bucket (no menu shown). */
-  onRename?: (() => void) | undefined
+  /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
+  actions?: { rename: () => void; delete: () => void } | undefined
 }) {
   const row = group
   const active = group.expanded && group.containsCurrent
@@ -68,15 +68,19 @@ export function ProjectRowItem({ group, onToggle, onCreate, onRename }: {
         <span className={css.meta}>{count}</span>
       </span>
       <span className={css.rowActions}>
-        {onRename !== undefined && (
+        {actions !== undefined && (
           <Menu
             open={menuOpen}
             onClose={() => { setMenuOpen(false) }}
             items={WORKSPACE_MENU_ITEMS}
             onSelect={(id) => {
               setMenuOpen(false)
-              if (id === 'rename') onRename()
-              // Delete is visual-only for now.
+              // Unknown ids leave before the dispatch: a future menu row must
+              // not inherit the destructive branch as an else fallback.
+              /* v8 ignore next -- WORKSPACE_MENU_ITEMS carries exactly these two rows today. */
+              if (id !== 'rename' && id !== 'delete') return
+              if (id === 'rename') actions.rename()
+              else actions.delete()
             }}
             portal
             closeOnPointerLeave
@@ -188,37 +192,37 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onToggle,
       onDragStart={drag === undefined
         ? undefined
         : (e) => {
-            e.dataTransfer.effectAllowed = 'move'
-            drag.start()
-          }}
+          e.dataTransfer.effectAllowed = 'move'
+          drag.start()
+        }}
       onDragEnd={drag?.end}
       onDragOver={drag === undefined
         ? undefined
         : (e) => {
-            if (!drag.active) return
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            drag.hover(rowHalf(e))
-          }}
+          if (!drag.active) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          drag.hover(rowHalf(e))
+        }}
       onDrop={drag === undefined
         ? undefined
         : (e) => {
-            if (!drag.active) return
-            e.preventDefault()
-            drag.drop(rowHalf(e))
-          }}
+          if (!drag.active) return
+          e.preventDefault()
+          drag.drop(rowHalf(e))
+        }}
     >
       {row.hasChildren && !flat
         ? (
-            <button
-              type="button"
-              className={css.twist}
-              aria-label={row.expanded ? 'Collapse' : 'Expand'}
-              onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
-            >
-              <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
-            </button>
-          )
+          <button
+            type="button"
+            className={css.twist}
+            aria-label={row.expanded ? 'Collapse' : 'Expand'}
+            onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
+          >
+            <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+          </button>
+        )
         : null}
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
       <span className={css.title}>{row.title}</span>

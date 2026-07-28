@@ -9,12 +9,14 @@ import {
   promptContentPartSchema, sessionAttachmentRequestSchema, sessionAttachmentValueSchema,
   sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
-  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionPromptRequestSchema,
-  sessionPromptValueSchema, sessionSummarySchema,
+  sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
+  sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
+  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import {
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
+  workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
   workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
@@ -56,6 +58,11 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
     expect(rpcErrorSchema.parse({ code: 'workspace-name-conflict', message: 'm', details: { name: 'x' } }).code).toBe('workspace-name-conflict')
     expect(rpcErrorSchema.parse({ code: 'workspace-move-invalid', message: 'm', details: { workspaceId: 'w', sessionId: 's' } }).code).toBe('workspace-move-invalid')
+    expect(rpcErrorSchema.parse({
+      code: 'model-unavailable',
+      message: 'm',
+      details: { provider: 'p', model: 'm' },
+    }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'attachment-error', message: 'm', details: { reason: 'r' } }).code).toBe('attachment-error')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
@@ -130,7 +137,62 @@ describe('sessions domain schemas', () => {
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
-    expect(sessionHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
+    expect(sessionHistoryValueSchema.parse({
+      events: [],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }).hasMore).toBe(false)
+    expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionModelsValueSchema.parse({
+      current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek V4 Flash',
+          description: 'fast',
+          unlisted: true,
+          reasoning: {
+            efforts: [
+              { id: 'off', name: 'Off' },
+              { id: 'max', name: 'Max', description: 'Largest budget' },
+            ],
+            defaultEffort: 'off',
+          },
+        }],
+      }],
+      failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
+    }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
+    expect(sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    }).reasoningEffort).toBe('max')
+    expect(sessionSelectModelValueSchema.parse({
+      selected: { provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+    }).selected.reasoningEffort).toBe('max')
+    expect(() => sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: '',
+      model: 'm',
+    })).toThrow()
+    expect(() => sessionSelectModelRequestSchema.parse({
+      sessionId: 's1',
+      provider: 'deepseek',
+      model: 'm',
+      reasoningEffort: '',
+    })).toThrow()
+    expect(() => sessionModelsValueSchema.parse({
+      current: { provider: 'deepseek', model: 'm' },
+      groups: [{
+        id: 'deepseek',
+        name: 'DeepSeek',
+        models: [{ id: 'm', name: 'M', reasoning: { efforts: [] } }],
+      }],
+      failures: [],
+    })).toThrow()
     const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
@@ -211,6 +273,13 @@ describe('workspace domain schemas', () => {
     expect(workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: 'new' }).title).toBe('new')
     expect(() => workspaceRenameRequestSchema.parse({ workspaceId: 'w1', title: '  ' })).toThrow(/non-blank/)
     expect(workspaceRenameValueSchema.parse({ workspace: view }).workspace.workspaceId).toBe('w1')
+  })
+
+  it('validates workspace deletion payload and receipt', () => {
+    expect(workspaceDeleteRequestSchema.parse({ workspaceId: 'w1' }).workspaceId).toBe('w1')
+    expect(() => workspaceDeleteRequestSchema.parse({})).toThrow()
+    expect(workspaceDeleteValueSchema.parse({ deleted: true })).toEqual({ deleted: true })
+    expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
   })
 
   it('insertSessionBefore accepts an anchored and an anchorless move', () => {
@@ -297,8 +366,8 @@ describe('events frame schemas', () => {
   })
 
   it('rejects a queued frame missing its members', () => {
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [{ type: 'text' }], source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' }, steering: false })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' } })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: { kind: 'user' } })).toThrow()
     expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
   })
 
@@ -309,6 +378,11 @@ describe('events frame schemas', () => {
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
       { type: 'host/agent-error', sessionId: 's', message: 'boom' },
+      { type: 'host/workspace-changed', workspace: {
+        workspaceId: 'w', path: '/w', title: 'w', sessionIds: [],
+        createdAt: '0', updatedAt: '0',
+      } },
+      { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]

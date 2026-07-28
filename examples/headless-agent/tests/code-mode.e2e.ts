@@ -13,6 +13,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
@@ -55,6 +56,7 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(AgentRegistry)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
+  await harness.plugin(LocalSubprocessService)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   await harness.plugin(WorkerCodeRuntime, {})
@@ -114,6 +116,7 @@ async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   const harness = await typedCodeModeHarness()
   await harness.plugin(LocalTaskService)
   await harness.plugin(ToolTasks, {})
+  await harness.plugin(LocalSubprocessService)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   return harness
@@ -248,7 +251,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
     expect(ctx.tasks.list()).toEqual([])
   }, 15_000)
 
-  it('uses cordis_mount DTO ids directly for active and pending mounts, then confirms removal', async () => {
+  it('uses cordis_mount DTO ids directly for running and pending temporary Plugins, then confirms removal', async () => {
     ctx = await typedCodeModeHarness()
     await ctx.plugin(ToolCordis)
 
@@ -259,14 +262,14 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
       const pending = await tools.cordis_mount({
         code: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }",
       });
-      const before = await tools.cordis_inspect({ what: 'dynamic' });
-      const unmounted = await tools.cordis_unmount({ id: active.id });
-      const after = await tools.cordis_inspect({ what: 'dynamic' });
+      const before = await tools.cordis_inspect({ what: 'temporary' });
+      const stopped = await tools.cordis_unmount({ id: active.id });
+      const after = await tools.cordis_inspect({ what: 'temporary' });
       await tools.cordis_unmount({ id: pending.id });
       return {
         active,
         pending,
-        unmounted,
+        stopped,
         beforeContainsId: before.includes(active.id),
         afterContainsId: after.includes(active.id),
       };
@@ -287,7 +290,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
         provides: [],
         waitingFor: ['missing-code-mode-service'],
       },
-      unmounted: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
+      stopped: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
       beforeContainsId: true,
       afterContainsId: false,
     })
@@ -311,12 +314,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     ctx = await codeModeHarness(workdir)
     const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup([{
+    agent.followup({ content: [{
       type: 'text',
       text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
         + 'then write both outputs joined by a plus sign into combined.txt (bash heredoc or redirect), '
         + 'and return only the joined string.',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, agent)
     const events: SessionEvent[] = [...agent.session.events]
 
@@ -363,21 +366,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
-    handle.agent.followup([{
+    handle.agent.followup({ content: [{
       type: 'text',
       text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
-    }])
+    }], source: { kind: 'user' } })
     await waitForIdle(ctx, handle.agent)
 
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
     const workspaceContext = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && typeof event.data.meta === 'object'
-      && event.data.meta !== null
-      && !Array.isArray(event.data.meta)
-      && event.data.meta.kind === 'workspace-instructions')
+      && event.data.source.kind === 'workspace-instructions')
     expect(dispatch).toBeDefined()
     expect(outerResult).toBeDefined()
     expect(workspaceContext).toBeDefined()

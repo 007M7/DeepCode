@@ -11,8 +11,16 @@ import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelInfo,
+  LlmProviderInfo,
+  LlmResolvedModelInfo,
+  ResolvedRetryPolicy,
+  RetryPolicyConfig,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
@@ -48,6 +56,8 @@ export interface ReplayProviderConfig {
   name?: string
   /** Advisory models exposed to replay scenarios that exercise discovery. */
   models?: ReplayModelConfig[]
+  /** Optional provider-owned retry policy used by assembled recovery snapshots. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** Resolved plugin configuration. */
@@ -414,6 +424,15 @@ class ReplayAdapter extends LlmAdapter {
     return { id: provider, name: configured.name ?? provider }
   }
 
+  override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return super.providerRetryPolicy(provider)
+    return configured.retryPolicy === undefined
+      ? undefined
+      : resolveRetryPolicy(configured.retryPolicy, `llm-replay: provider "${provider}" retryPolicy`)
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     const configured = this.providers.get(provider)
     /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
@@ -426,12 +445,20 @@ class ReplayAdapter extends LlmAdapter {
     })))
   }
 
-  override resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined> {
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const configured = this.providers.get(provider)
     /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
-    if (configured === undefined) return Promise.resolve(undefined)
-    const contextWindow = configured.models?.find(candidate => candidate.id === model)?.contextWindow
-    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+    if (configured === undefined) return Promise.resolve({ provider, id: model, name: model })
+    const configuredModel = configured.models?.find(candidate => candidate.id === model)
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: configuredModel?.name ?? model,
+      ...configuredModel?.description === undefined ? {} : { description: configuredModel.description },
+      ...configuredModel?.contextWindow === undefined
+        ? {}
+        : { context: { contextWindow: configuredModel.contextWindow } },
+    })
   }
 
   override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

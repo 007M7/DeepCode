@@ -1,17 +1,39 @@
 /**
- * Local-subprocess implementation of the bash executor seam. Each command runs
- * as `bash -c` in its own process group; disposal kills and joins live groups.
- * Execution policy belongs in `tools/pre-execute` or a sandboxing executor.
+ * Local implementation of the bash executor seam over the subprocess
+ * seam. Each command runs as `bash -c` in a managed process group spawned
+ * through `ctx.subprocess`; this executor owns command defaulting, deadlines
+ * and cause classification, the model-friendly terminal environment, and the
+ * model-facing stdout/stderr merge for background reads. Execution policy
+ * belongs in `tools/pre-execute` or a sandboxing executor.
  * @module @deepseek-ai/dsh-bash-local
  */
 
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_GRACE_MS, DEFAULT_MAX_SPILL_BYTES, runBash } from './run.ts'
-import type { RunInternals, RunningBash } from './run.ts'
+
+/**
+ * Model-friendly environment overrides: disable colors, pagers, and
+ * interactive terminal features that would garble tool output (the same set
+ * Codex hardcodes; Claude Code achieves it via TERM=dumb). Bash-tool policy —
+ * merged first into the spawn's explicit env, so a trusted caller's own entry
+ * still wins; the subprocess service applies its credential scrub independently.
+ */
+export const ENV_OVERRIDES = {
+  NO_COLOR: '1',
+  TERM: 'dumb',
+  PAGER: 'cat',
+  GIT_PAGER: 'cat',
+} as const
+
+/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
+const DEFAULT_GRACE_MS = 3_000
+
+/** Default per-stream spill cap (the `maxSpillBytes` config). */
+const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
@@ -32,6 +54,16 @@ export interface Config {
 /** The shape after schemastery applied the defaults (cwd has none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
+/** Project a settled collect-mode reader into the final CollectedOutput shape. */
+function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
+  const read = reader.readFrom(0)
+  return {
+    text: read.text,
+    truncated: read.lossy,
+    ...read.spillPath !== undefined ? { spillPath: read.spillPath } : {},
+  }
+}
+
 function assertPositiveFinite(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`bash-local: ${name} must be a positive finite number`)
@@ -39,10 +71,15 @@ function assertPositiveFinite(name: string, value: number): void {
 }
 
 /**
- * Local bash executor with bounded output, spill files, and process-group
- * `SIGTERM` to `SIGKILL` escalation.
+ * Local bash executor over `ctx.subprocess`. Bounded output, spill files, and
+ * process-group SIGTERM→SIGKILL escalation are the subprocess service's
+ * mechanics; this executor supplies their configured budgets per spawn, so a
+ * still-running background process stays managed (killed and joined at
+ * composition teardown) even across an executor reload.
  */
 export class LocalBashExecutor extends BashExecutor {
+  static inject = ['subprocess']
+
   static Config: z<Config> = z.object({
     cwd: z.string(),
     timeoutMs: z.number().default(120_000),
@@ -51,11 +88,6 @@ export class LocalBashExecutor extends BashExecutor {
     maxSpillBytes: z.number().default(DEFAULT_MAX_SPILL_BYTES),
     graceMs: z.number().default(DEFAULT_GRACE_MS),
   })
-
-  /** Live processes retained only so disposal can kill and join them. */
-  private live = new Map<BashProcess, RunningBash>()
-  /** Test seam: spill knobs forwarded to runBash. */
-  internals: RunInternals = {}
 
   /** Validated config (schemastery applied the defaults before construction). */
   readonly config: ResolvedConfig
@@ -69,17 +101,6 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     assertPositiveFinite('maxSpillBytes', this.config.maxSpillBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
-    ctx.effect(() => async () => {
-      // Await closure so even a TERM-trapping child cannot outlive the fiber.
-      const pending: Promise<void>[] = []
-      for (const [proc, running] of this.live) {
-        proc.status = 'killed'
-        running.kill()
-        pending.push(proc.done)
-      }
-      this.live.clear()
-      await Promise.all(pending)
-    }, 'local bash teardown')
   }
 
   /**
@@ -105,7 +126,7 @@ export class LocalBashExecutor extends BashExecutor {
       stdoutMaxBytes,
       ...request.signal ? { signal: request.signal } : {},
       // Carry stdin/ordinary env/trusted dshEnv through verbatim — optional,
-      // no config default. run.ts owns the scrub and merge order.
+      // no config default. The subprocess service owns the scrub and merge order.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
@@ -116,41 +137,71 @@ export class LocalBashExecutor extends BashExecutor {
     }
   }
 
+  /** Map one resolved bash spec onto a fully-specified subprocess spawn. */
+  // XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
+  private spawnSpec(spec: BashExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): SubprocessSpawnSpec {
+    const collect = (maxBytes: number): SubprocessCollect =>
+      ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
+    return {
+      argv: ['bash', '-c', spec.command],
+      cwd: spec.workdir,
+      stdio: {
+        stdin: spec.stdin !== undefined ? { data: spec.stdin } : 'ignore',
+        stdout: collect(stdoutMaxBytes),
+        stderr: collect(this.config.maxOutputBytes),
+      },
+      graceMs: this.config.graceMs,
+      signal,
+      // One explicit env map for the seam, layered so the trusted dshEnv
+      // snapshot beats both the caller's env and the terminal overrides; the
+      // subprocess service merges the whole map after its ambient scrub.
+      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
+    }
+  }
+
+  /** The collect-mode readers the executor itself requested (present by construction). */
+  private static collected(handle: SubprocessHandle): { stdout: SubprocessOutputReader; stderr: SubprocessOutputReader } {
+    const { stdout, stderr } = handle.collected
+    /* v8 ignore start -- collect dispositions expose both readers by the seam contract; defensive. */
+    if (stdout === undefined || stderr === undefined) {
+      throw new Error('bash-local: subprocess implementation dropped a requested collect stream')
+    }
+    /* v8 ignore stop */
+    return { stdout, stderr }
+  }
+
   async run(spec: BashExecSpec): Promise<BashRunResult> {
     // One deadline combines timeout and upstream cancellation; disposal clears its timer.
     using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
-    const outcome = await runBash({
-      command: spec.command,
-      cwd: spec.workdir,
-      stdoutMaxBytes: spec.stdoutMaxBytes,
-      stderrMaxBytes: this.config.maxOutputBytes,
-      maxSpillBytes: this.config.maxSpillBytes,
-      graceMs: this.config.graceMs,
-      signal: d.signal,
-      stdin: spec.stdin,
-      env: spec.env,
-      dshEnv: spec.dshEnv,
-    }, this.internals).done
+    const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal))
+    const outcome = await handle.done
+    const collected = LocalBashExecutor.collected(handle)
     // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
     const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
-    return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
+    return {
+      ...outcome,
+      timedOut,
+      aborted,
+      timeoutMs: spec.timeoutMs,
+      stdout: finalOutput(collected.stdout),
+      stderr: finalOutput(collected.stderr),
+    }
   }
 
   start(spec: BashExecSpec): BashProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
-    const running = runBash({
-      command: spec.command,
-      cwd: spec.workdir,
-      stdoutMaxBytes: this.config.maxOutputBytes,
-      stderrMaxBytes: this.config.maxOutputBytes,
-      maxSpillBytes: this.config.maxSpillBytes,
-      graceMs: this.config.graceMs,
-      signal: spec.signal,
-      stdin: spec.stdin,
-      env: spec.env,
-      dshEnv: spec.dshEnv,
-    }, this.internals)
+    const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
+    const collected = LocalBashExecutor.collected(running)
+
+    // A spawn failure produces no process output, so the subprocess service has nothing
+    // to buffer; the note is delivered exactly once through the read path.
+    let spawnFailureNote: string | undefined
+    const consumeSpawnFailure = (): string => {
+      const note = spawnFailureNote ?? ''
+      spawnFailureNote = undefined
+      return note
+    }
 
     let stdoutOffset = 0
     let stderrOffset = 0
@@ -165,26 +216,27 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
-        this.onProcessDone(proc, running.stderr.readFrom(0).text)
-        this.live.delete(proc)
+        this.onProcessDone(proc, collected.stderr.readFrom(0).text)
       }, (error: unknown) => {
         // Background spawn failures settle as killed and surface through the read path.
         proc.status = 'killed'
-        running.stderr.push(Buffer.from(`spawn failed: ${String(error)}`))
-        this.onProcessDone(proc, running.stderr.readFrom(0).text)
-        this.live.delete(proc)
+        spawnFailureNote = `spawn failed: ${String(error)}`
+        this.onProcessDone(proc, spawnFailureNote)
       }),
       readOutput: (): BashProcessRead => {
-        const out = running.stdout.readFrom(stdoutOffset)
-        const err = running.stderr.readFrom(stderrOffset)
+        const out = collected.stdout.readFrom(stdoutOffset)
+        const err = collected.stderr.readFrom(stderrOffset)
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
+        // A failed spawn never produced process output, so the note and real
+        // stderr text are mutually exclusive.
+        const errText = err.text.length > 0 ? err.text : consumeSpawnFailure()
         // Single newline between sections: stdout chunks usually end with one
         // already; add it only when missing.
         const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
         const delta = out.text
-          + (err.text.length > 0 ? `${separator}[stderr]\n${err.text}` : '')
+          + (errText.length > 0 ? `${separator}[stderr]\n${errText}` : '')
         return {
           delta,
           lossy: out.lossy || err.lossy,
@@ -195,11 +247,10 @@ export class LocalBashExecutor extends BashExecutor {
       kill: (): boolean => {
         if (proc.status !== 'running') return false
         proc.status = 'killed'
-        running.kill()
+        running.terminate()
         return true
       },
     }
-    this.live.set(proc, running)
     return proc
   }
 

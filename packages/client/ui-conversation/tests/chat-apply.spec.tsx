@@ -31,7 +31,7 @@ async function bench() {
     },
     current: undefined,
     phase: 'ready',
-  } as SessionListState)
+  })
   const sessionsFake = {
     list: listStore,
     binding: vi.fn(),
@@ -83,7 +83,7 @@ describe('apply wiring', () => {
     const b = await bench()
     await b.fiber.await()
     const entries = b.slots.entries('conversation.view')
-    expect(entries.map((e) => e.options.id)).toEqual(['chat'])
+    expect(entries.map(e => e.options.id)).toEqual(['chat'])
     expect(entries[0]?.options.label).toBe('Chat')
     expect(entries[0]?.options.order).toBe(0)
     // Declaring is claiming: the chat entry's registration put the hole on
@@ -111,13 +111,13 @@ describe('apply wiring', () => {
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
   })
 
-  it('mounts the bash sample as a keyed entry through the load-order seam', async () => {
+  it('mounts the bash sample and the todo row as keyed entries through the load-order seam', async () => {
     const b = await bench()
     await b.fiber.await()
-    // The sample plugin's inject: ['slots', 'conversation'] resolved — the
+    // Both registrant plugins' inject: ['slots', 'conversation'] resolved — the
     // service being present implies the chat entry declared the hole first.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map((e) => e.options.key)).toEqual(['bash'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write'])
   })
 
   it('plugin fiber disposal collects every registration (unload cascade, ring and hole included)', async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -15,7 +15,7 @@ import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type SurfaceEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEvent, type SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
  * CBR-001 regression through the real loop. A replacement checkpoint has a high
@@ -41,8 +41,13 @@ class StepwiseToolAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(): Promise<{ contextWindow: number }> {
-    return Promise.resolve({ contextWindow: 400 })
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      context: { contextWindow: 400 },
+    })
   }
 
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -68,6 +73,11 @@ class StepwiseToolAdapter extends LlmAdapter {
 class OverflowRecoveryAdapter extends LlmAdapter {
   readonly conversationRequests: GenerateOptions[] = []
   readonly summaryRequests: GenerateOptions[] = []
+  private readonly retryPolicy = resolveRetryPolicy({
+    mode: 'normal',
+    maxRetries: 1,
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'compaction test provider retryPolicy')
 
   constructor(
     private readonly delivery: 'thrown' | 'in-band',
@@ -76,8 +86,17 @@ class OverflowRecoveryAdapter extends LlmAdapter {
     super()
   }
 
-  override resolveModelContext(): Promise<{ contextWindow: number }> {
-    return Promise.resolve({ contextWindow: 128 })
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      context: { contextWindow: 128 },
+    })
+  }
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -165,39 +184,43 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   })
 }
 
-function seedOverflowHistory(agent: Agent): void {
+function overflowHistorySeed(): SessionEvent[] {
+  const session = new Session(SessionId('overflow-history-seed'))
   for (let turn = 1; turn <= 2; turn += 1) {
     const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
-    agent.session.append('turn/start', {
+    session.append('turn/start', {
       turn,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    agent.session.append('user/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    agent.session.append('step/start', { turn, step: 1 })
-    agent.session.append('assistant/message', {
+    session.append('step/start', { turn, step: 1 })
+    session.append('assistant/message', {
       provenance: { provider: 'mock', model: 'mock' },
       turn,
       step: 1,
       content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
     }, { surfaceOp: 'append' })
-    agent.session.append('step/end', { turn, step: 1 })
-    agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('step/end', { turn, step: 1 })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
+  return [...session.events]
 }
 
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
   it('uses the model actually routed by agent/request for post-step pressure', async () => {
     const { ctx } = await harness(8)
-    ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ...await next(), provider: 'mock', model: 'mock',
+    }))
     try {
       const agent = ctx.agentLoop.create(SessionId('routed-pressure'), {
         provider: 'unconfigured-agent-fallback',
         model: 'unconfigured-agent-fallback',
       })
-      agent.followup([{ type: 'text', text: 'do a routed multi-step task' }])
+      agent.followup({ content: [{ type: 'text', text: 'do a routed multi-step task' }], source: { kind: 'user' } })
       await waitForIdle(ctx, agent)
 
       expect(agent.session.requestHeader()?.config.model).toBe('mock')
@@ -211,11 +234,11 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     }
   })
 
-  it('runs automatic pressure after the current tool result and before step/end', async () => {
+  it('runs automatic pressure between the completed tool step and the next step', async () => {
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
-      agent.followup([{ type: 'text', text: 'do tool work' }])
+      agent.followup({ content: [{ type: 'text', text: 'do tool work' }], source: { kind: 'user' } })
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -225,13 +248,19 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
         event.type === 'tool/result' && event.seq < compactStart!.seq,
       )
       if (precedingResult?.type !== 'tool/result') throw new Error('expected a durable tool result before compaction')
-      const stepEnd = events.find(event =>
+      const precedingStepEnd = events.find(event =>
         event.type === 'step/end'
         && event.data.step === precedingResult.data.step
+        && event.seq > precedingResult.seq,
+      )
+      const nextStepStart = events.find(event =>
+        event.type === 'step/start'
+        && event.data.step === precedingResult.data.step + 1
         && event.seq > compactStart!.seq,
       )
       expect(precedingResult.seq).toBeLessThan(compactStart!.seq)
-      expect(compactStart!.seq).toBeLessThan(stepEnd!.seq)
+      expect(precedingStepEnd!.seq).toBeLessThan(compactStart!.seq)
+      expect(compactStart!.seq).toBeLessThan(nextStepStart!.seq)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -241,7 +270,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
-      agent.followup([{ type: 'text', text: 'do a long multi-step task' }])
+      agent.followup({ content: [{ type: 'text', text: 'do a long multi-step task' }], source: { kind: 'user' } })
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -281,7 +310,9 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(TokenMeterService)
       ctx.llm.registerAdapter(['mock'], adapter)
-      ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
+      ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+        ...await next(), provider: 'mock', model: 'mock',
+      }))
       await ctx.plugin(BasicCompactService, {
         thresholdRatio: 1,
         retainTokens: 100,
@@ -291,13 +322,16 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       })
 
       try {
-        const agent = ctx.agentLoop.create(SessionId(`overflow-${delivery}`), {
-          provider: 'unconfigured-agent-fallback',
-          model: 'unconfigured-agent-fallback',
+        const { agent } = await ctx.agentLoop.createAgent(ctx, {
+          sessionId: SessionId(`overflow-${delivery}`),
+          seed: overflowHistorySeed(),
+          agentOptions: {
+            provider: 'unconfigured-agent-fallback',
+            model: 'unconfigured-agent-fallback',
+          },
         })
-        seedOverflowHistory(agent)
 
-        agent.followup([{ type: 'text', text: 'continue from history' }])
+        agent.followup({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } })
         await agent.whenIdle()
 
         expect(adapter.conversationRequests).toHaveLength(2)
@@ -308,11 +342,17 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         expect(retry).not.toContain('OLD HISTORY SENTINEL')
 
         const events = [...agent.session.events]
-        const failedEnd = events.find(event =>
+        const failedStepEnd = events.find(event =>
           event.type === 'step/end' && event.data.turn === 3 && event.data.step === 1,
         )!
+        const failedEnd = events.find(event =>
+          event.type === 'turn/end' && event.data.turn === 3,
+        )!
         const retryStart = events.find(event =>
-          event.type === 'step/start' && event.data.turn === 3 && event.data.step === 2,
+          event.type === 'turn/start' && event.data.turn === 4,
+        )!
+        const retryStep = events.find(event =>
+          event.type === 'step/start' && event.data.turn === 4 && event.data.step === 1,
         )!
         const compaction = events.filter(event =>
           event.type === 'compact/start'
@@ -324,7 +364,11 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
           'compact/summary',
           'compact/end',
         ])
-        expect(compaction.every(event => event.seq > failedEnd.seq && event.seq < retryStart.seq)).toBe(true)
+        expect(retryStart.seq).toBeGreaterThan(failedEnd.seq)
+        expect(compaction.every(event =>
+          event.seq > failedStepEnd.seq && event.seq < failedEnd.seq,
+        )).toBe(true)
+        expect(retryStep.seq).toBeGreaterThan(retryStart.seq)
         expect(events.at(-1)).toMatchObject({
           type: 'turn/end',
           data: { reason: { kind: 'completed' } },
@@ -340,12 +384,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
     const adapter = new OverflowRecoveryAdapter('thrown', true)
     await mountAgentLoopTestDependencies(ctx)
     await mountInvariants(ctx)
-    await ctx.plugin(LlmRetry, {
-      maxTransientRetries: 1,
-      initialDelayMs: 1,
-      maxDelayMs: 1,
-      jitterRatio: 0,
-    })
+    await ctx.plugin(LlmRetry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(TokenMeterService)
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -358,17 +397,20 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
     })
 
     try {
-      const agent = ctx.agentLoop.create(SessionId('alternating-recovery'), { provider: 'mock', model: 'mock' })
-      seedOverflowHistory(agent)
-      agent.followup([{ type: 'text', text: 'continue from history' }])
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('alternating-recovery'),
+        seed: overflowHistorySeed(),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } })
       await agent.whenIdle()
 
       expect(adapter.conversationRequests).toHaveLength(3)
       expect(adapter.summaryRequests).toHaveLength(1)
       expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data))
-        .toEqual([expect.objectContaining({ step: 2, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
-      expect(agent.session.events.filter(event => event.type === 'step/start').slice(-3).map(event => event.data.step))
-        .toEqual([1, 2, 3])
+        .toEqual([expect.objectContaining({ turn: 4, step: 1, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
+      expect(agent.session.events.filter(event => event.type === 'turn/start').slice(-3).map(event => event.data.turn))
+        .toEqual([3, 4, 5])
       expect(agent.session.events.at(-1)).toMatchObject({
         type: 'turn/end',
         data: { reason: { kind: 'completed' } },

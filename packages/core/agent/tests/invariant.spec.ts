@@ -17,19 +17,14 @@ function mockAgent(id: string): Agent {
 }
 
 describe('agent status invariants', () => {
-  it('accepts lifecycle transitions through idle, running, and disposed', async () => {
+  it('accepts lifecycle transitions between idle and running', async () => {
     const ctx = await setup()
     const agent = mockAgent('a1')
     expect(() => {
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
       ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
-      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
     }).not.toThrow()
-
-    const running = mockAgent('a2')
-    ctx.emit(scopeTarget(running, running), 'agent/status', running, 'running')
-    expect(() => { ctx.emit(scopeTarget(running, running), 'agent/status', running, 'disposed') }).not.toThrow()
   })
 
   it('rejects a no-op transition', async () => {
@@ -38,14 +33,6 @@ describe('agent status invariants', () => {
     ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
     expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running') })
       .toThrow(/no-op transition/)
-  })
-
-  it('rejects leaving the terminal disposed state', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('a4')
-    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle') })
-      .toThrow(/left terminal state disposed/)
   })
 
   it('tracks agents independently', async () => {
@@ -58,24 +45,24 @@ describe('agent status invariants', () => {
 })
 
 describe('agent inbox invariants', () => {
-  const info = (steering: boolean) => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const }, contexts: [], steering, wakeup: true })
+  const info = () => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const } })
 
   it('accepts a dequeue and a discard covered by prior enqueues', async () => {
     const ctx = await setup()
     const agent = mockAgent('i1')
     const at = scopeTarget(agent, agent)
     expect(() => {
-      ctx.emit(at, 'agent/inbox/enqueue', agent, info(false))
-      ctx.emit(at, 'agent/inbox/enqueue', agent, info(true))
-      ctx.emit(at, 'agent/inbox/dequeue', agent, info(false))
-      ctx.emit(at, 'agent/inbox/discard', agent, [info(true)])
+      ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'queued')
+      ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'steering')
+      ctx.emit(at, 'agent/inbox/dequeue', agent, info())
+      ctx.emit(at, 'agent/inbox/discard', agent, [info()])
     }).not.toThrow()
   })
 
   it('rejects a dequeue with no outstanding item', async () => {
     const ctx = await setup()
     const agent = mockAgent('i2')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info(false)) })
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info()) })
       .toThrow(/without a matching prior enqueue/)
   })
 
@@ -83,8 +70,8 @@ describe('agent inbox invariants', () => {
     const ctx = await setup()
     const agent = mockAgent('i3')
     const at = scopeTarget(agent, agent)
-    ctx.emit(at, 'agent/inbox/enqueue', agent, info(false))
-    expect(() => { ctx.emit(at, 'agent/inbox/discard', agent, [info(false), info(true)]) })
+    ctx.emit(at, 'agent/inbox/enqueue', agent, info(), 'queued')
+    expect(() => { ctx.emit(at, 'agent/inbox/discard', agent, [info(), info()]) })
       .toThrow(/dropped 2 items but only 1 were outstanding/)
   })
 

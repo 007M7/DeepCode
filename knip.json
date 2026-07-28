@@ -6,13 +6,15 @@
   "ignoreBinaries": [
     "bwrap",
     "python3",
-    "sandbox-exec"
+    "sandbox-exec",
+    "taskkill"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
     "python/sdk-runtime"
   ],
   "ignoreDependencies": [
+    "@yarnpkg/cli-dist",
     "lightningcss"
   ],
   "workspaces": {
@@ -32,10 +34,15 @@
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
+        "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
+        "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
+        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -180,6 +187,16 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/telemetry/session-telemetry-otel": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/util/brand": {
       "project": [
         "src/**/*.ts"
@@ -267,8 +284,14 @@
       ]
     },
     "packages/session-query/session-query-sqlite": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     },
     "packages/code-runtime/code-runtime-worker": {
       "entry": [
@@ -321,8 +344,14 @@
       ]
     },
     "packages/session-persistence/session-checkpoint-policy": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
     },
     "packages/util/paths": {
       "entry": [
@@ -493,15 +522,6 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/subagent/subagent-subprocess": {
-      "entry": [
-        "tests/**/*.spec.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/fs/tool-fs": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -591,6 +611,16 @@
     "packages/client/hmr": {
       "entry": [
         "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/subagent/subagent-dsh-sdk": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
       ],
       "project": [
         "src/**/*.ts",

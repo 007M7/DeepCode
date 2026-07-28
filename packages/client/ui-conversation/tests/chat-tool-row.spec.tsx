@@ -31,6 +31,9 @@ describe('tool-call-model', () => {
     expect(classifyTool('grep')).toBe('search')
     expect(classifyTool('write')).toBe('write')
     expect(classifyTool('edit')).toBe('edit')
+    expect(classifyTool('cordis_inspect')).toBe('read')
+    expect(classifyTool('cordis_mount')).toBe('code')
+    expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
   })
 
@@ -66,6 +69,33 @@ describe('tool-call-model', () => {
     expect(toolRowModel('bash', running({ argsRaw: 'raw' })).body).toBe('raw')
     expect(toolRowModel('bash', running({ argsRaw: '' })).body).toBeNull()
     expect(toolRowModel('bash', result({ call: null })).body).toBeNull()
+  })
+
+  it('gives Cordis lifecycle tools action titles over their generic variants', () => {
+    expect(toolRowModel('cordis_inspect', running({
+      name: 'cordis_inspect',
+      argsRaw: '{"what":"api","name":"tools"}',
+    }))).toMatchObject({
+      variant: 'read',
+      title: 'Inspect',
+      summary: 'api',
+    })
+    expect(toolRowModel('cordis_mount', running({
+      name: 'cordis_mount',
+      argsRaw: '{"code":"return { name: \\"audit\\", apply(ctx) {} }"}',
+    }))).toMatchObject({
+      variant: 'code',
+      title: 'Mount temporary Plugin',
+      summary: 'return { name: "audit", apply(ctx) {} }',
+      body: 'return { name: "audit", apply(ctx) {} }',
+    })
+    expect(toolRowModel('cordis_unmount', result({
+      call: { name: 'cordis_unmount', argsRaw: '{"id":"dyn-2"}' },
+    }))).toMatchObject({
+      variant: 'others',
+      title: 'Unmount temporary Plugin',
+      summary: 'dyn-2',
+    })
   })
 })
 

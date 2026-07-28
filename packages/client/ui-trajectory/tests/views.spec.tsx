@@ -149,7 +149,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       })) as never}
       inputActions={{
         setDraft: vi.fn(), addImages: vi.fn(), removeImage: vi.fn(), pruneImages: vi.fn(), submit: vi.fn(),
-      } as never}
+      }}
       bindDraftMirror={() => () => {}}
       open={vi.fn()}
     />,
@@ -169,7 +169,7 @@ describe('plugin registration', () => {
   it('fiber disposal removes both tabs and leaves chat standing', async () => {
     const b = await bench()
     await b.fiber.dispose()
-    expect(tabsOf(b.slots).map((v) => v.id)).toEqual(['chat'])
+    expect(tabsOf(b.slots).map(v => v.id)).toEqual(['chat'])
   })
 })
 
@@ -178,7 +178,7 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench()
     mount(b.slots)
     expect(screen.getByTestId('chat-body')).toBeTruthy()
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -203,7 +203,7 @@ describe('tab switching in ConversationRoot', () => {
 
   it('empty window: placeholder copy in the body, the stats header renders nothing', async () => {
     const b = await bench()
-    mount(b.slots, [] as unknown as ConversationSnapshot['nodes'])
+    mount(b.slots, [])
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -226,12 +226,12 @@ describe('span derivation', () => {
   })
 
   it('empty inputs produce zero stats and standalone components render their empty forms', () => {
-    expect(deriveSpanStats(deriveSpans([] as unknown as ConversationSnapshot['nodes']))).toEqual({ turns: 0, steps: 0, calls: 0 })
-    const { useSession } = fakeSession([] as unknown as ConversationSnapshot['nodes'])
-    const { container } = render(createElement(TrajectoryStatsHeader, { useSession: useSession as never }))
+    expect(deriveSpanStats(deriveSpans([]))).toEqual({ turns: 0, steps: 0, calls: 0 })
+    const { useSession } = fakeSession([])
+    const { container } = render(createElement(TrajectoryStatsHeader, { useSession: useSession }))
     expect(container.firstChild).toBeNull()
     render(createElement(TrajectoryView as FC<ConvViewProps>,
-      standaloneProps([] as unknown as ConversationSnapshot['nodes'])))
+      standaloneProps([])))
     expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
   })
 })
@@ -239,7 +239,7 @@ describe('span derivation', () => {
 describe('WaterfallView standalone branches', () => {
   it('empty window renders the placeholder copy', () => {
     render(createElement(WaterfallView as FC<ConvViewProps>,
-      standaloneProps([] as unknown as ConversationSnapshot['nodes'])))
+      standaloneProps([])))
     expect(screen.getByText('暂无瀑布数据')).toBeTruthy()
   })
 
@@ -253,7 +253,7 @@ describe('WaterfallView standalone branches', () => {
 
 describe('node half', () => {
   it('node apply is an intentional no-op (loader-managed lifecycle only)', () => {
-    expect(nodeApply()).toBeUndefined()
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })
 
@@ -300,7 +300,7 @@ describe('deriveSubSpans (waterfall lanes)', () => {
       { callId: 'p1:code:2', name: 'grep', argsRaw: '{}', turn: 0, step: 0, time: 7_000, callView: null },
     ]]]) as unknown as ConversationSnapshot['codeDispatches']
     const lanes = deriveSubSpans(dispatchNodes, codeDispatches)
-    const running = lanes.get(3)?.find((lane) => lane.name === 'grep')
+    const running = lanes.get(3)?.find(lane => lane.name === 'grep')
     expect(running).toMatchObject({ durationMs: null, timing: 'running' })
     // Extends from its start to the window end.
     expect(running!.offsetFraction + running!.widthFraction).toBeCloseTo(1)

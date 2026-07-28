@@ -50,6 +50,7 @@ interface CoordinatorInternals {
   states: Map<unknown, unknown>
   live: Map<unknown, { pending: unknown[]; flush: Promise<void> | undefined }>
   chains: Map<unknown, unknown>
+  retirements: Map<unknown, Promise<void>>
 }
 
 /**
@@ -448,6 +449,53 @@ describe('PersistenceCoordinator observation cancellation', () => {
     } finally {
       cleanupGate.resolve(true)
       await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a cancelled inspect while an in-flight retirement drain is still pending', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    let coordinator!: PersistenceCoordinator<never>
+    const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const internals = coordinator as unknown as CoordinatorInternals
+    const appendGate = Promise.withResolvers<boolean>()
+    backend.beforeAppend = async () => { await appendGate.promise }
+
+    try {
+      const id = SessionId('retiring-inspect')
+      let session!: Session
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      // Dispose the session so retirement starts; its append is gated, so the
+      // retirement promise stays pending in the coordinator.
+      await sessionFiber.dispose()
+      await vi.waitFor(() => { expect(internals.retirements.has(id)).toBe(true) })
+
+      const controller = new AbortController()
+      const reason = new Error('inspect cancelled during retirement')
+      const pending = coordinator.inspect(id, controller.signal)
+      let observedReason: unknown
+      const observed = pending.catch((error: unknown) => { observedReason = error })
+
+      // Cancel before the gated retirement can settle: the inspect must reject
+      // promptly instead of waiting for the drain, and must never reach the
+      // backend read.
+      controller.abort(reason)
+      await vi.waitFor(() => { expect(observedReason).toBe(reason) })
+      expect(backend.loadAttempts).toBe(0)
+
+      appendGate.resolve(true)
+      await observed
+    } finally {
+      appendGate.resolve(true)
+      await backendFiber.dispose()
       await ctx.fiber.dispose()
     }
   })

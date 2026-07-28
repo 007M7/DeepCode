@@ -1,9 +1,11 @@
 import { mkdtemp } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -33,18 +35,16 @@ async function mount(config: cliDemo.Config, withBash = false): Promise<Context>
     })
   }
   contexts.push(ctx)
+  config.persistenceRoot ??= await mkdtemp(join(tmpdir(), 'dsh-cli-demo-persistence-'))
   await ctx.plugin(cliDemo, config)
   await new Promise(resolve => setTimeout(resolve, 80))
   return ctx
 }
 
 async function composePrefix(ctx: Context): Promise<Message[]> {
-  const agent = { session: { header: { cwd: '/tmp' } } } as unknown as Agent
-  const empty: Message[] = []
-  return await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, new AbortController().signal,
-    () => Promise.resolve(empty),
-  )
+  const agent = ctx.agentLoop.create(SessionId(`cli-demo-prefix-${randomUUID()}`), {}, { cwd: '/tmp' })
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  return agent.session.deriveMessages()
 }
 
 afterEach(async () => {

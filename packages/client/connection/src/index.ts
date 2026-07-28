@@ -6,6 +6,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
+import { isTrustedNativeDialogRequest } from './native-dialog-request.ts'
 
 export { API_PATH } from './api-path.ts'
 
@@ -30,7 +31,16 @@ export function apply(ctx: Context): void {
   const route: WebRoute = {
     kind: 'prefix',
     path: API_PATH,
-    handler: (req, res) => bridge(req, res, apiHandler, maxRequestBodyBytes),
+    handler: async (req, res) => {
+      const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+      if (pathname === `${API_PATH}/host.pickDirectory`
+        && !isTrustedNativeDialogRequest(req)) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      await bridge(req, res, apiHandler, maxRequestBodyBytes)
+    },
   }
   ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
 }

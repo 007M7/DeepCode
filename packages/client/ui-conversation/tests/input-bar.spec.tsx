@@ -22,7 +22,7 @@ const SID = 's1' as SessionId
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
+    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
     ...overrides,
@@ -84,17 +84,17 @@ function bench(over?: BenchOptions) {
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-    })) as InputBarProps['useSessions'],
+    })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
-    })) as InputBarProps['useWorkspaces'],
+    })),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
     removeImage,
-    draftImages: ids => ids.flatMap(id => {
+    draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
     }),
@@ -223,7 +223,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     const { textarea, wiring } = bench()
     fireEvent.change(textarea, { target: { value: 'typed' } })
     expect(wiring.state.getSnapshot().draft).toBe('typed')
-    expect((textarea as HTMLTextAreaElement).value).toBe('typed')
+    expect((textarea).value).toBe('typed')
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
@@ -472,10 +472,10 @@ describe('placeholder chrome and control seats', () => {
     expect(view.getByTestId('plan-entry')).toBeTruthy()
     expect(view.getByTestId('model-entry')).toBeTruthy()
     // The bar hands its chrome disable state to the filling entry.
-    expect(slotCalls.every(c => (c.owner as { locked: boolean }).locked === true)).toBe(true)
+    expect(slotCalls.every(c => (c.owner as { locked: boolean }).locked)).toBe(true)
     cleanup()
     const live = bench({ running: true })
-    expect(live.slotCalls.every(c => (c.owner as { locked: boolean }).locked === false)).toBe(true)
+    expect(live.slotCalls.every(c => !(c.owner as { locked: boolean }).locked)).toBe(true)
   })
 
   it('disabled locks the Access placeholder and attach control (running does not)', () => {

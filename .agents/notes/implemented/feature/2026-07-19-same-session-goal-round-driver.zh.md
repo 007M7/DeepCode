@@ -24,7 +24,7 @@ Status: implemented
 
 `agent/prompt-submit` 瀑布是接纳栅栏。正数目标来源只有在完全匹配驱动器待处理的身份和内容、实时目标仍具有相同 id 与修订号、激活态仍为 armed，并且该回合仍是下一个编号时才会获准。插件在委托下游监听器前检查一次，在下游返回后再检查一次。第二次检查防止异步钩子编辑或暂停目标后，旧提示词仍被接纳。
 
-只有最终产生的 `user/message` 才是已接纳目标回合，并推进目标折叠。过期预留会生成持久的 `prompt/blocked` 和零步骤 rejected 轮次，但驱动器会把它标记为过期，不消耗回合数。若下游策略拒绝并非由过期导致，目标会进入 blocked，而不会绕过该策略自动重试。
+只有最终产生的 `user/message` 才是已接纳目标回合，并推进目标折叠。陈旧预留会在轮次打开前被丢弃；驱动器会把它标记为陈旧，不消耗回合数。若下游策略拒绝并非由陈旧状态导致，目标会进入 blocked，而不会绕过该策略自动重试。
 
 ### 人类工作与修订竞争
 
@@ -43,7 +43,6 @@ Status: implemented
 | 代码为 `RATE_LIMIT` 或 `QUOTA` 的 `error` | 以 `usage-limited` 代码阻塞 |
 | 其他 `error` | 以 `turn-error` 代码阻塞 |
 | `max-tokens` | 以 `max-tokens` 代码阻塞 |
-| 非过期的 `rejected` | 以 `prompt-rejected` 代码阻塞 |
 | 持久检查点失败 | 解除激活，但不改变持久阶段 |
 | `disposed` 或 `interrupted` | 解除激活 |
 | 插件新增的未知结果 | 阻塞并等待检查 |

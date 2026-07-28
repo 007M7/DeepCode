@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false) {
+function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
 }
 
 describe('open', () => {
@@ -75,13 +75,18 @@ describe('open', () => {
     const page = plainTurn(10, 0, '早', '安')
     session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
-    gate.resolve(ok({ events: entries(page) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(page) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
 })
+
 
 describe('live event path', () => {
   async function opened(events: SessionEvent[] = plainTurn(0, 0, 'a', 'b')) {
@@ -153,6 +158,42 @@ describe('live event path', () => {
     })
   })
 
+  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
+    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
+    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
+    const { session } = await opened()
+    expect(session.getSnapshot().todos).toEqual([])
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.todoWrite(6, listA))
+    expect(session.getSnapshot().todos).toEqual(listA)
+    feed(ev.todoWrite(7, listB))
+    expect(session.getSnapshot().todos).toEqual(listB)
+    // Window replay converges on the same last snapshot (history contains both writes).
+    const replayed = makeSession()
+    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
+    await replayed.session.open()
+    expect(replayed.session.getSnapshot().todos).toEqual(listB)
+  })
+
+  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
+    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
+    // Cold open: the page window carries NO todo/write; the projection rides the response.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
+    await session.open()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // Paging an older window in must not clear the session-level projection.
+    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
+    await session.loadOlder()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // A later live write still overrides the seeded projection.
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
+  })
+
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -165,6 +206,37 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
+  })
+
+  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
+    expect(session.getSnapshot().todos).toEqual([])
+    // The missed range contained a todo/write that the repulled page no longer
+    // covers; the response's session-level projection is the only carrier.
+    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(2)
+    })
+    await Promise.resolve()
+    expect(session.getSnapshot().todos).toEqual(current)
+  })
+
+  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
+    // Live write lands, then the host crashes before persisting it: the
+    // authoritative log holds no todo/write, so the resync tail response
+    // carries no projection — an omitted field on a tail request is the empty
+    // list, not a missing carrier, and the rolled-back plan must disappear.
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.resync()
+    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 
@@ -210,7 +282,11 @@ describe('paging', () => {
     api.onHistory = () => gate.promise
     const first = session.loadOlder()
     const second = session.loadOlder()
-    gate.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
@@ -511,7 +587,11 @@ describe('remaining branches', () => {
     const opening = session.open()
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
-    stale.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '代')) as never[], hasMore: false })) // success, but its generation is gone
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
   })
@@ -530,7 +610,11 @@ describe('remaining branches', () => {
     const opening = session.open() // triggers the second pull, which parks
     await vi.waitFor(() => { expect(call).toBe(2) })
     const resynced = session.resync()
-    secondPull.resolve(ok({ events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[], hasMore: false }))
+    secondPull.resolve(ok({
+      events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
   })
@@ -544,7 +628,11 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '页')) as never[], hasMore: false })) // repair result: stale, dropped
+    repairPull.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
@@ -588,6 +676,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({

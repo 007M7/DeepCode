@@ -19,7 +19,7 @@ const SID = 's1' as SessionId
 function snapshotWith(queue: QueuedMessage[]): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue, running: true, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue, todos: [], running: true, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }

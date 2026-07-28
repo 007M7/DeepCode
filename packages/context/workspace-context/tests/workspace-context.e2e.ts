@@ -78,7 +78,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
   it('obeys a probe instruction loaded from the workspace', async () => {
     const live = await harness()
 
-    live.agent.followup([{ type: 'text', text: 'Workspace context handshake?' }])
+    live.agent.followup({ content: [{ type: 'text', text: 'Workspace context handshake?' }], source: { kind: 'user' } })
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(PROBE)
@@ -90,7 +90,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
     await writeFile(join(workdir!, 'pkg/AGENTS.md'), `If the user asks for the nested instruction handshake, reply with exactly this string and nothing else: ${NESTED_PROBE}.\n`)
     await writeFile(join(workdir!, 'pkg/deep/file.txt'), 'This file exists only to trigger nested workspace instructions.\n')
 
-    live.agent.followup([{ type: 'text', text: 'Use the read tool to inspect pkg/deep/file.txt. After reading it, answer: nested instruction handshake?' }])
+    live.agent.followup({ content: [{ type: 'text', text: 'Use the read tool to inspect pkg/deep/file.txt. After reading it, answer: nested instruction handshake?' }], source: { kind: 'user' } })
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(NESTED_PROBE)
@@ -99,20 +99,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
   it('appends changed baseline instructions after a real file-tool touch without rewriting the frozen prefix', async () => {
     const live = await harness()
     await writeFile(join(workdir!, 'trigger.txt'), 'This file triggers workspace instruction reconciliation.\n')
-    live.agent.followup([{ type: 'text', text: 'Workspace context handshake?' }])
+    live.agent.followup({ content: [{ type: 'text', text: 'Workspace context handshake?' }], source: { kind: 'user' } })
     await waitForIdle(live.ctx, live.agent)
     await writeFile(join(workdir!, 'AGENTS.md'), `The old workspace handshake no longer applies. If the user asks for the updated workspace context handshake, reply with exactly this string and nothing else: ${UPDATED_PROBE}.\n`)
 
-    live.agent.followup([{ type: 'text', text: 'You must use the read tool to inspect trigger.txt. After reading it, answer: updated workspace context handshake?' }])
+    live.agent.followup({ content: [{ type: 'text', text: 'You must use the read tool to inspect trigger.txt. After reading it, answer: updated workspace context handshake?' }], source: { kind: 'user' } })
     await waitForIdle(live.ctx, live.agent)
 
     const events = [...live.agent.session.events]
     const update = events.find(event => event.type === 'user/message'
-      && typeof event.data.meta === 'object'
-      && event.data.meta !== null
-      && !Array.isArray(event.data.meta)
-      && event.data.meta.kind === 'workspace-instructions')
-    expect(update?.type === 'user/message' && update.data.meta).toMatchObject({
+      && event.data.source.kind === 'workspace-instructions'
+      && event.data.source.baseline !== true)
+    expect(update?.type === 'user/message' && update.data.source).toMatchObject({
       changes: [{ action: 'replace', scope: candidateScopeKey('.', 'AGENTS.md'), path: 'AGENTS.md' }],
     })
     const updateText = update?.type === 'user/message'

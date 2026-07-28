@@ -10,6 +10,9 @@
  *     providers:
  *       - provider: openai
  *         apiKey: !!js process.env.OPENAI_API_KEY
+ *         retryPolicy:
+ *           mode: normal
+ *           maxRetries: 2
  *       - provider: anthropic
  *         apiKey: !!js process.env.ANTHROPIC_API_KEY
  *       - provider: openrouter
@@ -37,7 +40,7 @@ export const inject = ['llm']
 export function apply(ctx: Context, config: Config): void {
   const profiles = resolveProfiles(config.providers)
   const adapter = new PiAiAdapter({
-    profiles,
+    profiles: config.providers,
     resolveAttachments: () => ctx.get('attachments'),
   })
   ctx.llm.registerAdapter(profiles.map(entry => entry.provider), adapter)

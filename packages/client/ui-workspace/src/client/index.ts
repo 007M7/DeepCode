@@ -39,13 +39,16 @@ export function apply(ctx: ClientContext): void {
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
+    deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
     createWorkspace: input => ctx.workspaces.create(input),
+    pickDirectory: () => ctx.workspaces.pickDirectory(),
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
+    pickDirectory: () => ctx.workspaces.pickDirectory(),
   })
   // Declaration-aware registration: each owner's declaring apply may activate
   // after this one (entry activation order is unconstrained), and a register

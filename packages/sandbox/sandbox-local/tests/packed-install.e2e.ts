@@ -27,6 +27,7 @@ const WORKSPACE_CLOSURE = [
   'packages/llm/llm',
   'packages/attachment/attachment',
   'packages/util/brand',
+  'packages/util/timeout',
   'packages/support/invariants',
 ]
 

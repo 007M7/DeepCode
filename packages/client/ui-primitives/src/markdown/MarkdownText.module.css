@@ -1,95 +1,168 @@
+/* Visual baseline: deepsuite `@deepseek/md` markdown.css, adapted to CSS
+   Modules. Cite pills, KaTeX, header anchors, and thinking-small variants are
+   intentionally absent (no matching DOM). Token names match that sheet. */
+
 .markdown {
-  display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 12px;
   overflow-wrap: anywhere;
   font: var(--dsw-font-markdown-base);
+  color: var(--dsw-alias-label-primary);
 }
 
-.markdown :where(h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, hr) {
-  margin: 0;
+.markdown strong {
+  font-weight: 600;
 }
 
 .markdown h1 {
   font: var(--dsw-font-markdown-h1);
+  margin: 32px 0 16px;
 }
 
 .markdown h2 {
   font: var(--dsw-font-markdown-h2);
+  margin: 32px 0 16px;
 }
 
 .markdown h3 {
   font: var(--dsw-font-markdown-h3);
+  margin: 32px 0 16px;
 }
 
-.markdown :where(h4, h5, h6) {
+.markdown h4 {
   font: var(--dsw-font-markdown-h4);
+  margin: 16px 0;
 }
 
-.markdown :where(strong, th) {
-  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
+.markdown :where(h5, h6) {
+  font: var(--dsw-font-markdown-base-strong);
+  margin: 16px 0;
 }
 
-.markdown :where(ul, ol) {
-  padding-inline-start: 24px;
+.markdown :where(h1, h2, h3, h4, h5, h6) strong {
+  font-weight: inherit;
 }
 
-.markdown li + li {
-  margin-block-start: 4px;
+.markdown p {
+  margin: 16px 0;
 }
 
-.markdown li > :where(ul, ol) {
-  margin-block-start: 4px;
+/* Tighten h4–h6 against a following list (design: 8px gap). */
+.markdown :where(h4, h5, h6) + :where(ul, ol) {
+  margin-top: 8px;
 }
 
-.markdown blockquote {
-  padding-inline-start: 12px;
-  border-inline-start: 3px solid var(--dsw-alias-markdown-citation);
-  color: var(--dsw-alias-label-secondary);
+.markdown :where(h4, h5, h6):has(+ :where(ul, ol)) {
+  margin-bottom: 8px;
 }
 
 .markdown a {
+  /* deepsuite markdown.css uses brand-text (blue in newDesign); this sheet
+     keeps design-platform brand-text as near-black, so links use the blue
+     business-primary alias instead. */
   color: var(--dsw-alias-state-business-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  transition: box-shadow var(--ds-transition-duration) var(--ds-ease-in-out);
+  position: relative;
+  text-decoration: none;
+  /* Transparent hit-area padding; literal zero-alpha only (no painted color). */
+  border-left: 3px solid rgb(255 255 255 / 0);
+  border-right: 3px solid rgb(255 255 255 / 0);
+  border-top: 2px solid rgb(255 255 255 / 0);
+  border-bottom: 2px solid rgb(255 255 255 / 0);
+  margin-left: -3px;
+  margin-right: -3px;
 }
 
-.markdown :not(pre) > code {
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: var(--dsw-alias-markdown-inline-code);
-  font: var(--dsw-font-markdown-code);
+.markdown a:hover,
+.markdown a:focus {
+  outline: none;
+  text-decoration: underline var(--dsw-alias-state-business-primary);
 }
 
-.markdown pre {
-  max-width: 100%;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--dsw-alias-markdown-code-block);
-  font: var(--dsw-font-markdown-code-block);
+.markdown a:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary);
 }
 
-.markdown pre code {
-  padding: 0;
-  background: transparent;
-  font: inherit;
-  overflow-wrap: normal;
-  word-break: normal;
-  white-space: pre;
+.markdown :where(ul, ol) {
+  margin: 16px 0;
+  padding-left: 18px;
+}
+
+.markdown li:not(:first-child) {
+  margin-top: 6px;
+}
+
+.markdown li > :where(ul, ol) {
+  margin-top: 4px;
+}
+
+.markdown li::marker {
+  line-height: 28px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Nested ol under ul/ol: markers inside (models sometimes emit this shape). */
+.markdown :where(ul, ol) ol {
+  list-style-position: inside;
+  padding-left: 0;
+}
+
+.markdown :where(ul, ol) ol li p {
+  display: inline;
+}
+
+.markdown li > p {
+  margin: 8px 0;
+}
+
+.markdown li > *:first-child {
+  margin-top: 0;
+}
+
+/* Keep list-nested code-block vertical margins (design: +4px vs other last children). */
+.markdown li > *:last-child:not(:global(.md-code-block)) {
+  margin-bottom: 0;
 }
 
 .markdown hr {
-  width: 100%;
-  border: 0;
-  border-block-start: 1px solid var(--dsw-alias-markdown-citation);
+  display: block;
+  border: none;
+  height: 1px;
+  margin: 32px 0;
+  background: var(--dsw-alias-border-l2);
+}
+
+.markdown blockquote {
+  border-left: 2px solid var(--dsw-alias-label-caption);
+  margin: 16px 0 0;
+  padding-left: 14px;
+}
+
+.markdown pre {
+  margin: 16px 0;
+  font-family: var(--ds-font-family-code);
+  overflow: auto;
+}
+
+.markdown :not(pre) > code {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  font: var(--dsw-font-markdown-code);
+  font-family: var(--ds-font-family-code);
+  font-size: 0.875em !important;
+  background-color: var(--dsw-alias-markdown-inline-code);
+  border-radius: 6px;
+  padding: 0 5px;
+}
+
+.markdown :where(h1, h2, h3, h4, h5, h6) code {
+  font: inherit;
+  font-family: var(--ds-font-family-code);
 }
 
 .markdown input[type='checkbox'] {
   margin: 0 8px 0 0;
-  accent-color: var(--dsw-alias-state-business-primary);
+  accent-color: var(--dsw-alias-label-secondary);
 }
 
 .tableScroll {
@@ -99,22 +172,52 @@
 }
 
 .tableScroll table {
-  width: max-content;
-  min-width: 100%;
   border-collapse: collapse;
-  font: var(--dsw-font-markdown-table);
-}
-
-.tableScroll :where(th, td) {
-  padding: 6px 12px;
-  border: 1px solid var(--dsw-alias-markdown-citation);
-  text-align: start;
-  white-space: nowrap;
+  width: max-content;
+  max-width: max-content;
 }
 
 .tableScroll th {
-  background: var(--dsw-alias-markdown-code-block-banner);
+  text-align: start;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+  border-top: none;
   font: var(--dsw-font-markdown-table-head);
+  max-width: 320px;
+  max-width: min(30vw, 320px);
+  min-width: 100px;
+}
+
+.tableScroll td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  font: var(--dsw-font-markdown-table);
+  max-width: 320px;
+  max-width: min(30vw, 320px);
+  min-width: 100px;
+}
+
+.tableScroll th:first-child,
+.tableScroll td:first-child {
+  padding-left: 0;
+}
+
+.tableScroll td:last-child {
+  padding-right: 0;
+}
+
+.tableScroll table code {
+  font-size: 13px;
+}
+
+.markdown > *:first-child,
+.markdown p:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown > *:last-child,
+.markdown p:last-child {
+  margin-bottom: 0 !important;
 }
 
 .imageAlt {

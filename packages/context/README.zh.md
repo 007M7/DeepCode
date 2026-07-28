@@ -8,6 +8,6 @@
 |---|---|---|
 | `session-reference/` | 其他会话当前表层的有界快照 | `ctx.sessionReferences` |
 | `time-context/` | 持久的逐步骤当前时间与耗时上下文 | （无） |
-| `workspace-context/` | `AGENTS.md`／`CLAUDE.md` 工作区上下文 loader | （监听 `agent/session-prefix` + `tools/post-execute`） |
+| `workspace-context/` | `AGENTS.md`／`CLAUDE.md` 工作区上下文 loader | （监听 `agent/step` + `tools/post-execute`） |
 
 [`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)解释了它的逐 agent／会话隔离与生命周期拆分。

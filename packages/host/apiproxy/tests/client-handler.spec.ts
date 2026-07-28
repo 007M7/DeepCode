@@ -30,7 +30,19 @@ function scriptedApi(overrides: {
     sessions: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { sessionId: sid('s-new') }),
-      history: r => ok(r, { events: [], hasMore: false }),
+      history: r => ok(r, {
+        events: [],
+        hasMore: false,
+        modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      }),
+      models: r => ok(r, {
+        current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        groups: [],
+        failures: [],
+      }),
+      selectModel: r => ok(r, {
+        selected: { provider: r.payload.provider, model: r.payload.model },
+      }),
       prompt: r => ok(r, { accepted: true as const }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
@@ -39,11 +51,16 @@ function scriptedApi(overrides: {
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
     },
-    host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },
+    host: {
+      describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
+      pickDirectory: r => ok(r, { path: null }),
+      ...overrides.host,
+    },
     workspace: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),
       rename: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
+      delete: r => ok(r, { deleted: true as const }),
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
     },
     commands: {
@@ -80,13 +97,15 @@ describe('unary round trip', () => {
     expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false, blank: false }] } })
   })
 
-  it('routes workspace rename and insertSessionBefore through the wire', async () => {
+  it('routes workspace rename, delete, and insertSessionBefore through the wire', async () => {
     const api = scriptedApi()
     const c = client(api)
     const renamed = await c.workspace.rename({ workspaceId: 'w1' as never, title: 'next' })
     expect(renamed.result.ok).toBe(true)
     const blankTitle = await c.workspace.rename({ workspaceId: 'w1' as never, title: '   ' })
     expect(blankTitle.result).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    const deleted = await c.workspace.delete({ workspaceId: 'w1' as never })
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
     const anchored = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1'), beforeSessionId: sid('s2') })
     expect(anchored.result.ok).toBe(true)
     const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })

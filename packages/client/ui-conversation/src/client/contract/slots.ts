@@ -153,7 +153,7 @@ export interface ToolRowOwnerProps {
   /** Frozen call slice: the running call or the settled result node. */
   block: ToolCallBlock
   /** Open the details panel for this call (session-level facility, supplied by the view). */
-  openDetails(): void
+  openDetails: () => void
 }
 
 /**
@@ -184,23 +184,23 @@ export interface ConversationInjected {
    * Connect the selected Workspace and open its reusable/new blank session.
    * When a blank session is already current, carry its draft to the target.
    */
-  selectWorkspace(workspaceId: WorkspaceId): void
+  selectWorkspace: (workspaceId: WorkspaceId) => Promise<void>
 }
 
 /** Business callbacks injected into the strict session content seat. */
 export interface ConversationSessionInjected {
   /** Views projected from the `conversation.view` slot ledger. */
   views: {
-    list(): readonly ViewTab[]
-    subscribe(fn: () => void): () => void
-    version(): number
+    list: () => readonly ViewTab[]
+    subscribe: (fn: () => void) => () => void
+    version: () => number
   }
   /** Release historical image URLs when this rendered session scope unmounts. */
-  releaseSessionImages(sessionId: SessionId): void
+  releaseSessionImages: (sessionId: SessionId) => void
   /** Bind the input machine's draft persistence mirror to the session store. */
-  bindDraftMirror(write: (text: string) => void): () => void
+  bindDraftMirror: (write: (text: string) => void) => () => void
   /** Select a real Session through the runtime navigation owner. */
-  open(sessionId: SessionId): void
+  open: (sessionId: SessionId) => void
 }
 
 /**
@@ -230,13 +230,13 @@ export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane). */
   keyboard: ComposerKeyboard
   /** Create browser previews and append their ids to the session input state. */
-  addImages(files: readonly File[], current: readonly ComposerAttachment[]): string | null
+  addImages: (files: readonly File[], current: readonly ComposerAttachment[]) => string | null
   /** Release one browser preview and remove its id from the session input state. */
-  removeImage(id: string): void
+  removeImage: (id: string) => void
   /** Resolve ordered input-state ids to browser-owned draft attachments. */
-  draftImages(ids: readonly string[]): readonly ComposerAttachment[]
+  draftImages: (ids: readonly string[]) => readonly ComposerAttachment[]
   /** Cancel the in-flight turn. */
-  stop(): void
+  stop: () => void
 }
 
 /**
@@ -292,10 +292,10 @@ export type ConversationSessionSlotProps =
  */
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
-  openDetails(target: SelectionTarget): void
-  loadOlder(): void
+  openDetails: (target: SelectionTarget) => void
+  loadOlder: () => void
   /** Resolve a session-authorized historical image for inline display. */
-  loadImage(attachment: ImageAttachmentRef): Promise<string>
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
 }
 
 /** Full chat-view component props: runtime share & the declared toolview hole's render share & store share & injected share. */
@@ -309,7 +309,7 @@ export type ChatViewSlotProps =
  */
 export interface DetailsInjected {
   /** Close the details panel (layout geometry stays with ctx.layout). */
-  closeDetails(): void
+  closeDetails: () => void
 }
 
 /** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
@@ -319,6 +319,6 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
-  onPick(workspaceId: WorkspaceId): void
-  onClose(): void
+  onPick: (workspaceId: WorkspaceId) => void
+  onClose: () => void
 }

@@ -30,13 +30,13 @@ PR（Pull Request）需要传达两个不同的信号：它带来哪一类变更
 
 ### 当前领域
 
-当前的 45 个领域如下。分组名称仅用于提高列表的可读性；它们既不是标签，也不是分类体系中的另一个层级。
+当前的 46 个领域如下。分组名称仅用于提高列表的可读性；它们既不是标签，也不是分类体系中的另一个层级。
 
 | 分组 | 领域 |
 |---|---|
 | agent（智能体）与模型 | `agent`, `agent-loop`, `session`, `llm`, `model-context`, `compaction`, `tools`, `persistence` |
 | 编排 | `subagent`, `workflow`, `planning`, `tasks`, `schedule`, `telemetry`, `storage`, `workspace` |
-| 能力 | `bash`, `pty`, `filesystem`, `lsp`, `skills`, `web-search`, `code-mode`, `artifact`, `attachment`, `sandbox`, `mcp`, `hooks`, `cordis` |
+| 能力 | `bash`, `subprocess`, `pty`, `filesystem`, `lsp`, `skills`, `web-search`, `code-mode`, `artifact`, `attachment`, `sandbox`, `mcp`, `hooks`, `cordis` |
 | 接口 | `ui`, `gui`, `tui`, `acp`, `json-rpc`, `cli`, `python-sdk`, `vscode`, `website` |
 | 仓库与发布 | `dev-infra`, `ci`, `build`, `dependencies`, `platform`, `i18n`, `release` |
 

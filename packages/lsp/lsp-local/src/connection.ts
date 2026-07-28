@@ -1,16 +1,17 @@
 /**
- * A JSON-RPC endpoint over one spawned language server's stdio. Owns id correlation, outbound
- * requests/notifications, and inbound server→client requests: it answers `workspace/configuration`
- * from static config, and rejects `workspace/applyEdit` (this host never applies edits or runs
- * commands). It caps stderr, surfaces framing/decoder failures as a fatal close, and exposes the
- * child handle so the instance owns process-signal teardown.
+ * A JSON-RPC endpoint over one language server spawned through the subprocess
+ * seam. Owns id correlation, outbound requests/notifications, and inbound
+ * server→client requests: it answers `workspace/configuration` from static
+ * config, and rejects `workspace/applyEdit` (this host never applies edits or
+ * runs commands). It caps stderr, surfaces framing/decoder failures as a
+ * fatal close, and exposes tree-scoped termination through the handle so the
+ * instance owns teardown; group/tree mechanics live in the seam's
+ * implementation.
  * @module @deepseek-ai/dsh-lsp-local/connection
  */
 
-import type { ChildProcessByStdio } from 'node:child_process'
-import { spawn, spawnSync } from 'node:child_process'
-import type { Readable, Writable } from 'node:stream'
-import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
+import type { Writable } from 'node:stream'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { encodeMessage, MessageDecoder } from './framing.ts'
 
 /** How to launch the server and answer its config requests. */
@@ -27,6 +28,12 @@ export interface ConnectionSpec {
   readonly maxMessageBytes: number
   /** Largest stderr tail retained for diagnostics. */
   readonly maxStderrBytes: number
+  /**
+   * The subprocess spec's `graceMs`: the SIGTERM→SIGKILL window of
+   * {@link LspConnection.terminate}'s escalation, and the bound for draining
+   * pipes a surviving helper still holds after the server exits.
+   */
+  readonly killGraceMs: number
   /** Static answer to every `workspace/configuration` item. */
   readonly configuration: unknown
 }
@@ -48,178 +55,92 @@ export type ConnectionWriter = (
   done: (error?: Error | null) => void,
 ) => void
 
-/** Host operations used to signal a detached process tree. */
-export interface ProcessTreeOperations {
-  /** Signal a POSIX process group. */
-  readonly signal: (target: number, signal: NodeJS.Signals) => void
-  /** Signal the direct child when POSIX group signaling is unavailable. */
-  readonly killChild: (signal: NodeJS.Signals) => void
-  /** Terminate a Windows process tree by root pid. */
-  readonly taskkill: (pid: number) => void
-}
-
-/** Narrow taskkill runner result used by the Windows process-tree adapter. */
-export interface TaskkillResult {
-  /** Process exit status, or null when spawning failed. */
-  readonly status: number | null
-  /** Spawn failure, when the executable could not run. */
-  readonly error?: Error
-}
-
-/** Invoke a command synchronously for the Windows taskkill adapter. */
-export type TaskkillRunner = (
-  command: string,
-  args: string[],
-  options: { stdio: 'ignore' },
-) => TaskkillResult
-
-/** Invoke the host process-signal primitive for a POSIX process group. */
-export type ProcessSignalRunner = (target: number, signal: NodeJS.Signals) => boolean
-
-const processSignalRunner: ProcessSignalRunner = process.kill.bind(process)
-
-/** taskkill status for "process not found": the requested process tree is already absent. */
-const TASKKILL_TREE_NOT_FOUND_STATUS = 128
+/** Spawn one subprocess for this connection (the provider passes `ctx.subprocess.spawn`). */
+export type ConnectionSpawner = (spec: SubprocessSpawnSpec) => SubprocessHandle
 
 const writeConnectionMessage: ConnectionWriter = (stdin, message, done) => {
   stdin.write(encodeMessage(message), done)
 }
 
-/**
- * Terminate one Windows process tree and wait for taskkill to finish.
- * @param pid - root process id.
- * @param run - command runner; tests inject results without requiring Windows.
- */
-export function taskkillProcessTree(
-  pid: number,
-  run: TaskkillRunner = spawnSync,
-): void {
-  const result = run('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
-  if (result.error !== undefined) throw result.error
-  if (result.status === TASKKILL_TREE_NOT_FOUND_STATUS) return
-  if (result.status !== 0) throw new Error(`taskkill exited with status ${String(result.status)}`)
-}
-
-/**
- * Signal one POSIX process group through an injectable host primitive.
- * @param target - negative process-group id.
- * @param signal - requested signal.
- * @param run - host signal runner; tests inject it without touching real processes.
- */
-export function signalProcessGroup(
-  target: number,
-  signal: NodeJS.Signals,
-  run: ProcessSignalRunner = processSignalRunner,
-): void {
-  run(target, signal)
-}
-
-/**
- * Wait until a process-tree liveness probe reports exit.
- * @param isAlive - process-tree liveness probe.
- * @param signal - optional bound for the wait.
- * @param yieldNow - event-loop yield primitive.
- * @returns `true` when the tree exited, or `false` when the signal aborted first.
- */
-export async function waitForTreeExit(
-  isAlive: () => boolean,
-  signal?: AbortSignal,
-  yieldNow: () => Promise<unknown> = yieldToEventLoop,
-): Promise<boolean> {
-  while (isAlive()) {
-    if (signal?.aborted) return false
-    await yieldNow()
-  }
-  return true
-}
-
-/**
- * Signal a detached process tree with platform-correct semantics. POSIX falls back to the direct
- * child; Windows requires taskkill to reach the full tree.
- * @param platform - host platform.
- * @param pid - detached root process id.
- * @param signal - requested termination signal.
- * @param operations - host operations.
- */
-export function signalProcessTree(
-  platform: NodeJS.Platform,
-  pid: number,
-  signal: NodeJS.Signals,
-  operations: ProcessTreeOperations,
-): void {
-  if (platform === 'win32') {
-    operations.taskkill(pid)
-    return
-  }
-  try {
-    operations.signal(-pid, signal)
-  } catch {
-    try {
-      operations.killChild(signal)
-    } catch {
-      // The direct child already exited; teardown remains idempotent.
-    }
-  }
-}
-
 /** A live JSON-RPC endpoint bound to one child process. */
 export class LspConnection {
-  private readonly child: ChildProcessByStdio<Writable, Readable, Readable>
+  private readonly handle: SubprocessHandle
+  private readonly stdin: Writable
   private readonly decoder: MessageDecoder
   private readonly pending = new Map<number, Pending>()
   private nextId = 1
-  private stderr = Buffer.alloc(0)
   private closeReason: Error | undefined
   /** Set once the process has fully exited; the instance awaits it during teardown. */
   readonly closed: Promise<void>
 
   /**
    * @param spec - how to launch the server and answer its config requests.
+   * @param spawner - the subprocess seam's spawn (the provider passes `ctx.subprocess.spawn`).
    * @param onServerRequest - answers a server→client request; rejects to send an error response.
    * @param writer - message writer; tests inject callback failures without relying on OS pipe races.
    */
   constructor(
-    private readonly spec: ConnectionSpec,
+    spec: ConnectionSpec,
+    spawner: ConnectionSpawner,
     private readonly onServerRequest: (method: string, params: unknown) => Promise<unknown>,
     private readonly writer: ConnectionWriter = writeConnectionMessage,
   ) {
     this.decoder = new MessageDecoder(spec.maxMessageBytes)
-    // `detached` gives teardown a process-tree root: POSIX signals its negative process-group id,
-    // while Windows passes the root pid to taskkill /T so helpers such as tsserver cannot outlive it.
-    this.child = spawn(spec.command, [...spec.args], {
+    // stdin/stdout are piped protocol streams this endpoint frames itself;
+    // stderr is a collected diagnostic tail (no spill — the bounded tail IS
+    // the contract). The seam owns detachment and tree-scoped signalling.
+    this.handle = spawner({
+      argv: [spec.command, ...spec.args],
       cwd: spec.cwd,
+      stdio: {
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: { maxBytes: spec.maxStderrBytes },
+      },
+      graceMs: spec.killGraceMs,
+      // spec.env mixes the scrubbed base with explicit config entries; the
+      // seam merges the whole map after its own ambient scrub, so a
+      // configured DSH_* fact reaches the child.
       env: spec.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
     })
+    /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */
+    if (this.handle.stdin === undefined || this.handle.stdout === undefined) {
+      throw new Error('lsp-local: subprocess implementation dropped a piped protocol stream')
+    }
+    /* v8 ignore stop */
+    this.stdin = this.handle.stdin
     this.closed = new Promise<void>((resolve) => {
-      this.child.on('close', () => {
+      const close = (): void => {
         const reason = this.closeReason ?? new Error(this.exitMessage())
         // Record the reason so any request issued AFTER close rejects immediately instead of hanging
         // (a closed process sends no further responses).
         this.closeReason = reason
         this.failAll(reason)
         resolve()
+      }
+      this.handle.done.then(close, (error: unknown) => {
+        // A spawn-level failure never produces a close event; the rejection is
+        // the fatal cause and the close boundary at once.
+        this.fail(asError(error))
+        close()
       })
     })
-    this.child.on('error', (error) => { this.fail(error) })
     // Child stdin can fail while the process itself remains alive (for example, a server closes fd
     // 0). Treat that as a fatal connection error so pending requests reject immediately instead of
     // waiting for a process-close event that may never arrive.
-    this.child.stdin.on('error', (error) => { this.fail(error) })
-    this.child.stdout.on('data', (chunk: Buffer) => { this.onStdout(chunk) })
-    this.child.stderr.on('data', (chunk: Buffer) => { this.onStderr(chunk) })
+    this.stdin.on('error', (error) => { this.fail(error) })
+    this.handle.stdout.on('data', (chunk: Buffer) => { this.onStdout(chunk) })
   }
 
   /** The child's pid, or `-1` when the spawn produced no pid (so signalling is a no-op). */
   get pid(): number {
-    /* v8 ignore next -- the `-1` fallback only applies to a spawn that produced no pid; defensive. */
-    return this.child.pid ?? -1
+    return this.handle.pid
   }
 
   /** The retained stderr tail, for diagnostics on a failed server. */
   get stderrTail(): string {
-    return this.stderr.toString('utf8')
+    /* v8 ignore next -- the collect disposition always exposes a stderr reader; defensive. */
+    return this.handle.collected.stderr?.readFrom(0).text ?? ''
   }
 
   /** Whether the transport has failed even if the child close event has not arrived yet. */
@@ -289,14 +210,9 @@ export class LspConnection {
     return this.nextId
   }
 
-  /** Request termination of the server's process tree. */
+  /** Terminate the server's process tree (the seam's SIGTERM→grace→SIGKILL escalation; idempotent). */
   terminate(): void {
-    this.signalTree('SIGTERM')
-  }
-
-  /** Force termination of the server's process tree. */
-  kill(): void {
-    this.signalTree('SIGKILL')
+    this.handle.terminate()
   }
 
   /**
@@ -305,39 +221,7 @@ export class LspConnection {
    * @returns `true` when the tree exited, or `false` when the signal aborted first.
    */
   async waitForProcessTreeExit(signal?: AbortSignal): Promise<boolean> {
-    return await waitForTreeExit(this.processTreeAlive.bind(this), signal)
-  }
-
-  /** Signal the whole process tree. */
-  private signalTree(sig: NodeJS.Signals): void {
-    const pid = this.child.pid
-    if (pid === undefined) return
-    signalProcessTree(process.platform, pid, sig, {
-      signal: signalProcessGroup,
-      killChild: this.child.kill.bind(this.child),
-      taskkill: taskkillProcessTree,
-    })
-  }
-
-  /** Whether the detached tree's root or POSIX process group is still alive. */
-  private processTreeAlive(): boolean {
-    const pid = this.child.pid
-    /* v8 ignore next -- only an asynchronous spawn failure omits pid; its close path owns cleanup. */
-    if (pid === undefined) return false
-    try {
-      process.kill(-pid, 0)
-      return true
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      /* v8 ignore next -- POSIX reports an absent group as ESRCH, but child-reaping timing makes
-         whether lifecycle tests observe this branch platform-dependent. */
-      if (code === 'ESRCH') return false
-      /* v8 ignore start -- EPERM and non-POSIX negative-pid failures are platform defenses; CI runs
-         process-group lifecycle tests on POSIX hosts where absence reports ESRCH. */
-      if (code === 'EPERM') return true
-      return this.child.exitCode === null && this.child.signalCode === null
-      /* v8 ignore stop */
-    }
+    return await this.handle.waitForExit(signal)
   }
 
   private onStdout(chunk: Buffer): void {
@@ -346,28 +230,13 @@ export class LspConnection {
       messages = this.decoder.push(chunk)
     } catch (error) {
       // A framing/JSON failure corrupts the stream position irrecoverably: fail the instance and
-      // SIGKILL the whole group so helper processes don't outlive the leader.
+      // terminate the whole group so helper processes don't outlive the leader (SIGTERM first, then
+      // the kill grace's SIGKILL — a misbehaving server still gets its bounded flush window).
       this.fail(asError(error))
-      this.signalTree('SIGKILL')
+      this.handle.terminate()
       return
     }
     for (const message of messages) this.dispatch(message)
-  }
-
-  private onStderr(chunk: Buffer): void {
-    // Retain the TAIL, not the prefix: a language server's fatal diagnostic usually appears just
-    // before it exits, so the final bounded segment is the useful one.
-    const cap = this.spec.maxStderrBytes
-    if (chunk.length >= cap) {
-      // Copy the bounded suffix so retaining it does not pin an arbitrarily large incoming buffer.
-      this.stderr = Buffer.from(chunk.subarray(chunk.length - cap))
-      return
-    }
-    const retainedBytes = Math.min(this.stderr.length, cap - chunk.length)
-    this.stderr = Buffer.concat([
-      this.stderr.subarray(this.stderr.length - retainedBytes),
-      chunk,
-    ], retainedBytes + chunk.length)
   }
 
   private dispatch(message: unknown): void {
@@ -423,7 +292,7 @@ export class LspConnection {
         reject(error)
       }
       try {
-        this.writer(this.child.stdin, message, done)
+        this.writer(this.stdin, message, done)
       /* v8 ignore start -- Node stream write failures are callback-delivered; this guards a
          nonconforming Writable implementation throwing synchronously. */
       } catch (error) {

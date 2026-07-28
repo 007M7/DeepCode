@@ -17,7 +17,7 @@
 // the open llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -40,6 +40,7 @@ import SessionStore, {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -64,20 +65,14 @@ const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
-// catch-all would leave resolveModelContext unroutable and compact-basic's
+// catch-all would leave resolveModelInfo unroutable and compact-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
-const REPLAY_PROVIDERS = [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
-
-/** Repo-root .env → process.env for record mode (never overrides set vars); the smoke-real convention. */
-function loadRootEnv(): void {
-  const envPath = join(REPO_ROOT, '.env')
-  if (!existsSync(envPath)) return
-  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim())
-    if (m !== null && process.env[m[1]!] === undefined) process.env[m[1]!] = m[2]
-  }
-}
+const REPLAY_PROVIDERS = [{
+  id: 'deepseek',
+  name: 'DeepSeek',
+  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
+}]
 
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
@@ -122,6 +117,12 @@ export interface LaunchOptions {
    * insertion is needed.
    */
   toolsMode?: 'native' | 'code' | 'both'
+  /**
+   * Insert the opt-in self-referential Cordis tools into the shipped tree.
+   * Record and replay use the same tool surface, so captured request headers
+   * remain reconstructable without making the tools a product default.
+   */
+  cordisTools?: boolean
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -142,7 +143,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   requireDist()
   const mode = webSnapshotMode()
   if (mode === 'record') {
-    loadRootEnv()
+    // Both owning vitest configs (web unconditionally, snapshot in record
+    // mode) load the repo-root .env before this file runs.
     if (process.env.DEEPSEEK_API_KEY === undefined || process.env.DEEPSEEK_API_KEY.length === 0) {
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }
@@ -174,6 +176,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
+    ...options.cordisTools === true
+      ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
+      : [],
     ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
   ]
 
@@ -188,6 +193,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    // The shipped CLI deliberately has no dependency on this opt-in package.
+    // Keep the Loader row real without broadening the product installation.
+    if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },

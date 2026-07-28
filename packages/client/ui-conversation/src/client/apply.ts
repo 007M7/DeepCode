@@ -13,6 +13,8 @@ import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { todoToolview } from './toolviews/todo-row.tsx'
+import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession } from './skeleton/ConversationSession.tsx'
@@ -88,26 +90,23 @@ export function apply(ctx: Context): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
-      selectWorkspace: (workspaceId) => {
-        void workspaces.connectWorkspace(workspaceId).then((nextId) => {
-          if (sessionId !== undefined && nextId !== sessionId) {
-            const from = inputHub.shell(sessionId)
-            const draft = from.snapshot.draft
-            const imageIds = from.snapshot.imageIds
-            const next = inputHub.shell(nextId)
-            if (draft !== '') {
-              next.setDraft(draft)
-              from.setDraft('')
-            }
-            if (imageIds.length > 0) {
-              next.addImages(imageIds)
-              for (const id of imageIds) from.removeImage(id)
-            }
+      selectWorkspace: async (workspaceId) => {
+        const nextId = await workspaces.connectWorkspace(workspaceId)
+        if (sessionId !== undefined && nextId !== sessionId) {
+          const from = inputHub.shell(sessionId)
+          const draft = from.snapshot.draft
+          const imageIds = from.snapshot.imageIds
+          const next = inputHub.shell(nextId)
+          if (draft !== '') {
+            next.setDraft(draft)
+            from.setDraft('')
           }
-          sessions.open(nextId)
-        }).catch(() => {
-          // Failure leaves the current Hero state available to retry.
-        })
+          if (imageIds.length > 0) {
+            next.addImages(imageIds)
+            for (const id of imageIds) from.removeImage(id)
+          }
+        }
+        sessions.open(nextId)
       },
     }),
   }, ConversationRoot)
@@ -210,8 +209,15 @@ export function apply(ctx: Context): void {
   // 'conversation.chat.toolview' declaration) is on the ledger.
   ctx.plugin(ConversationService, { input: inputHub })
 
-  // The bash sample rides that exact seam, in third-party posture.
+  // The bash sample rides that exact seam, in third-party posture
+  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
+
+  // The todo_write row rides the same seam (a product registration, not a sample).
+  ctx.plugin(todoToolview)
+
+  // The plan strip rides the input dock above the queue rows (same posture).
+  ctx.plugin(todoDockEntry)
 
   // The read-only queue dock entry (T9 file territory) rides the same
   // registration seam into the input dock declared above.

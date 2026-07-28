@@ -30,6 +30,7 @@ const changeSource = {
   goalId: change.goal.id,
   revision: change.goal.revision,
   round: 0,
+  change,
 } as const
 
 async function setup(): Promise<Context> {
@@ -48,7 +49,6 @@ describe('goal stream invariants', () => {
     session.append('user/message', {
       content: renderGoalChange(change),
       source: changeSource,
-      meta: change as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     session.append('turn/start', {
@@ -74,7 +74,6 @@ describe('goal stream invariants', () => {
       session.append('user/message', {
         content: [{ type: 'text', text: 'counterfeit' }],
         source: changeSource,
-        meta: change as never,
       }, { surfaceOp: 'append' })
     }).toThrow(expect.objectContaining<Partial<InvariantError>>({
       code: 'INVARIANT',
@@ -85,7 +84,6 @@ describe('goal stream invariants', () => {
       session.append('user/message', {
         content: renderGoalChange(change),
         source: changeSource,
-        meta: change as never,
       }, { surfaceOp: 'append' })
     }).not.toThrow()
   })
@@ -98,7 +96,6 @@ describe('goal stream invariants', () => {
     session.append('user/message', {
       content: renderGoalChange(change),
       source: changeSource,
-      meta: change as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 

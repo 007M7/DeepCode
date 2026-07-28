@@ -63,14 +63,16 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * A message entered the addressed agent's inbox (`agent/queued` passthrough:
-   * a queued message is not model-visible, so there is no session event to
-   * ride — this transient frame is the only wire signal). On stream open the
+   * A message entered the addressed agent's inbox. A queued message is not
+   * model-visible, so there is no session event to carry it; this transient
+   * frame is the only wire signal. On stream open the
    * host replays the current queue snapshot for every attached session (same
    * refresh-recovery baseline as pending questions); queue clearing on cancel
    * has no dedicated frame — clients fold it from the status flip.
-   * source carries the prompt's rpcId when the message came over this wire
-   * (the client's provisional-echo reconciliation key).
+   * `steering` is the host's acceptance-time queue classification and remains
+   * authoritative in reconnect snapshots. `source` carries the prompt's rpcId
+   * when the message came over this wire (the client's provisional-echo
+   * reconciliation key).
    */
   | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
   | { type: 'stream/error'; error: RpcError }
@@ -85,7 +87,9 @@ export type MuxFrame =
  * agent-error is the only outlet for live failures with no turn position;
  * workspace-changed pushes the full new snapshot after every durable
  * workspace mutation (create/attach/order change — the client upserts, while
- * `workspace.list` provides the reconnect baseline).
+ * `workspace.list` provides the reconnect baseline); workspace-removed is the
+ * committed registration-deletion increment and never implies directory or
+ * session-log deletion.
  */
 export type HostFrame =
   | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
@@ -93,6 +97,7 @@ export type HostFrame =
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
+  | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
   /**
    * The command registry changed (`commands/change` passthrough). Pure
    * invalidation signal, no payload: clients refetch `command.list` in the

@@ -1,0 +1,42 @@
+/* todo_write plan-update row: title + progress summary on one line. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.badge {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.title {
+  flex: none;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.err {
+  flex: none;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+}

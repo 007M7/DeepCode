@@ -5,10 +5,13 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+
+export type { TodoItem }
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -91,7 +94,6 @@ export interface ContextMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
-  meta?: unknown
 }
 
 /** A tool result paired (when in-window) with its call head. */
@@ -248,4 +250,7 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
+  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
+   *  write (last write wins); empty = the log holds no plan. */
+  todos: readonly TodoItem[]
 }

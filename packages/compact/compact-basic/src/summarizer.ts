@@ -78,7 +78,7 @@ export interface SummarizationInput {
   readonly system?: string
   /** The conversation's tool schemas, reused for prefix-cache alignment; absent when the request carried none. */
   readonly tools?: readonly ToolSchema[]
-  /** The request prefix followed by the shadowed region, in surface order, that precedes the compaction instruction. */
+  /** The shadowed region, in surface order, that precedes the compaction instruction. */
   readonly messages: readonly Message[]
 }
 

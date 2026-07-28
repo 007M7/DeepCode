@@ -37,9 +37,45 @@ function fakeApi(overrides: Partial<{
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
+        if (request.payload.sessionId === ('with-todos' as never)) {
+          return {
+            rpcId: request.rpcId,
+            result: { ok: true, value: { events: [], hasMore: false, todos: [{ content: 'current', status: 'in_progress' as const }] } },
+          }
+        }
         return {
           rpcId: request.rpcId,
           result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: request.payload.sessionId } } },
+        }
+      },
+      async models(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              groups: [],
+              failures: [],
+            },
+          },
+        }
+      },
+      async selectModel(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              selected: {
+                provider: request.payload.provider,
+                model: request.payload.model,
+                ...request.payload.reasoningEffort === undefined
+                  ? {}
+                  : { reasoningEffort: request.payload.reasoningEffort },
+              },
+            },
+          },
         }
       },
       async prompt(request) {
@@ -65,6 +101,9 @@ function fakeApi(overrides: Partial<{
           },
         }
       },
+      async pickDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
+      },
     },
     workspace: {
       async list(request) {
@@ -81,6 +120,9 @@ function fakeApi(overrides: Partial<{
           rpcId: request.rpcId,
           result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
+      },
+      async delete(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { deleted: true as const } } }
       },
       async insertSessionBefore(request) {
         return {
@@ -123,8 +165,8 @@ function fakeApi(overrides: Partial<{
   }
 }
 
-function client(api: ApiProxy = fakeApi()): InProcessApiClient {
-  return new InProcessApiClient(toFetchHandler(api))
+function client(api: ApiProxy = fakeApi(), timeoutMs?: number): InProcessApiClient {
+  return new InProcessApiClient(toFetchHandler(api), timeoutMs)
 }
 
 async function collect<F>(stream: AsyncIterable<RpcRequest<F>>): Promise<RpcRequest<F>[]> {
@@ -140,6 +182,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
   })
 
+  it('carries the tail-page todos projection through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-todos' as never })
+    expect(response.result.ok).toBe(true)
+    if (response.result.ok) expect(response.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
+  })
+
   it('carries a business error as 200 + error result', async () => {
     const response = await client().sessions.history({ sessionId: 'missing' as never })
     expect(response.result.ok).toBe(false)
@@ -149,6 +197,23 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
   it('covers create/prompt/cancel/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
+    expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
+    const selected = await c.sessions.selectModel({
+      sessionId: 's' as never,
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'max',
+    })
+    expect(selected.result).toMatchObject({
+      ok: true,
+      value: {
+        selected: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          reasoningEffort: 'max',
+        },
+      },
+    })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
@@ -189,6 +254,16 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })
   })
 
+  it('round-trips the native picker without the default unary timeout', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request) => {
+      await new Promise(resolve => setTimeout(resolve, 15))
+      return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/project' } } }
+    }
+    const response = await client(api, 1).host.pickDirectory({})
+    expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
+  })
+
   it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
     const c = client()
     const list = await c.commands.list({ sessionId: 's' as never })
@@ -212,6 +287,30 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into host.pickDirectory', async () => {
+    const api = fakeApi()
+    api.host.pickDirectory = async (request, signal) => {
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const handler = toFetchHandler(api)
+    const controller = new AbortController()
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
+    const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
+      method: 'POST', body, signal: controller.signal,
+    }))
+    controller.abort()
+    const parsed = await (await pending).json() as { result: { error?: { code: string } } }
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 })
