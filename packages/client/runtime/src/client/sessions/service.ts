@@ -301,7 +301,7 @@ export class SessionsService {
         props[name] = undefined
       }
     }
-    return { sessionId: undefined, hooks, props }
+    return { sessionId: undefined, hooks, props } // no projections face: every key reads absent without a session
   }
 
   /** Materialize the standard-props bundle for one session (fails loud on duplicate member names). */
@@ -334,7 +334,14 @@ export class SessionsService {
         props[name] = contributedProps[name]
       }
     }
-    return { sessionId: binding.sessionId, hooks, props }
+    return {
+      sessionId: binding.sessionId,
+      hooks,
+      props,
+      // The useProjection seat: key-addressed bare value faces off the
+      // session's projection store (open key space — never a static roster member).
+      projections: { faceOf: key => binding.session.projections.faceOf(key) },
+    }
   }
 
   /**

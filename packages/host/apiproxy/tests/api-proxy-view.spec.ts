@@ -154,39 +154,6 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
   })
 
-  it('tail page carries the full-log todo projection; older pages and todo-less sessions omit it', async () => {
-    const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
-    const session = ctx.sessions.create()
-    ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    // Superseded write early in the log, latest write later; enough messages to page.
-    session.append('todo/write', { todos: [{ content: 'old', status: 'pending' }] })
-    for (let turn = 0; turn < 6; turn++) {
-      session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('user/message', { content: [{ type: 'text', text: `q${turn}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-      session.append('assistant/message', { turn, step: 0, content: [{ type: 'text', text: `a${turn}` }], provenance: { provider: 'p', model: 'm' } }, { surfaceOp: 'append' })
-      session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    }
-    session.append('todo/write', { todos: [{ content: 'current', status: 'in_progress' }] })
-
-    // Tail page limited to 2 messages: the latest todo/write may or may not sit
-    // in the window — the projection must come from the FULL log either way.
-    const tail = await api.sessions.history({ rpcId: RpcId('t-todos'), payload: { sessionId: session.id, maxMessages: 2 } })
-    if (!tail.result.ok) throw new Error('history failed')
-    expect(tail.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
-    // An older page omits the projection (session-level, tail-page-only).
-    const boundary = tail.result.value.events[0]?.event.seq ?? 0
-    const older = await api.sessions.history({ rpcId: RpcId('t-todos-2'), payload: { sessionId: session.id, beforeSeq: boundary, maxMessages: 2 } })
-    if (!older.result.ok) throw new Error('older failed')
-    expect('todos' in older.result.value).toBe(false)
-    // A session with no todo/write anywhere omits the field.
-    const bare = ctx.sessions.create()
-    ctx.agents.register({ id: bare.id, session: bare, status: 'idle', ctx } as Agent)
-    const bareTail = await api.sessions.history({ rpcId: RpcId('t-todos-3'), payload: { sessionId: bare.id } })
-    if (!bareTail.result.ok) throw new Error('bare failed')
-    expect('todos' in bareTail.result.value).toBe(false)
-  })
-
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
     const { ctx } = await harness()
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })

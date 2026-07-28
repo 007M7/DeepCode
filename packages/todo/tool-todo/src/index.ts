@@ -6,8 +6,17 @@
  */
 
 import type { Context } from 'cordis'
+import { z } from 'zod'
+import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+// The `todos` projection-key declaration lives in src/types.ts (its one home);
+// this re-export projects the type face onto the package root AND keeps the
+// module edge in the emitted index.d.ts, so aggregate programs consuming the
+// declarations still receive the SessionProjectionMap merge.
+export type * from './types.ts'
 
 export const name = 'tool-todo'
 export const inject = ['tools']
@@ -57,8 +66,31 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   return todos
 }
 
-/** Register the `todo_write` tool on `ctx.tools`. */
+/** Wire payload schema of the `todos` projection (whole list or pre-first-write null). */
+const todosProjectionSchema: ZodType<TodoItem[] | null> = z.union([
+  z.array(z.object({
+    content: z.string(),
+    status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
+  })),
+  z.null(),
+])
+
+/** Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed, the `todos` unit. */
 export function apply(ctx: Context): void {
+  // The unit child activates only when a projection registry is composed
+  // (headless assemblies without the seam stay unaffected). Pure last-wins
+  // fold: state is the latest whole todo/write list, null before the first
+  // write; every other event returns the same reference (no downstream work).
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
+      key: 'todos',
+      schema: todosProjectionSchema,
+      init: () => null,
+      apply: (state, event) => (event.type === 'todo/write' ? event.data.todos : state),
+      view: state => state,
+      stateVersion: 1,
+    })
+  })
   ctx.tools.register(defineTool({
     name: 'todo_write',
     description: DESCRIPTION,

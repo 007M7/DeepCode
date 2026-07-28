@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
+  AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
   SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -30,7 +30,7 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -88,6 +88,7 @@ function emptyWorkspaces() {
 function makeHarness(init?: Partial<ConversationSnapshot>) {
   const { set, source } = makeSource(init)
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
+  const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
@@ -105,6 +106,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useProjection: (() => undefined),
     useInput: (() => { throw new Error('unused') }),
     inputActions: { setDraft: () => {}, submit: () => {} },
     useStore: bindSnapshotSelector(chat),
@@ -112,10 +114,11 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     renderSlot,
     SessionProvider: SessionProviderStub,
     openDetails,
+    openFile,
     loadOlder,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, loadOlder, setSelection }
+  return { set, ChatView, props, openDetails, openFile, loadOlder, setSelection }
 }
 
 describe('chat-flow derivation', () => {
@@ -281,14 +284,29 @@ describe('ChatView', () => {
     expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
   })
 
-  it('clicking a tool row opens details with callId and toolName; selection marks data-selected', () => {
+  it('clicking a bash summary does not open details; selection still marks data-selected', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     fireEvent.click(view.getByText('run a'))
-    expect(h.openDetails).toHaveBeenCalledWith({ turnSeq: 3, callId: 'a', toolName: 'bash' })
+    expect(h.openDetails).not.toHaveBeenCalled()
+    expect(h.openFile).not.toHaveBeenCalled()
     expect(view.container.querySelector('[data-selected]')).toBeNull()
     act(() => { h.setSelection({ turnSeq: 3, callId: 'a', toolName: 'bash' }) })
     expect(view.container.querySelector('[data-selected]')).not.toBeNull()
+  })
+
+  it('clicking a file-tool path summary opens the host file, not details', () => {
+    const h = makeHarness({
+      nodes: [{
+        kind: 'tool-result', seq: 3, time: 3_000, callId: 'r1',
+        call: { name: 'read', argsRaw: '{"path":"src/a.ts"}' },
+        callTime: 2_500, content: [], isError: false, callView: null, resultView: null,
+      }],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByText('src/a.ts'))
+    expect(h.openFile).toHaveBeenCalledWith('src/a.ts')
+    expect(h.openDetails).not.toHaveBeenCalled()
   })
 
   it('running calls render as a live tool group with the running state', () => {
@@ -377,5 +395,42 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText(/等待审批/)).toBeTruthy()
+  })
+
+  it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {
+    const command = (over: Partial<CommandNode>): CommandNode => ({
+      kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1' as CommandNode['commandId'],
+      name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
+      ...over,
+    })
+    // Settled success: the command line is the title, the outcome text the summary.
+    const settled = makeHarness({ nodes: [user(1, 'hi'), command({})] })
+    const view = render(<settled.ChatView {...settled.props} />)
+    expect(view.getByText('/plan')).toBeTruthy()
+    expect(view.getByText('已进入 plan mode')).toBeTruthy()
+
+    // Error outcome flips the row state; a text-less error gets the default copy.
+    const failed = makeHarness({
+      nodes: [command({ seq: 6, commandId: 'cmd-2' as CommandNode['commandId'], outcome: { kind: 'error' } })],
+    })
+    const fv = render(<failed.ChatView {...failed.props} />)
+    expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(fv.getByText('命令失败')).toBeTruthy()
+
+    // Still executing: running state with the executing copy.
+    const executing = makeHarness({
+      nodes: [command({ seq: 7, commandId: 'cmd-3' as CommandNode['commandId'], outcome: null })],
+    })
+    const xv = render(<executing.ChatView {...executing.props} />)
+    expect(xv.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(xv.getByText('执行中…')).toBeTruthy()
+
+    // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
+    const orphan = makeHarness({
+      nodes: [command({ seq: 8, commandId: 'cmd-4' as CommandNode['commandId'], name: null, args: null, outcome: { kind: 'success' } })],
+    })
+    const ov = render(<orphan.ChatView {...orphan.props} />)
+    expect(ov.getByText('命令')).toBeTruthy()
+    expect(ov.getByText('已完成')).toBeTruthy()
   })
 })
