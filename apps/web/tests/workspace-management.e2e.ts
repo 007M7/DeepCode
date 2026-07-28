@@ -354,8 +354,12 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     const staged = join(scaffold.workspaceCwd, 'browse-golden')
     await mkdir(join(staged, 'alpha'), { recursive: true })
     await mkdir(join(staged, 'beta'), { recursive: true })
+    // homedir() reads HOME on POSIX and USERPROFILE on Windows: root both
+    // at the scaffold cwd so the golden's ancestry collapses everywhere.
     const realHome = process.env.HOME
+    const realUserProfile = process.env.USERPROFILE
     process.env.HOME = scaffold.workspaceCwd
+    process.env.USERPROFILE = scaffold.workspaceCwd
     try {
       await page.getByRole('button', { name: 'Create workspace' }).click()
       await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
@@ -370,7 +374,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       await dialog.getByRole('button', { name: '取消' }).click()
       await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     } finally {
-      process.env.HOME = realHome
+      if (realHome === undefined) delete process.env.HOME
+      else process.env.HOME = realHome
+      if (realUserProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = realUserProfile
     }
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

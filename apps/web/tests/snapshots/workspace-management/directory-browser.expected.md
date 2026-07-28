@@ -1,18 +1,21 @@
 - dialog "选择工作区目录":
   - heading "选择工作区目录" [level=2]
-  - button "主目录"
-  - img
-  - button "browse-golden"
+  - navigation:
+    - button "主目录"
+    - img
+    - button "browse-golden"
   - button "编辑路径"
   - list:
     - listitem:
-      - img
-      - text: alpha
-      - img
+      - button "alpha":
+        - img
+        - text: alpha
+        - img
     - listitem:
-      - img
-      - text: beta
-      - img
+      - button "beta":
+        - img
+        - text: beta
+        - img
   - button "新建文件夹":
     - img
     - text: 新建文件夹
