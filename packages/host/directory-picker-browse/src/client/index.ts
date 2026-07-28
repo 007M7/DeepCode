@@ -7,48 +7,15 @@
  * cordis.yml row; no client code branches on a capability kind. The dialog's
  * copy is locale-registered here — the flow package owns its own strings.
  */
-import { createElement } from 'react'
-import type { ReactElement } from 'react'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext, DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: the SlotMap merge declaring the directory-flow holes and their owner contract.
-import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import { DirectoryBrowser } from './DirectoryBrowser.tsx'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the SlotMap merge declaring the directory-flow holes.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { BrowseFlowInjected } from './flow.ts'
+import { BrowseDirectoryFlow } from './flow.ts'
 
 /** Locale namespace owning the browser dialog's copy. */
 const LOCALE_NS = 'directory-browser'
-
-/** Injected face: the browse wire calls and copy the dialog drives (bound in apply's closure). */
-interface BrowseFlowInjected {
-  /** List one directory level (absent path = the Host home directory). */
-  listDirectory: (path?: string) => Promise<DirectoryListing>
-  /** Create one child directory under an existing parent. */
-  createDirectory: (path: string, name: string) => Promise<string>
-  /** Localized dialog copy (this package's namespace). */
-  t: Translate
-}
-
-/**
- * Flow occupant: adapts the hole's owner conversation onto the browser
- * dialog — a confirmed directory is the picked path, dismissal is the
- * cancellation. Browse failures (unreadable targets, create conflicts) stay
- * inside the dialog's own alert surfaces, so the owner's `onError` arm is
- * never driven by this occupant.
- * @param props - owner conversation plus the injected browse face.
- * @returns the dialog element (renders nothing while closed).
- */
-export function BrowseDirectoryFlow(props: DirectoryFlowOwnerProps & BrowseFlowInjected): ReactElement {
-  return createElement(DirectoryBrowser, {
-    open: props.open,
-    busy: props.busy,
-    listDirectory: props.listDirectory,
-    createDirectory: props.createDirectory,
-    t: props.t,
-    onOpen: props.onPicked,
-    onClose: props.onCancel,
-  })
-}
 
 /** Required services (cordis fiber inject): the slot registry, the wire-facing workspace service, and locale. */
 export const inject = ['slots', 'workspaces', 'locale']

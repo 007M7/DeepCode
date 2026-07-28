@@ -6,7 +6,8 @@ import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import { apply, BrowseDirectoryFlow, inject } from '../src/client/index.ts'
+import { apply, inject } from '../src/client/index.ts'
+import { BrowseDirectoryFlow } from '../src/client/flow.ts'
 
 afterEach(cleanup)
 
