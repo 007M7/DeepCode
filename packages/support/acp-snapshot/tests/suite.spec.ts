@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
 import {
+  assertUniqueSnapshotContents,
+  claimSharedSnapshot,
   fixtureContext,
   formatSystemPromptSnapshot,
   headerChangeCount,
@@ -18,6 +20,7 @@ import {
   scenarioSkipped,
   sessionFixtureNames,
   restorePinnedToolSchemas,
+  type SharedSnapshotClaim,
   stabilizeRefreshLog,
   stdoutExpectedVariants,
   unknownToolCallIds,
@@ -57,6 +60,16 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
+  {
+    name: 'shared-pin',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderChanges: 1,
+    headerClass: 'shared',
+    systemPromptSource: 'pin-turn',
+    toolSchemasSource: 'pin-turn',
+  },
   {
     name: 'plain-turn',
     hasModelTurn: true,
@@ -210,6 +223,158 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
         mode: 'replay',
       })
     }).toThrow(/header class "default" pinned by both first-pin and second-pin/)
+  })
+
+  it('throws when scenario names are duplicated', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'duplicate', hasModelTurn: true, recorded: true, pinsHeader: true },
+          { name: 'duplicate', hasModelTurn: true, recorded: true },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/duplicate scenario name "duplicate"/)
+  })
+
+  it.each(['systemPromptSource', 'toolSchemasSource'] as const)(
+    'rejects %s away from a header pin',
+    (field) => {
+      expect(() => {
+        defineAcpSnapshotSuite({
+          agent: AGENT,
+          snapshotsDir: REPLAY_DIR,
+          scenarios: [{
+            name: 'plain',
+            hasModelTurn: true,
+            recorded: true,
+            [field]: 'owner',
+          }],
+          mode: 'replay',
+        })
+      }).toThrow(new RegExp(`plain\\.${field} is only valid on a header-pinning scenario`))
+    },
+  )
+
+  it('rejects an unknown or non-pinning sidecar source', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [{
+          name: 'pin',
+          hasModelTurn: true,
+          recorded: true,
+          pinsHeader: true,
+          systemPromptSource: 'missing',
+        }],
+        mode: 'replay',
+      })
+    }).toThrow(/pin names unknown system-prompt snapshot source "missing"/)
+
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          {
+            name: 'pin',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            toolSchemasSource: 'plain',
+          },
+          { name: 'plain', hasModelTurn: true, recorded: true },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/pin names non-pinning tool-schema snapshot source "plain"/)
+  })
+
+  it('rejects a sidecar source that redirects the same artifact', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'owner', hasModelTurn: true, recorded: true, pinsHeader: true },
+          {
+            name: 'redirect',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'redirect',
+            systemPromptSource: 'owner',
+          },
+          {
+            name: 'consumer',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'consumer',
+            systemPromptSource: 'redirect',
+          },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/consumer names system-prompt snapshot source "redirect", which does not own its sidecar/)
+  })
+
+  it('rejects shared sidecars with different header-change counts', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          {
+            name: 'owner',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            expectedHeaderChanges: 1,
+          },
+          {
+            name: 'consumer',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'consumer',
+            toolSchemasSource: 'owner',
+          },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/consumer and owner declare different header-change counts for shared tool-schema snapshot/)
+  })
+})
+
+describe('shared snapshot content', () => {
+  it('accepts identical claims and rejects order-dependent shared output', () => {
+    const claims = new Map<string, SharedSnapshotClaim>()
+    claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'first', 'prompt\n')
+    claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'second', 'prompt\n')
+    expect(claims.get('shared/system-prompt.expected.md')).toEqual({
+      scenario: 'first',
+      content: 'prompt\n',
+    })
+    expect(() => {
+      claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'third', 'different\n')
+    }).toThrow(/diverged between first and third/)
+  })
+
+  it('rejects identical committed content under different paths', () => {
+    assertUniqueSnapshotContents('prompt', [
+      { path: 'one/system-prompt.expected.md', content: 'one\n' },
+      { path: 'two/system-prompt.expected.md', content: 'two\n' },
+    ])
+    expect(() => {
+      assertUniqueSnapshotContents('prompt', [
+        { path: 'one/system-prompt.expected.md', content: 'same\n' },
+        { path: 'two/system-prompt.expected.md', content: 'same\n' },
+      ])
+    }).toThrow(/identical prompt snapshots appear in one\/system-prompt\.expected\.md and two\/system-prompt\.expected\.md/)
   })
 })
 
