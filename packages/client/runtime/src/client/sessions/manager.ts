@@ -9,7 +9,12 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
+// Type-only merge edge: the title domain's client-namespace outlet declares
+// the 'title' projection key this manager projects into list rows (and any
+// useProjection('title') consumer reads). Zero value imports by construction.
+import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
+import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
 
 /**
@@ -43,12 +48,6 @@ type SessionListMutation =
 /** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
 const PENDING_BUFFER_CAP = 32
 
-/** Latest title control snapshot retained independently of list/instance arrival. */
-interface SessionTitleSnapshot {
-  title: string
-  eventSeq: number
-  updatedAt: number
-}
 
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
@@ -58,7 +57,11 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
-  private readonly titleSnapshots = new Map<SessionId, SessionTitleSnapshot>()
+  /** Per-session projection value stores, retained independently of instance arrival (the
+   *  title-snapshot precedent, generalized): push frames land here whether or not the Session
+   *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
+   *  same store so history-baseline seeding and frames converge on one row set. */
+  private readonly projectionStores = new Map<SessionId, ProjectionValueStore>()
   private summaries: SessionSummary[] = []
   private listState: 'idle' | 'loading' | 'error' = 'idle'
   /** Arrival phase; the pending → ready edge fires on the first successful pull (see SessionListPhase). */
@@ -163,7 +166,21 @@ export class SessionManager {
       onEngaged: (engaged) => {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
+      projections: this.projectionStore(sessionId),
     })
+  }
+
+  /** Resident per-session projection store (create-on-demand; outlives instantiation). */
+  private projectionStore(sessionId: SessionId): ProjectionValueStore {
+    let store = this.projectionStores.get(sessionId)
+    if (store === undefined) {
+      store = new ProjectionValueStore()
+      // List rows project off store keys (title); any-key changes re-enter
+      // the manager's own batched rebuild channel.
+      store.subscribeAny(() => { this.notifier.markDirty() })
+      this.projectionStores.set(sessionId, store)
+    }
+    return store
   }
 
   // ---- List surface ----
@@ -302,23 +319,20 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
-    if (frame.type === 'session/title') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq >= frame.eventSeq) return
-      this.titleSnapshots.set(frame.sessionId, {
-        title: frame.title,
-        eventSeq: frame.eventSeq,
-        updatedAt: frame.updatedAt,
-      })
+    if (frame.type === 'session/projection') {
+      // Finished host-computed value: land it in the resident store whether or
+      // not the Session is instantiated (list rows read the 'title' key). The
+      // synchronous markDirty keeps the list snapshot same-tick fresh (the
+      // store's own any-key channel is microtask-batched).
+      this.projectionStore(frame.sessionId).apply(frame.key, frame.value, frame.seq)
       this.notifier.markDirty()
       return
     }
     if (frame.type === 'session/subscribed') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq > frame.lastSeq) {
-        this.titleSnapshots.delete(frame.sessionId)
-        this.notifier.markDirty()
-      }
+      // Rows past the host's durable baseline rode state a restart lost; drop
+      // them so last-wins cannot pin a phantom value over recomputed truth.
+      this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
+      this.notifier.markDirty()
       // New mux-generation baseline: buffered session/queued frames belong to
       // the previous generation and the host is about to resend the live
       // snapshot — drop them, or every reconnect appends a duplicate batch
@@ -377,7 +391,7 @@ export class SessionManager {
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
-        this.titleSnapshots.delete(frame.sessionId)
+        this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
       }
       case 'host/session-status': {
@@ -402,10 +416,12 @@ export class SessionManager {
 
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
-      const title = this.titleSnapshots.get(summary.sessionId)
-      return title === undefined
-        ? summary
-        : { ...summary, title: title.title, updatedAt: Math.max(summary.updatedAt, title.updatedAt) }
+      // List rows read the generic 'title' projection key (host-computed unit
+      // value; the bespoke session/title frame is retired).
+      const title = this.projectionStores.get(summary.sessionId)?.get('title')
+      return typeof title === 'string' && title !== ''
+        ? { ...summary, title }
+        : summary
     })
     const fresh = flattenLineage(merged)
     const items = fresh.map((entry) => {

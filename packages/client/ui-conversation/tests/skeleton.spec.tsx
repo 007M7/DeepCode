@@ -48,7 +48,7 @@ const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
     ...overrides,
@@ -93,6 +93,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
           useStore={bindSnapshotSelector(chat)}
@@ -115,6 +116,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
@@ -135,6 +137,7 @@ function mount(
     useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
+    useProjection: (() => undefined),
     useInput,
     inputActions,
     renderSlot,
