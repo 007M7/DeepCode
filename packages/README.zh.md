@@ -44,11 +44,12 @@
 | [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |
 | [`acp/`](acp/README.md) | 仅面向自动化的 Agent Client Protocol 服务器 | 产品：稳定表面 |
 | [`ui/`](ui/README.md) | TUI 与 JSON-RPC 集成、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
+| [`experimental/`](experimental/README.md) | 原型和内部插件 | 未发布 |
 | [`examples/`](examples/README.md) | 演示组合包（agent-spine + TUI/CLI/ACP/JSON-RPC bin），由叶节点加载 | 支持：示例基础设施 |
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
 
-组用于区分产品 API 与支持基础设施。新包加入现有组；新组则更新其 README 和此表。
+新包加入现有组；新组更新其 README 和此表。
 
 ## 依赖
 
