@@ -47,7 +47,18 @@ describe('native path opener', () => {
       .rejects.toThrow('unsupported on freebsd')
   })
 
-  it('runs the default command adapter without a shell', async () => {
+  it('uses the current process platform when no platform override is supplied', async () => {
+    const run = vi.fn<PathOpenerRunner>(async () => ({ stdout: '', stderr: '' }))
+    await openNativePath('/tmp/platform-default.txt', signal(), { run })
+    const expected = process.platform === 'win32'
+      ? 'powershell.exe'
+      : process.platform === 'linux'
+        ? 'xdg-open'
+        : 'open'
+    expect(run.mock.calls[0]?.[0]).toBe(expected)
+  })
+
+  it('runs the default command adapter without a shell and preserves command failures', async () => {
     execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
       callback(null, '', '')
     })
@@ -58,5 +69,14 @@ describe('native path opener', () => {
     expect(options.encoding).toBe('utf8')
     expect(options.windowsHide).toBe(true)
     expect(options.signal).toBeInstanceOf(AbortSignal)
+
+    const commandError = Object.assign(new Error('open failed'), { code: 1 })
+    execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
+      callback(commandError, 'partial output', 'failure details')
+    })
+    await expect(openNativePath('/tmp/missing.txt', signal(), { platform: 'darwin' })).rejects.toMatchObject({
+      message: 'open failed', cause: commandError, code: 1,
+      stdout: 'partial output', stderr: 'failure details',
+    })
   })
 })

@@ -1,40 +1,15 @@
 /** Cross-platform open-with-default-application used by the local GUI carrier. */
 
-import { execFile } from 'node:child_process'
+import { runNativeCommand, type NativeCommandRunner } from './native-command.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
-export type PathOpenerRunner = (
-  command: string,
-  args: readonly string[],
-  signal: AbortSignal,
-) => Promise<{ stdout: string; stderr: string }>
+export type PathOpenerRunner = NativeCommandRunner
 
 /** Injectable platform facts for deterministic adapter tests. */
 export interface PathOpenerInternals {
   platform?: NodeJS.Platform
   run?: PathOpenerRunner
 }
-
-const runCommand: PathOpenerRunner = (command, args, signal) =>
-  new Promise((resolve, reject) => {
-    execFile(
-      command,
-      [...args],
-      { encoding: 'utf8', signal, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          const failure = Object.assign(new Error(error.message, { cause: error }), {
-            code: error.code,
-            stdout,
-            stderr,
-          })
-          reject(failure)
-          return
-        }
-        resolve({ stdout, stderr })
-      },
-    )
-  })
 
 /** PowerShell single-quoted literal (doubles embedded quotes). */
 function powershellLiteral(path: string): string {
@@ -53,7 +28,7 @@ export async function openNativePath(
   internals: PathOpenerInternals = {},
 ): Promise<void> {
   const platform = internals.platform ?? process.platform
-  const run = internals.run ?? runCommand
+  const run = internals.run ?? runNativeCommand
 
   if (platform === 'darwin') {
     await run('open', [path], signal)

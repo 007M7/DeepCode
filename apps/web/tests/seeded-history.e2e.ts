@@ -103,21 +103,19 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
-  it.skipIf(MODE === 'record')('expands and collapses a tool row rebuilt from the cold log', async () => {
+  it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log stay details-inert', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
-    // Interaction over cold-resumed history: read rows are expand-in-place
-    // rows (rowExpands routes the click to toggleExpand, not openDetails), so
-    // the gesture under test is the inline fold over log-rebuilt content.
-    // Runs after the golden capture; still zero model calls.
-    const row = page.locator('[data-variant] [data-clickable][role="button"]').first()
-    await row.waitFor({ timeout: 10_000 })
-    expect(await row.getAttribute('aria-expanded')).toBe('false')
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
-    // The expanded body renders the recorded tool result (a.txt's contents).
-    await expect.poll(() => page.getByText('alpha', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
+    // Interaction over cold-resumed history: read summaries are host-open
+    // file links (not expand-in-place / not details). Runs after the golden
+    // capture; still zero model calls.
+    const fileLink = page.locator('[data-variant="read"] button').first()
+    await fileLink.waitFor({ timeout: 10_000 })
+    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    await fileLink.click()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    // Path label survives from the recorded args (a.txt).
+    await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
