@@ -114,7 +114,7 @@ interface SessionTitleProviderRequest {
 ```
 
 ```ts type-equiv
-/** Provider output before service-owned normalization and durable acceptance. */
+/** Provider output before service-owned normalization and log acceptance. */
 interface SessionTitleProviderResult {
   /** Proposed title text. */
   readonly title: string

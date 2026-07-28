@@ -44,6 +44,21 @@ export function apply(ctx: ClientContext): void {
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
   const fetches = new Map<SessionId, CatalogFetch>()
+  // Per-session lexicon invalidation listeners (subscribeLexicon consumers).
+  const lexiconListeners = new Map<SessionId, Set<() => void>>()
+
+  const notifyLexicon = (sessionId: SessionId): void => {
+    for (const listener of [...(lexiconListeners.get(sessionId) ?? [])]) {
+      try {
+        listener()
+      } catch (error) {
+        // Contain listener failures: settlement notifies from an ignored
+        // promise chain (a throw would surface as an unhandled rejection)
+        // and one faulty consumer must not starve the others.
+        console.error('[ui-skill] lexicon listener failed:', error)
+      }
+    }
+  }
 
   const fetchCatalog = (sessionId: SessionId): Promise<readonly SkillEntry[]> => {
     const existing = fetches.get(sessionId)
@@ -58,7 +73,10 @@ export function apply(ctx: ClientContext): void {
     fetches.set(sessionId, entry)
     promise.then(
       // Settled snapshot backs the synchronous lexicon reads.
-      (skills) => { entry.settled = skills },
+      (skills) => {
+        entry.settled = skills
+        notifyLexicon(sessionId)
+      },
       // A failed fetch must not poison the key: the next consumer retries.
       () => {
         if (fetches.get(sessionId) === entry) fetches.delete(sessionId)
@@ -72,6 +90,7 @@ export function apply(ctx: ClientContext): void {
     if (entry === undefined) return
     fetches.delete(key)
     entry.abort.abort()
+    notifyLexicon(key)
   }
 
   const clearAll = (): void => {
@@ -96,6 +115,16 @@ export function apply(ctx: ClientContext): void {
     },
     lexicon(session) {
       return fetches.get(session.sessionId)?.settled?.map(skill => skill.name)
+    },
+    subscribeLexicon(session, listener) {
+      const key = session.sessionId
+      const listeners = lexiconListeners.get(key) ?? new Set()
+      listeners.add(listener)
+      lexiconListeners.set(key, listeners)
+      return () => {
+        listeners.delete(listener)
+        if (listeners.size === 0) lexiconListeners.delete(key)
+      }
     },
     onPick({ candidate }) {
       // Decision 21: plain-text reference — the literal lands in the draft

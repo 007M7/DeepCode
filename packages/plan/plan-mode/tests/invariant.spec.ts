@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as PlanModeInvariant from '@deepseek-ai/dsh-plan-mode/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -16,24 +16,46 @@ function event(active: unknown): SessionEvent {
   return { type: 'plan/mode', seq: 0, time: 0, data: { active } } as SessionEvent
 }
 
+function emitTurnStart(ctx: Context, session: Session): void {
+  ctx.emit('session/event', session, {
+    type: 'turn/start', seq: 0, time: 0,
+    data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+  })
+}
+
 describe('plan-mode stream invariants', () => {
   it('accepts either boolean state', async () => {
     const ctx = await setup()
-    expect(() => { ctx.emit('session/event', {} as Session, event(true)) }).not.toThrow()
-    expect(() => { ctx.emit('session/event', {} as Session, event(false)) }).not.toThrow()
+    const session = new Session(SessionId('plan-state'))
+    emitTurnStart(ctx, session)
+    expect(() => { ctx.emit('session/event', session, event(true)) }).not.toThrow()
+    expect(() => { ctx.emit('session/event', session, event(false)) }).not.toThrow()
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 3, time: 3,
+      data: { turn: 1, reason: { kind: 'completed' } },
+    })
   })
 
   it.each([42, 'plan', undefined])('rejects invalid durable plan state %j', async (active) => {
     const ctx = await setup()
-    expect(() => { ctx.emit('session/event', {} as Session, event(active)) })
+    const session = new Session(SessionId(`invalid-${String(active)}`))
+    emitTurnStart(ctx, session)
+    expect(() => { ctx.emit('session/event', session, event(active)) })
       .toThrow(/expected a boolean/)
+  })
+
+  it('rejects plan state outside any open turn', async () => {
+    const ctx = await setup()
+    expect(() => ctx.sessions.create().append('plan/mode', { active: true }))
+      .toThrow(/outside any open turn/)
   })
 
   it('ignores unrelated dispatches and session events', async () => {
     const ctx = await setup()
+    const session = new Session(SessionId('unrelated'))
     expect(() => {
       ctx.emit('tools/change')
-      ctx.emit('session/event', {} as Session, {
+      ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       })
     }).not.toThrow()
@@ -42,9 +64,33 @@ describe('plan-mode stream invariants', () => {
   it('rejects invalid existing state on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    ctx.sessions.create().append('plan/mode', { active: 'plan' as unknown as boolean })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('plan/mode', { active: 'plan' as unknown as boolean })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService, { enabled: true })
 
     await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).rejects.toThrow(/expected a boolean/)
+  })
+
+  it('replays enclosed existing plan state through its closing boundary', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('plan/mode', { active: true })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).resolves.toBeUndefined()
+  })
+
+  it('rejects unenclosed existing plan state on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.sessions.create().append('plan/mode', { active: true })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 })

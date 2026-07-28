@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import css from './ImageLightbox.module.css'
 
 /** Document-level original-image preview opened by an explicit double-click. */
-export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose(): void }) {
+export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
 

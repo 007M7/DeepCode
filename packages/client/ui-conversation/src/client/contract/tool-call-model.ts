@@ -101,6 +101,14 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   others: [],
 }
 
+/** Strip the workspace root from workspace-rooted absolute paths (display only). */
+function relativizeToCwd(text: string, cwd: string | undefined): string {
+  if (cwd === undefined || cwd === '') return text
+  const root = cwd.replace(/[/\\]+$/, '')
+  if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`)) return text.slice(root.length + 1)
+  return text
+}
+
 function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
   const parsed = parseArgs(argsRaw)
   if (typeof parsed !== 'object' || parsed === null) return firstLine(argsRaw)
@@ -130,16 +138,17 @@ function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
  * Derive the full row model from a frozen call slice.
  * @param toolName - wire tool name (dispatch-supplied; survives windowless results).
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
+ * @param cwd - session workspace root; workspace-rooted path summaries display relative to it.
  * @returns the row model.
  */
-export function toolRowModel(toolName: string, block: ToolCallBlock): ToolRowModel {
+export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: string): ToolRowModel {
   const variant = classifyTool(toolName)
   const done = 'kind' in block
   const argsRaw = (done ? block.call?.argsRaw : block.argsRaw) ?? ''
   const state: ToolRowState = !done ? 'running'
     : block.error?.code === 'interrupted' ? 'stopped'
       : block.isError ? 'error' : 'ok'
-  const base = argsRaw === '' ? block.callId : deriveSummary(variant, argsRaw)
+  const base = argsRaw === '' ? block.callId : relativizeToCwd(deriveSummary(variant, argsRaw), cwd)
   const toolTitle = TOOL_TITLES[toolName]
   // Others keeps the static "Tool call" title (figma literal); the real tool
   // name rides the mutable summary slot unless the tool owns a specific title.

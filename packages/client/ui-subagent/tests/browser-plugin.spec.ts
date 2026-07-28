@@ -32,17 +32,31 @@ function sessionsWith(sessions: SessionSummary[]) {
   const byId: Record<string, SessionSummary> = {}
   for (const s of sessions) byId[s.id] = s
   const snapshot = { ids: sessions.map(s => s.id), byId, current: undefined } as unknown as SessionListState
-  return { list: { getSnapshot: () => snapshot } }
+  const subs = new Set<() => void>()
+  return {
+    list: {
+      getSnapshot: () => snapshot,
+      subscribe: (fn: () => void) => { subs.add(fn); return () => { subs.delete(fn) } },
+    },
+    notify: () => { for (const fn of [...subs]) fn() },
+    listenerCount: () => subs.size,
+  }
 }
 
-/** Boot the plugin over fake slash/sessions faces; returns the captured source. */
-async function bench(sessions: SessionSummary[]): Promise<SlashSource> {
+/** Boot the plugin over fake slash/sessions faces; returns the captured source and the list face. */
+async function fullBench(sessions: SessionSummary[]) {
   const ctx = new Context()
   let captured: SlashSource | undefined
+  const face = sessionsWith(sessions)
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
-  ctx.provide('sessions', sessionsWith(sessions))
+  ctx.provide('sessions', face)
   await ctx.plugin({ inject: [...inject], apply }).await()
-  return captured!
+  return { source: captured!, face }
+}
+
+/** Source-only bench for the behavior-contract suites. */
+async function bench(sessions: SessionSummary[]): Promise<SlashSource> {
+  return (await fullBench(sessions)).source
 }
 
 const FAMILY: SessionSummary[] = [
@@ -112,6 +126,19 @@ describe('lexicon', () => {
     const source = await bench(FAMILY)
     expect(source.lexicon!(proj('parent'))).toEqual(['worker-1', 'worker-2', 'scout'])
     expect(source.lexicon!(proj('childless'))).toEqual([])
+  })
+
+  it('subscribeLexicon forwards the session-list change feed and unsubscribes cleanly', async () => {
+    const { source, face } = await fullBench(FAMILY)
+    let notified = 0
+    const off = source.subscribeLexicon!(proj('parent'), () => { notified += 1 })
+    expect(face.listenerCount()).toBe(1)
+    face.notify()
+    expect(notified).toBe(1)
+    off()
+    expect(face.listenerCount()).toBe(0)
+    face.notify()
+    expect(notified).toBe(1)
   })
 })
 

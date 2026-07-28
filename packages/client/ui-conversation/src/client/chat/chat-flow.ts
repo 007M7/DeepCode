@@ -12,6 +12,16 @@ export type ChatFlowItem =
   | { kind: 'node'; key: string; node: ConversationNode }
   | { kind: 'tool-group'; key: string; results: readonly ToolResultNode[] }
 
+/** An assistant node that renders nothing: only tool-call heads (rows render
+ *  via the grouping pass) and blank text/reasoning. Skipped by the flow so it
+ *  neither costs column gaps nor splits a tool-row run. Interrupted nodes
+ *  always render (the 已停止 marker). */
+function rendersNothing(node: ConversationNode): boolean {
+  return node.kind === 'assistant' && node.interrupted !== true
+    && node.blocks.every(b => b.kind === 'tool-call'
+      || ((b.kind === 'text' || b.kind === 'reasoning') && b.text.trim() === ''))
+}
+
 /**
  * Group finalized nodes into the step-summary flow.
  * @param nodes - snapshot nodes (surface order).
@@ -21,6 +31,7 @@ export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem
   const items: ChatFlowItem[] = []
   let group: ToolResultNode[] | null = null
   for (const node of nodes) {
+    if (rendersNothing(node)) continue
     if (node.kind === 'tool-result') {
       if (group === null) {
         group = [node]

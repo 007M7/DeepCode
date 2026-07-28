@@ -122,6 +122,8 @@ function mount(
           addImages={() => null}
           removeImage={() => {}}
           draftImages={() => []}
+          useNotices={bindSnapshotSelector(wiring.notices)}
+          useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}

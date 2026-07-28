@@ -39,6 +39,7 @@ const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
+const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
@@ -75,6 +76,13 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  {
+    name: 'session-title-after-turn',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: SESSION_TITLE_CONFIG,
+  },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   // Authored from the real PACKED_CHUNKS_SOURCE recording under the ordinary
   // app composition. The contract below pins decoded equality and all three

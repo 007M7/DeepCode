@@ -92,13 +92,13 @@
   color: var(--dsw-alias-state-success-primary);
 }
 
+.glyphPending {
+  color: var(--dsw-alias-label-caption);
+}
+
 .glyphProgress {
   color: var(--dsw-alias-state-business-primary);
   animation: todo-progress-spin 1s linear infinite;
-}
-
-.glyphPending {
-  color: var(--dsw-alias-label-caption);
 }
 
 @keyframes todo-progress-spin {

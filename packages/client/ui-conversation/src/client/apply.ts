@@ -170,6 +170,7 @@ export function apply(ctx: Context): void {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
+        hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },
   }, InputBar)
