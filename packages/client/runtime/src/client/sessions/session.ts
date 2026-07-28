@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
   SessionId, SessionMetrics, ToolEventView,
@@ -12,7 +12,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationMetrics, ConversationNode, ConversationSnapshot, OpenState,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
@@ -20,6 +20,8 @@ import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
+import { ProjectionValueStore } from './projection-store.ts'
+import type { ProjectionsBaseline } from './projection-store.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -35,6 +37,12 @@ export interface SessionOptions {
    * (hidden, still reusable by connectWorkspace).
    */
   onEngaged?(session: Session): void
+  /**
+   * Manager-owned projection value store to adopt (frames route through the
+   * manager and values outlive instantiation); omitted, the Session owns a
+   * private store (bare object-layer construction).
+   */
+  projections?: ProjectionValueStore
 }
 
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
@@ -99,11 +107,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
-   *  field is the authoritative empty list) and every live write overwrites it. */
-  private todos: readonly TodoItem[] = []
-  /** Host-owned metrics with current-connection request capacity overlaid. */
-  private metrics: ConversationMetrics | null = null
+  /** Host-owned durable usage/current-pressure projection. */
+  private metrics: SessionMetrics | null = null
   /** Latest capacity observed on this mux connection, independent of durable metrics arrival. */
   private contextWindow: number | undefined
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
@@ -130,6 +135,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
 
+  /**
+   * Per-session projection value store (session-projection RFC, push model):
+   * finished whole values computed on the host, seeded by the tail page's
+   * projections block and updated by `session/projection` frames under the
+   * one higher-seq-wins rule. Keys are read via `projections.faceOf(key)`
+   * (the useProjection resolution face); the conversation snapshot never
+   * carries projection values, and no client-side domain folding exists.
+   * Manager-owned when constructed through SessionManager (frames route and
+   * the store outlives instantiation, the title-snapshot precedent); a bare
+   * construction gets a private store.
+   */
+  readonly projections: ProjectionValueStore
+
   private snapshotCache: ConversationSnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -153,6 +171,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     private readonly api: IApiClient,
     private readonly options: SessionOptions = {},
   ) {
+    this.projections = options.projections ?? new ProjectionValueStore()
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -360,6 +379,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       }
       case 'session/subscribed': {
         this.subscribedLastSeq = frame.lastSeq
+        let changed = false
         // New mux-generation baseline: the host pushes this session's queue
         // snapshot AFTER the subscribed frame on the same stream, so the
         // stale mirror clears here — race-free against onConnected/resync
@@ -367,13 +387,17 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (this.queued.length > 0) {
           this.queued = []
           this.queueRev++
-          this.notifier.markDirty()
+          changed = true
         }
-        this.contextWindow = undefined
+        if (this.contextWindow !== undefined) {
+          this.contextWindow = undefined
+          changed = true
+        }
         if (this.metrics !== null) {
           this.metrics = null
-          this.notifier.markDirty()
+          changed = true
         }
+        if (changed) this.notifier.markDirty()
         return
       }
       case 'session/metrics': {
@@ -383,13 +407,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'session/model-request': {
         if (this.contextWindow === frame.contextWindow) return
         this.contextWindow = frame.contextWindow
-        if (this.metrics !== null) {
-          const { contextWindow: _previous, ...durable } = this.metrics
-          this.metrics = frame.contextWindow === undefined
-            ? durable
-            : { ...durable, contextWindow: frame.contextWindow }
-          this.notifier.markDirty()
-        }
+        this.notifier.markDirty()
         return
       }
       case 'approval/requested': {
@@ -508,7 +526,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore, result.value.todos, result.value.metrics)
+      this.installWindow(
+        result.value.events,
+        result.value.hasMore,
+        result.value.projections,
+        result.value.metrics,
+      )
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
@@ -518,7 +541,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.installWindow(
             result.value.events,
             result.value.hasMore,
-            result.value.todos,
+            result.value.projections,
             result.value.metrics,
           )
         }
@@ -538,28 +561,24 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
-   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  A carried projections block seeds the value store (higher seq wins, so a stale
+   *  baseline cannot overwrite a newer push frame); the window events themselves are
+   *  never folded — the host is the only computation site. */
   private installWindow(
     entries: HistoryEntry[],
     hasMore: boolean,
-    todos: readonly TodoItem[] | undefined,
+    projections: ProjectionsBaseline | undefined,
     metrics: SessionMetrics | undefined,
   ): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
-    // Session-level projection from the tail page (full-log latest todo/write,
-    // independent of the window); an in-window write below re-derives the same
-    // value, and later live events keep overwriting it. Every caller here is a
-    // tail request (no beforeSeq), which the host answers with the projection
-    // or omits it only when the full log holds no todo/write — so an absent
-    // field is the authoritative empty list, not a missing carrier. Assigning
-    // it clears a plan the log never kept (a write lost to a host crash).
-    this.todos = todos ?? []
-    if (metrics !== undefined) this.installMetrics(metrics)
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    if (projections !== undefined) this.projections.seed(projections)
+    if (metrics !== undefined) this.installMetrics(metrics)
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -611,7 +630,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.installWindow(
           result.value.events,
           result.value.hasMore,
-          result.value.todos,
+          result.value.projections,
           result.value.metrics,
         )
       }
@@ -733,10 +752,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
         return
       }
-      case 'todo/write': {
-        this.todos = event.data.todos
-        return
-      }
       case 'turn/end': {
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
@@ -781,10 +796,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text).
-   *  todos is deliberately NOT reset: it is session-level (seeded by the tail page's full-log
-   *  projection, not derivable from an arbitrary window). The window always extends to the log
-   *  tail, so an in-window todo/write can only overwrite it with the same latest value. */
+   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
@@ -815,9 +827,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         || metrics.projectionRevision < current.projectionRevision
       )
     ) return
-    this.metrics = this.contextWindow === undefined
-      ? metrics
-      : { ...metrics, contextWindow: this.contextWindow }
+    this.metrics = metrics
     this.notifier.markDirty()
   }
 
@@ -870,8 +880,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      todos: this.todos,
       metrics: this.metrics,
+      ...(this.contextWindow === undefined
+        ? {}
+        : { modelRequestContextWindow: this.contextWindow }),
     }
   }
 }

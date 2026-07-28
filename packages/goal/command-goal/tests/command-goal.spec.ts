@@ -6,7 +6,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import { Session, SessionId, type UserMessageData } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type UserMessageData } from '@deepseek-ai/dsh-session'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 
 interface Harness {
@@ -16,14 +16,19 @@ interface Harness {
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
 }
 
-/** Append one idle injection using the public Agent contract. */
+/** Append one idle injection using the public Agent contract (idle inject wraps in a one-shot injection turn, per turn enclosure). */
 function appendInjection(session: Session, input: UserMessageData): void {
+  const lastStart = session.events.findLast(event => event.type === 'turn/start')
+  const turn = (lastStart?.data.turn ?? 0) + 1
+  session.append('turn/start', { turn, trigger: { kind: 'injection', source: input.source } })
   session.append('user/message', input, { surfaceOp: 'append' })
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 /** Build a live idle agent accepted by the exact-identity goal service. */
-function stubAgent(id: string): { agent: Agent; session: Session } {
-  const session = new Session(SessionId(id))
+function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
+  // Store-created: the command executor durably logs lifecycle events on it.
+  const session = ctx.sessions.create(SessionId(id))
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
@@ -45,24 +50,40 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
 /** Mount the real command registry, goal domain, and producer. */
 async function harness(): Promise<Harness> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   await ctx.plugin(CommandService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(GoalService)
   const plugin = await ctx.plugin(commandGoal)
-  const { agent, session } = stubAgent(`command-goal-${Math.random()}`)
+  const { agent, session } = stubAgent(ctx, `command-goal-${Math.random()}`)
   ctx.agents.register(agent)
   return { ctx, agent, session, plugin }
 }
 
+/** The log with executor-owned command lifecycle bookkeeping stripped (goal assertions target domain events). */
+function domainEvents(session: Session): readonly Session['events'][number][] {
+  const lifecycle = new Set<number>()
+  for (const event of session.events) {
+    if (event.type !== 'command/run' && event.type !== 'command/done') continue
+    lifecycle.add(event.seq)
+    // The zero-step wrap around a lifecycle event is bookkeeping too.
+    const before = session.events[event.seq - 1]
+    const after = session.events[event.seq + 1]
+    if (before?.type === 'turn/start') lifecycle.add(before.seq)
+    if (after?.type === 'turn/end') lifecycle.add(after.seq)
+  }
+  return session.events.filter(event => !lifecycle.has(event.seq))
+}
+
 /** Execute `/goal` through the same registry boundary as a UI adapter. */
-async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>> {
-  const result = await test.ctx.commands.execute(
+async function run(test: Harness, suffix = ''): Promise<NonNullable<Awaited<ReturnType<CommandService['execute']>>>['result']> {
+  const execution = await test.ctx.commands.execute(
     test.agent,
     `/goal${suffix}`,
     new AbortController().signal,
   )
-  if (result === undefined) throw new Error('goal command was not registered')
-  return result
+  if (execution === undefined) throw new Error('goal command was not registered')
+  return execution.result
 }
 
 /** Current exact compare-and-set ref. */
@@ -98,7 +119,7 @@ describe('/goal human command', () => {
       kind: 'success',
       text: 'No goal is currently set.\nUsage: /goal [<objective>|clear|edit <objective>|pause|resume]',
     })
-    expect(test.session.events).toEqual([])
+    expect(domainEvents(test.session)).toEqual([])
   })
 
   it('creates a trimmed objective and refuses silent replacement of unfinished work', async () => {
@@ -110,14 +131,14 @@ describe('/goal human command', () => {
     expect(created.text).toContain('Rounds: 0/256')
     expect(created.text).toContain('Activation: armed')
     expect(test.ctx.goals.get(test.agent)?.objective).toBe('finish the release')
-    expect(test.session.events.map(event => event.type)).toEqual(['user/message'])
+    expect(domainEvents(test.session).map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
 
-    const count = test.session.events.length
+    const count = domainEvents(test.session).length
     await expect(run(test, ' replacement')).resolves.toEqual({
       kind: 'error',
       text: 'A goal is already active. Use /goal edit <objective> to change it or /goal clear before replacing it.',
     })
-    expect(test.session.events).toHaveLength(count)
+    expect(domainEvents(test.session)).toHaveLength(count)
   })
 
   it('treats only exact control words as controls', async () => {

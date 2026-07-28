@@ -10,8 +10,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 // Export discipline: packages/client/AGENTS.md.
 import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
@@ -64,20 +65,23 @@ describe('TodoPanel', () => {
   })
 })
 
-/** Dock props stub: the adapter reads useSession only; the rest of the owner share is unused. */
-function dockProps(store: ReturnType<typeof createSnapshotStore<{ todos: readonly TodoItem[] }>>): TodoDockProps {
-  return { useSession: bindSnapshotSelector(store) } as unknown as TodoDockProps
+/** Dock props stub: the adapter reads the 'todos' projection only; the rest of the owner share is unused. */
+function dockProps(store: ReturnType<typeof createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>>): TodoDockProps {
+  const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
+    bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
+  return { useProjection } as unknown as TodoDockProps
 }
 
 describe('TodoDock', () => {
-  it('selects the plan off the session snapshot and follows later writes', () => {
-    const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos: [] })
+  it('reads the host-computed todos projection and follows pushed updates', () => {
+    const store = createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>({ value: undefined })
     render(<TodoDock {...dockProps(store)} />)
+    // Capability absent (no baseline/frame yet) renders nothing.
     expect(screen.queryByTestId('todo-panel')).toBeNull()
-    act(() => { store.set({ todos: LIST }) })
+    act(() => { store.set({ value: LIST }) })
     expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
-    // A rollback to the empty list retires the strip (the panel owns no data).
-    act(() => { store.set({ todos: [] }) })
+    // The pre-first-write whole value (null) retires the strip (the panel owns no data).
+    act(() => { store.set({ value: null }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()
   })
 

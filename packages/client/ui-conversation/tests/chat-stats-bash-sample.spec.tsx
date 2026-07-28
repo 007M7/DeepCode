@@ -30,7 +30,7 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, metrics: null,
   }
 }
@@ -82,13 +82,11 @@ describe('stats derivation', () => {
       cacheReadTokens: 900,
       cacheWriteTokens: 50_000,
       contextTokens: 34_500,
-      contextWindow: 100_000,
     }
     expect(cacheHitPercent(durable)).toBe(90)
-    expect(contextPercent(durable)).toBe(35)
-    expect(contextPercent({ ...durable, contextTokens: 200_000 })).toBe(100)
-    const { contextWindow: _contextWindow, ...withoutContextWindow } = durable
-    expect(contextPercent(withoutContextWindow)).toBeNull()
+    expect(contextPercent(durable, 100_000)).toBe(35)
+    expect(contextPercent({ ...durable, contextTokens: 200_000 }, 100_000)).toBe(100)
+    expect(contextPercent(durable, undefined)).toBeNull()
     expect(cacheHitPercent({ ...durable, uncachedInputTokens: 0, cacheReadTokens: 0 })).toBeNull()
   })
 
@@ -115,8 +113,8 @@ describe('StatsLine', () => {
         cacheReadTokens: 2_172_544,
         cacheWriteTokens: 99_999,
         contextTokens: 89_600,
-        contextWindow: 256_000,
       },
+      modelRequestContextWindow: 256_000,
     })
     const view = render(<StatsLine {...props(source)} />)
     expect(view.getByText(

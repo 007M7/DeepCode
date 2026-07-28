@@ -56,12 +56,13 @@ export function cacheHitPercent(metrics: SessionMetrics): number | null {
 
 /**
  * Current context occupancy using the TUI's integer rounding and upper clamp.
- * @param metrics - Host-owned pressure plus current-connection request capacity.
+ * @param metrics - Host-owned durable pressure.
+ * @param contextWindow - capacity from the latest request observed on this mux generation.
  * @returns occupancy percent, or null when either input is unavailable.
  */
-export function contextPercent(metrics: SessionMetrics): number | null {
-  if (metrics.contextTokens === undefined || metrics.contextWindow === undefined) return null
-  return Math.min(100, Math.round(metrics.contextTokens / metrics.contextWindow * 100))
+export function contextPercent(metrics: SessionMetrics, contextWindow: number | undefined): number | null {
+  if (metrics.contextTokens === undefined || contextWindow === undefined) return null
+  return Math.min(100, Math.round(metrics.contextTokens / contextWindow * 100))
 }
 
 /** Props: the conversation-snapshot selector hook (handed down by ChatView). */
@@ -70,6 +71,7 @@ export interface StatsLineProps { useSession: SnapshotSelectorHook<ConversationS
 export const StatsLine = memo(function StatsLine({ useSession }: StatsLineProps) {
   const nodes = useSession(s => s.nodes)
   const metrics = useSession(s => s.metrics)
+  const contextWindow = useSession(s => s.modelRequestContextWindow)
   const counts = useMemo(() => deriveVisibleCounts(nodes), [nodes])
   if (counts.steps === 0 && (
     metrics === null
@@ -90,10 +92,10 @@ export const StatsLine = memo(function StatsLine({ useSession }: StatsLineProps)
     parts.push(`${formatMetricTokens(metrics.cacheReadTokens)} cache read`)
     const cacheHit = cacheHitPercent(metrics)
     if (cacheHit !== null) parts.push(`cache hit ${cacheHit}%`)
-    const context = contextPercent(metrics)
+    const context = contextPercent(metrics, contextWindow)
     parts.push(context === null
       ? 'context unknown'
-      : `context ${context}% of ${formatMetricTokens(metrics.contextWindow as number)}`)
+      : `context ${context}% of ${formatMetricTokens(contextWindow as number)}`)
   }
   parts.push(`${counts.turns} turns`)
   parts.push(`${counts.steps} steps`)

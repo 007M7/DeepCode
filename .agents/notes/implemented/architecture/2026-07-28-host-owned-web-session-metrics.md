@@ -16,9 +16,9 @@ Current context pressure is the point-in-time `tokenMeter.measure(session).total
 
 The tail `session.history` response carries durable usage and pressure, while older pages omit them. Live changes use `session/metrics` mux frames. Both forms carry a durable-log revision and a projection revision; the client accepts only nondecreasing revisions and preserves metrics across older-page prepend.
 
-ApiProxy forwards each notification as a distinct `session/model-request` frame only to mux connections already open when dispatch occurs. It never places the frame in `session.history` or a subscription baseline. The client retains that connection-local capacity across ordinary metrics updates, replaces or explicitly clears it on the next observed request, and clears it on `session/subscribed`; reconnect, restore, and a new subscription therefore start unknown until another request is observed.
+ApiProxy forwards each notification as a distinct `session/model-request` frame only to mux connections already open when dispatch occurs. It never places the frame in `session.history` or a subscription baseline. The client keeps durable `metrics` and transient `modelRequestContextWindow` as separate snapshot fields, replaces or explicitly clears the capacity on the next observed request, and clears both fields on `session/subscribed`; reconnect, restore, and a new subscription therefore start unknown until another request is observed.
 
-The Web stats line treats the durable projection plus live capacity overlay as its sole token source. It renders uncached input, output, and cache reads separately, computes cache hit as `cacheRead / (uncachedInput + cacheRead)`, and shows current context as a percentage only when the current connection observed a capacity. Cache writes never enter that percentage. Visible nodes continue to supply only turn and step counts.
+The Web stats line joins the durable projection and live capacity only at presentation. It renders uncached input, output, and cache reads separately, computes cache hit as `cacheRead / (uncachedInput + cacheRead)`, and shows current context as a percentage only when the current connection observed a capacity. Cache writes never enter that percentage. Visible nodes continue to supply only turn and step counts.
 
 ## Alternatives considered
 

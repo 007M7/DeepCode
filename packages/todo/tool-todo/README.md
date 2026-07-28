@@ -22,6 +22,10 @@ Beyond the schema's type/required/enum checks, `execute` rejects an empty or dup
 
 The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves: the [TUI app](../../examples/tui-demo) shows it as a persistent plan, and the [web client](../../client/ui-conversation) renders a plan strip plus a dedicated tool row off `ConversationSnapshot.todos` ([Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)).
 
+## Session projection
+
+When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)), this package registers the `todos` projection unit under an injected child: `init` = `null` (no write yet), `apply` = take the whole list from each `todo/write` (last-wins; every other event returns the same state reference), `view` = identity, `stateVersion` = 1. The key merges into `SessionProjectionMap` here (via the interface package's `/types` outlet); the framework drives the unit and carriers serve the value on the history tail page and the `session/projection` push frame. Compositions without the registry are unaffected.
+
 ## Export shape
 
 A function/namespace plugin: it exports `name` / `inject` / `apply` and NO default. A stray `export default` would collapse the module via the Loader's `unwrapExports` and drop `inject` (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).

@@ -14,6 +14,8 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 带作用域的注册表层：`Agent.ctx` 是 agent 的作用域上下文（`dsh-scope`，键 = 该 agent）。通过它注册工具／段／变量／监听器，只对该 agent 生效，并在释放时全部撤销。`agentEvents(ctx, agent)` 是普通 agent 主体操作的融合分发器（一次完成载体 + 注入主体）；其通知 mode 会调用每个监听器，并同时收容同步抛出和返回 Promise 的拒绝。注册表生命周期对复用一个稳定路由载体。`assembleContextFor(agent)` 构建按 agent 的组装上下文（同时包含 `agent` + `scope`）。`installAgentLlmTarget(agentCtx, target)` 在提示词组装期间快照可变的提供方／模型／推理（reasoning）强度选择，将路由应用到提示词变量，并将完整目标应用到一个步骤的请求路由；如果没有选定推理强度，则会清除继承的推理强度，使该目标使用适配器／提供方默认值。`CreateAgentOptions.setup(agentCtx)` 和 `ResumeAgentOptions.setup(agentCtx)` 在新建或恢复的 agent 尚未发布时，组合其带作用域的世界。Setup 是受信任、仅用于组合的同进程代码：只有创建完成后才能驱动 agent。
 
+`AgentOptions` 提供初始的提供方／模型路由，以及可选的正整数 `maxTokens` 输出上限。实体循环会把该上限记录到请求 header，并应用到每次对话模型请求；调用方省略时由提供方默认值控制。
+
 - `ctx.agents.register(agent: Agent): () => void`：记录一个 **已经构造完成** 的 agent。随调用 fiber 释放。
 - 高级有序生命周期：`enter(agent, owner): () => void` 强制 `agent.id === agent.session.id`，执行权威 ID 冲突检查，并在不通知的情况下插入；`owner` 显式记录实时创建方 agent 关系（根 agent 为 `undefined`），与持久会话谱系无关。`announce(agent)` 恰好发出一次 `agent/created`。创建监听器同步请求的 detach 会延后到该次分发结束；每次 detach 都会检查捕获的条目对象，因此陈旧能力无法删除后续使用同一 ID 的替代项。异步工厂使用这一拆分；普通插件使用 `register()`。
 - `ctx.agents.get(id: SessionId): Agent | undefined`
@@ -48,7 +50,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器静默后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序契约。
 
-大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点；`agent/model-request` 是失败会被收容的通知，它会报告外层流句柄已返回的尝试所用路由，以及可选的、与注册项绑定的上下文容量。它既不是持久状态，也不能证明提供方 I/O 已开始。`agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实和信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
+大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点；`agent/model-request` 通知的失败会被收容，外层流调用为一次尝试返回句柄后，该通知会报告其路由以及可选的、与注册项绑定的上下文容量。它既不是持久状态，也不能证明提供方 I/O 已开始。`agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实和信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
 `PromptDecision.additionalContexts` 是数组，因此每个上下文都保留自己的来源。获准的提示词内容与每个附加上下文都会在轮次运行前成为各自独立、面向模型的 `user/message` 事件。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；返回的允许决策是权威来源。
 

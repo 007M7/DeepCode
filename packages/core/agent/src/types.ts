@@ -24,6 +24,8 @@ export interface AgentOptions {
   provider?: string
   /** Model id interpreted by the selected provider adapter. */
   model?: string
+  /** Maximum output tokens for each conversation-model request. */
+  maxTokens?: number
 }
 
 /**

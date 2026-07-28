@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-28-host-owned-web-session-metrics.md
-2026-07-28-host-owned-web-session-metrics.md: bc66ee72dc278196af8bab65c5e118d8f5cf039c
-2026-07-28-host-owned-web-session-metrics.zh.md: a103a8e24bd806ded6131b94f4c123c8d745513d
+2026-07-28-host-owned-web-session-metrics.md: f0a0bdb8ea4c1ba1f983d016c3cfde9c67a0424d
+2026-07-28-host-owned-web-session-metrics.zh.md: 4535fd8a4b760aa031c11ab766b6be583b9b740d
