@@ -64,24 +64,6 @@ export interface SessionHeader {
    * resume — a runtime-only depth would reset a resumed child to top-level.
    */
   readonly delegationDepth?: number
-  /**
-   * The sandbox-mode override inherited from the delegating parent at
-   * creation (the delegation-inheritance baseline). A neutral string here:
-   * the policy owner (`dsh-sandbox-policy`) validates it against its closed
-   * vocabulary on every read, this being a durable boundary. Absent for
-   * top-level sessions and for children of unswitched parents, which keep
-   * following the LIVE deployment default. Header-carried (the
-   * `delegationDepth` precedent) so the baseline is durable from the creation
-   * moment — no first-turn event survives every crash window, because an
-   * idle injection can persist a complete turn before any prompt turn opens.
-   */
-  readonly sandboxMode?: string
-  /**
-   * The approval-policy override inherited from the delegating parent at
-   * creation. Same contract as {@link SessionHeader.sandboxMode}; validated
-   * by `dsh-user-approval` on read.
-   */
-  readonly approvalPolicy?: string
 }
 
 /**
@@ -90,7 +72,7 @@ export interface SessionHeader {
  * store folds into a {@link SessionHeader}.
  */
 export interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial log events supplied at construction (replay, fork, or creation-time facts). */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit
@@ -102,8 +84,6 @@ export interface CreateSessionOptions {
     readonly createdAt?: number
     readonly seedLength?: number
     readonly delegationDepth?: number
-    readonly sandboxMode?: string
-    readonly approvalPolicy?: string
   }
 }
 

@@ -72,30 +72,12 @@ interface SessionHeader {
    * resume — a runtime-only depth would reset a resumed child to top-level.
    */
   readonly delegationDepth?: number
-  /**
-   * The sandbox-mode override inherited from the delegating parent at
-   * creation (the delegation-inheritance baseline). A neutral string here:
-   * the policy owner (`dsh-sandbox-policy`) validates it against its closed
-   * vocabulary on every read, this being a durable boundary. Absent for
-   * top-level sessions and for children of unswitched parents, which keep
-   * following the LIVE deployment default. Header-carried (the
-   * `delegationDepth` precedent) so the baseline is durable from the creation
-   * moment — no first-turn event survives every crash window, because an
-   * idle injection can persist a complete turn before any prompt turn opens.
-   */
-  readonly sandboxMode?: string
-  /**
-   * The approval-policy override inherited from the delegating parent at
-   * creation. Same contract as {@link SessionHeader.sandboxMode}; validated
-   * by `dsh-user-approval` on read.
-   */
-  readonly approvalPolicy?: string
 }
 ```
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (replay/fork an existing event log) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, the inherited `sandboxMode`/`approvalPolicy` delegation baselines, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (initial events for replay, fork, or creation-time facts) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
 
 ```ts type-equiv
 /**
@@ -104,7 +86,7 @@ Creating a `Session` through the store takes a `seed` (replay/fork an existing e
  * store folds into a {@link SessionHeader}.
  */
 interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial log events supplied at construction (replay, fork, or creation-time facts). */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit
@@ -116,8 +98,6 @@ interface CreateSessionOptions {
     readonly createdAt?: number
     readonly seedLength?: number
     readonly delegationDepth?: number
-    readonly sandboxMode?: string
-    readonly approvalPolicy?: string
   }
 }
 ```

@@ -19,9 +19,9 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { sandboxOverrideOf } from './session-mode.ts'
+import { effectiveSandboxMode } from './session-mode.ts'
 
-export { SANDBOX_MODES, effectiveSandboxMode, sandboxOverrideOf, setSandboxMode } from './session-mode.ts'
+export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
 
 /** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
 function resolveWorkspaceRoot(path: string): string {
@@ -90,36 +90,28 @@ export class SandboxPolicyService extends Service {
 
   /**
    * Resolve the complete policy for one capability call. An approved explicit
-   * mode outranks the session's override chain ({@link overrideOf}: own
-   * post-seed switches, else the inherited header baseline), which outranks
-   * the deployment default. A session cwd is its workspace-write boundary;
-   * the configured root is the fallback for agentless calls and sessions
-   * without a cwd.
+   * mode outranks the session's last `sandbox/mode` event, which outranks the
+   * deployment default. A session cwd is its workspace-write boundary; the
+   * configured root is the fallback for agentless calls and sessions without a
+   * cwd.
    * @param request - optional session and approved mode override.
    * @returns the fully resolved per-call mode and absolute workspace root.
    */
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
-    // Resolve the session override FIRST even when an explicit approved mode
-    // outranks it: the unconditional durable-header validation must hold on
-    // every resolution — a one-shot grant is not a validation bypass.
-    const override = session === undefined ? undefined : this.overrideOf(session)
     return {
-      mode: request.mode ?? override ?? this.defaultMode,
+      mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
   }
 
   /**
-   * {@link sandboxOverrideOf} surfaced on the service, for consumers that
-   * reach policy through `ctx.get('sandboxPolicy')` (the subagent driver's
-   * delegation capture, pty-local) rather than a value import.
-   * @param session - the session whose override chain to resolve.
-   * @returns the effective override, or `undefined` for a session following
-   *   the deployment default.
+   * Read the session override without applying the deployment default.
+   * @param session - session whose log supplies the override.
+   * @returns the last logged mode, or `undefined` without one.
    */
   overrideOf(session: Session): SandboxMode | undefined {
-    return sandboxOverrideOf(session)
+    return effectiveSandboxMode(session.events)
   }
 }
 

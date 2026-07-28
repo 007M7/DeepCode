@@ -18,7 +18,7 @@
 
 子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
 
-子 agent 还会继承父 agent 的会话策略覆盖项。驱动器在自己的第一个 await 之前同步捕获 `ctx.sandboxPolicy.overrideOf(parent.session)` 与 `ctx.approval.overrideOf(parent.session)`——委派时刻即快照点，因此与异步的子 agent 创建过程赛跑的父 agent 切换属于父 agent 的未来——并把捕获值作为创建元数据带入子 agent 不可变的 `SessionHeader`（`sandboxMode`/`approvalPolicy`），从会话存在的那一刻起就具备持久性：任何监听器顺序都不可能饿死该基线，任何崩溃窗口也不可能丢失它，包括空闲时的 SessionStart 式注入在任何提示词轮次开启之前就持久化一个完整轮次的情况。两个服务均以可选方式消费：未挂载它们的组合照旧进行无策略委派。只复制覆盖链，因此未切换过的父 agent 不写入任何基线，子 agent 继续跟随实时部署默认值；`overrideOf` 只折叠初始内容边界之后的事件，因此 fork 初始内容携带的陈旧切换已被基线所涵盖，而子 agent 自己之后的切换仍优先于基线。嵌套按构造即可组合：每次捕获解析的都是发起委派的会话自身的覆盖链（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
+当组合中挂载了可选的沙箱策略或审批服务时，驱动器会在创建子 agent 前对父级的显式会话覆盖项获取快照，并在任意 fork 前缀之后预置一条带来源标记的事件。它绝不复制部署默认值或一次性授权；子 agent 后续的切换仍然优先。参见[策略继承决策](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)。
 
 ## 取消与所有权
 

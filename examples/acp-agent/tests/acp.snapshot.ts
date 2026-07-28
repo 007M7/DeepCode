@@ -38,7 +38,6 @@ const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml'
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
-const SUBAGENT_INHERITANCE_CONFIG = fileURLToPath(new URL('../subagent-inheritance.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
@@ -283,22 +282,6 @@ const SCENARIOS: Scenario[] = [
     recorded: true,
     headerClass: 'sandbox',
     env: { DSH_PERMISSION_MODE: 'workspace-write' },
-  },
-  // Delegation under a read-only DEPLOYMENT policy: the child's real write is
-  // denied by the fs fence and its denial report surfaces in the parent
-  // transcript. This is the strength the automation protocol can express — no
-  // session-scoped picker exists to tighten only the parent, so the
-  // parent-override-vs-wider-default half of the inheritance contract stays
-  // pinned by the real-wall unit suite (the subagent policy-inheritance Agent
-  // Note records the downgrade).
-  {
-    name: 'subagent-sandbox-inheritance',
-    hasModelTurn: true,
-    recorded: true,
-    pinsHeader: true,
-    headerClass: 'subagent-inheritance',
-    configPath: SUBAGENT_INHERITANCE_CONFIG,
-    env: { DSH_PERMISSION_MODE: 'read-only' },
   },
   // Unlike ordinary snapshots, this session cwd is outside the platform temp
   // roots that workspace-write always grants. The overlay points the

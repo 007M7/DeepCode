@@ -1,15 +1,6 @@
 /**
- * Keyless assembled-app snapshot for parent-only policy inheritance: the
- * deployment default stays WIDE (workspace-write on the shared policy home)
- * while the seeded parent session carries a session-scoped `sandbox/mode:
- * read-only` override; the Loader-booted headless app resumes it, the parent
- * delegates through the real subagent tool, and the child's real `write`
- * hits the real `dsh-fs-sandbox` fence. Only the delegation-inheritance
- * capture can confine the child here — remove it and the child inherits
- * nothing, writes `inherited.txt` successfully under the deployment default,
- * and every assertion below fails. This is the assembled-app red/green
- * anchor the ACP scenario cannot express (the automation protocol has no
- * session-scoped switch).
+ * Assembled-app regression: a parent-only read-only override is seeded into
+ * its child log and confines a real write under a wider deployment default.
  */
 
 import { readFile, readdir, writeFile } from 'node:fs/promises'
@@ -35,11 +26,7 @@ const sessionId = SessionId('subagent-inheritance-parent')
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 const task = 'Delegate the write probe to a subagent.'
 
-/**
- * Seed the parent: a completed turn whose ONLY policy fact is a session-scoped
- * `sandbox/mode: read-only` switch — the deployment default stays wider, so
- * the child's confinement below can come from inheritance alone.
- */
+/** Seed a completed parent turn with the only read-only fact in the app. */
 async function seedReadOnlyParent(root: string, cwd: string): Promise<void> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -101,8 +88,14 @@ describe('parent-only override inheritance snapshot', () => {
         const child = logs.find(content => typeof headerOf(content).parentSession === 'string')
         if (parent === undefined || child === undefined) throw new Error('missing persisted parent or child log')
 
-        // The inherited baseline is the child's durable header record.
-        expect(headerOf(child).sandboxMode).toBe('read-only')
+        const childRecords = child.trimEnd().split('\n').map(
+          line => JSON.parse(line) as Record<string, unknown>,
+        )
+        expect(childRecords[1]).toMatchObject({
+          type: 'sandbox/mode',
+          seq: 0,
+          data: { mode: 'read-only', source: 'delegation' },
+        })
 
         const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
         const normalizedParent = scrubRequestHeaders(normalizeSessionLog(parent, context))

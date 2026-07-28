@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 11
+export const SCHEMA_VERSION = 12
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -41,10 +41,6 @@ export interface SessionRow {
   /** Monotonic log-change token incremented in each mutating transaction. */
   revision: number
   delegation_depth: number | null
-  /** The inherited sandbox-mode delegation baseline, or NULL. */
-  sandbox_mode: string | null
-  /** The inherited approval-policy delegation baseline, or NULL. */
-  approval_policy: string | null
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -128,9 +124,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
         seed_length      INTEGER,
         delegation_depth INTEGER,
         incarnation      TEXT NOT NULL,
-        revision         INTEGER NOT NULL,
-        sandbox_mode     TEXT,
-        approval_policy  TEXT
+        revision         INTEGER NOT NULL
       ) STRICT;
 
       CREATE TABLE IF NOT EXISTS events (
@@ -187,8 +181,6 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
     ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
     ...row.delegation_depth !== null ? { delegationDepth: row.delegation_depth } : {},
-    ...row.sandbox_mode !== null ? { sandboxMode: row.sandbox_mode } : {},
-    ...row.approval_policy !== null ? { approvalPolicy: row.approval_policy } : {},
   }
 }
 

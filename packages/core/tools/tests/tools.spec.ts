@@ -725,7 +725,7 @@ describe('ToolRegistry', () => {
      */
     function fakeAgent(): Agent {
       return {
-        session: { events: [{ type: 'turn/start' }], header: { version: 0, id: 'fake-ask-session', createdAt: 0 }, append: () => ({}) },
+        session: { events: [{ type: 'turn/start' }], append: () => ({}) },
       } as unknown as Agent
     }
 
