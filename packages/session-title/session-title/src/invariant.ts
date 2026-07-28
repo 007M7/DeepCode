@@ -15,8 +15,9 @@ export const name = 'session-title-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the service validates provider revisions before their single durable
- * append, and its remaining provider lifecycle state is process-local and covered by package tests.
+ * No runtime invariant: the service validates provider revisions before their
+ * title append, and its remaining lifecycle state is process-local and covered
+ * by package tests.
  */
 const install: InvariantInstaller = () => {}
 

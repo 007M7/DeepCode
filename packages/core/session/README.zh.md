@@ -14,9 +14,8 @@
 
 - `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
 - `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
-- `ctx.sessions.appendOutOfBand(session, type, data, trigger)` 只接受已在 `OutOfBandSessionEventMap` 中显式准入的插件事件类型。若轮次已打开，它会直接追加；否则会原子地开启一个零步骤插件轮次，依次追加、关闭并刷新。即使目标事件追加失败，仍会关闭并刷新合成轮次，且在整个序列结算前延后脱离操作。
-- `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取最近的原始轮次边界，因为更晚的注入或插件所有的零步骤轮次具有自己的结果。
-- `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求边界为 `turn/end`，再创建带谱系元数据的实时子会话。
+- `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取日志中最近的事件，因为轮次间记录和非消息轮次没有提示词结果。
+- `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，再创建带谱系元数据的实时子会话。
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -74,7 +73,7 @@
 
 生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记和溯源信息。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。提供方／模型／回放溯源信息随 `assistant/message` 一同保存；运行错误的步骤记录在 `turn/end.reason` 上（此时为 `kind: 'error'`），最终模型请求失败时还包含结构化的提供方事实。
 
-`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。`OutOfBandSessionEventMap` 是独立、默认为空的标记映射：事件所有方必须在其中合并相同键，`appendOutOfBand()` 才接受该仅日志类型；surface 和生命周期类型仍被排除。
+`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
 此包还定义 `TurnTriggerMap` 和 `TurnEndReasonMap`（用于类型化轮次边界、可合并扩展的和类型；以 `kind` 为标签而不是字符串）。最终模型请求错误保留一个结构化 `LlmFailure`；其他轮次错误保留消息／代码，两者均标识失败步骤。
 
@@ -142,6 +141,6 @@
 ## 已知限制与暂缓工作
 
 - **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
-- **`fork()` 仅在实时会话已关闭轮次的边界处切分**：边界必须是 `turn/end` 事件，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
+- **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
 - **`SESSION_FORMAT_VERSION` 固定为 `0`**：预发布阶段不承诺兼容性；后端会拒绝其他任何版本，首次发布前不提供迁移路径（[政策](../../../AGENTS.md)）。
 - **`TurnEndReasonMap` 不含 ACP（Agent Client Protocol）命名的 `refusal`／`max_turn_requests` 变体**：受生产方约束；只有当适配器或循环首次产生这些变体时才加入。

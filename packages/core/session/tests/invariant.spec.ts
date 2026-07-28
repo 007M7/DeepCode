@@ -102,7 +102,7 @@ describe('session-log invariants', () => {
     } as never) }).toThrow(/seq must strictly increase/)
   })
 
-  it('enforces turn numbering and encloses events other than idle context', async () => {
+  it('enforces turn numbering and core execution enclosure', async () => {
     const first = await setup()
     const open = first.ctx.sessions.create()
     open.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -127,9 +127,13 @@ describe('session-log invariants', () => {
       content: [{ type: 'text', text: 'go' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
-    // Merge-extensible session events use the same default enclosure branch.
+    // The owning plugin decides whether a merge-extensible event is log-only.
     const appendUnknown = outside.append.bind(outside) as (type: string, data: unknown) => unknown
-    expect(() => { appendUnknown('plugin/marker', {}) }).toThrow(/outside any open turn/)
+    expect(() => { appendUnknown('plugin/marker', {}) }).not.toThrow()
+    expect(() => outside.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })).not.toThrow()
   })
 
   it('enforces open-step identity and numbering', async () => {
