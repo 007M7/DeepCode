@@ -233,6 +233,9 @@
 .footerBar {
   display: flex;
   align-items: center;
+  /* Narrow viewports wrap the confirm/cancel pair onto their own row
+   * instead of clipping Open past the card's hidden overflow. */
+  flex-wrap: wrap;
   gap: 8px;
   flex: none;
   padding: 12px 24px 28px;
