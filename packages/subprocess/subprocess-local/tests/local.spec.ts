@@ -5,6 +5,7 @@ import { basename, delimiter, dirname, relative } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { childEnv } from '../src/spawn.ts'
 
 function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec {
   return {
@@ -62,8 +63,11 @@ describe('LocalSubprocessService', () => {
     }).executableCandidates.bind(service)
     const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     try {
-      expect(candidates('tool', { Path: `${delimiter}/bin`, PathExt: '.EXE;.CMD' }))
-        .toEqual(['/bin/tool.EXE', '/bin/tool.CMD'])
+      expect(Object.keys(childEnv()).filter(key => key.toUpperCase() === 'PATH')).toHaveLength(1)
+      const explicit = childEnv({ Path: `${delimiter}/bin`, PathExt: '.EXE;.CMD' })
+      expect(Object.keys(explicit).filter(key => key.toUpperCase() === 'PATH')).toEqual(['Path'])
+      expect(Object.keys(explicit).filter(key => key.toUpperCase() === 'PATHEXT')).toEqual(['PathExt'])
+      expect(candidates('tool', explicit)).toEqual(['/bin/tool.EXE', '/bin/tool.CMD'])
       expect(candidates('tool', { Path: '/ambient', PATH: '/explicit', PATHEXT: '.EXE' }))
         .toEqual(['/explicit/tool.EXE'])
       expect(candidates('tool.exe', {})).toEqual([])

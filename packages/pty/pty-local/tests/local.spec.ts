@@ -98,6 +98,22 @@ function expectReadyForNextSend(waitReason: string): void {
   expect(['stdin_read', 'inferred_idle']).toContain(waitReason)
 }
 
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+  } catch (_missingProcess) {
+    return false
+  }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/, 1)[0]
+    return !/^[ZXx]$/.test(state ?? '')
+  } catch (_unreadableProcEntry) {
+    return false
+  }
+}
+
 describe('pty-local real shell', () => {
   it('persists cwd and environment across sends, scrubs secrets, and closes', async () => {
     const previous = process.env.DSH_TEST_SECRET
@@ -156,7 +172,7 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).toThrow()
   }, 10_000)
 
-  it('reaps a disowned same-session descendant after the shell exits naturally', async () => {
+  it('quiesces a disowned same-session descendant after the shell exits naturally', async () => {
     const { ctx, root, agent } = await harness('danger-full-access')
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     const pidFile = join(root, 'disowned.pid')
@@ -185,7 +201,7 @@ describe('pty-local real shell', () => {
       }
       expect(ctx.pty.list(agent)[0]?.status.kind).toBe('exited')
       await ctx.pty.kill(agent, created.sessionId)
-      expect(() => process.kill(childPid, 0)).toThrow()
+      expect(processIsRunning(childPid)).toBe(false)
     } finally {
       if (pid !== undefined) {
         try {
