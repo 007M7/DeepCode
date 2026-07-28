@@ -276,10 +276,13 @@ describe('commands domain schemas', () => {
     expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
     expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
     expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    const matched = commandExecuteValueSchema.parse({ matched: true, result: { kind: 'success', text: 'done' } })
-    expect(matched.result?.kind).toBe('success')
-    expect(commandExecuteValueSchema.parse({ matched: true, result: { kind: 'error', text: 'bad' } }).result?.kind).toBe('error')
-    expect(() => commandExecuteValueSchema.parse({ matched: true, result: { kind: 'other' } })).toThrow()
+    // Pure admission: matched plus the optional lifecycle pairing id
+    // (outcomes ride the logged lifecycle events, never this response).
+    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
+      .toEqual({ matched: true, commandId: 'cmd-1' })
+    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
+    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
+    expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })
 
@@ -304,23 +307,21 @@ describe('events frame schemas', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
-      { type: 'session/title', sessionId: 's', title: 'Durable title', eventSeq: 2, updatedAt: 3 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
       { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' }, steering: false },
       { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' }, steering: true },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     for (const invalid of [
-      { type: 'session/title', sessionId: 's', title: '', eventSeq: 0, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: -1, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0.5, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: 'now' },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: Number.NaN },
+      { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: -1 },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: 0.5 },
     ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
   })

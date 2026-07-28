@@ -40,8 +40,10 @@ export const ev = {
     at(seq, { type: 'step/end', data: { turn, step } }),
   turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>
     at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
-  todoWrite: (seq: number, todos: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]): SessionEvent =>
-    at(seq, { type: 'todo/write', data: { todos } }),
+  commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
+  commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
+    at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
 }
 
 /** One complete plain turn (turn/start → user → step → assistant → turn/end), 6 events from startSeq. */

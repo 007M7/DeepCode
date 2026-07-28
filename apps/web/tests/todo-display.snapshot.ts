@@ -4,8 +4,9 @@
 // Opens the fixture history session and pins the todo_write turn's two
 // surfaces: the dedicated TodoRow in the chat flow (keyed toolview, summary
 // derived from the call args) and the TodoPanel plan strip riding the
-// 'conversation.input.dock' slot (fed by ConversationSnapshot.todos, seeded
-// by the tail history page), including the collapse interaction.
+// 'conversation.input.dock' slot (fed by the host `todos` projection via
+// useProjection, seeded by the tail history page), including the collapse
+// interaction and the next-turn clearance of the standing plan.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'

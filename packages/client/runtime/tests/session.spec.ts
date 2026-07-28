@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
+function histResponse(events: SessionEvent[], hasMore = false) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
 describe('open', () => {
@@ -104,6 +104,28 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
+  it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
+    // Live path: run mints an executing node, done settles it in the flow.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(6, 'cmd-live', 'plan'))
+    let command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', name: 'plan', args: '', outcome: null })
+    feed(ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'))
+    command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', seq: 6, outcome: { kind: 'success', text: '已进入 plan mode' } })
+
+    // Replay path (refresh): the same pair inside the history window folds identically.
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.commandRun(6, 'cmd-live', 'plan'),
+      ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'),
+    ])
+    expect(replayed.session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'command', seq: 6, name: 'plan', outcome: { kind: 'success', text: '已进入 plan mode' },
+    })
+  })
+
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -158,81 +180,6 @@ describe('live event path', () => {
     })
   })
 
-  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
-    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
-    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
-    const { session } = await opened()
-    expect(session.getSnapshot().todos).toEqual([])
-    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
-    feed(ev.todoWrite(6, listA))
-    expect(session.getSnapshot().todos).toEqual(listA)
-    feed(ev.todoWrite(7, listB))
-    expect(session.getSnapshot().todos).toEqual(listB)
-    // Window replay converges on the same last snapshot (history contains both writes).
-    const replayed = makeSession()
-    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
-    await replayed.session.open()
-    expect(replayed.session.getSnapshot().todos).toEqual(listB)
-  })
-
-  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
-    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
-    // Cold open: same-turn page with no todo/write and no turn/start (a later turn/start
-    // would mean the host projection is empty). The standing plan rides the response.
-    const tailPage = [
-      ev.user(100, '问'),
-      ev.stepStart(101, 9),
-      ev.assistant(102, 9, '答'),
-      ev.stepEnd(103, 9),
-      ev.turnEnd(104, 9),
-    ]
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(tailPage, true, list)
-    await session.open()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // Older same-turn slice (still no determiner) must keep the seeded plan.
-    api.onHistory = () => histResponse([
-      ev.user(95, '旧问'),
-      ev.stepStart(96, 9),
-      ev.assistant(97, 9, '旧答'),
-      ev.stepEnd(98, 9),
-      ev.turnEnd(99, 9),
-    ], false)
-    await session.loadOlder()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // Contiguous live write (tail is 104) still overrides the seeded projection.
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(105, [{ content: '新计划', status: 'pending' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
-  })
-
-  it('clears the plan on turn/start (live and on window replay)', async () => {
-    const list = [{ content: '上一轮计划', status: 'completed' as const }]
-    const { session } = await opened()
-    const feed = (event: SessionEvent) => {
-      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
-    }
-    feed(ev.todoWrite(6, list))
-    expect(session.getSnapshot().todos).toEqual(list)
-    // turn/end keeps the finished checklist visible while the user reads.
-    feed(ev.turnEnd(7, 0))
-    expect(session.getSnapshot().todos).toEqual(list)
-    feed(ev.turnStart(8, 1))
-    expect(session.getSnapshot().todos).toEqual([])
-    // Replay converges: a turn/start after the latest write yields an empty plan.
-    const replayed = makeSession()
-    replayed.api.onHistory = () => histResponse([
-      ...plainTurn(0, 0, 'a', 'b'),
-      ev.todoWrite(6, list),
-      ev.turnStart(7, 1),
-      ev.user(8, '下一问'),
-    ])
-    await replayed.session.open()
-    expect(replayed.session.getSnapshot().todos).toEqual([])
-  })
-
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -245,44 +192,6 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
-  })
-
-  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
-    expect(session.getSnapshot().todos).toEqual([])
-    // Missed todo/write still stands (no later turn/start); the repulled tail page
-    // omits that write and any determiner, so the response projection is the carrier.
-    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
-    const tailPage = [
-      ev.user(8, 'c'),
-      ev.stepStart(9, 1),
-      ev.assistant(10, 1, 'd'),
-      ev.stepEnd(11, 1),
-      ev.turnEnd(12, 1),
-    ]
-    api.onHistory = () => histResponse(tailPage, false, current)
-    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(10, 1, 'd') })
-    await vi.waitFor(() => {
-      expect(api.callsOf('session.history').length).toBe(2)
-    })
-    await Promise.resolve()
-    expect(session.getSnapshot().todos).toEqual(current)
-  })
-
-  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
-    // Live write lands, then the host crashes before persisting it: the
-    // authoritative log holds no todo/write, so the resync tail response
-    // carries no projection — an omitted field on a tail request is the empty
-    // list, not a missing carrier, and the rolled-back plan must disappear.
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
-    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
-    await session.resync()
-    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 

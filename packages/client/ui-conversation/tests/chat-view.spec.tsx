@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
+  AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
   SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -30,7 +30,7 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -106,6 +106,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useProjection: (() => undefined),
     useInput: (() => { throw new Error('unused') }),
     inputActions: { setDraft: () => {}, submit: () => {} },
     useStore: bindSnapshotSelector(chat),
@@ -394,5 +395,42 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText(/等待审批/)).toBeTruthy()
+  })
+
+  it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {
+    const command = (over: Partial<CommandNode>): CommandNode => ({
+      kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1' as CommandNode['commandId'],
+      name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
+      ...over,
+    })
+    // Settled success: the command line is the title, the outcome text the summary.
+    const settled = makeHarness({ nodes: [user(1, 'hi'), command({})] })
+    const view = render(<settled.ChatView {...settled.props} />)
+    expect(view.getByText('/plan')).toBeTruthy()
+    expect(view.getByText('已进入 plan mode')).toBeTruthy()
+
+    // Error outcome flips the row state; a text-less error gets the default copy.
+    const failed = makeHarness({
+      nodes: [command({ seq: 6, commandId: 'cmd-2' as CommandNode['commandId'], outcome: { kind: 'error' } })],
+    })
+    const fv = render(<failed.ChatView {...failed.props} />)
+    expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(fv.getByText('命令失败')).toBeTruthy()
+
+    // Still executing: running state with the executing copy.
+    const executing = makeHarness({
+      nodes: [command({ seq: 7, commandId: 'cmd-3' as CommandNode['commandId'], outcome: null })],
+    })
+    const xv = render(<executing.ChatView {...executing.props} />)
+    expect(xv.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(xv.getByText('执行中…')).toBeTruthy()
+
+    // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
+    const orphan = makeHarness({
+      nodes: [command({ seq: 8, commandId: 'cmd-4' as CommandNode['commandId'], name: null, args: null, outcome: { kind: 'success' } })],
+    })
+    const ov = render(<orphan.ChatView {...orphan.props} />)
+    expect(ov.getByText('命令')).toBeTruthy()
+    expect(ov.getByText('已完成')).toBeTruthy()
   })
 })

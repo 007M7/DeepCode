@@ -19,6 +19,13 @@
 - id: session
   name: '@deepseek-ai/dsh-session'
 
+# Projection registry: drives every registered domain unit over committed
+# session events and serves finished values (history-tail projections block +
+# session/projection frames). Without this row every domain's optional unit
+# injection stays silent — no block, no frames, no titles/todos on the web.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 - id: session-title
   name: '@deepseek-ai/dsh-session-title'
   config:

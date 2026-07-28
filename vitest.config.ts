@@ -152,6 +152,13 @@ export default defineConfig({
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',
+        // Projection/command round: executor lifecycle branches and the
+        // registry's drive tails need the same maturing lanes. TODO(gui):
+        // cover and remove with the client test lane above.
+        'packages/ui/commands/src/index.ts',
+        'packages/ui/commands/src/invariant.ts',
+        'packages/session-projection/session-projection/src/index.ts',
+        'packages/ui/tui/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

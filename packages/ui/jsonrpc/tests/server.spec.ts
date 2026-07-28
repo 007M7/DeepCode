@@ -122,6 +122,7 @@ describe('HarnessSdkServer', () => {
         cwd: storageDir,
         provider: 'deepseek',
         model: 'dsagent-model',
+        maxTokens: 321,
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
 
@@ -131,8 +132,9 @@ describe('HarnessSdkServer', () => {
       })
 
       expect(llmServer.requests).toHaveLength(1)
-      const body = llmServer.requests[0] as { model: string; messages: { role: string }[] }
+      const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
+      expect(body.max_tokens).toBe(321)
       expect(body.messages[0]?.role).toBe('system')
       expect(body.messages.at(-1)?.role).toBe('user')
       expect(llmServer.headers[0]?.authorization).toBe('Bearer test-key')
@@ -859,6 +861,27 @@ describe('HarnessSdkServer', () => {
     }
   })
 
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid initialize maxTokens %s at the wire boundary',
+    async (maxTokens) => {
+      const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-max-tokens-'))
+      const ctx = await makeHarness(storageDir)
+      try {
+        const server = new HarnessSdkServer(ctx, new FakeTransport())
+        await expect(server.initialize({
+          cwd: storageDir,
+          provider: 'deepseek',
+          model: 'model',
+          maxTokens,
+        })).rejects.toThrow('initialize maxTokens must be a positive safe integer')
+        await server.shutdown()
+      } finally {
+        await ctx.fiber.dispose()
+        await rm(storageDir, { recursive: true, force: true })
+      }
+    },
+  )
+
   it('classifies defensive finish states', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-finish-states-'))
     const ctx = await makeHarness(storageDir)
@@ -973,15 +996,18 @@ describe('HarnessSdkServer', () => {
       get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', provider: 'mock', model: 'model' })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model', maxTokens: 123 })
     await server.getOrCreateSession('relative')
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: 'mock', model: 'model', maxTokens: 123 },
+    }))
     await server.shutdown()
   })
 

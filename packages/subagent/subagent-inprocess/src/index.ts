@@ -88,9 +88,11 @@ export async function startInProcessRun(
   const parentHeader = parent.session.header
   const parentProvider = parent.options.provider
   const parentModel = parent.options.model
+  const parentMaxTokens = parent.options.maxTokens
   const agentOptions: AgentOptions = {
     ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
+    ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
   }

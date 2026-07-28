@@ -8,7 +8,11 @@
 import { useId, useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
+// The domain's client-namespace pure-type outlet: one import edge delivers
+// the `todos` projection-key merge (single source, no consumer-side restated
+// declare) and the payload type. Type-only by construction — the outlet is
+// free of host value imports, so no host Context merge enters this program.
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TodoPanel.module.css'
 
@@ -115,10 +119,10 @@ export function TodoPanel({ todos }: TodoPanelProps) {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type TodoDockProps = PropsRuntime<'conversation.input.dock'>
 
-/** Dock adapter: selects the plan off the session snapshot and hands the strip a plain list. */
-export function TodoDock({ useSession }: TodoDockProps) {
-  const todos = useSession(s => s.todos)
-  return <TodoPanel todos={todos} />
+/** Dock adapter: reads the host-computed 'todos' projection (whole list; absent or null renders nothing). */
+export function TodoDock({ useProjection }: TodoDockProps) {
+  const todos = useProjection('todos')
+  return <TodoPanel todos={todos ?? []} />
 }
 
 /**
