@@ -419,6 +419,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       : { provider: logged.provider, model: logged.model }
   }
 
+  /** Pair a registry agent only with the exact Session lifecycle it owns. */
+  function metricsAgentFor(session: Session): Agent | undefined {
+    const agent = ctx.agents.get(session.id)
+    return agent?.session === session ? agent : undefined
+  }
+
   /** Pre-publication setup used by both fresh and resumed Web agents. */
   function installTarget(agentCtx: Context): void {
     const agent = agentCtx.agent
@@ -464,7 +470,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         broadcast({
           type: 'session/metrics',
           sessionId: current.id,
-          metrics: metricsProjector.snapshot(current, ctx.agents.get(current.id)),
+          metrics: metricsProjector.snapshot(current, metricsAgentFor(current)),
         })
       }
     })
@@ -1186,7 +1192,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           queue.push(frame({
             type: 'session/metrics',
             sessionId: session.id,
-            metrics: metricsProjector.snapshot(session, ctx.agents.get(session.id)),
+            metrics: metricsProjector.snapshot(session, metricsAgentFor(session)),
           }))
         }
         for (const pending of pendingQuestions.values()) {
@@ -1243,7 +1249,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({
               type: 'session/metrics',
               sessionId: session.id,
-              metrics: metricsProjector.snapshot(session, ctx.agents.get(session.id)),
+              metrics: metricsProjector.snapshot(session, metricsAgentFor(session)),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

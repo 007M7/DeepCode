@@ -454,4 +454,59 @@ describe('Web session model selection', () => {
     liveSession.detach()
     await ctx.fiber.dispose()
   })
+
+  it('does not project retired agent capacity into replacement session snapshots', async () => {
+    const ctx = await hostContext()
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const sessionId = SessionId('capacity-snapshot-lifecycle')
+    const retiredSession = attachLifecycleSession(ctx, sessionId)
+    const retireAgent = attachLifecycleAgent(ctx, retiredSession.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const primaryController = new AbortController()
+    const primary = api.events.mux(request({}), primaryController.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(primary)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(primary)).contextWindow).toBe(64_000)
+
+    retiredSession.detach()
+    const replacement = attachLifecycleSession(ctx, sessionId)
+    const createdBaseline = await nextMetrics(primary)
+    replacement.session.append('user/message', {
+      content: [{ type: 'text', text: 'replacement marker' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }, { surfaceOp: 'append' })
+    const scheduledFlush = await nextMetrics(primary)
+    const reconnectController = new AbortController()
+    const reconnect = api.events.mux(request({}), reconnectController.signal)[Symbol.asyncIterator]()
+    const reconnectBaseline = await nextMetrics(reconnect)
+    expect(createdBaseline.logRevision).toBe(1)
+    for (const metrics of [scheduledFlush, reconnectBaseline]) {
+      expect(metrics.logRevision).toBe(2)
+    }
+    expect({
+      created: createdBaseline.contextWindow,
+      scheduled: scheduledFlush.contextWindow,
+      reconnect: reconnectBaseline.contextWindow,
+    }).toEqual({ created: undefined, scheduled: undefined, reconnect: undefined })
+
+    retireAgent()
+    const detachReplacementAgent = attachLifecycleAgent(ctx, replacement.session)
+    expect((await nextMetrics(primary)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(2) })
+    deferred.resolve(1, 128_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(primary)).contextWindow).toBe(128_000)
+
+    primaryController.abort()
+    reconnectController.abort()
+    await primary.return?.()
+    await reconnect.return?.()
+    detachReplacementAgent()
+    replacement.detach()
+    await ctx.fiber.dispose()
+  })
 })
