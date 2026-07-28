@@ -14,11 +14,11 @@ const icons = Object.fromEntries(
 const iconNames = Object.keys(icons)
 
 describe('ic_ds_ icon set', () => {
-  it('exports the full P-I set (43 deepsuite + 12 figma extracts)', () => {
-    expect(iconNames.length).toBe(55)
+  it('exports the full P-I set (43 deepsuite + 13 figma extracts)', () => {
+    expect(iconNames.length).toBe(56)
   })
 
-  it.each(iconNames)('%s renders an svg with currentColor fills and no hardcoded palette', name => {
+  it.each(iconNames)('%s renders an svg with currentColor fills and no hardcoded palette', (name) => {
     const Icon = icons[name]!
     const { container } = render(<Icon />)
     const svg = container.querySelector('svg')

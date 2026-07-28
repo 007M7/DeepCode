@@ -46,13 +46,13 @@ export type LoaderStatus = Record<string, LoaderEntryState>
 /** Minimal observable snapshot the kernel components consume (useSyncExternalStore shape). */
 export interface KernelSignal<T> {
   /** Current value (stable reference between changes). */
-  getSnapshot(): T
+  getSnapshot: () => T
   /**
    * Subscribe to changes.
    * @param fn - change listener.
    * @returns the unsubscribe disposer.
    */
-  subscribe(fn: () => void): () => void
+  subscribe: (fn: () => void) => () => void
 }
 
 /** Writable one-value signal (settled flag, boot failure report). */
@@ -61,7 +61,7 @@ export interface KernelValueSignal<T> extends KernelSignal<T> {
    * Publish a new value and notify subscribers.
    * @param next - the new value.
    */
-  set(next: T): void
+  set: (next: T) => void
 }
 
 /**
@@ -90,7 +90,7 @@ export interface LoaderStatusStore extends KernelSignal<LoaderStatus> {
    * @param id - entry name.
    * @param state - projected fiber state.
    */
-  set(id: string, state: LoaderEntryState): void
+  set: (id: string, state: LoaderEntryState) => void
 }
 
 /**

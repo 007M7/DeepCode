@@ -1,27 +1,32 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=7 bufferRow=7
+cursor hidden column=7 viewportRow=10 bufferRow=10
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
 1| " Snapshot agent ready."
   style 1-21 fg=bright-black
-2| " deepseek-v4-pro  •  main-session"
-  style 1-32 dim
+2| " main-session"
+  style 1-12 dim
 3| <blank>
-4| " Model selected: deepseek/deepseek-v4-pro. Reasoning effort: provider default. New steps    "
-  style 1-91 fg=bright-black
-5| " will use it.                                                                               "
-  style 1-12 fg=bright-black
-6| "────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-91 dim
-7| "                                                                                            "
-  style 1-1 inverse
-8| "────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-91 dim
-9| "deepseek-v4-pro  /workspace/project  ↑0 ↓0                       0% context  tools:collapsed"
-  style 0-41 dim
-  style 65-91 dim
-10-31| <blank>
+4| "Assistant                                                                                   "
+  style 0-8 fg=bright-magenta bold underline
+5| "Model wait 0.0s                                                                             "
+  style 0-14 dim
+6| <blank>
+7| "Model selected: deepseek/deepseek-v4-pro. New steps will use it.                            "
+  style 0-63 fg=bright-black
+8| <blank>
+9| "/workspace/project (tui-staging)  deepseek-v4-pro  ↑0 ↓0  0% context"
+  style 0-17 fg=bright-blue bold
+  style 18-31 fg=bright-black
+  style 34-48 fg=bright-black
+  style 51-55 fg=bright-black
+  style 58-67 fg=bright-black
+10| " dsh >                                                                                      "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+11-31| <blank>

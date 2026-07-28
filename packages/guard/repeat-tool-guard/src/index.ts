@@ -8,8 +8,9 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
+import type { UserMessageData } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 export const name = 'repeat-tool-guard'
@@ -142,7 +143,7 @@ function validateThresholds(values: number[]): number[] {
  * Prepend the guard's reminder while preserving every downstream context's
  * source and metadata.
  */
-function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+function prependContext(ours: UserMessageData, theirs: UserMessageData[] | undefined): UserMessageData[] {
   return [ours, ...theirs ?? []]
 }
 
@@ -184,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
    * same pipeline), and a model hammering a denied call is exactly the loop
    * worth breaking.
    */
-  function observe(exec: ToolExecution): HookContext | undefined {
+  function observe(exec: ToolExecution): UserMessageData | undefined {
     // A direct `ctx.tools.execute()` caller has no model to remind and no id
     // to key on; only agent-loop calls participate.
     if (!exec.agent) return undefined

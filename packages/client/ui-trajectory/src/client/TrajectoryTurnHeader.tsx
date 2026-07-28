@@ -20,7 +20,7 @@ export function TrajectoryTurnHeader({ turn }: TrajectoryTurnHeaderProps) {
       <div className={css.inner}>
         <span className={css.title}>Turn {turn}</span>
         <div className={css.columns} aria-hidden="true">
-          {COLUMN_LABELS.map((label) => (
+          {COLUMN_LABELS.map(label => (
             <span key={label} className={css.column}>{label}</span>
           ))}
         </div>

@@ -107,6 +107,8 @@ interface GoalMessageSource {
   readonly revision: number
   /** Zero for state changes; positive for admitted continuation rounds. */
   readonly round: number
+  /** Complete durable mutation carried only by round-zero state-change messages. */
+  readonly change?: GoalChangeMeta
 }
 ```
 

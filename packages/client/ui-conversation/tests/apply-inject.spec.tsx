@@ -36,10 +36,12 @@ const SCOPE_TAG: symbol = (() => {
   const spy = new Proxy(new Context(), {
     get(target, prop, receiver) {
       recorded.push(prop)
+      // Reflect.get is typed any; the probe only records property names.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return Reflect.get(target, prop, receiver)
     },
   })
-  void scopeOf(spy as Context)
+  void scopeOf(spy)
   const symbol = recorded.find((p): p is symbol => typeof p === 'symbol')
   if (symbol === undefined) throw new Error('scopeOf probe recorded no symbol read')
   return symbol
@@ -73,14 +75,15 @@ async function bench() {
   const mint = (id: SessionId): Context => {
     let scoped = scopes.get(id)
     if (scoped === undefined) {
-      scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: id }) as Context
+      scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: id })
       scopes.set(id, scoped)
     }
     return scoped
   }
   type TestProvider = {
     resolve(binding: { sessionId: SessionId; session: typeof sessionFake; ctx: Context }): {
-      hooks?: Record<string, unknown>; props?: Record<string, unknown>
+      hooks?: Record<string, unknown>
+      props?: Record<string, unknown>
     }
   }
   const providers: TestProvider[] = []
@@ -158,10 +161,12 @@ async function bench() {
   const inputSurface = (id: SessionId) => {
     const contribution = providers[0]!.resolve(sessionsFake.binding(id))
     const state = contribution.hooks!['input'] as {
-      getSnapshot(): { draft: string }; subscribe(fn: () => void): () => void
+      getSnapshot: () => { draft: string }
+      subscribe: (fn: () => void) => () => void
     }
     const actions = contribution.props!['inputActions'] as {
-      setDraft(text: string): void; submit(mode?: 'queue' | 'steer'): void
+      setDraft: (text: string) => void
+      submit: (mode?: 'queue' | 'steer') => void
     }
     return { state, actions }
   }
@@ -234,11 +239,11 @@ describe('conversation slot inject surface', () => {
     const injectFn = entry.inject as unknown as (sessionId: SessionId) => ComposerBarInjected
     // Unknown session: sessions.scope answers nothing.
     ;(b.sessionsFake.scope as unknown) = () => undefined
-    expect(() => injectFn(ROOT).stop()).toThrow(/resolved no scope/)
+    expect(() => { injectFn(ROOT).stop() }).toThrow(/resolved no scope/)
     // A scope minted outside the service tree: no conversation service on it.
     const foreign = new Context()
     ;(b.sessionsFake.scope as unknown) = () => foreign.plugin(() => {}).ctx.extend({})
-    expect(() => injectFn(ROOT).stop()).toThrow(/unavailable through the session scope/)
+    expect(() => { injectFn(ROOT).stop() }).toThrow(/unavailable through the session scope/)
   })
 
   it('openDetails (chat view face) writes the selection through the store actions and opens the panel', async () => {
@@ -263,7 +268,7 @@ describe('conversation slot inject surface', () => {
     // no draft movement, plain re-open.
     const { state, actions } = b.inputSurface(ROOT)
     actions.setDraft('carry me')
-    resident.selectWorkspace('workspace-1' as never)
+    void resident.selectWorkspace('workspace-1' as never)
     await vi.waitFor(() => { expect(b.sessionsFake.open).toHaveBeenCalledTimes(2) })
     expect(b.workspacesFake.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(state.getSnapshot().draft).toBe('carry me')
@@ -271,7 +276,7 @@ describe('conversation slot inject surface', () => {
     // new session's machine receives the text, then navigation lands there.
     const OTHER = 'other-1' as SessionId
     b.workspacesFake.connectWorkspace.mockResolvedValueOnce(OTHER)
-    resident.selectWorkspace('workspace-2' as never)
+    void resident.selectWorkspace('workspace-2' as never)
     await vi.waitFor(() => { expect(b.sessionsFake.open).toHaveBeenCalledWith(OTHER) })
     expect(state.getSnapshot().draft).toBe('')
     expect(b.inputSurface(OTHER).state.getSnapshot().draft).toBe('carry me')

@@ -5,12 +5,14 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  ResolvedRetryPolicy,
+  RetryPolicyConfig,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -46,6 +48,8 @@ export interface DeepSeekAdapterOptions {
   models?: readonly DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -115,6 +119,7 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
  */
 export class DeepSeekAdapter extends LlmAdapter {
   private readonly streamIdleTimeoutMs: number
+  private readonly retryPolicy: ResolvedRetryPolicy
 
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
@@ -135,10 +140,15 @@ export class DeepSeekAdapter extends LlmAdapter {
         `llm-deepseek: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
       )
     }
+    this.retryPolicy = resolveRetryPolicy(options.retryPolicy, 'llm-deepseek: retryPolicy')
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
     return { id: provider, name: 'DeepSeek' }
+  }
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {

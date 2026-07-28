@@ -135,10 +135,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
   // into a degenerate empty completion, so the fixture scripts the adapters'
-  // EMPTY_RESPONSE error finish (step 1) followed by the recovered reply
-  // (step 2), proving the default retry policy end to end: the durable
+  // EMPTY_RESPONSE error finish in turn 1 followed by the recovered reply
+  // in retry turn 2, proving the default retry policy end to end: the durable
   // llm/retry event, no ACP output for the discarded attempt, the recovered
-  // reply, and a clean completed turn. Its overlay only pins a deterministic
+  // reply, and a clean completed retry turn. Its overlay only pins a deterministic
   // 1 ms zero-jitter delay, so it shares the default header class.
   { name: 'empty-response-retry', hasModelTurn: true, recorded: false, configPath: RETRY_CONFIG },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
@@ -199,10 +199,10 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
-  // Prompt-submit blocks are authored keylessly: they persist a rejected turn
-  // and hook events without starting a model step, so their logs still compare.
-  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
-  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  // Prompt-submit blocks are authored keylessly. Admission rejects before a
+  // turn opens, so only the ACP stop reason is observable and no log is harvested.
+  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, recorded: false },
+  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, recorded: false },
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log

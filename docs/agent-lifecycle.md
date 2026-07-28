@@ -15,18 +15,21 @@ sequenceDiagram
   participant LLM as ctx.llm
   participant Tools as ctx.tools
   participant Session
-  participant Persistence
   participant SDK as UI or SDK listener
   User->>Agent: followup(content)
   Agent-->>SDK: <code>agent/inbox/enqueue</code>
   Agent->>Driver: queued work wakes driver
   Driver-->>SDK: <code>agent/status</code> running
-  Driver->>Session: <code>turn/start</code>
+  Note over Agent,Driver: next-step acceptance window opens
   Driver->>Hooks: <code>agent/prompt-submit</code> waterfall
   Hooks-->>Driver: authoritative allow, block, or add context
-  Driver->>Session: <code>user/message</code> or rejected <code>turn/end</code>
+  alt prompt blocked or admission failed
+    Driver-->>Driver: append context-only batch or keep steering boundary pending
+  else prompt allowed
+  Driver->>Session: <code>turn/start</code>
+  Driver->>Session: <code>user/message</code>
   Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
-  Driver-->>Driver: <code>agent/pre-step</code> serial checkpoint
+  Driver-->>Driver: <code>agent/step</code> serial checkpoint
   Driver->>Session: <code>step/start</code>
   Driver->>LLM: <code>agent/request</code> waterfall, then <code>llm/stream</code> waterfall
   LLM-->>Driver: StreamChunk*
@@ -35,9 +38,8 @@ sequenceDiagram
   alt final adapter or terminal in-band request failure
     Driver->>Session: <code>step/end</code>
     Driver->>Hooks: <code>agent/request-error</code> waterfall
-    Hooks-->>Driver: retry in a new step or preserve the original error
+    Hooks-->>Driver: return retry action or preserve the original error
   else model request succeeded
-  Driver->>Hooks: <code>agent/step-result</code> waterfall
   Driver->>Session: <code>assistant/message</code>
   Driver->>Tools: classify pending call by executionMode
   loop barriers and bounded rolling pool, reclassify before start
@@ -52,19 +54,18 @@ sequenceDiagram
     end
   end
   Driver->>Session: post-tool context and steering (no prompt-submit)
-  Driver->>Hooks: <code>agent/post-step</code> serial checkpoint
   Driver->>Session: <code>step/end</code>
-  Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
-  Driver->>Hooks: <code>agent/turn-stop</code> serial terminal checkpoint
+  Driver->>Hooks: <code>agent/turn-stopping</code> serial terminal checkpoint
   end
+  Note over Agent,Driver: next-step acceptance window closes
   Driver->>Session: <code>turn/end</code>
-  Driver->>Persistence: <code>session/flush</code> parallel checkpoint
+  end
   Driver-->>SDK: <code>agent/status</code> idle
 ```
 
 The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
 
-`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
+`dsh-compact-basic` uses `agent/step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
 
 The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.
 

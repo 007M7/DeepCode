@@ -128,7 +128,6 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
   // Session+Agent and the provider swaps in the live blank-session hero.
   fireEvent.click(screen.getAllByRole('button', { name: 'Choose workspace' })
     .find(el => el.getAttribute('aria-haspopup') === 'menu')!)
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Create workspace' }))
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Create a new workspace' }))
   const dialog = await screen.findByRole('dialog', { name: 'Create a new workspace' })
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'New workspace name' }), {

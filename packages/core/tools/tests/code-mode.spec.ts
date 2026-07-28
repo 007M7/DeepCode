@@ -743,6 +743,46 @@ describe('the run_code dispatch bridge', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'done' }])
   })
 
+  it('forwards a nested terminal conclusion onto the successful run_code result', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'finalize',
+      description: 'Terminal tool.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute(_args, exec) {
+        exec.concludeTurn()
+        return Promise.resolve('done')
+      },
+    }))
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.finalize!({})
+      return { logs: [], value: 'program complete' }
+    }
+
+    const concluded = await runCode(ctx, 'await tools.finalize({})')
+    expect(concluded.isError).toBe(false)
+    expect(concluded.concludesTurn).toBe(true)
+
+    // A policy that converts the nested success into an error strips the
+    // marker with the result type: the recovering program cannot conclude.
+    const veto = ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== 'finalize') return next()
+      return { kind: 'block', feedback: [{ type: 'text', text: 'terminal rejected' }] }
+    })
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.finalize!({}).catch(() => undefined)
+      return { logs: [], value: 'recovered' }
+    }
+    const recovered = await runCode(ctx, 'await tools.finalize({}).catch(() => {})')
+    veto()
+    expect(recovered.isError).toBe(false)
+    expect(recovered.concludesTurn).toBeUndefined()
+  })
+
   it('serializes Promise.all dispatches: tool executions never overlap, in submission order', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const intervals: [string, string][] = []

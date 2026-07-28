@@ -5,65 +5,36 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   AgentMessageId,
   agentEvents,
-  agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
   Agent,
   AgentCancelCause,
   AgentFactory,
-  ContinuationStop,
   CreateAgentOptions,
-  InjectOptions,
-  ResolvedAgentInput,
   ResumeAgentOptions,
-  SendOptions,
 } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  return {
+  const agent: Agent = {
     id,
     options: {},
     session: new Session(id),
     status: 'idle',
+    acceptsNextStep: false,
     ctx: new Context(),
+    send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
-    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
-    ...overrides,
   }
+  return Object.assign(agent, overrides)
 }
 
 describe('AgentRegistry', () => {
-  it('keeps helper options semantic and makes advanced input fully specified', () => {
-    type OptionalInputKey = {
-      [Key in keyof ResolvedAgentInput]-?: Record<never, never> extends Pick<ResolvedAgentInput, Key>
-        ? Key
-        : never
-    }[keyof ResolvedAgentInput]
-
-    expectTypeOf<'target' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
-    expectTypeOf<'wakeup' extends keyof SendOptions ? true : false>().toEqualTypeOf<false>()
-    expectTypeOf<'contexts' extends keyof InjectOptions ? true : false>().toEqualTypeOf<false>()
-    expectTypeOf<Parameters<Agent['send']>[0]>().toEqualTypeOf<ResolvedAgentInput>()
-    expectTypeOf<OptionalInputKey>().toEqualTypeOf<never>()
-    expectTypeOf<Extract<ResolvedAgentInput, { target: 'next-step'; wakeup: false }>['contexts']>()
-      .toEqualTypeOf<[]>()
-  })
-
-  it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
-    type TurnStopListener = Events['agent/turn-stop']
-    type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
-
-    expectTypeOf<AsyncTurnStopListener>().toExtend<TurnStopListener>()
-    expectTypeOf<Awaited<ReturnType<TurnStopListener>>>().toEqualTypeOf<ContinuationStop | undefined>()
-  })
-
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
@@ -215,37 +186,10 @@ describe('agentEvents()', () => {
   })
 })
 
-describe('explicit cancellation helpers', () => {
+describe('explicit cancellation contract', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
-    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause | undefined>()
+    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause>()
     expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
-  })
-
-  it('reads only supported reasons from an explicit signal', () => {
-    const read = (reason: unknown) => {
-      const controller = new AbortController()
-      controller.abort(reason)
-      return agentInterruptReasonOf(controller.signal)
-    }
-    const live = new AbortController()
-    expect(agentInterruptReasonOf(live.signal)).toBeUndefined()
-
-    expect(read({ kind: 'user' })).toEqual({ kind: 'user' })
-    expect(read({ kind: 'parent' })).toEqual({ kind: 'parent' })
-
-    const disposed = new AbortController()
-    disposed.abort(Object.assign(Object.create(null) as object, { kind: 'disposed' }))
-    const disposedReason = agentInterruptReasonOf(disposed.signal)
-    expect(disposedReason).toEqual({ kind: 'disposed' })
-    expect(Object.isFrozen(disposedReason)).toBe(true)
-
-    expect(read(null)).toBeUndefined()
-    expect(read([])).toBeUndefined()
-    expect(read('private runtime reason')).toBeUndefined()
-    expect(read(new Error('private runtime reason'))).toBeUndefined()
-    expect(read({ kind: 'user', detail: true })).toBeUndefined()
-    expect(read({ other: 'user' })).toBeUndefined()
-    expect(read({ kind: 'timeout' })).toBeUndefined()
   })
 })
 

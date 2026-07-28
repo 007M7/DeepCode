@@ -215,7 +215,16 @@ interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: HookContext): void
+  deferContext(context: UserMessageData): void
+  /**
+   * Mark a successful final result as terminal for the current agent turn.
+   * The marker rides this execution's own result (`concludesTurn` exists only
+   * on {@link ToolExecutionSuccess}); a composite that dispatches nested
+   * calls forwards it from the nested result, exactly like
+   * `additionalContexts`, so only an authoritative nested success can
+   * conclude the enclosing run.
+   */
+  concludeTurn(): void
 }
 ```
 
@@ -320,7 +329,9 @@ interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  /** The agent loop stops after committing this successful result batch. */
+  readonly concludesTurn?: true
 }
 ```
 
@@ -332,7 +343,8 @@ interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: HookContext[]
+  readonly additionalContexts?: UserMessageData[]
+  readonly concludesTurn?: never
 }
 ```
 
@@ -368,9 +380,9 @@ type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
 ```
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.

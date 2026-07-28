@@ -41,7 +41,7 @@ function createPanelStore() {
   })
 }
 
-const chatStore = () => defineStore({
+const _chatStore = () => defineStore({
   init: () => ({ selection: null as { id: string } | null, draft: '' }),
   actions: {
     select: (d, t: { id: string }) => { d.selection = t },
@@ -49,7 +49,7 @@ const chatStore = () => defineStore({
     clearDraft: (d) => { d.draft = '' },
   },
 })
-type ChatHandle = ReturnType<typeof chatStore>
+type ChatHandle = ReturnType<typeof _chatStore>
 
 type FrameProps =
   & PropsRuntime<'chain.frame'>
@@ -115,7 +115,7 @@ describe('terminal-design type chain', () => {
       // member payloads are the runtime merge's property — not probed here
       // (the runtime package's own tests cover them).
       fp.renderSlot('chain.side', { collapsed: false, width: 280 })
-      const draft: string = cp.useStore((s) => s.draft)
+      const draft: string = cp.useStore(s => s.draft)
       cp.actions.select({ id: 'm1' })
       void draft
 
@@ -127,7 +127,7 @@ describe('terminal-design type chain', () => {
       // chain position.
       core.register({
         name: 'chain.takeover',
-        select: ({ items }) => items.find((i) => i.kind === 'q') ?? null,
+        select: ({ items }) => items.find(i => i.kind === 'q') ?? null,
         priority: 1,
       }, Takeover)
 
@@ -135,7 +135,7 @@ describe('terminal-design type chain', () => {
       // checks through parameter contravariance.
       core.register({
         name: 'chain.takeover',
-        select: ({ items }) => items.find((i) => i.kind === 'q') ?? null,
+        select: ({ items }) => items.find(i => i.kind === 'q') ?? null,
       }, WideTakeover)
 
       // renderSlotChain share: chain keys dispatch with the fallback bag;
@@ -179,7 +179,7 @@ describe('terminal-design type chain', () => {
         name: 'chain.side',
         // @ts-expect-error root-scope inject has no sessionId parameter
         inject: (sessionId: string) => ({ x: sessionId }),
-      }, ((_p) => null) as SlotComponent<PropsRuntime<'chain.side'> & { x: string }>)
+      }, (_p => null) as SlotComponent<PropsRuntime<'chain.side'> & { x: string }>)
 
       // keyed registration without key.
       // @ts-expect-error keyed registration requires options.key
@@ -195,14 +195,14 @@ describe('terminal-design type chain', () => {
       // @ts-expect-error component matched prop drifts from the select return
       core.register({
         name: 'chain.takeover',
-        select: ({ items }: { items: readonly Item[] }) => items.find((i) => i.kind === 'q') ?? null,
+        select: ({ items }: { items: readonly Item[] }) => items.find(i => i.kind === 'q') ?? null,
       }, NarrowTakeover)
 
       // select must return M | null, not undefined (find() must be coalesced).
       // @ts-expect-error select may not return undefined
       core.register({
         name: 'chain.takeover',
-        select: ({ items }: { items: readonly Item[] }) => items.find((i) => i.kind === 'q'),
+        select: ({ items }: { items: readonly Item[] }) => items.find(i => i.kind === 'q'),
       }, Takeover)
 
       // Chain keys are not renderSlot-dispatchable (and vice versa).
@@ -211,7 +211,7 @@ describe('terminal-design type chain', () => {
       // @ts-expect-error non-chain keys have no renderSlotChain dispatch
       chainSlots.renderSlotChain('chain.conv', {})
       // @ts-expect-error a children set without chain keys provides no renderSlotChain
-      fp.renderSlotChain
+      type _NoChainSeat = typeof fp.renderSlotChain
 
       // renderSlot owner share typed at the call site.
       // @ts-expect-error owner shape mismatch (width missing)
