@@ -99,8 +99,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
-   *  field is the authoritative empty list) and every live write overwrites it. */
+  /** Current plan strip: the latest `todo/write` not followed by a later `turn/start`. Tail history
+   *  responses replace it (an omitted field is the authoritative empty list); live writes overwrite
+   *  it; each new `turn/start` clears it so a finished plan does not linger into the next turn. */
   private todos: readonly TodoItem[] = []
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
@@ -511,13 +512,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
-    // Session-level projection from the tail page (full-log latest todo/write,
-    // independent of the window); an in-window write below re-derives the same
-    // value, and later live events keep overwriting it. Every caller here is a
-    // tail request (no beforeSeq), which the host answers with the projection
-    // or omits it only when the full log holds no todo/write — so an absent
-    // field is the authoritative empty list, not a missing carrier. Assigning
-    // it clears a plan the log never kept (a write lost to a host crash).
+    // Tail-page projection (full-log current plan, independent of the window);
+    // an in-window write or turn/start below re-derives the same value, and later
+    // live events keep overwriting or clearing it. Every caller here is a tail
+    // request (no beforeSeq), which the host answers with the projection or omits
+    // it when the log has no standing plan — so an absent field is the
+    // authoritative empty list, not a missing carrier. Assigning it clears a plan
+    // the log never kept (a write lost to a host crash).
     this.todos = todos ?? []
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
@@ -693,6 +694,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.todos = event.data.todos
         return
       }
+      case 'turn/start': {
+        // The plan strip is turn-scoped for display: a new turn retires the previous
+        // list until the model writes again. turn/end keeps it visible so the finished
+        // checklist remains while the user reads the answer.
+        this.todos = []
+        return
+      }
       case 'turn/end': {
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
@@ -738,10 +746,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
    *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text).
-   *  todos is deliberately NOT reset: it is session-level (seeded by the tail page's full-log
-   *  projection, not derivable from an arbitrary window). The window always extends to the log
-   *  tail, so an in-window todo/write can only overwrite it with the same latest value. */
+   *  The standing plan starts empty for the sweep; when the window itself never determines it
+   *  (no todo/write and no turn/start — the write still precedes the page), the tail-page seed is
+   *  restored. A contiguous tail window that contains a turn/start after the standing write will
+   *  determine empty, matching the host projection. */
   private rebuildDerivedFromWindow(): void {
+    const seededTodos = this.todos
     this.partial = null
     this.openCalls.clear()
     this.callsRev++
@@ -749,11 +759,16 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.frozenRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
+    this.todos = []
+    let todosDetermined = false
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
-      if (event !== undefined) this.applyEventSideEffects(event, this.views[i])
+      if (event === undefined) continue
+      if (event.type === 'todo/write' || event.type === 'turn/start') todosDetermined = true
+      this.applyEventSideEffects(event, this.views[i])
     }
+    if (!todosDetermined) this.todos = seededTodos
   }
 
   private windowTailSeq(): number | null {

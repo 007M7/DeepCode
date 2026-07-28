@@ -703,6 +703,10 @@ export function createTuiChat(
       case 'todo/write':
         todo.update(event.data.todos)
         break
+      case 'turn/start':
+        // Plan strip is turn-scoped: keep it after turn/end for reading, clear on the next turn.
+        todo.update([])
+        break
       case 'session/title':
         sessionTitle = event.data.title
         header.invalidate()
@@ -759,6 +763,7 @@ export function createTuiChat(
     toolCards.clear()
     allToolCards.clear()
     streaming = undefined
+    todo.update([])
     const active = activeSurfaceSeqs(agent.session)
     const activeCalls = activeToolCallIds(agent.session, active)
     for (const event of agent.session.events) {

@@ -179,6 +179,11 @@ describe('mux live view computation', () => {
     const older = await api.sessions.history({ rpcId: RpcId('t-todos-2'), payload: { sessionId: session.id, beforeSeq: boundary, maxMessages: 2 } })
     if (!older.result.ok) throw new Error('older failed')
     expect('todos' in older.result.value).toBe(false)
+    // A later turn/start retires the standing plan (omit the field = empty).
+    session.append('turn/start', { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const cleared = await api.sessions.history({ rpcId: RpcId('t-todos-cleared'), payload: { sessionId: session.id, maxMessages: 2 } })
+    if (!cleared.result.ok) throw new Error('cleared failed')
+    expect('todos' in cleared.result.value).toBe(false)
     // A session with no todo/write anywhere omits the field.
     const bare = ctx.sessions.create()
     ctx.agents.register({ id: bare.id, session: bare, status: 'idle', ctx } as Agent)

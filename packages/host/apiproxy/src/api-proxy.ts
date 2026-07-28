@@ -295,11 +295,17 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
   return undefined
 }
 
-/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
+/**
+ * Current plan projection over the full log: the latest `todo/write` that is not
+ * followed by a later `turn/start` (whole-list replace ⇒ last write wins; a new
+ * turn retires the previous plan). Undefined when none stands.
+ */
 function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+    if (event === undefined) continue
+    if (event.type === 'turn/start') return undefined
+    if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
 }

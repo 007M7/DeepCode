@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md
+2026-07-28-todo-plan-clears-on-next-turn.md: 64c7207d334689817c3a392a0866158e4c1b927d
+2026-07-28-todo-plan-clears-on-next-turn.zh.md: 9df4d952888df9e83f84deb3f2d587b5f9e2ff77

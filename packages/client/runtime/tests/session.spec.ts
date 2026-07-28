@@ -177,21 +177,60 @@ describe('live event path', () => {
 
   it('seeds todos from the tail page projection when the last write precedes the window', async () => {
     const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
-    // Cold open: the page window carries NO todo/write; the projection rides the response.
+    // Cold open: same-turn page with no todo/write and no turn/start (a later turn/start
+    // would mean the host projection is empty). The standing plan rides the response.
+    const tailPage = [
+      ev.user(100, '问'),
+      ev.stepStart(101, 9),
+      ev.assistant(102, 9, '答'),
+      ev.stepEnd(103, 9),
+      ev.turnEnd(104, 9),
+    ]
     const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
+    api.onHistory = () => histResponse(tailPage, true, list)
     await session.open()
     expect(session.getSnapshot().todos).toEqual(list)
-    // Paging an older window in must not clear the session-level projection.
-    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
+    // Older same-turn slice (still no determiner) must keep the seeded plan.
+    api.onHistory = () => histResponse([
+      ev.user(95, '旧问'),
+      ev.stepStart(96, 9),
+      ev.assistant(97, 9, '旧答'),
+      ev.stepEnd(98, 9),
+      ev.turnEnd(99, 9),
+    ], false)
     await session.loadOlder()
     expect(session.getSnapshot().todos).toEqual(list)
-    // A later live write still overrides the seeded projection.
+    // Contiguous live write (tail is 104) still overrides the seeded projection.
     session.handleMuxEnvelope('r' as never, {
       type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
+      event: ev.todoWrite(105, [{ content: '新计划', status: 'pending' as const }]),
     })
     expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
+  })
+
+  it('clears the plan on turn/start (live and on window replay)', async () => {
+    const list = [{ content: '上一轮计划', status: 'completed' as const }]
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    feed(ev.todoWrite(6, list))
+    expect(session.getSnapshot().todos).toEqual(list)
+    // turn/end keeps the finished checklist visible while the user reads.
+    feed(ev.turnEnd(7, 0))
+    expect(session.getSnapshot().todos).toEqual(list)
+    feed(ev.turnStart(8, 1))
+    expect(session.getSnapshot().todos).toEqual([])
+    // Replay converges: a turn/start after the latest write yields an empty plan.
+    const replayed = makeSession()
+    replayed.api.onHistory = () => histResponse([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.todoWrite(6, list),
+      ev.turnStart(7, 1),
+      ev.user(8, '下一问'),
+    ])
+    await replayed.session.open()
+    expect(replayed.session.getSnapshot().todos).toEqual([])
   })
 
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
@@ -211,11 +250,18 @@ describe('live event path', () => {
   it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     expect(session.getSnapshot().todos).toEqual([])
-    // The missed range contained a todo/write that the repulled page no longer
-    // covers; the response's session-level projection is the only carrier.
+    // Missed todo/write still stands (no later turn/start); the repulled tail page
+    // omits that write and any determiner, so the response projection is the carrier.
     const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
-    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
-    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
+    const tailPage = [
+      ev.user(8, 'c'),
+      ev.stepStart(9, 1),
+      ev.assistant(10, 1, 'd'),
+      ev.stepEnd(11, 1),
+      ev.turnEnd(12, 1),
+    ]
+    api.onHistory = () => histResponse(tailPage, false, current)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(10, 1, 'd') })
     await vi.waitFor(() => {
       expect(api.callsOf('session.history').length).toBe(2)
     })
