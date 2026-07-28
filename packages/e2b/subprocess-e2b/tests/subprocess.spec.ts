@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { Context } from 'cordis'
 import {
   CommandExitError,
+  FileNotFoundError,
   type CommandHandle,
   type CommandResult,
   type Sandbox,
@@ -35,9 +36,13 @@ class FakeCommandHandle {
   readonly sent: Array<string | Uint8Array> = []
   closes = 0
   kills = 0
+  disconnects = 0
   killError: unknown
+  disconnectError: unknown
   private readonly result = Promise.withResolvers<CommandResult>()
   private settled = false
+
+  constructor(private readonly onKill: () => void = () => {}) {}
 
   wait(): Promise<CommandResult> {
     return this.result.promise
@@ -54,7 +59,13 @@ class FakeCommandHandle {
   async kill(): Promise<boolean> {
     this.kills += 1
     if (this.killError !== undefined) throw this.killError
+    this.onKill()
     return true
+  }
+
+  async disconnect(): Promise<void> {
+    this.disconnects += 1
+    if (this.disconnectError !== undefined) throw this.disconnectError
   }
 
   succeed(exitCode = 0): void {
@@ -77,7 +88,7 @@ class FakeCommandHandle {
 }
 
 class FakeSandbox {
-  readonly handle = new FakeCommandHandle()
+  readonly handle: FakeCommandHandle
   readonly commandsSeen: string[] = []
   readonly writtenFiles: string[][] = []
   readonly writtenFileData = new Map<string, string>()
@@ -85,19 +96,35 @@ class FakeSandbox {
   readonly directories: string[] = []
   startOptions: StartOptions | undefined
   backgroundError: unknown
+  envError: unknown
   nextRemoveError: unknown
   probeError: unknown
   signalError: unknown
+  readonly signalErrors: unknown[] = []
   trapsTerm = false
   delaysKill = false
+  sdkKillStops = true
   alive = true
   ambient = 'PATH=/ambient/bin\0KEEP=safe\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   processGroupId = '4242\n'
+  exitStatus = ''
   readonly processGroupReads: string[] = []
+  afterStatusRead: (() => void) | undefined
   beforeProbe: (() => void) | undefined
   afterProbe: (() => void) | undefined
   private startGate: Promise<void> | undefined
   private openStart: (() => void) | undefined
+  private processGroupReadGate: Promise<void> | undefined
+  private openProcessGroupRead: (() => void) | undefined
+
+  constructor() {
+    this.handle = new FakeCommandHandle(() => {
+      if (this.sdkKillStops) {
+        this.alive = false
+        this.handle.fail(137)
+      }
+    })
+  }
 
   deferStart(): void {
     const gate = Promise.withResolvers<undefined>()
@@ -107,6 +134,16 @@ class FakeSandbox {
 
   releaseStart(): void {
     this.openStart?.()
+  }
+
+  deferProcessGroupRead(): void {
+    const gate = Promise.withResolvers<undefined>()
+    this.processGroupReadGate = gate.promise
+    this.openProcessGroupRead = () => { gate.resolve(undefined) }
+  }
+
+  releaseProcessGroupRead(): void {
+    this.openProcessGroupRead?.()
   }
 
   finish(exitCode = 0): void {
@@ -155,7 +192,14 @@ class FakeSandbox {
         for (const file of files) this.writtenFileData.set(file.path, file.data)
         return files.map(() => ({}))
       },
-      read: async (): Promise<string> => this.processGroupReads.shift() ?? this.processGroupId,
+      read: async (path: string): Promise<string> => {
+        if (!path.endsWith('/exit-code')) {
+          await this.processGroupReadGate
+          return this.processGroupReads.shift() ?? this.processGroupId
+        }
+        this.afterStatusRead?.()
+        return this.exitStatus
+      },
       remove: async (path: string): Promise<void> => {
         this.removed.push(path)
         if (this.nextRemoveError !== undefined) {
@@ -168,7 +212,10 @@ class FakeSandbox {
     commands: {
       run: async (command: string, options?: StartOptions | { signal?: AbortSignal }): Promise<CommandHandle | CommandResult> => {
         this.commandsSeen.push(command)
-        if (command === 'env -0') return { exitCode: 0, stdout: this.ambient, stderr: '' }
+        if (command === 'env -0') {
+          if (this.envError !== undefined) throw this.envError
+          return { exitCode: 0, stdout: this.ambient, stderr: '' }
+        }
         if (command.startsWith('kill -0 ')) {
           this.beforeProbe?.()
           if (options?.signal?.aborted === true) throw new DOMException('aborted', 'AbortError')
@@ -182,9 +229,9 @@ class FakeSandbox {
           return { exitCode: 0, stdout: '', stderr: '' }
         }
         if (command.startsWith('kill -TERM ')) {
-          if (this.signalError !== undefined) {
-            const error = this.signalError
-            this.signalError = undefined
+          const error = this.signalErrors.shift() ?? this.signalError
+          if (error !== undefined) {
+            if (this.signalErrors.length === 0) this.signalError = undefined
             throw error
           }
           if (!this.trapsTerm) {
@@ -194,9 +241,9 @@ class FakeSandbox {
           return { exitCode: 0, stdout: '', stderr: '' }
         }
         if (command.startsWith('kill -KILL ')) {
-          if (this.signalError !== undefined) {
-            const error = this.signalError
-            this.signalError = undefined
+          const error = this.signalErrors.shift() ?? this.signalError
+          if (error !== undefined) {
+            if (this.signalErrors.length === 0) this.signalError = undefined
             throw error
           }
           if (!this.delaysKill) this.alive = false
@@ -277,6 +324,8 @@ describe('E2BOutputReader', () => {
     expect(reader.readFrom(2)).toEqual({ text: 'cdef', nextOffset: 6, lossy: false })
     expect(reader.readFrom(5)).toEqual({ text: 'f', nextOffset: 6, lossy: false })
     expect(reader.readFrom(99)).toEqual({ text: '', nextOffset: 6, lossy: false })
+    reader.invalidateSpill()
+    expect(reader.readFrom(0)).toEqual({ text: 'cdef', nextOffset: 6, lossy: true })
   })
 
   it('drops whole head chunks and withholds absent or over-cap spills', () => {
@@ -388,6 +437,50 @@ describe('E2BSubprocessHandle', () => {
     fake.alive = false
     fake.handle.succeed(0)
     await expect(handle.done).rejects.toThrow('incomplete output transport')
+  })
+
+  it('bounds descendant-held output draining and withholds the incomplete spill', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 5 }), '/runtime/drain-bound')
+    await flush()
+    await fake.stdout('leader-output')
+    fake.exitStatus = '0\n'
+
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(fake.handle.disconnects).toBe(1)
+    expect(handle.collected.stdout?.readFrom(0)).toEqual({
+      text: 'tput',
+      nextOffset: 13,
+      lossy: true,
+    })
+    expect(fake.removed).toContain('/runtime/drain-bound/stdout.log')
+
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
+  it('accepts clean encoder completion inside the output-drain grace', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 100 }), '/runtime/drain-complete')
+    await flush()
+    fake.exitStatus = '0\n'
+    fake.afterStatusRead = () => {
+      fake.afterStatusRead = undefined
+      setTimeout(() => { fake.finish() }, 0)
+    }
+
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(fake.handle.disconnects).toBe(0)
+  })
+
+  it('rejects an invalid direct-command exit status', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/invalid-status')
+    await flush()
+    fake.exitStatus = '999\n'
+    await expect(handle.done).rejects.toThrow('invalid exit code')
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
   it('surfaces deferred piped-stdin write and close failures as stream errors', async () => {
@@ -510,6 +603,97 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
   })
 
+  it('kills through the provisional SDK handle before process-group publication', async () => {
+    const fake = new FakeSandbox()
+    fake.deferProcessGroupRead()
+    fake.signalErrors.push(commandError(1), commandError(1))
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/pre-publication-kill')
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
+
+    handle.terminate()
+    await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
+    expect(fake.alive).toBe(false)
+    await expect(handle.waitForExit()).resolves.toBe(true)
+
+    fake.releaseProcessGroupRead()
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+  })
+
+  it('bounds a quiescence observer while provisional termination is awaiting the controller', async () => {
+    const fake = new FakeSandbox()
+    fake.deferProcessGroupRead()
+    const reconnect = Promise.withResolvers<Sandbox>()
+    let calls = 0
+    const delayedRuntime = runtime(fake, async () => {
+      calls += 1
+      return calls === 1 ? fake.sandbox : await reconnect.promise
+    })
+    const handle = new E2BSubprocessHandle(delayedRuntime, spec(), '/runtime/pre-publication-observer')
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
+    handle.terminate()
+
+    const controller = new AbortController()
+    const waiting = handle.waitForExit(controller.signal)
+    await flush()
+    controller.abort()
+    await expect(waiting).resolves.toBe(false)
+
+    reconnect.resolve(fake.sandbox)
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    fake.releaseProcessGroupRead()
+    await handle.done
+  })
+
+  it('proves a provisional group exit when the SDK kill fallback fails', async () => {
+    const fake = new FakeSandbox()
+    fake.deferProcessGroupRead()
+    fake.trapsTerm = true
+    fake.handle.killError = new Error('SDK kill unavailable')
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 1 }), '/runtime/pre-publication-group-kill')
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
+
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    fake.releaseProcessGroupRead()
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+  })
+
+  it('reports failed provisional group and SDK force transports', async () => {
+    const fake = new FakeSandbox()
+    fake.deferProcessGroupRead()
+    fake.signalErrors.push(new Error('TERM transport failed'), new Error('KILL transport failed'))
+    fake.handle.killError = new Error('SDK kill failed')
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 1 }), '/runtime/pre-publication-failure')
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
+
+    handle.terminate()
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+
+    fake.handle.killError = undefined
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    fake.releaseProcessGroupRead()
+    await handle.done
+
+    const absentGroup = new FakeSandbox()
+    absentGroup.deferProcessGroupRead()
+    absentGroup.signalErrors.push(commandError(1), commandError(1))
+    absentGroup.handle.killError = new Error('SDK kill failed without a provisional group')
+    const absentHandle = new E2BSubprocessHandle(
+      runtime(absentGroup),
+      spec({ graceMs: 1 }),
+      '/runtime/pre-publication-absent-group',
+    )
+    await vi.waitFor(() => { expect(absentGroup.startOptions).toBeDefined() })
+    absentHandle.terminate()
+    await expect(absentHandle.waitForExit()).rejects.toThrow('force termination failed through both')
+    absentGroup.handle.killError = undefined
+    absentHandle.terminate()
+    await expect(absentHandle.waitForExit()).resolves.toBe(true)
+    absentGroup.releaseProcessGroupRead()
+    await absentHandle.done
+  })
+
   it('honors an already-aborted signal when constructing the asynchronous handle directly', async () => {
     const fake = new FakeSandbox()
     const handle = new E2BSubprocessHandle(runtime(fake), spec({ signal: AbortSignal.abort('stop') }), '/runtime/pre-aborted')
@@ -559,6 +743,17 @@ describe('E2BSubprocessHandle', () => {
     await expect(liveWait).resolves.toBe(false)
     fake.finish()
     await handle.done
+
+    const terminatingFake = new FakeSandbox()
+    terminatingFake.deferStart()
+    const terminating = new E2BSubprocessHandle(runtime(terminatingFake), spec(), '/runtime/wait-termination-start')
+    terminating.terminate()
+    const beforeHandle = new AbortController()
+    const handlePending = terminating.waitForExit(beforeHandle.signal)
+    beforeHandle.abort()
+    await expect(handlePending).resolves.toBe(false)
+    terminatingFake.releaseStart()
+    await terminating.done
   })
 
   it('bounds both sides of the liveness-poll abort race', async () => {
@@ -580,6 +775,14 @@ describe('E2BSubprocessHandle', () => {
     const duringProbe = new AbortController()
     fake.beforeProbe = () => { duringProbe.abort(); fake.beforeProbe = undefined }
     await expect(handle.waitForExit(duringProbe.signal)).resolves.toBe(false)
+
+    let racedAbort = false
+    const raceSignal = {
+      get aborted() { return racedAbort },
+      addEventListener: () => { racedAbort = true },
+      removeEventListener: () => {},
+    } as unknown as AbortSignal
+    await expect(handle.waitForExit(raceSignal)).resolves.toBe(false)
     fake.finish()
     await handle.done
   })
@@ -599,8 +802,36 @@ describe('E2BSubprocessHandle', () => {
     const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/fail')
     await expect(handle.done).rejects.toThrow('start failed')
     expect(handle.pid).toBe(-1)
+    expect(fake.removed).toContain('/runtime/fail/environment')
+    expect(fake.removed).toContain('/runtime/fail')
     await expect(handle.waitForExit()).resolves.toBe(true)
     handle.terminate()
+
+    const unavailableHandle = new E2BSubprocessHandle(
+      runtime(new FakeSandbox(), async () => { throw new Error('sandbox unavailable') }),
+      spec(),
+      '/runtime/unavailable-start',
+    )
+    await expect(unavailableHandle.done).rejects.toThrow('sandbox unavailable')
+    await expect(unavailableHandle.waitForExit()).resolves.toBe(true)
+
+    const envFailure = new FakeSandbox()
+    envFailure.envError = new Error('ambient lookup failed')
+    const envHandle = new E2BSubprocessHandle(runtime(envFailure), spec(), '/runtime/env-failure')
+    await expect(envHandle.done).rejects.toThrow('ambient lookup failed')
+    expect(envFailure.removed).toEqual([])
+
+    const cleanupFailure = new FakeSandbox()
+    cleanupFailure.backgroundError = new Error('start failed before credential consumption')
+    cleanupFailure.nextRemoveError = new Error('credential cleanup failed')
+    const cleanupHandle = new E2BSubprocessHandle(runtime(cleanupFailure), spec(), '/runtime/cleanup-failure')
+    await expect(cleanupHandle.done).rejects.toThrow('command failed and private state cleanup failed')
+
+    const absentState = new FakeSandbox()
+    absentState.backgroundError = new Error('start failed after external cleanup')
+    absentState.nextRemoveError = new FileNotFoundError('already removed')
+    const absentHandle = new E2BSubprocessHandle(runtime(absentState), spec(), '/runtime/absent-state')
+    await expect(absentHandle.done).rejects.toThrow('start failed after external cleanup')
   })
 
   it('bounds a readiness rejection with a still-live caller signal', async () => {
@@ -678,7 +909,19 @@ describe('E2BSubprocessHandle', () => {
     invalidPid.handle.pid = 0
     const invalid = new E2BSubprocessHandle(runtime(invalidPid), spec(), '/runtime/invalid-pid')
     await expect(invalid.done).rejects.toThrow(/invalid command pid 0/)
+    expect(invalidPid.handle.kills).toBe(1)
+    expect(invalidPid.removed).toContain('/runtime/invalid-pid/environment')
     await expect(invalid.waitForExit()).resolves.toBe(true)
+
+    const failedRollback = new FakeSandbox()
+    failedRollback.handle.pid = 0
+    failedRollback.handle.killError = new Error('invalid handle kill failed')
+    const retained = new E2BSubprocessHandle(runtime(failedRollback), spec(), '/runtime/invalid-pid-retained')
+    await expect(retained.done).rejects.toThrow('invalid command pid rollback did not reach quiescence')
+    await expect(retained.waitForExit()).rejects.toThrow('invalid handle kill failed')
+    failedRollback.handle.killError = undefined
+    retained.terminate()
+    await expect(retained.waitForExit()).resolves.toBe(true)
 
     const crashedFake = new FakeSandbox()
     const crashed = new E2BSubprocessHandle(runtime(crashedFake), spec(), '/runtime/crashed')
@@ -692,6 +935,7 @@ describe('E2BSubprocessHandle', () => {
     const invalidGroup = new FakeSandbox()
     invalidGroup.processGroupId = 'not-a-pid\n'
     invalidGroup.delaysKill = true
+    invalidGroup.sdkKillStops = false
     invalidGroup.afterProbe = () => { invalidGroup.alive = false }
     const invalid = new E2BSubprocessHandle(runtime(invalidGroup), spec(), '/runtime/invalid-group')
     await expect(invalid.done).rejects.toThrow(/invalid process-group id/)
@@ -791,7 +1035,7 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })
 
-  it('contains an already-gone group signal and observes non-command signal failures', async () => {
+  it('contains an already-gone group signal and escalates after a TERM transport failure', async () => {
     const gone = new FakeSandbox()
     gone.trapsTerm = true
     gone.signalError = commandError(1)
@@ -805,9 +1049,35 @@ describe('E2BSubprocessHandle', () => {
     const failedHandle = new E2BSubprocessHandle(runtime(failed), spec(), '/runtime/failed-signal')
     await flush()
     failedHandle.terminate()
+    await expect(failedHandle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+    expect(failed.commandsSeen).toContain('kill -KILL -- -4242')
+  })
+
+  it('allows termination retry after both force transports fail', async () => {
+    const fake = new FakeSandbox()
+    fake.signalErrors.push(new Error('TERM transport failed'), new Error('KILL transport failed'))
+    fake.handle.killError = new Error('SDK kill failed')
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 1 }), '/runtime/retry-signal')
     await flush()
-    failed.finish()
-    await expect(failedHandle.done).resolves.toEqual({ exitCode: 0, signal: null })
+
+    handle.terminate()
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    fake.handle.killError = undefined
+    handle.terminate()
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+    expect(fake.commandsSeen.filter(command => command.startsWith('kill -TERM '))).toHaveLength(2)
+
+    const missingGroup = new FakeSandbox()
+    missingGroup.trapsTerm = true
+    missingGroup.signalErrors.push(undefined, commandError(1))
+    missingGroup.handle.killError = new Error('SDK kill failed after group exit race')
+    const raced = new E2BSubprocessHandle(runtime(missingGroup), spec({ graceMs: 1 }), '/runtime/group-exit-race')
+    await flush()
+    raced.terminate()
+    await expect(raced.waitForExit()).rejects.toThrow('force termination failed through both')
+    missingGroup.handle.killError = undefined
+    raced.terminate()
+    await expect(raced.waitForExit()).resolves.toBe(true)
   })
 })
 
@@ -831,6 +1101,23 @@ describe('E2BSubprocessService', () => {
     await fiber.dispose()
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     expect(fake.alive).toBe(false)
+  })
+
+  it('reports a failed termination transaction from disposal instead of waiting on done', async () => {
+    const fake = new FakeSandbox()
+    fake.signalErrors.push(new Error('TERM transport failed'), new Error('KILL transport failed'))
+    fake.handle.killError = new Error('SDK kill failed')
+    const { ctx, fiber } = await service(fake)
+    const handle = ctx.subprocess.spawn(spec({ graceMs: 1 }))
+    await flush()
+
+    await expect(fiber.dispose()).resolves.toBeUndefined()
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+
+    fake.handle.killError = undefined
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
   })
 
   it('releases naturally settled handles before later service disposal', async () => {

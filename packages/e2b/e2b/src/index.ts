@@ -7,7 +7,7 @@
 import { posix } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { Sandbox, SandboxNotFoundError } from 'e2b'
+import { FileType, Sandbox, SandboxNotFoundError } from 'e2b'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 export {
@@ -232,6 +232,10 @@ export class E2BSandboxService extends Service {
     try {
       await sandbox.files.makeDir(this.cwd)
       await sandbox.files.makeDir(this.runtimeRoot)
+      const runtimeRoot = await sandbox.files.getInfo(this.runtimeRoot)
+      if (runtimeRoot.type !== FileType.DIR || runtimeRoot.symlinkTarget !== undefined) {
+        throw new Error(`dsh-e2b: runtime root must be a real directory: ${this.runtimeRoot}`)
+      }
       await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.runtimeRoot)}`)
       return sandbox
     } catch (error: unknown) {

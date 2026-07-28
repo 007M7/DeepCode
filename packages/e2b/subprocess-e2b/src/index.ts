@@ -46,14 +46,12 @@ export class E2BSubprocessService extends SubprocessService {
       const pending: Promise<unknown>[] = []
       for (const handle of handles) {
         handle.terminate()
-        pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
+        pending.push(handle.waitForExit().then(() => { this.live.delete(handle) }))
       }
       for (const terminal of terminals) {
         terminal.terminate()
-        pending.push(terminal.waitForExit())
+        pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
       }
-      this.live.clear()
-      this.terminals.clear()
       await Promise.all(pending)
     }, 'e2b subprocess teardown')
   }

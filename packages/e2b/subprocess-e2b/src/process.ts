@@ -5,6 +5,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { posix } from 'node:path'
 import {
   CommandExitError,
+  FileNotFoundError,
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
@@ -41,6 +42,10 @@ function hasSpill(mode: SubprocessOutputMode): mode is SubprocessCollect & { spi
   return isCollect(mode) && mode.spill !== undefined
 }
 
+function isValidProcessId(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0
+}
+
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
@@ -73,6 +78,20 @@ interface RemotePaths {
   stderr: string
 }
 
+type CommandSettlement =
+  | { kind: 'result'; result: CommandResult }
+  | { kind: 'error'; error: unknown }
+
+function withinMs<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  return new Promise<T | undefined>((resolve) => {
+    const timer = setTimeout(() => { resolve(undefined) }, timeoutMs)
+    void promise.then((value) => {
+      clearTimeout(timer)
+      resolve(value)
+    })
+  })
+}
+
 function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
   const environment = scrubRemoteEnvironment(raw)
   for (const [name, value] of Object.entries(explicit ?? {})) environment.set(name, value)
@@ -96,15 +115,16 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
     'dsh_e2b_tr=$4',
     'dsh_e2b_tee=$5',
     'dsh_e2b_head=$6',
-    'shift 6',
+    'dsh_e2b_rm=$7',
+    'shift 7',
     'dsh_e2b_pgid="$("$dsh_e2b_ps" -o pgid= -p "$$" | "$dsh_e2b_tr" -d " ")"',
     `printf '%s\\n' "$dsh_e2b_pgid" > ${quoteE2BShellArg(paths.pid)}`,
     `mapfile -d '' -t dsh_e2b_env < ${quoteE2BShellArg(paths.environment)}`,
-    `: > ${quoteE2BShellArg(paths.environment)}`,
+    `"$dsh_e2b_rm" -f -- ${quoteE2BShellArg(paths.environment)}`,
     `"$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
     'dsh_e2b_status=$?',
-    'wait',
     `printf '%s\\n' "$dsh_e2b_status" > ${quoteE2BShellArg(paths.status)}`,
+    'wait',
     'exit "$dsh_e2b_status"',
   ].join('\n')
   const argv = spec.argv.map(quoteE2BShellArg).join(' ')
@@ -118,10 +138,11 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
     'dsh_e2b_tr="$(command -v tr)"',
     'dsh_e2b_tee="$(command -v tee)"',
     'dsh_e2b_head="$(command -v head)"',
-    'for dsh_e2b_tool in "$dsh_e2b_env_bin" "$dsh_e2b_setsid" "$dsh_e2b_bash" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head"; do',
+    'dsh_e2b_rm="$(command -v rm)"',
+    'for dsh_e2b_tool in "$dsh_e2b_env_bin" "$dsh_e2b_setsid" "$dsh_e2b_bash" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" "$dsh_e2b_rm"; do',
     '  [[ "$dsh_e2b_tool" == /* && -x "$dsh_e2b_tool" ]] || exit 125',
     'done',
-    `exec "$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c ${quoteE2BShellArg(inner)} dsh-e2b "$dsh_e2b_env_bin" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" ${argv}`,
+    `exec "$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c ${quoteE2BShellArg(inner)} dsh-e2b "$dsh_e2b_env_bin" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" "$dsh_e2b_rm" ${argv}`,
   ].join('\n')
   return bootstrap
 }
@@ -149,6 +170,26 @@ function waitTick(signal?: AbortSignal): Promise<boolean> {
   })
 }
 
+const WAIT_ABORTED = Symbol('wait aborted')
+
+function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof WAIT_ABORTED> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.resolve(WAIT_ABORTED)
+  return new Promise<T | typeof WAIT_ABORTED>((resolve, reject) => {
+    const onAbort = (): void => { cleanup(); resolve(WAIT_ABORTED) }
+    const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    void promise.then(
+      (value) => { cleanup(); resolve(value) },
+      (error: unknown) => { cleanup(); reject(asError(error)) },
+    )
+  })
+}
+
 /** E2B-backed subprocess handle with deferred remote PID acquisition. */
 export class E2BSubprocessHandle implements SubprocessHandle {
   readonly stdin: Writable | undefined
@@ -157,6 +198,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   readonly collected: SubprocessHandle['collected']
   readonly done: Promise<SubprocessOutcome>
 
+  private readonly commandState = Promise.withResolvers<CommandHandle | undefined>()
   private readonly readyState = Promise.withResolvers<CommandHandle>()
   private readonly stdoutDecoder = new E2BBase64Decoder()
   private readonly stderrDecoder = new E2BBase64Decoder()
@@ -166,9 +208,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private remotePid = -1
   private commandHandle: CommandHandle | undefined
   private outputTransportError: Error | undefined
-  private terminationRequested = false
+  private outputDrainExpired = false
+  private stateDirectoryCreated = false
+  private invalidHandleQuiescent = false
+  private provisionalHandleQuiescent = false
+  private terminationStarted = false
+  private terminationAttempt: Promise<void> | undefined
+  private terminationFailure: Error | undefined
   private terminationSignal: NodeJS.Signals | null = null
-  private termination: Promise<void> | undefined
 
   /**
    * Begin an E2B command without blocking the synchronous subprocess spawn seam.
@@ -217,22 +264,47 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   /** @inheritdoc */
   terminate(): void {
-    if (this.terminationRequested) return
-    this.terminationRequested = true
-    this.termination = this.terminateRemote()
-    void this.termination.catch(() => {})
+    if (this.terminationAttempt !== undefined) return
+    this.terminationStarted = true
+    this.terminationFailure = undefined
+    const attempt = this.terminateRemote()
+    this.terminationAttempt = attempt
+    void attempt.then(
+      () => {
+        this.terminationAttempt = undefined
+      },
+      (error: unknown) => {
+        this.terminationFailure = asError(error)
+        this.terminationAttempt = undefined
+      },
+    )
   }
 
   /** @inheritdoc */
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     let handle: CommandHandle | undefined
-    try {
-      handle = await this.readyForWait(signal)
-    } catch {
-      handle = this.commandHandle
+    if (this.terminationStarted) {
+      const observed = await waitWithSignal(this.commandState.promise, signal)
+      if (observed === WAIT_ABORTED) return false
+      handle = observed
       if (handle === undefined) return true
+      if (this.remotePid <= 0) {
+        const attempt = this.terminationAttempt
+        if (attempt !== undefined && await waitWithSignal(attempt, signal) === WAIT_ABORTED) return false
+        this.throwTerminationFailure()
+        if (this.invalidHandleQuiescent || this.provisionalHandleQuiescent) return true
+      }
+    } else {
+      try {
+        const observed = await waitWithSignal(this.readyState.promise, signal)
+        if (observed === WAIT_ABORTED) return false
+        handle = observed
+      } catch {
+        handle = this.commandHandle
+        if (handle === undefined) return true
+      }
     }
-    if (handle === undefined) return false
+    this.throwTerminationFailure()
     let sandbox: Sandbox
     try {
       sandbox = await this.runtime.getSandbox()
@@ -242,33 +314,19 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     }
     const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
     while (await this.groupAlive(sandbox, processGroupId, signal)) {
+      this.throwTerminationFailure()
       if (!await waitTick(signal)) return false
     }
+    this.throwTerminationFailure()
     return !isAborted(signal)
-  }
-
-  private readyForWait(signal: AbortSignal | undefined): Promise<CommandHandle | undefined> {
-    if (signal === undefined) return this.readyState.promise
-    return new Promise<CommandHandle | undefined>((resolve, reject) => {
-      const onAbort = (): void => { cleanup(); resolve(undefined) }
-      const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      if (signal.aborted) {
-        onAbort()
-        return
-      }
-      void this.readyState.promise.then(
-        (handle) => { cleanup(); resolve(handle) },
-        (error: unknown) => { cleanup(); reject(asError(error)) },
-      )
-    })
   }
 
   private readonly onAbort = (): void => { this.terminate() }
 
   private async run(): Promise<SubprocessOutcome> {
+    let sandbox: Sandbox | undefined
     try {
-      const sandbox = await this.runtime.getSandbox()
+      sandbox = await this.runtime.getSandbox()
       await this.prepareState(sandbox)
       const handle = await sandbox.commands.run(
         commandText(this.spec, this.paths),
@@ -281,12 +339,26 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           onStderr: async (data) => { await this.dispatchOutput('stderr', data) },
         },
       )
-      if (!Number.isSafeInteger(handle.pid) || handle.pid <= 0) {
-        throw new Error(`subprocess-e2b: E2B returned invalid command pid ${handle.pid}`)
-      }
       this.commandHandle = handle
       const completion = handle.wait()
       void completion.catch(() => {})
+      if (!isValidProcessId(handle.pid)) {
+        const invalidPid = new Error(`subprocess-e2b: E2B returned invalid command pid ${handle.pid}`)
+        try {
+          await handle.kill()
+          this.invalidHandleQuiescent = true
+          this.commandHandle = undefined
+        } catch (cleanupError: unknown) {
+          this.terminationFailure = asError(cleanupError)
+          this.commandState.resolve(handle)
+          throw new AggregateError(
+            [invalidPid, cleanupError],
+            'subprocess-e2b: invalid command pid rollback did not reach quiescence',
+          )
+        }
+        throw invalidPid
+      }
+      this.commandState.resolve(handle)
       try {
         this.remotePid = await this.waitForProcessGroupId(sandbox, completion)
       } catch (error: unknown) {
@@ -302,16 +374,28 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       }
       this.readyState.resolve(handle)
       await this.writeBatchStdin(handle)
-      const outcome = await this.waitForCommand(completion)
+      const outcome = await this.waitForCommand(sandbox, handle, completion)
       if (this.outputTransportError !== undefined) throw this.outputTransportError
-      const requireCompleteOutput = this.terminationSignal === null
+      const requireCompleteOutput = this.terminationSignal === null && !this.outputDrainExpired
       this.stdoutDecoder.finish(requireCompleteOutput)
       this.stderrDecoder.finish(requireCompleteOutput)
       await this.finalizeSpills(sandbox)
       return outcome
     } catch (error: unknown) {
-      this.readyState.reject(error)
-      throw error
+      this.commandState.resolve(undefined)
+      let failure = error
+      if (sandbox !== undefined && this.stateDirectoryCreated) {
+        try {
+          await this.removeFailedState(sandbox)
+        } catch (cleanupError: unknown) {
+          failure = new AggregateError(
+            [error, cleanupError],
+            'subprocess-e2b: command failed and private state cleanup failed',
+          )
+        }
+      }
+      this.readyState.reject(failure)
+      throw failure
     } finally {
       this.spec.signal?.removeEventListener('abort', this.onAbort)
       this.stdout?.end()
@@ -322,6 +406,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private async prepareState(sandbox: Sandbox): Promise<void> {
     const ambient = await sandbox.commands.run('env -0')
     await sandbox.files.makeDir(this.stateDir)
+    this.stateDirectoryCreated = true
     await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`)
     const files = [
       { path: this.paths.pid, data: '' },
@@ -405,18 +490,43 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     }
   }
 
-  private async waitForCommand(completion: Promise<CommandResult>): Promise<SubprocessOutcome> {
-    try {
-      const result = await completion
-      return { exitCode: result.exitCode, signal: null }
-    } catch (error: unknown) {
-      if (error instanceof CommandExitError) {
-        return this.terminationSignal === null
-          ? { exitCode: error.exitCode, signal: null }
-          : { exitCode: null, signal: this.terminationSignal }
+  private async waitForCommand(
+    sandbox: Sandbox,
+    handle: CommandHandle,
+    completion: Promise<CommandResult>,
+  ): Promise<SubprocessOutcome> {
+    const settlement = completion.then<CommandSettlement, CommandSettlement>(
+      result => ({ kind: 'result', result }),
+      (error: unknown) => ({ kind: 'error', error }),
+    )
+    while (true) {
+      const rawStatus = (await sandbox.files.read(this.paths.status)).trim()
+      if (rawStatus.length > 0) {
+        const exitCode = Number(rawStatus)
+        if (!/^(?:0|[1-9][0-9]*)$/.test(rawStatus) || !Number.isSafeInteger(exitCode) || exitCode > 255) {
+          throw new Error(`subprocess-e2b: remote wrapper published invalid exit code ${JSON.stringify(rawStatus)}`)
+        }
+        const completed = await withinMs(settlement, this.spec.graceMs)
+        if (completed !== undefined) return this.commandOutcome(completed)
+        this.outputDrainExpired = true
+        this.stdoutReader?.invalidateSpill()
+        this.stderrReader?.invalidateSpill()
+        await handle.disconnect()
+        return { exitCode, signal: null }
       }
-      throw error
+      const completed = await Promise.race([settlement, waitTick().then(() => undefined)])
+      if (completed !== undefined) return this.commandOutcome(completed)
     }
+  }
+
+  private commandOutcome(settlement: CommandSettlement): SubprocessOutcome {
+    if (settlement.kind === 'result') return { exitCode: settlement.result.exitCode, signal: null }
+    if (settlement.error instanceof CommandExitError) {
+      return this.terminationSignal === null
+        ? { exitCode: settlement.error.exitCode, signal: null }
+        : { exitCode: null, signal: this.terminationSignal }
+    }
+    throw settlement.error
   }
 
   private async rollbackUnpublishedGroup(sandbox: Sandbox, handle: CommandHandle): Promise<void> {
@@ -433,35 +543,99 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async terminateRemote(): Promise<void> {
-    let handle: CommandHandle | undefined
-    try {
-      handle = await this.readyState.promise
-    } catch {
-      handle = this.commandHandle
-    }
+    const handle = await this.commandState.promise
     if (handle === undefined) return
-    const sandbox = await this.runtime.getSandbox()
-    const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
-    this.terminationSignal = 'SIGTERM'
-    await this.signalGroup(sandbox, processGroupId, 'TERM')
-    const deadline = Date.now() + this.spec.graceMs
-    while (Date.now() < deadline && await this.groupAlive(sandbox, processGroupId)) {
-      await waitTick()
+    if (!isValidProcessId(handle.pid) && this.remotePid <= 0) {
+      await handle.kill()
+      this.invalidHandleQuiescent = true
+      this.commandHandle = undefined
+      return
     }
-    if (!await this.groupAlive(sandbox, processGroupId)) return
-    this.terminationSignal = 'SIGKILL'
+    if (this.remotePid <= 0) {
+      const sandbox = await this.runtime.getSandbox()
+      this.terminationSignal = 'SIGTERM'
+      try {
+        const delivered = await this.signalGroup(sandbox, handle.pid, 'TERM')
+        if (delivered) {
+          const deadline = Date.now() + this.spec.graceMs
+          while (Date.now() < deadline && await this.groupAlive(sandbox, handle.pid)) await waitTick()
+          if (!await this.groupAlive(sandbox, handle.pid)) {
+            this.provisionalHandleQuiescent = true
+            return
+          }
+        }
+      } catch (_gracefulTerminationFailure) {
+        // A missing or unobservable provisional group still has the SDK handle fallback.
+      }
+      this.terminationSignal = 'SIGKILL'
+      let groupDelivered = false
+      let groupFailure: unknown
+      try {
+        groupDelivered = await this.signalGroup(sandbox, handle.pid, 'KILL')
+      } catch (error: unknown) {
+        groupFailure = error
+      }
+      let handleFailure: unknown
+      try {
+        await handle.kill()
+        this.provisionalHandleQuiescent = true
+      } catch (error: unknown) {
+        handleFailure = error
+      }
+      if (!groupDelivered && handleFailure !== undefined) {
+        throw new AggregateError(
+          [...(groupFailure === undefined ? [] : [groupFailure]), handleFailure],
+          'subprocess-e2b: force termination failed through both process-group and SDK transports',
+        )
+      }
+      return
+    }
+    const sandbox = await this.runtime.getSandbox()
+    const processGroupId = this.remotePid
+    this.terminationSignal = 'SIGTERM'
     try {
-      await this.signalGroup(sandbox, processGroupId, 'KILL')
-    } finally {
-      await handle.kill().catch(() => false)
+      await this.signalGroup(sandbox, processGroupId, 'TERM')
+      const deadline = Date.now() + this.spec.graceMs
+      while (Date.now() < deadline && await this.groupAlive(sandbox, processGroupId)) {
+        await waitTick()
+      }
+      if (!await this.groupAlive(sandbox, processGroupId)) return
+    } catch (_gracefulTerminationFailure) {
+      // Failed TERM delivery or observation cannot prove exit; force cleanup still owns the group.
+    }
+    this.terminationSignal = 'SIGKILL'
+    let groupFailure: unknown
+    let groupDelivered = false
+    try {
+      groupDelivered = await this.signalGroup(sandbox, processGroupId, 'KILL')
+    } catch (error: unknown) {
+      groupFailure = error
+    }
+    let handleFailure: unknown
+    try {
+      await handle.kill()
+    } catch (error: unknown) {
+      handleFailure = error
+    }
+    if (!groupDelivered && handleFailure !== undefined && await this.groupAlive(sandbox, processGroupId)) {
+      throw new AggregateError(
+        [...(groupFailure === undefined ? [] : [groupFailure]), handleFailure],
+        'subprocess-e2b: force termination failed through both process-group and SDK transports',
+      )
     }
   }
 
-  private async signalGroup(sandbox: Sandbox, pid: number, signal: 'TERM' | 'KILL'): Promise<void> {
+  private throwTerminationFailure(): void {
+    if (this.terminationFailure !== undefined) throw this.terminationFailure
+  }
+
+  private async signalGroup(sandbox: Sandbox, pid: number, signal: 'TERM' | 'KILL'): Promise<boolean> {
     try {
       await sandbox.commands.run(`kill -${signal} -- -${pid}`)
+      return true
     } catch (error: unknown) {
-      if (!(error instanceof CommandExitError)) throw error
+      if (error instanceof CommandExitError) return false
+      throw error
     }
   }
 
@@ -482,12 +656,26 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (!hasSpill(mode)) return
       // A spill mode is a collect mode, so construction always created its reader.
       const size = (reader as E2BOutputReader).size
-      if (size <= mode.maxBytes || size > mode.spill.maxBytes) {
+      if (this.outputDrainExpired || size <= mode.maxBytes || size > mode.spill.maxBytes) {
         removals.push(sandbox.files.remove(path).catch(() => {}))
       }
     }
     collect(this.spec.stdio.stdout, this.stdoutReader, this.paths.stdout)
     collect(this.spec.stdio.stderr, this.stderrReader, this.paths.stderr)
     await Promise.all(removals)
+  }
+
+  private async removeFailedState(sandbox: Sandbox): Promise<void> {
+    const failures: Error[] = []
+    for (const path of [this.paths.environment, this.stateDir]) {
+      try {
+        await sandbox.files.remove(path)
+      } catch (error: unknown) {
+        if (!(error instanceof FileNotFoundError)) failures.push(asError(error))
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'subprocess-e2b: failed to remove private command state')
+    }
   }
 }

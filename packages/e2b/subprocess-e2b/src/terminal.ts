@@ -376,25 +376,26 @@ export async function spawnE2BTerminal(
     argv: posix.join(stateDir, 'argv'),
     ready: posix.join(stateDir, 'ready'),
   }
-  const ambient = await sandbox.commands.run('env -0', signalOpts(spec.signal))
-  const environment = remoteEnvironment(ambient.stdout, spec.env)
-  const argv = serializeValues(spec.argv, 'argv')
-  await sandbox.files.makeDir(stateDir)
-  await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stateDir)}`, signalOpts(spec.signal))
-  await sandbox.files.write([
-    { path: paths.runner, data: TERMINAL_RUNNER_SOURCE },
-    { path: paths.environment, data: environment },
-    { path: paths.argv, data: argv },
-  ], signalOpts(spec.signal))
-  await sandbox.commands.run(
-    `chmod 600 -- ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(paths.environment)} ${quoteE2BShellArg(paths.argv)}`,
-    signalOpts(spec.signal),
-  )
-
   const output = new PassThrough()
   let handle: CommandHandle | undefined
   let completion: Promise<CommandResult> | undefined
+  let stateDirectoryCreated = false
   try {
+    const ambient = await sandbox.commands.run('env -0', signalOpts(spec.signal))
+    const environment = remoteEnvironment(ambient.stdout, spec.env)
+    const argv = serializeValues(spec.argv, 'argv')
+    await sandbox.files.makeDir(stateDir)
+    stateDirectoryCreated = true
+    await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stateDir)}`, signalOpts(spec.signal))
+    await sandbox.files.write([
+      { path: paths.runner, data: TERMINAL_RUNNER_SOURCE },
+      { path: paths.environment, data: environment },
+      { path: paths.argv, data: argv },
+    ], signalOpts(spec.signal))
+    await sandbox.commands.run(
+      `chmod 600 -- ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(paths.environment)} ${quoteE2BShellArg(paths.argv)}`,
+      signalOpts(spec.signal),
+    )
     handle = await sandbox.pty.create({
       rows: spec.rows,
       cols: spec.cols,
@@ -425,19 +426,25 @@ export async function spawnE2BTerminal(
     )
   } catch (error: unknown) {
     output.destroy()
-    let cleanupError: Error | undefined
+    const cleanupErrors: Error[] = []
     if (handle !== undefined && completion !== undefined) {
       try {
         await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
       } catch (rollbackError: unknown) {
-        cleanupError = asError(rollbackError)
+        cleanupErrors.push(asError(rollbackError))
       }
     } else if (handle !== undefined) {
       await handle.kill().catch(() => false)
     }
-    await sandbox.files.remove(stateDir).catch(() => {})
-    if (cleanupError !== undefined) {
-      throw new AggregateError([asError(error), cleanupError], asError(error).message)
+    if (stateDirectoryCreated) {
+      try {
+        await sandbox.files.remove(stateDir)
+      } catch (stateError: unknown) {
+        if (!(stateError instanceof FileNotFoundError)) cleanupErrors.push(asError(stateError))
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([asError(error), ...cleanupErrors], asError(error).message)
     }
     throw error
   }

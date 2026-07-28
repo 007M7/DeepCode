@@ -5,7 +5,7 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import { Sandbox, SandboxNotFoundError } from '@deepseek-ai/dsh-e2b'
+import E2BSandboxService, { Sandbox, SandboxNotFoundError } from '@deepseek-ai/dsh-e2b'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -92,6 +92,27 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       await session.close('environment test complete')
       await subprocessFiber.dispose()
       await ptyFiber.dispose()
+
+      await sandbox.commands.run([
+        'rm -rf -- /home/user/.dsh-e2b /home/user/dsh-e2b-runtime-target',
+        'mkdir -p -- /home/user/dsh-e2b-runtime-target',
+        'chmod 755 -- /home/user/dsh-e2b-runtime-target',
+        'ln -s -- /home/user/dsh-e2b-runtime-target /home/user/.dsh-e2b',
+      ].join('\n'))
+      const linkedCtx = new Context()
+      const linkedFiber = await linkedCtx.plugin(E2BSandboxService, {
+        apiKey,
+        sandboxId: sandbox.sandboxId,
+        cwd: '/home/user',
+        onDispose: 'leave',
+      })
+      try {
+        await expect(linkedCtx.e2b.getSandbox()).rejects.toThrow('runtime root must be a real directory')
+        const target = await sandbox.files.getInfo('/home/user/dsh-e2b-runtime-target')
+        expect(target.mode & 0o777).toBe(0o755)
+      } finally {
+        await linkedFiber.dispose()
+      }
     } finally {
       await sandbox.kill().catch(() => false)
     }
@@ -123,6 +144,12 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       fsRead: 'written-by-bash\n',
       explicitEnvironment: true,
       splitUtf8Output: '你好',
+      outputDrain: {
+        outcome: { exitCode: 0, signal: null },
+        text: 'leader-done\n',
+        exited: true,
+        clean: true,
+      },
       publicationRollback: true,
       spill: {
         liveBytes: 6,

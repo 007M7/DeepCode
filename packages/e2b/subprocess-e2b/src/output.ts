@@ -66,6 +66,7 @@ export class E2BOutputReader implements SubprocessOutputReader {
   private chunks: Buffer[] = []
   private retainedBytes = 0
   private totalBytes = 0
+  private spillValid = true
 
   /**
    * Create a bounded reader over one remote spill path.
@@ -82,6 +83,11 @@ export class E2BOutputReader implements SubprocessOutputReader {
   /** Total bytes observed from the SDK stream. */
   get size(): number {
     return this.totalBytes
+  }
+
+  /** Stop advertising a remote spill whose writer did not reach clean EOF. */
+  invalidateSpill(): void {
+    this.spillValid = false
   }
 
   /**
@@ -120,7 +126,7 @@ export class E2BOutputReader implements SubprocessOutputReader {
       text: retained.subarray(start).toString('utf8'),
       nextOffset: this.totalBytes,
       lossy,
-      ...(lossy && this.maxSpillBytes !== undefined && this.totalBytes <= this.maxSpillBytes
+      ...(lossy && this.spillValid && this.maxSpillBytes !== undefined && this.totalBytes <= this.maxSpillBytes
         ? { spillPath: this.spillPath }
         : {}),
     }

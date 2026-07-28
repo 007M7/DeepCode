@@ -95,6 +95,7 @@ class FakeTerminalSandbox {
   foreground = '456\n'
   groups = [123]
   createError: unknown
+  writeError: unknown
   sendError: unknown
   commandFailure: unknown
   sessionGroupsFailure: unknown
@@ -116,6 +117,7 @@ class FakeTerminalSandbox {
       },
       write: async (files: Array<{ path: string; data: string }>): Promise<object[]> => {
         for (const file of files) this.writes.set(file.path, file.data)
+        if (this.writeError !== undefined) throw this.writeError
         return files.map(() => ({}))
       },
       read: async (): Promise<string> => {
@@ -278,6 +280,20 @@ describe('E2B terminal allocation', () => {
   })
 
   it('cleans malformed handles, bootstrap failures, and readiness failures', async () => {
+    const failedState = new FakeTerminalSandbox()
+    failedState.writeError = new Error('state write failed')
+    await expect(spawnE2BTerminal(runtime(failedState), spec(), '/runtime/state-write'))
+      .rejects.toThrow('state write failed')
+    expect(failedState.writes.get('/runtime/state-write/environment')).toContain('KEEP=visible\0')
+    expect(failedState.removed).toContain('/runtime/state-write')
+    expect(failedState.createOptions).toBeUndefined()
+
+    const stateAlreadyGone = new FakeTerminalSandbox()
+    stateAlreadyGone.writeError = new Error('state write failed after external cleanup')
+    stateAlreadyGone.removeError = new FileNotFoundError('state already gone')
+    await expect(spawnE2BTerminal(runtime(stateAlreadyGone), spec(), '/runtime/state-gone'))
+      .rejects.toThrow('state write failed after external cleanup')
+
     const invalidPid = new FakeTerminalSandbox()
     invalidPid.handle.pid = 0
     await expect(spawnE2BTerminal(runtime(invalidPid), spec(), '/runtime/invalid-pid'))

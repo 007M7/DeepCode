@@ -85,6 +85,30 @@ try {
     throw new Error(`E2B subprocess corrupted split UTF-8 output: ${JSON.stringify({ splitUtf8Outcome, splitUtf8Output })}`)
   }
 
+  const outputDrainStarted = Date.now()
+  const outputDrainHandle = ctx.subprocess.spawn({
+    argv: ['bash', '-c', "bash -c 'exec -a dsh-output-drain-descendant sleep 30' & printf 'leader-done\\n'"],
+    cwd: process.cwd(),
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 64 }, stderr: { maxBytes: 4_096 } },
+    graceMs: 250,
+    env: {},
+  })
+  const outputDrainOutcome = await outputDrainHandle.done
+  const outputDrainText = outputDrainHandle.collected.stdout?.readFrom(0).text
+  const outputDrainElapsedMs = Date.now() - outputDrainStarted
+  outputDrainHandle.terminate()
+  const outputDrainExited = await outputDrainHandle.waitForExit(AbortSignal.timeout(5_000))
+  const outputDrainProcesses = await sandbox.commands.list()
+  const outputDrainClean = !outputDrainProcesses.some(processInfo =>
+    JSON.stringify([processInfo.cmd, processInfo.args]).includes('dsh-output-drain-descendant'),
+  )
+  if (outputDrainOutcome.exitCode !== 0 || outputDrainText !== 'leader-done\n'
+    || outputDrainElapsedMs >= 10_000 || !outputDrainExited || !outputDrainClean) {
+    throw new Error(`E2B subprocess output drain was not bounded: ${JSON.stringify({
+      outputDrainOutcome, outputDrainText, outputDrainElapsedMs, outputDrainExited, outputDrainClean,
+    })}`)
+  }
+
   const remoteFiles = sandbox.files as unknown as {
     read(path: string, options?: unknown): Promise<unknown>
   }
@@ -384,6 +408,7 @@ try {
     fsRead,
     explicitEnvironment,
     splitUtf8Output,
+    outputDrain: { outcome: outputDrainOutcome, text: outputDrainText, exited: outputDrainExited, clean: outputDrainClean },
     publicationRollback,
     spill: { liveBytes: liveSpillBytes, outcome: spillOutcome, read: spillRead },
     hover,

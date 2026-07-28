@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import type { Sandbox as SandboxType } from 'e2b'
 import E2BSandboxService, {
   E2BSandboxId,
+  FileType,
   SandboxNotFoundError,
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
@@ -33,6 +34,7 @@ vi.mock('e2b', async (importOriginal) => {
 interface SandboxFixture {
   sandbox: SandboxType
   makeDir: ReturnType<typeof vi.fn>
+  getInfo: ReturnType<typeof vi.fn>
   run: ReturnType<typeof vi.fn>
   kill: ReturnType<typeof vi.fn>
   pause: ReturnType<typeof vi.fn>
@@ -40,17 +42,18 @@ interface SandboxFixture {
 
 function fakeSandbox(id = 'sandbox-1'): SandboxFixture {
   const makeDir = vi.fn().mockResolvedValue(true)
+  const getInfo = vi.fn().mockResolvedValue({ type: FileType.DIR })
   const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' })
   const kill = vi.fn().mockResolvedValue(undefined)
   const pause = vi.fn().mockResolvedValue(true)
   const sandbox = {
     sandboxId: id,
-    files: { makeDir },
+    files: { makeDir, getInfo },
     commands: { run },
     kill,
     pause,
   } as unknown as SandboxType
-  return { sandbox, makeDir, run, kill, pause }
+  return { sandbox, makeDir, getInfo, run, kill, pause }
 }
 
 beforeEach(() => {
@@ -82,6 +85,7 @@ describe('E2BSandboxService', () => {
     })
     expect(fixture.makeDir).toHaveBeenNthCalledWith(1, '/home/user/workspace')
     expect(fixture.makeDir).toHaveBeenNthCalledWith(2, '/home/user/workspace/.dsh-e2b')
+    expect(fixture.getInfo).toHaveBeenCalledWith('/home/user/workspace/.dsh-e2b')
     expect(fixture.run).toHaveBeenCalledWith("chmod 700 -- '/home/user/workspace/.dsh-e2b'")
 
     await fiber.dispose()
@@ -217,6 +221,21 @@ describe('E2BSandboxService', () => {
     const ctx = new Context()
     await ctx.plugin(E2BSandboxService, { apiKey: 'test-key', sandboxId: 'existing' })
     await expect(ctx.e2b.getSandbox()).rejects.toThrow('setup failed')
+    expect(fixture.kill).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['symbolic link', { type: FileType.DIR, symlinkTarget: '/tmp/redirected' }],
+    ['regular file', { type: FileType.FILE }],
+  ])('rejects a reserved runtime root that is a %s', async (_label, info) => {
+    const fixture = fakeSandbox()
+    fixture.getInfo.mockResolvedValueOnce(info)
+    sdk.connect.mockResolvedValue(fixture.sandbox)
+    const ctx = new Context()
+    await ctx.plugin(E2BSandboxService, { apiKey: 'test-key', sandboxId: 'existing' })
+
+    await expect(ctx.e2b.getSandbox()).rejects.toThrow('runtime root must be a real directory')
+    expect(fixture.run).not.toHaveBeenCalled()
     expect(fixture.kill).not.toHaveBeenCalled()
   })
 
