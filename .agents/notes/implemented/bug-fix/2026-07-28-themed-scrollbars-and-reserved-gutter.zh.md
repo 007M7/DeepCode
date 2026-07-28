@@ -55,3 +55,5 @@ Status: implemented
 在构建产物客户端上于 headless chromium 中读取计算值确认，这正是区分「token 链真正生效」与「语法合法」的手段：滚动容器在两套调色板下分别计算出 l1 的滑块颜色，而重新绑定间接变量的容器计算出 l2 的颜色，证明重新绑定作用到了计算值，而不只是作用到自定义属性上。
 
 headless chromium 绘制的是覆盖式滚动条，因此其中预留空位不会缩小 `clientWidth`。该预留表现为列表上非零的 `offsetWidth - clientWidth` 条带；仅凭内容区几何无法证明它，而把时间元素右边缘与内容区右边缘做比较的断言，在有无预留的两种状态下都成立，因此它的通过或失败取决于平台的滚动条样式，而不是取决于被测的那条声明。
+
+验证浏览器可见的插件 CSS 需要一次 `pnpm run build:web` 并不执行的重建。`WorkspaceBrowser.module.css` 从不进入 `apps/web/dist`：ui-workspace 以运行时插件方式加载，其 CSS 内联进 `packages/client/ui-workspace/lib/client.js`，由该包自己的 `bundle` 脚本构建。因此只重跑 `build:web` 的反向对照实际测的是旧产物，去掉声明后仍会通过，看起来像测试无效，实际是对照无效。正确做法是先 `pnpm --filter @deepseek-ai/dsh-client-ui-workspace run bundle`，用 grep 在 `lib/client.js` 中确认该声明确实存在或消失，然后再 `build:web`。web 通道中没有任何脚本会做这一步：`test:web` 只运行 `build:web`，因此任何滚动区域或插件 CSS 的改动都会碰到同一个陷阱。
