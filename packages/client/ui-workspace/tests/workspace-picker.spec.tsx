@@ -39,7 +39,7 @@ function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
   pickDirectory = vi.fn(async () => null as string | null),
-  directoryPickerKind = vi.fn(async () => 'dialog'),
+  directoryPickerKind = vi.fn(async () => 'native'),
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
@@ -221,7 +221,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
-        directoryPickerKind={vi.fn(async () => 'dialog')}
+        directoryPickerKind={vi.fn(async () => 'native')}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -235,7 +235,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
-        directoryPickerKind={vi.fn(async () => 'dialog')}
+        directoryPickerKind={vi.fn(async () => 'native')}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')
@@ -258,7 +258,7 @@ describe('WorkspacePicker', () => {
   })
 
   it('does not read the picker kind while the flow is closed', () => {
-    const directoryPickerKind = vi.fn(async () => 'dialog')
+    const directoryPickerKind = vi.fn(async () => 'native')
     render(
       <WorkspacePicker
         open={false} anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
@@ -290,10 +290,10 @@ describe('WorkspacePicker', () => {
       .mockImplementationOnce(() => first)
       .mockImplementation(async () => 'browse')
     const t = togglable(directoryPickerKind)
-    // Close while the first read is in flight, then let it answer 'dialog':
+    // Close while the first read is in flight, then let it answer 'native':
     // the settlement is stale and must not leak into the next open.
     t.setOpen(false)
-    await act(async () => { resolveFirst('dialog') })
+    await act(async () => { resolveFirst('native') })
     t.setOpen(true)
     await screen.findByRole('menuitem', { name: 'Create a new workspace' })
     await waitFor(() => { expect(directoryPickerKind).toHaveBeenCalledTimes(2) })
@@ -302,7 +302,7 @@ describe('WorkspacePicker', () => {
 
   it('clears the advertised kind on close so a reopen cannot paint the previous host entry', async () => {
     const directoryPickerKind = vi.fn<() => Promise<string>>()
-      .mockImplementationOnce(async () => 'dialog')
+      .mockImplementationOnce(async () => 'native')
       // The reopened read never settles: the assertion below sees the paint
       // that precedes any fresh answer.
       .mockImplementation(() => new Promise<string>(() => {}))
@@ -319,7 +319,7 @@ describe('WorkspacePicker', () => {
     const first = new Promise<string>((_settle, reject) => { rejectFirst = reject })
     const directoryPickerKind = vi.fn<() => Promise<string>>()
       .mockImplementationOnce(() => first)
-      .mockImplementation(async () => 'dialog')
+      .mockImplementation(async () => 'native')
     const t = togglable(directoryPickerKind)
     t.setOpen(false)
     t.setOpen(true)

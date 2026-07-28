@@ -10,7 +10,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 ## 决策
 
-在 `packages/host/` 落一个三包能力 seam——`directory-picker`（接口）、`directory-picker-dialog`、`directory-picker-browse`（后端）——唯一契约方法 `capability()` 返回**可辨识联合**：`{ kind: 'dialog', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，经 `host.describe.directoryPicker` 广播 kind，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答；客户端按广播的 kind 分支，未知 kind 隐藏入口（可合并扩展的默认分支）。组合（`cordis.yml`）就是换装点；联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
+在 `packages/host/` 落一个三包能力 seam——`directory-picker`（接口）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一契约方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，经 `host.describe.directoryPicker` 广播 kind，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答；客户端按广播的 kind 分支，未知 kind 隐藏入口（可合并扩展的默认分支）。组合（`cordis.yml`）就是换装点；联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
 
 并入本决策的位置与策略裁决：
 
@@ -19,7 +19,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 - **隐藏条目：返回并打标。** 宿主标注 `hidden`（POSIX 点前缀约定）并返回全部条目；客户端过滤。展示策略留在客户端，计划中的"显示隐藏"开关变成纯客户端改动。Windows 的 `FILE_ATTRIBUTE_HIDDEN` 不被 dirent 暴露——记为限制，直到原生探测值回其成本。
 - **符号链接：为可进入性而跟随。** 用 `stat` 探测符号链接（断链／循环→跳过）；面包屑保留操作者导航的逻辑路径，`workspace.create` 在接纳时本就做 realpath 规范化。
 - **全盘可浏览，不做 roots 配置。** `workspace.create` 接受任意路径且 API 本就提供驱动 bash 的方法，浏览根只会是 UX 范围而非边界；没有消费方的可配置性过不了证据门槛。等到有部署需要再做。
-- **dialog 后端保留。** 插件化正是目的：多方都能提供该 seam（Electron 壳可以原生提供 `dialog`）。后端命名从机制（`native`／`local`——两者都在本机运行）改为交互（`-dialog`／`-browse`）。
+- **native 后端保留。** 插件化正是目的：多方都能提供该 seam（Electron 壳可以经自己的对话框 API 提供 `native` 交互）。kind 命名：最初选了 `dialog` 后被放弃——browse 交互同样以对话框呈现（应用内弹窗），这个词起不到判别作用；`native` 命名的是选择器运行的位置。
 
 ## 曾考虑的替代方案
 
@@ -30,7 +30,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 ## 后果
 
-- `cordis.yml` 决定交互形态；`apps/cli` 当前挂 `-dialog`（行为不变）。GUI 已按 `describe.directoryPicker` 门控其对话框入口（非 `dialog` kind 一律隐藏）；应用内浏览器 PR 将把默认翻到 `-browse` 并补上浏览 UI。
+- `cordis.yml` 决定交互形态；`apps/cli` 当前挂 `-native`（行为不变）。GUI 已按 `describe.directoryPicker` 门控其选目录入口（非 `native` kind 一律隐藏）；应用内浏览器 PR 将把默认翻到 `-browse` 并补上浏览 UI。
 - 协议新增 `host.listDirectory`／`host.createDirectory`、四个错误码与 `describe.directoryPicker` 字段；connection fixture 提供确定性浏览树供无密钥组装测试使用。
-- 未来的新交互（或 Electron 的 `dialog` 提供方）只是一个后端包加一个客户端分支——无需网关手术。
+- 未来的新交互（或提供 `native` 交互的 Electron 实现）只是一个后端包加一个客户端分支——无需网关手术。
 - `ApiProxyDefaults.pickDirectory`（仅测试注入）删除；测试像提供其他服务一样提供 stub `ctx.directoryPicker`。

@@ -180,7 +180,7 @@ export class WorkspacesService {
   }
 
   /**
-   * Open the Host's native directory picker (the `dialog` capability).
+   * Open the Host's native directory picker (the `native` capability).
    * @returns the selected path, or null when the user cancelled.
    */
   async pickDirectory(): Promise<string | null> {
@@ -193,7 +193,7 @@ export class WorkspacesService {
 
   /**
    * The directory-picking interaction the Host composed — the fact the picker
-   * UI branches on (`dialog` opens the native chooser; `browse` opens the
+   * UI branches on (`native` opens the native chooser; `browse` opens the
    * in-app browser). Read per flow open: one describe round trip, no cache to
    * go stale across reconnects.
    * @returns the Host's advertised picker kind.

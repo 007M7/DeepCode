@@ -1002,10 +1002,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async pickDirectory(request, signal) {
         const capability = ctx.directoryPicker.capability()
-        if (capability.kind !== 'dialog') {
+        if (capability.kind !== 'native') {
           return err(request, {
             code: 'directory-picker-unavailable',
-            message: `host.pickDirectory needs the dialog capability; the composed picker serves "${capability.kind}"`,
+            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
             details: { capability: capability.kind },
           })
         }

@@ -7,7 +7,7 @@ import type { RpcRequest, RpcResponse } from './rpc.ts'
 
 /**
  * The composed directory-picker interaction the host serves (mirror of the
- * `ctx.directoryPicker` capability kind): `dialog` = one native OS chooser on
+ * `ctx.directoryPicker` capability kind): `native` = one OS chooser on
  * the host display (`host.pickDirectory`); `browse` = in-app listing/creation
  * primitives (`host.listDirectory`/`host.createDirectory`). Calling a method
  * outside the advertised kind fails with `directory-picker-unavailable`.
@@ -15,7 +15,7 @@ import type { RpcRequest, RpcResponse } from './rpc.ts'
  * capability advertises before its RPCs exist); the client's documented
  * default for a kind it does not recognize is to hide the picking affordance.
  */
-export type DirectoryPickerKind = 'dialog' | 'browse' | (string & {})
+export type DirectoryPickerKind = 'native' | 'browse' | (string & {})
 
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
 export interface DirectoryEntry {
@@ -64,7 +64,7 @@ export interface HostApi {
 
   /**
    * Open the operating system's single-directory picker; cancellation returns
-   * null. Only served under the `dialog` capability.
+   * null. Only served under the `native` capability.
    */
   pickDirectory(
     request: RpcRequest<{}>,

@@ -1,23 +1,23 @@
 /**
- * Package-owned invariant companion for the dialog directory-picker backend.
- * @module @deepseek-ai/dsh-host-directory-picker-dialog/invariant
+ * Package-owned invariant companion for the native directory-picker backend.
+ * @module @deepseek-ai/dsh-host-directory-picker-native/invariant
  */
 
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-host-directory-picker-dialog'
+const PACKAGE_NAME = '@deepseek-ai/dsh-host-directory-picker-native'
 
 /** Cordis companion plugin name. */
-export const name = 'host-directory-picker-dialog-invariant'
+export const name = 'host-directory-picker-native-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** No runtime invariant: each pick is one stateless subprocess round trip; the dialog outcome is only the returned path. */
+/** No runtime invariant: each pick is one stateless subprocess round trip; the chooser outcome is only the returned path. */
 const install: InvariantInstaller = () => {}
 
 /**
- * Register the dialog directory-picker invariant companion.
+ * Register the native directory-picker invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */

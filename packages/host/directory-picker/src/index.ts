@@ -2,7 +2,7 @@
  * The `ctx.directoryPicker` seam: how the web-GUI host lets an operator
  * select a workspace directory. Backends differ in interaction shape, not
  * just mechanism, so the service exposes a discriminated capability instead
- * of one method set: a `dialog` backend opens one native OS chooser on the
+ * of one method set: a `native` backend opens one OS chooser on the
  * host's display, while a `browse` backend serves listing/creation primitives
  * for an in-app browser (and thereby works for remote clients no OS dialog
  * can reach). Consumers switch on `capability().kind`; the union is
@@ -13,9 +13,9 @@
 
 import { Context, Service } from 'cordis'
 
-/** The dialog interaction: one native OS directory chooser on the host display. */
-export interface DirectoryPickerDialogCapability {
-  kind: 'dialog'
+/** The native interaction: one OS directory chooser on the host display. */
+export interface DirectoryPickerNativeCapability {
+  kind: 'native'
   /**
    * Open the chooser and wait for the operator.
    * @param signal - caller/connection lifetime; abort terminates the chooser.
@@ -82,7 +82,7 @@ export interface DirectoryPickerBrowseCapability {
  * must equal its key) instead of editing this package.
  */
 export interface DirectoryPickerCapabilities {
-  dialog: DirectoryPickerDialogCapability
+  native: DirectoryPickerNativeCapability
   browse: DirectoryPickerBrowseCapability
 }
 

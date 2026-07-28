@@ -236,7 +236,7 @@
 # Directory-picking backend consumed by the gateway's host.* picker RPCs.
 # Swap point: mount '-browse' instead for the in-app browser (remote-capable).
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-dialog'
+  name: '@deepseek-ai/dsh-host-directory-picker-native'
 
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'

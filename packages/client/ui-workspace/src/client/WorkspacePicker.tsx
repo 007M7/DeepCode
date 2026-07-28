@@ -72,31 +72,31 @@ export function WorkspaceCreateFlow({
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
-  // The advertised interaction gates the picking affordance: 'dialog' is the
+  // The advertised interaction gates the picking affordance: 'native' is the
   // only kind pickDirectory() can serve, so its entry renders under that kind
   // alone; 'browse' (until the in-app browser UI lands) and unknown kinds
   // hide the entry, the seam's documented unknown-kind default. Re-read per
   // flow open — no cache to go stale across reconnects.
-  const [dialogPicker, setDialogPicker] = useState(false)
+  const [nativePicker, setNativePicker] = useState(false)
   useEffect(() => {
     if (!open) {
       // Close discards the answer: a reconnect or HMR can swap the composed
       // backend while the menu is closed, and the reopened menu must never
       // paint the previous host's entry before the fresh read lands.
-      setDialogPicker(false)
+      setNativePicker(false)
       return
     }
     // Reset before each read: the injected reader can also change identity
     // while the flow stays open, and that prior answer must not leak either;
     // a settlement from a superseded read is discarded via the
     // cleanup-toggled flag.
-    setDialogPicker(false)
+    setNativePicker(false)
     let stale = false
     void directoryPickerKind()
-      .then((kind) => { if (!stale) setDialogPicker(kind === 'dialog') })
+      .then((kind) => { if (!stale) setNativePicker(kind === 'native') })
       // A failed describe hides the entry too: the same Host that cannot
       // answer describe cannot serve pickDirectory.
-      .catch(() => { if (!stale) setDialogPicker(false) })
+      .catch(() => { if (!stale) setNativePicker(false) })
     return () => { stale = true }
   }, [open, directoryPickerKind])
 
@@ -108,7 +108,7 @@ export function WorkspaceCreateFlow({
       disabled: pickingFolder,
     })),
     ...(workspaces.length > 0 ? [{ type: 'separator' as const, id: 'sep-create' }] : []),
-    ...(dialogPicker
+    ...(nativePicker
       ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder }]
       : []),
     { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },

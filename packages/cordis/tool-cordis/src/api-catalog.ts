@@ -1605,15 +1605,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DirectoryPickerCapabilities',
-    declaration: 'export interface DirectoryPickerCapabilities {\n    dialog: DirectoryPickerDialogCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
+    declaration: 'export interface DirectoryPickerCapabilities {\n    native: DirectoryPickerNativeCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
   },
   {
     name: 'DirectoryPickerCapability',
     declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
   },
   {
-    name: 'DirectoryPickerDialogCapability',
-    declaration: 'export interface DirectoryPickerDialogCapability {\n    kind: \'dialog\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+    name: 'DirectoryPickerNativeCapability',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
   },
   {
     name: 'Domain',

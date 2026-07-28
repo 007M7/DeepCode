@@ -413,9 +413,9 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'directory-picker',
     title: 'Workspace-directory picking seam',
     mode: 'seam',
-    implementations: ['directory-picker-dialog', 'directory-picker-browse'],
+    implementations: ['directory-picker-native', 'directory-picker-browse'],
     consumers: ['apiproxy'],
-    note: 'Discriminated interaction capability: the dialog backend opens one native OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; the gateway advertises the kind via host.describe.',
+    note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; the gateway advertises the kind via host.describe.',
   },
   {
     key: 'httpServer',

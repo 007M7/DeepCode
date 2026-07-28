@@ -208,7 +208,7 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, directoryPicker: 'dialog' })
+    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, directoryPicker: 'native' })
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'browse' }).provider).toBeUndefined()
     // A kind beyond the two with methods survives the wire (merge-added

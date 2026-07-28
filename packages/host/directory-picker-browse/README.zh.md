@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[目录选择 seam](../directory-picker/README.md) 的**应用内浏览后端**：`BrowseDirectoryPicker` 以 `browse` 能力注册 `ctx.directoryPicker`——基于 Node 标准库（跨 OS 适配本就由它承担）提供单层目录列举与子目录创建。宿主屏幕上不渲染任何东西，因此该后端能服务 dialog 后端无法触及的远程客户端。
+[目录选择 seam](../directory-picker/README.md) 的**应用内浏览后端**：`BrowseDirectoryPicker` 以 `browse` 能力注册 `ctx.directoryPicker`——基于 Node 标准库（跨 OS 适配本就由它承担）提供单层目录列举与子目录创建。宿主屏幕上不渲染任何东西，因此该后端能服务 native 后端无法触及的远程客户端。
 
 行为事实：列举**只返回目录**、按名称排序，指向目录的符号链接会被跟随（断链／循环链接被跳过——探测 `stat` 失败即"不可进入"），并携带宿主判定的 `hidden` 标志（POSIX 点前缀约定），展示决策留给客户端；`crumbs` 是从根到目标的祖先链，根 crumb 以完整路径标注（`/`、`C:\`）；`list` 不带路径即列举宿主账户的家目录。`createDirectory` 不递归（父目录缺失是真实失败，不是要补造的层级），且即便被直接调用也把名称校验为单个非空段，与协议 schema 的栅栏一致。两个原语都拒绝非完全限定的显式路径——相对形态，以及 Windows 上 `isAbsolute` 会放行的无盘符有根形态（`\foo`、`/foo`）与不完整的 UNC 前缀（`\\`、`\\server`）——报 `directory-unreadable`／`directory-create-failed`，而不是任由 `resolve` 把它重定位到宿主进程 cwd 或当前盘符之下。失败抛出 seam 的类型化 `DirectoryPickerError`。策略依据：[目录选择能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-directory-picker-capability-seam.md)。
 

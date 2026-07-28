@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-host-directory-picker-dialog",
-  "description": "Native-OS-dialog backend of the directory-picker seam for the DeepSeek Harness web GUI host",
+  "name": "@deepseek-ai/dsh-host-directory-picker-native",
+  "description": "Native-OS-chooser backend of the directory-picker seam for the DeepSeek Harness web GUI host",
   "version": "0.0.1",
   "private": true,
   "type": "module",

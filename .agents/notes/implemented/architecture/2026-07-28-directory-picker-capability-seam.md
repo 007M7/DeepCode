@@ -10,7 +10,7 @@ The web GUI's "Open local folder" flow was hardwired to one interaction: `host.p
 
 ## Decision
 
-A three-package capability seam in `packages/host/` — `directory-picker` (interface), `directory-picker-dialog`, `directory-picker-browse` (backends) — with one contract method: `capability()` returns a **discriminated union**, `{ kind: 'dialog', pick(signal) }` or `{ kind: 'browse', list(path?), createDirectory(path, name) }`. The gateway (`dsh-host-apiproxy`) injects `directoryPicker`, advertises the kind through `host.describe.directoryPicker`, serves the matching RPCs, and answers `directory-picker-unavailable` for the other kind; the client branches on the advertised kind and hides the affordance for unknown kinds (merge-extensible default). Composition (`cordis.yml`) is the swap point; the union is discriminated because the backends differ in *interaction shape* — flattening them into one method set would force every backend to fake the other's shape.
+A three-package capability seam in `packages/host/` — `directory-picker` (interface), `directory-picker-native`, `directory-picker-browse` (backends) — with one contract method: `capability()` returns a **discriminated union**, `{ kind: 'native', pick(signal) }` or `{ kind: 'browse', list(path?), createDirectory(path, name) }`. The gateway (`dsh-host-apiproxy`) injects `directoryPicker`, advertises the kind through `host.describe.directoryPicker`, serves the matching RPCs, and answers `directory-picker-unavailable` for the other kind; the client branches on the advertised kind and hides the affordance for unknown kinds (merge-extensible default). Composition (`cordis.yml`) is the swap point; the union is discriminated because the backends differ in *interaction shape* — flattening them into one method set would force every backend to fake the other's shape.
 
 Placement and policy rulings folded into this decision:
 
@@ -19,18 +19,18 @@ Placement and policy rulings folded into this decision:
 - **Hidden entries: return-and-flag.** The host stamps `hidden` (POSIX dot convention) and returns everything; the client filters. Display policy stays client-side, and the planned show-hidden toggle becomes a client-only change. Windows' `FILE_ATTRIBUTE_HIDDEN` is not exposed by dirents — documented limitation until a native probe pays for itself.
 - **Symlinks: follow for enterability.** `stat` probes symlinks (broken/cyclic → skipped); crumbs keep the logical path the operator navigated, and `workspace.create` already canonicalizes via realpath at adoption.
 - **Whole-filesystem scope, no roots config.** `workspace.create` accepts arbitrary paths and the API serves bash-driving methods, so a browse root would be UX scoping, not a boundary; configurability without a consumer fails the evidence bar. Deferred until a deployment needs it.
-- **The dialog backend stays.** Plugin-form was the point: multiple providers can serve the seam (an Electron shell would provide `dialog` natively). The backend names changed from mechanism (`native`/`local` — both run locally) to interaction (`-dialog`/`-browse`).
+- **The native backend stays.** Plugin-form was the point: multiple providers can serve the seam (an Electron shell would provide the `native` interaction through its own dialog API). Kind naming: `dialog` was the first pick and was dropped — the browse interaction also presents a dialog (the in-app modal), so the word failed to discriminate; `native` names where the chooser runs.
 
 ## Alternatives considered
 
 - **Extend `ctx.fs` with browse methods.** Rejected: authority-domain coupling above; also a listing-for-display contract (hidden flags, crumbs, home anchor) does not belong on a storage seam.
-- **One uniform seam method set (`pick(): path`).** Rejected: an in-app browser cannot be served behind a single host-side call — the browsing loop lives in the client and needs primitives on the wire; the dialog cannot implement primitives. The interaction difference is irreducible, hence the discriminant.
+- **One uniform seam method set (`pick(): path`).** Rejected: an in-app browser cannot be served behind a single host-side call — the browsing loop lives in the client and needs primitives on the wire; the native chooser cannot implement primitives. The interaction difference is irreducible, hence the discriminant.
 - **Direct stdlib calls inside apiproxy (no seam).** Rejected: keeps the gateway the only swap point (source edits), loses fixture/test backends, and contradicts the plugin doctrine that motivated the work.
 - **Adopting a file-manager/drive-enumeration dependency.** Rejected per the survey above; recorded here as the dependency policy requires.
 
 ## Consequences
 
-- `cordis.yml` chooses the interaction; `apps/cli` currently mounts `-dialog` (unchanged behavior). The GUI already gates its dialog affordance on `describe.directoryPicker` (non-`dialog` kinds hide it); the in-app browser PR flips the default to `-browse` and adds the browse UI.
+- `cordis.yml` chooses the interaction; `apps/cli` currently mounts `-native` (unchanged behavior). The GUI already gates its picking affordance on `describe.directoryPicker` (non-`native` kinds hide it); the in-app browser PR flips the default to `-browse` and adds the browse UI.
 - The wire gains `host.listDirectory`/`host.createDirectory`, four error codes, and the `describe.directoryPicker` field; the connection fixture serves a deterministic browse tree for keyless assembled tests.
-- A future interaction (or an Electron `dialog` provider) is one backend package plus a client branch — no gateway surgery.
+- A future interaction (or an Electron provider of the `native` interaction) is one backend package plus a client branch — no gateway surgery.
 - `ApiProxyDefaults.pickDirectory` (test-only injection) is gone; tests provide a stub `ctx.directoryPicker` like any other service.

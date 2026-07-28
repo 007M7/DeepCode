@@ -75,7 +75,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/host/apiproxy': { kind: 'none', reason: 'The wire contract and fetch carriers move already-composed messages and register no model surface.' },
   'packages/host/directory-picker': { kind: 'none', reason: 'The GUI-host picking seam registers no model surface.' },
   'packages/host/directory-picker-browse': { kind: 'none', reason: 'The GUI-host picking backend registers no model surface.' },
-  'packages/host/directory-picker-dialog': { kind: 'none', reason: 'The GUI-host picking backend registers no model surface.' },
+  'packages/host/directory-picker-native': { kind: 'none', reason: 'The GUI-host picking backend registers no model surface.' },
   'packages/host/webserver': { kind: 'none', reason: 'The HTTP carrier bridges browser and API handler and registers no model surface.' },
   'packages/llm/llm': { kind: 'none', reason: 'The adapter registry forwards already-assembled requests unchanged.' },
   'packages/llm/token-meter': { kind: 'indirect', reason: 'The measurement service leaves model-visible changes to its consumers.' },

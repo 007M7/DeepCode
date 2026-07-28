@@ -15,7 +15,7 @@ async function bench() {
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
   const pickDirectory = vi.fn(async () => '/tmp/picked')
-  const directoryPickerKind = vi.fn(async () => 'dialog' as const)
+  const directoryPickerKind = vi.fn(async () => 'native' as const)
   const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
