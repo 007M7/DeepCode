@@ -3,6 +3,7 @@ import { chmod, mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { Context } from 'cordis'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
@@ -42,6 +43,7 @@ describe('lsp-local provider resolution', () => {
 
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('onpath', {
       command: 'fake-lsp',
       args: [],
@@ -54,6 +56,7 @@ describe('lsp-local provider resolution', () => {
   it('skips empty PATH segments and fails when the command is absent', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('nope', {
       command: 'fake-lsp',
       args: [],
@@ -67,6 +70,7 @@ describe('lsp-local provider resolution', () => {
     // Use a server that never emits results and dispose the plugin, then confirm queries are refused.
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     // Grab the provider instance by registering, then dispose the whole plugin fiber.
     const lsp = ctx.lsp
     const fiber = await ctx.plugin(LspLocal, config('disp', {
@@ -83,6 +87,7 @@ describe('lsp-local provider resolution', () => {
   it('rejects a nonpositive teardown budget at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('bad-budget', {
       command: process.execPath,
       args: ['-e', ''],
@@ -95,6 +100,7 @@ describe('lsp-local provider resolution', () => {
   it('rejects a nonpositive byte cap at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('bad-cap', {
       command: process.execPath,
       args: ['-e', ''],
@@ -107,6 +113,7 @@ describe('lsp-local provider resolution', () => {
   it.each(['shutdownTimeoutMs', 'killGraceMs'] as const)('rejects %s above Node timer range at load', async (name) => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('bad-timer', {
       command: process.execPath,
       args: ['-e', ''],
@@ -122,6 +129,7 @@ describe('lsp-local provider resolution', () => {
     await writeFile(notExe, 'plain text, not executable')
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('abs-bad', {
       command: notExe,
       args: [],
@@ -133,6 +141,7 @@ describe('lsp-local provider resolution', () => {
   it('rejects an executable directory as a command at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('abs-directory', {
       command: ws,
       args: [],
@@ -144,6 +153,7 @@ describe('lsp-local provider resolution', () => {
   it('rejects an empty server table at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, { servers: {} })).rejects.toThrow(/servers must contain at least one server/)
     await ctx.fiber.dispose()
   })
@@ -151,6 +161,7 @@ describe('lsp-local provider resolution', () => {
   it('rejects an empty server id at load', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, config('', {
       command: process.execPath,
       extensionToLanguage: { '.ts': 'typescript' },
@@ -161,6 +172,7 @@ describe('lsp-local provider resolution', () => {
   it('resolves every executable before publishing any provider', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, {
       servers: {
         valid: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
@@ -174,6 +186,7 @@ describe('lsp-local provider resolution', () => {
   it('rolls back earlier registrations when a later server conflicts', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
     await expect(ctx.plugin(LspLocal, {
       servers: {
         first: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },

@@ -8,7 +8,7 @@ export type GoalRoundOutcome =
   | { readonly kind: 'pause'; readonly reason: string }
   | {
     readonly kind: 'blocked'
-    readonly code: 'usage-limited' | 'turn-error' | 'max-tokens' | 'prompt-rejected' | 'unknown-turn-outcome'
+    readonly code: 'usage-limited' | 'turn-error' | 'max-tokens' | 'unknown-turn-outcome'
     readonly message: string
   }
   | { readonly kind: 'disarm'; readonly reason: 'durability-failed' | 'disposed' | 'interrupted' }
@@ -35,8 +35,6 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
     }
     case 'max-tokens':
       return { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }
-    case 'rejected':
-      return { kind: 'blocked', code: 'prompt-rejected', message: reason.reason }
     case 'disposed':
       return { kind: 'disarm', reason: 'disposed' }
     case 'interrupted':

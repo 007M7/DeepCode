@@ -3,16 +3,27 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 #
-# It clones the harness to ~/.dsh/source, checks host dependencies (git, Node,
-# pnpm) and offers to install a missing pnpm, runs `pnpm install` (no build —
-# the `bin/dsh` launcher runs the TypeScript source through the repo's own tsx),
-# symlinks `dsh` onto PATH, records your API credentials in the Harness home
-# (`~/.dsh`) dsh reads at boot, and drops you into `dsh`.
+# It clones the harness under ~/.dsh/source (the master clone at
+# ~/.dsh/source/master), adds a per-install staging worktree at
+# ~/.dsh/source/staging-<timestamp> on branch dsh-staging/<timestamp>, checks
+# host dependencies (git, Node, pnpm) and offers to install a missing pnpm, runs
+# `pnpm install` (no build — the `bin/dsh` launcher runs the TypeScript source
+# through the repo's own tsx), points the stable `~/.dsh/source/current` symlink
+# at that staging worktree and symlinks `dsh` onto PATH at `current/bin/dsh`,
+# records your API credentials in the Harness home (`~/.dsh`) dsh reads at boot,
+# and drops you into `dsh`. Keeping every checkout under ~/.dsh/source keeps
+# successive upgrades in one place instead of scattered sibling clones, and lets
+# staging worktrees share the master clone's object store. The PATH symlink
+# resolves through `current`, so an upgrade repoints one stable symlink instead
+# of relinking PATH: the `dsh` on PATH never moves and can never dangle.
 #
 # When run from inside an existing checkout (e.g. `sh scripts/install.sh` rather
-# than `curl ... | sh`) it reuses that checkout and skips the clone/update, leaving
-# the working tree untouched; DSH_REF is ignored in that mode. Setting DSH_SOURCE
-# to a different directory opts back into the normal clone/update path.
+# than `curl ... | sh`) it reuses that checkout in place and skips the
+# clone/worktree setup, leaving the working tree untouched and linking `dsh`
+# straight at that checkout's `bin/dsh` (no `current` indirection — the checkout
+# is not a managed staging worktree under the source container); DSH_REF is
+# ignored in that mode. Setting DSH_SOURCE to a different directory opts back
+# into the normal clone/worktree path.
 #
 # When run through `curl | sh` the script text arrives on stdin, so every
 # prompt and the final launch read the controlling terminal (/dev/tty) directly;
@@ -21,7 +32,9 @@
 # Overridable via environment:
 #   DSH_REF          branch or tag to clone/checkout    (default: master)
 #   DSH_REPO         clone URL                           (default: the GitHub repo)
-#   DSH_SOURCE       checkout location                   (default: ~/.dsh/source)
+#   DSH_SOURCE       source container directory          (default: ~/.dsh/source)
+#   DSH_MASTER       master clone directory              (default: $DSH_SOURCE/master)
+#   DSH_CURRENT      stable symlink to the active worktree (default: $DSH_SOURCE/current)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
 #   DSH_HOME         Harness home holding the personal config (default: ~/.dsh)
 # FIXME(install-ts): Move the post-checkout workflow into a tested TypeScript
@@ -30,19 +43,31 @@ set -eu
 
 DSH_REF=${DSH_REF:-master}
 DSH_REPO=${DSH_REPO:-https://github.com/deepseek-harness/deepseek-harness.git}
-# Remember whether the caller pinned a source location before defaulting it, so
-# in-repo detection only repoints an unset DSH_SOURCE.
+# DSH_SOURCE is the container directory that holds the master clone and every
+# staging worktree; DSH_MASTER is the one real clone inside it. Remember whether
+# the caller pinned the source container before defaulting it, so in-repo
+# detection only repoints an unset DSH_SOURCE.
 if [ -n "${DSH_SOURCE:-}" ]; then DSH_SOURCE_EXPLICIT=1; else DSH_SOURCE_EXPLICIT=0; fi
 DSH_SOURCE=${DSH_SOURCE:-$HOME/.dsh/source}
+DSH_MASTER=${DSH_MASTER:-$DSH_SOURCE/master}
+# The stable symlink the PATH launcher resolves through: PATH -> current/bin/dsh
+# -> <staging>/bin/dsh. Fresh installs and upgrades repoint this one symlink; the
+# PATH launcher itself is written once and never moves. In-repo reuse ignores it.
+DSH_CURRENT=${DSH_CURRENT:-$DSH_SOURCE/current}
 DSH_BIN_DIR=${DSH_BIN_DIR:-$HOME/.local/bin}
+# One UTC basic timestamp names this install's staging branch and worktree.
+DSH_STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+DSH_STAGING_BRANCH=dsh-staging/$DSH_STAMP
+DSH_STAGING=$DSH_SOURCE/staging-$DSH_STAMP
 
 # --- in-repo detection ---------------------------------------------------------
 # Under `curl ... | sh` the script text arrives on stdin, so $0 is the shell
 # name and no file path resolves; running a checked-out copy (`sh
 # scripts/install.sh`) makes $0 the script file. When $0 is a readable file whose
 # parent is a scripts/ dir inside a real dsh checkout (bin/dsh launcher present),
-# reuse that checkout and skip the clone. An explicit DSH_SOURCE pointing
-# elsewhere opts back into the clone/update path.
+# reuse that checkout in place — link `dsh` straight at it and skip the
+# clone/worktree setup. An explicit DSH_SOURCE pointing elsewhere opts back into
+# the clone/worktree path.
 IN_REPO=0
 if [ -f "$0" ]; then
   _self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || _self_dir=''
@@ -52,7 +77,9 @@ if [ -f "$0" ]; then
       && [ -x "$_repo_root/bin/dsh" ] && [ -f "$_repo_root/scripts/install.sh" ]; then
       if [ "$DSH_SOURCE_EXPLICIT" = 0 ] || [ "$DSH_SOURCE" = "$_repo_root" ]; then
         IN_REPO=1
-        DSH_SOURCE=$_repo_root
+        # In-repo reuse links `dsh` at this checkout as-is; the master/staging
+        # split applies only to fresh clone installs.
+        DSH_STAGING=$_repo_root
       fi
     fi
   fi
@@ -120,7 +147,13 @@ confirm() {
 }
 
 printf '%s\n' "${B}DeepSeek Harness — dsh installer${RST}"
-printf '%ssource %s @ %s%s\n' "$DIM" "$DSH_SOURCE" "$DSH_REF" "$RST"
+if [ "$IN_REPO" = 1 ]; then
+  printf '%ssource %s (in-repo reuse) @ %s%s\n' "$DIM" "$DSH_STAGING" "$DSH_REF" "$RST"
+else
+  printf '%smaster %s @ %s%s\n' "$DIM" "$DSH_MASTER" "$DSH_REF" "$RST"
+  printf '%sstaging %s%s\n' "$DIM" "$DSH_STAGING" "$RST"
+  printf '%scurrent %s%s\n' "$DIM" "$DSH_CURRENT" "$RST"
+fi
 
 # --- 1. dependency check -------------------------------------------------------
 step "Checking dependencies"
@@ -170,36 +203,73 @@ else
   fi
 fi
 
-# --- 2. clone (or update) the source ------------------------------------------
+# --- 2. clone the master and lay out the staging worktree ---------------------
+# Fresh installs keep one real clone at $DSH_MASTER and check the running code
+# out as a git worktree at $DSH_STAGING, so every checkout lives under
+# $DSH_SOURCE and shares one object store. In-repo reuse links `dsh` at the
+# existing checkout untouched.
 if [ "$IN_REPO" = 1 ]; then
-  step "Using existing checkout at $DSH_SOURCE"
+  step "Using existing checkout at $DSH_STAGING"
   info "running from inside the repo — skipping clone (DSH_REF ignored, working tree left untouched)"
 else
-step "Fetching source into $DSH_SOURCE"
-if [ -d "$DSH_SOURCE/.git" ]; then
-  info "existing checkout found — updating"
-  git -C "$DSH_SOURCE" fetch --depth 1 origin "$DSH_REF"
-  # Reset the checkout to the freshly fetched tip. FETCH_HEAD (not
+step "Fetching source into $DSH_MASTER"
+if [ -d "$DSH_MASTER/.git" ]; then
+  info "existing master clone found — updating"
+  git -C "$DSH_MASTER" fetch origin "$DSH_REF"
+  # Reset the master checkout to the freshly fetched tip. FETCH_HEAD (not
   # origin/<ref>) so this resolves for a tag as well as a branch, and -B makes
   # the re-run idempotent whether or not DSH_REF changed since the last install.
-  git -C "$DSH_SOURCE" checkout -q -B "$DSH_REF" FETCH_HEAD
+  git -C "$DSH_MASTER" checkout -q -B "$DSH_REF" FETCH_HEAD
 else
-  mkdir -p "$(dirname "$DSH_SOURCE")"
-  git clone --depth 1 --branch "$DSH_REF" "$DSH_REPO" "$DSH_SOURCE"
+  mkdir -p "$DSH_SOURCE"
+  git clone --branch "$DSH_REF" "$DSH_REPO" "$DSH_MASTER"
 fi
+
+step "Adding staging worktree at $DSH_STAGING"
+[ -e "$DSH_STAGING" ] && die "staging path $DSH_STAGING already exists — remove it or set DSH_SOURCE elsewhere, then re-run."
+# The staging worktree owns the branch dsh runs from; the master clone stays on
+# $DSH_REF as the fetch/upgrade base. Exclude the per-worktree merge lock in the
+# master clone's info/exclude, which every linked worktree inherits.
+git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" FETCH_HEAD 2>/dev/null \
+  || git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" HEAD
+_exclude="$DSH_MASTER/.git/info/exclude"
+if [ -f "$_exclude" ] && ! grep -qxF '.agents/merge.lock' "$_exclude" 2>/dev/null; then
+  printf '.agents/merge.lock\n' >>"$_exclude"
+fi
+mkdir -p "$DSH_STAGING/.agents"
+: >"$DSH_STAGING/.agents/merge.lock"
 fi
 
 # --- 3. install dependencies (no build; the launcher runs from source) --------
 step "Installing dependencies with pnpm (this can take a while)"
-( cd "$DSH_SOURCE" && pnpm install )
+( cd "$DSH_STAGING" && pnpm install )
 
-[ -x "$DSH_SOURCE/bin/dsh" ] || die "launcher $DSH_SOURCE/bin/dsh missing after install — is DSH_REF a branch that ships apps/cli?"
+[ -x "$DSH_STAGING/bin/dsh" ] || die "launcher $DSH_STAGING/bin/dsh missing after install — is DSH_REF a branch that ships apps/cli?"
 
 # --- 4. put `dsh` on PATH ------------------------------------------------------
+# Clone installs go through a stable `current` symlink so an upgrade repoints
+# one symlink (current -> new worktree) and the PATH launcher never moves:
+# PATH/dsh -> current/bin/dsh -> <staging>/bin/dsh. In-repo reuse links PATH
+# straight at the checkout, since that checkout is not a managed worktree.
 step "Linking dsh into $DSH_BIN_DIR"
 mkdir -p "$DSH_BIN_DIR"
-ln -sf "$DSH_SOURCE/bin/dsh" "$DSH_BIN_DIR/dsh"
-info "linked $DSH_BIN_DIR/dsh -> $DSH_SOURCE/bin/dsh"
+if [ "$IN_REPO" = 1 ]; then
+  DSH_LAUNCH_TARGET=$DSH_STAGING/bin/dsh
+  ln -sf "$DSH_LAUNCH_TARGET" "$DSH_BIN_DIR/dsh"
+  info "linked $DSH_BIN_DIR/dsh -> $DSH_LAUNCH_TARGET"
+else
+  # Point `current` at this staging worktree with `ln -sfn`: -f replaces an
+  # existing `current` (re-run or upgrade) and -n stops `ln` from dereferencing
+  # an existing symlink-to-directory and dropping the new link *inside* the old
+  # worktree. `mv` is unusable here — BSD/macOS `mv` follows the existing dir
+  # symlink the same way. The swap is one unlink+symlink pair on a local fs; the
+  # installer holds no other process racing this path.
+  ln -sfn "$DSH_STAGING" "$DSH_CURRENT"
+  info "pointed $DSH_CURRENT -> $DSH_STAGING"
+  DSH_LAUNCH_TARGET=$DSH_CURRENT/bin/dsh
+  ln -sf "$DSH_LAUNCH_TARGET" "$DSH_BIN_DIR/dsh"
+  info "linked $DSH_BIN_DIR/dsh -> $DSH_LAUNCH_TARGET"
+fi
 
 case ":$PATH:" in
   *":$DSH_BIN_DIR:"*) ON_PATH=1 ;;

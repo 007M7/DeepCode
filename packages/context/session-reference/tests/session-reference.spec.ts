@@ -278,11 +278,9 @@ describe('session reference discovery and preparation', () => {
       [{ sessionId: source.id, label: 'source' }],
     )
     expect(prepared.content).toEqual([{ type: 'text', text: 'use @source' }])
-    expect(prepared.contexts).toHaveLength(1)
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
-    expect(context.source).toEqual({ kind: 'plugin', plugin: 'session-reference' })
-    expect(context.placement).toBe('prompt-prefix')
+    expect(context.source).toMatchObject({ kind: 'session-reference' })
     expect(context.content[0].text).toContain('untrusted, read-only snapshot')
     expect(promptData(context.content[0].text)).toEqual([{
       sessionId: 'source',
@@ -296,7 +294,7 @@ describe('session reference discovery and preparation', () => {
         { role: 'assistant', text: 'visible answer' },
       ],
     }])
-    expect(context.meta).toMatchObject({
+    expect(context.source).toMatchObject({
       kind: 'session-reference',
       version: 1,
       references: [{
@@ -316,21 +314,17 @@ describe('session reference discovery and preparation', () => {
     expect(context.content[0].text).not.toContain('later source mutation')
   })
 
-  it('projects only the direct prompt when a source message contains baked prefix context', async () => {
+  it('excludes injected context when projecting a referenced session', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'))
     const source = ctx.sessions.create(SessionId('source'))
     source.append('user/message', {
-      content: [
-        { type: 'text', text: 'nested referenced snapshot must not propagate' },
-        { type: 'text', text: '\n\n## My request:\n' },
-        { type: 'text', text: 'direct source question' },
-      ],
+      content: [{ type: 'text', text: 'nested referenced snapshot must not propagate' }],
+      source: { kind: 'plugin', plugin: 'session-reference' },
+    }, { surfaceOp: 'append' })
+    source.append('user/message', {
+      content: [{ type: 'text', text: 'direct source question' }],
       source: { kind: 'user' },
-      envelope: {
-        displayContent: [{ type: 'text', text: 'direct source question' }],
-        prefixContexts: [{ source: { kind: 'plugin', plugin: 'session-reference' } }],
-      },
     }, { surfaceOp: 'append' })
 
     const prepared = await ctx.sessionReferences.prepare(
@@ -338,7 +332,7 @@ describe('session reference discovery and preparation', () => {
       [{ type: 'text', text: 'inspect source' }],
       [{ sessionId: source.id }],
     )
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
     expect(promptData(context.content[0].text)).toMatchObject([{
       conversation: [{ role: 'user', text: 'direct source question' }],
@@ -362,7 +356,7 @@ describe('session reference discovery and preparation', () => {
       [{ type: 'text', text: 'use @source' }],
       [{ sessionId: source.id }],
     )
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
     const prompt = context.content[0].text
     expect(prompt).toMatch(/^## Referenced sessions\n/u)
@@ -387,14 +381,14 @@ describe('session reference discovery and preparation', () => {
     const content = [{ type: 'text' as const, text: 'go' }]
 
     const withoutReferences = await ctx.sessionReferences.prepare(agent, content, [])
-    expect(withoutReferences).toEqual({ content, contexts: [] })
+    expect(withoutReferences).toEqual({ content })
     expect(withoutReferences.content).not.toBe(content)
 
     await expect(ctx.sessionReferences.prepare(agent, content, [
       { sessionId: one.id, label: 'first' },
       { sessionId: one.id, label: 'ignored duplicate' },
       { sessionId: two.id },
-    ])).resolves.toMatchObject({ contexts: [{ meta: { references: [{ label: 'first' }, { label: 'two' }] } }] })
+    ])).resolves.toMatchObject({ additionalContext: { source: { references: [{ label: 'first' }, { label: 'two' }] } } })
     await expect(ctx.sessionReferences.prepare(agent, content, [{ sessionId: target.id }]))
       .rejects.toThrow(expectCode('SESSION_REFERENCE_SELF_REFERENCE'))
     await expect(ctx.sessionReferences.prepare(agent, content, [null as never]))
@@ -465,14 +459,14 @@ describe('session reference discovery and preparation', () => {
     )
 
     const prepared = await ctx.sessionReferences.prepare(fakeAgent(target), [{ type: 'text', text: 'go' }], [{ sessionId: source.id }])
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
     const data = promptData(context.content[0].text) as unknown[]
     expect(Buffer.byteLength(stringifyTagSafeJson(data[0]), 'utf8')).toBeLessThanOrEqual(360)
     expect(context.content[0].text).toContain('checkpoint')
     expect(context.content[0].text).toContain('latest-')
     expect(context.content[0].text).toContain('omitted')
-    expect(context.meta).toMatchObject({ references: [{ truncated: true, compacted: true }] })
+    expect(context.source).toMatchObject({ references: [{ truncated: true, compacted: true }] })
   })
 
   it('applies the full byte limit independently to each of three references', async () => {
@@ -499,7 +493,7 @@ describe('session reference discovery and preparation', () => {
       [{ type: 'text', text: 'go' }],
       sources.map(source => ({ sessionId: source.id })),
     )
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
     const data = promptData(context.content[0].text) as unknown[]
     const sizes = data.map(source => Buffer.byteLength(stringifyTagSafeJson(source), 'utf8'))
@@ -532,18 +526,12 @@ describe('session reference discovery and preparation', () => {
       [{ type: 'text', text: 'use @source' }],
       [{ sessionId: source.id }],
     )
-    const context = prepared.contexts[0]
+    const context = prepared.additionalContext
     if (context === undefined) throw new Error('expected prepared context')
+    target.append('user/message', context, { surfaceOp: 'append' })
     target.append('user/message', {
-      content: [...context.content, { type: 'text', text: '\n\n## My request:\n' }, ...prepared.content],
+      content: prepared.content,
       source: { kind: 'user' },
-      envelope: {
-        displayContent: prepared.content,
-        prefixContexts: [{
-          source: context.source,
-          ...context.meta === undefined ? {} : { meta: context.meta },
-        }],
-      },
     }, { surfaceOp: 'append' })
     const before = target.deriveMessages()
 
@@ -570,7 +558,7 @@ describe('session reference discovery and preparation', () => {
     expect(ctx.sessions.get(source.id)).toBeUndefined()
     expect(target.deriveMessages()).toEqual(before)
     expect(JSON.stringify(before)).toContain('durable referenced fact')
-    expect(JSON.stringify(before)).toContain('## My request:')
+    expect(JSON.stringify(before)).toContain('use @source')
     expect(JSON.stringify(before)).not.toContain('later source mutation')
     expect(new Session(SessionId('replayed-target'), target.events).deriveMessages()).toEqual(before)
   })

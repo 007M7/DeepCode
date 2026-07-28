@@ -32,10 +32,10 @@ function makeHost() {
       subs.set(key, set)
       return () => { set.delete(fn) }
     },
-    getVersion: (key) => versions.get(key) ?? 0,
-    entriesOf: (key) => entries.get(key) ?? [],
+    getVersion: key => versions.get(key) ?? 0,
+    entriesOf: key => entries.get(key) ?? [],
     specOf: () => ({ kind: 'single', scope: 'root' }),
-    isLive: (entry) => live.has(entry),
+    isLive: entry => live.has(entry),
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
@@ -54,7 +54,7 @@ function makeHost() {
       live.add(entry)
       bump(key)
       return () => {
-        entries.set(key, (entries.get(key) ?? []).filter((e) => e !== entry))
+        entries.set(key, (entries.get(key) ?? []).filter(e => e !== entry))
         live.delete(entry)
         bump(key)
       }

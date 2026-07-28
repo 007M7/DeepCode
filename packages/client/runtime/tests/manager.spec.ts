@@ -346,7 +346,11 @@ describe('remaining branches', () => {
 describe('connected generation', () => {
   it('refreshes the list and resyncs only opened instances', async () => {
     const api = new FakeApiClient()
-    api.onHistory = () => Promise.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    api.onHistory = () => Promise.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+    }))
     const manager = new SessionManager(api)
     const openedSession = manager.get(S1)
     await openedSession.open()

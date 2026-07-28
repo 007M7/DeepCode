@@ -19,6 +19,7 @@ import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import PlanModeService from '@deepseek-ai/dsh-plan-mode'
@@ -197,6 +198,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
@@ -208,12 +210,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-cordis',
     source: 'packages/cordis/tool-cordis/src/index.ts',
     requires: ['ctx.tools'],
-    writes: ['tool/call', 'tool/result', 'live plugin-tree mutations (mount/unmount)'],
+    writes: ['tool/call', 'tool/result', 'process-local temporary Plugin lifecycle'],
     async mount(ctx) {
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
+      'Ships in examples/cordis-agent only (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',

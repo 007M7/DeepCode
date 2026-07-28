@@ -24,10 +24,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('spawn backend with-key smoke', (
     ctx = await spawnHarness(workdir)
     const parent = ctx.agentLoop.create(SessionId('e2e-parent'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    parent.followup([{ type: 'text', text:
+    parent.followup({ content: [{ type: 'text', text:
       'Use the subagent tool to delegate this exact task: "Use the bash tool to write the text '
       + 'SUBAGENT_WAS_HERE into a file named proof.txt in the current directory." '
-      + 'After the subagent finishes, tell me it is done.' }])
+      + 'After the subagent finishes, tell me it is done.' }], source: { kind: 'user' } })
     await waitForIdle(ctx, parent)
 
     // Assert the filesystem effect independently of the model response.

@@ -19,9 +19,6 @@ const install: InvariantInstaller = (ctx, fail) => {
     if (previous === status) {
       fail(`agent/status repeated ${status} (no-op transition)`)
     }
-    if (previous === 'disposed') {
-      fail(`agent/status left terminal state disposed → ${status}`)
-    }
     lastStatus.set(agent, status)
   }, { global: true })
 

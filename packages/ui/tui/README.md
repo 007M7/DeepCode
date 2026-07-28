@@ -74,7 +74,7 @@ Startup fails before mounting when either process stream is not a TTY. The compo
 
 ## Color
 
-The palette uses the standard 16-color ANSI foregrounds and SGR attributes, which every terminal remaps to its active color scheme, so it stays readable on light and dark backgrounds alike. Body text keeps the terminal's default foreground rather than a fixed shade. Grouped regions (user prompts, tool cards) use a colored left-gutter bar instead of a filled background block; the question panel emphasizes its active row with bold accent text, while selectors use reverse video. These treatments are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
+The palette uses the standard 16-color ANSI foregrounds and SGR attributes, which every terminal remaps to its active color scheme, so it stays readable on light and dark backgrounds alike. Body text keeps the terminal's default foreground rather than a fixed shade. Grouped regions (user prompts, assistant replies, tool cards) are separated by a bold, underlined role header in the role color and blank-line spacing rather than a filled block or a per-line prefix, so a mouse drag-select copies the message text without any leading bar or indent; a tool card's status (pending, error, success) shows in its colored, underlined title glyph and title. The question panel emphasizes its active row with bold accent text, while selectors use reverse video. These treatments are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
 
 ## Model Experience
 

@@ -15,7 +15,7 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
 export const name = 'subagent-acp'
-export const inject = ['subagents']
+export const inject = ['subagents', 'subprocess']
 
 /** Config: how to spawn and drive the child ACP agent process. */
 export interface Config {
@@ -152,6 +152,7 @@ class AcpProvider implements SubagentProvider {
       env: this.config.env,
       disposeEofGraceMs: this.config.disposeEofGraceMs,
       disposeGraceMs: this.config.disposeGraceMs,
+      spawn: spec => this.ctx.subprocess.spawn(spec),
       onError: (error, stopReason) => {
         // The seam forbids `result` rejecting, so a child-level failure is
         // flattened to a stop reason — preserve it here rather than losing it.
