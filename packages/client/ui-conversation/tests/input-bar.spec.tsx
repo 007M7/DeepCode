@@ -21,7 +21,7 @@ const SID = 's1' as SessionId
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
     ...overrides,
@@ -56,7 +56,11 @@ function bench(over?: BenchOptions) {
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
-      ? { slash: (() => ({ lexicon: () => lex })) as unknown as NonNullable<ShellDeps['slash']> }
+      ? {
+        slash: (() => ({
+          lexicon: { getSnapshot: () => lex, subscribe: () => () => {} },
+        })) as unknown as NonNullable<ShellDeps['slash']>,
+      }
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
@@ -84,9 +88,12 @@ function bench(over?: BenchOptions) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    useNotices: bindSnapshotSelector(shell.notices),
+    useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
     renderSlot,
     variant: over?.variant ?? 'composer',

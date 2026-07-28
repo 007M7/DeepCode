@@ -18,7 +18,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 `inject()` 是调用方交付补充模型输入的唯一操作，而轮次表示一次模型循环执行。
 
-`SendOptions` 只包含 `target` 和 `wakeup`。拥有上下文的调用方通过 `inject()` 交付 `UserMessageData`，再独立使用 `send()` 或 `steer()` 提交直接消息。
+`SendOptions` 只包含 `target` 和 `wakeup`。拥有上下文的调用方通过 `inject()` 交付带标识且冻结的 `UserMessage`，再独立使用 `send()` 或 `steer()` 提交直接消息。
 
 提示词和工具扩展点仍可返回 `additionalContexts`。这些值是扩展点的输出，而不是从调用方收件箱条目捕获的附件。提示词准入在 `run()` 打开轮次之前执行。获准的提示词及其返回的额外上下文会作为独立消息进入新轮次；提示词被阻止时，两者都不写入，也不打开轮次。工具产生的额外上下文则在对应工具结果之后进入 outbox。
 
@@ -32,7 +32,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 如果提示词准入被阻止或失败，调用方暂存的仅含上下文的批次会立即追加，且不产生轮次。steering 及与其一同暂存的上下文会留在 outbox 中，供后续获准提示词使用；取消或 dispose（资源释放）可能丢弃它们。钩子产生的 `additionalContexts` 属于被拒绝的准入决策，因此永远不会落入日志。
 
-会话不变量允许 `user/message` 位于两个轮次之间，同时继续要求执行事件、steering、助手输出、工具事件以及默认的包扩展事件均受轮次边界约束。持久化、恢复、resume、fork 和压缩会把合法的轮次外 `user/message` 当作已提交会话历史，而不是中断轮次或可丢弃的日志尾部。
+会话不变量允许 `user/message` 位于两个轮次之间，同时继续要求核心执行事件、steering、助手输出和工具事件均受轮次边界约束。可合并扩展事件的关系由声明它们的插件拥有，而不是采用核心默认规则。持久化、恢复、resume、fork 和压缩会把合法的轮次间事件当作已提交会话历史，而不是中断轮次或可丢弃的日志尾部。
 
 ## 扩展点与调用方语义
 
@@ -42,7 +42,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 跨会话引用采用这种领域组合方式：TUI 先准备快照，然后在接受窗口之外将其加入提示词准入决策，或在窗口期间将其注入到 steering 旁。目标日志包含两条简单消息，因此来源会话后续变化不会改变回放，transcript 消费方也不需要提示词封套。本决策取代[跨会话引用决策](../feature/2026-07-21-cross-session-references.md)中的附件机制，但保留其快照与信任边界规则。
 
-本决策保留[移除注入内容封套](../simplification/2026-07-20-unwrap-injected-content-envelopes.md)确立的调用方自主管理框架原则，以及[一次 send、一个轮次](../simplification/2026-07-17-one-send-one-turn.md)确立的单条目轮次规则；同时收窄[轮次封闭决策](2026-06-15-turn-enclosure-invariant.md)，使轮次约束执行过程，而不是约束所有会话事件。
+本决策保留[移除注入内容封套](../simplification/2026-07-20-unwrap-injected-content-envelopes.md)确立的调用方自主管理框架原则，以及[一次 send、一个轮次](../simplification/2026-07-17-one-send-one-turn.md)确立的单条目轮次规则。后续的[独立纯日志事件决策](../simplification/2026-07-28-remove-synthetic-log-only-turns.md)将同样的「轮次仅表示执行」语义应用于插件所属记录。
 
 ## 曾考虑的替代方案
 
@@ -59,7 +59,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 ## 验证
 
 - `SendOptions` 与 steering 收件箱记录不包含附加上下文；`agent/inbox/enqueue` 只报告消息及其已解析的 queued 或 steering 放置方式。
-- `UserMessageData` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的形状。
+- `UserMessage` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的带标识且冻结的形状。
 - 公共类型、持久事件、投影和 UI 回放中均不存在 prompt-prefix 放置方式、提示词封套与 `context/message`。
 - 空闲 `inject()` 在不产生轮次或模型调用的情况下，追加一条带来源的 `user/message`。
 - 准入期间和活跃轮次中的注入会在完整工具结果批次之后的安全边界排空，并在消费它们的请求之前进入日志。

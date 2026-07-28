@@ -9,6 +9,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   applyGoalChange,
@@ -490,10 +491,10 @@ export class GoalService extends Service {
     const pending: PendingGoalChange = { change, activation, applied: false }
     cache.pending.push(pending)
     try {
-      agent.inject({
+      agent.inject(createUserMessage({
         content: renderGoalChange(change),
         source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
-      })
+      }))
     } catch (error: unknown) {
       const index = cache.pending.indexOf(pending)
       /* v8 ignore next -- a committed goal append cannot reject after its contained observers run */

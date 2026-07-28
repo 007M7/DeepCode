@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { CallId, isAgentLoopRequest, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
@@ -82,14 +82,14 @@ function request(ctx: Context, signal = new AbortController().signal): SessionTi
     turn: 1,
     trigger: { kind: 'message', source: { kind: 'user' } },
   })
-  const first = session.append('user/message', {
+  const first = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'first prompt' }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
-  const second = session.append('user/message', {
+  }), { surfaceOp: 'append' })
+  const second = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: '第二个问题' }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return {
     session,

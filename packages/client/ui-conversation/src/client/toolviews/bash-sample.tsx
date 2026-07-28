@@ -12,10 +12,10 @@ import css from './bash-sample.module.css'
 
 function leadingFor(state: ToolRowState) {
   switch (state) {
-    case 'running': return <StateDot state="ongoing" />
     case 'error': return <StateDot state="error" />
     case 'stopped': return <StateDot state="warning" />
-    default: return <IconApiOutline14 size={16} />
+    // Running keeps the icon — the row sweep carries the in-flight signal.
+    default: return <IconApiOutline14 size={14} />
   }
 }
 
@@ -30,7 +30,7 @@ function stateStatus(state: ToolRowState): string | null {
 }
 
 /** Bash row: icon + Bash · {description}, matching the shared ToolRow chrome. */
-export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(model.state)
@@ -40,8 +40,6 @@ export function BashRow({ toolName, block, openDetails, sessionId, useSessions }
       data-sample={isChild ? 'bash-scoped' : 'bash-global'}
       data-variant="bash"
       data-state={model.state}
-      data-clickable
-      onClick={openDetails}
     >
       <span className={css.leading}>{leadingFor(model.state)}</span>
       {status !== null && <span className={css.visuallyHidden}>{status}</span>}

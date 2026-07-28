@@ -87,10 +87,10 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     const bashCall = sessionEvents.find(event => event.type === 'tool/call' && event.data.name === 'bash')
     if (bashCall?.type !== 'tool/call') throw new Error('the replayed turn did not call the bash tool')
     const bashResult = sessionEvents.find(event =>
-      event.type === 'tool/result' && event.data.callId === bashCall.data.callId)
+      event.type === 'tool/result' && event.data.message.source.callId === bashCall.data.callId)
     if (bashResult?.type !== 'tool/result') throw new Error('the bash tool call produced no durable result')
-    expect(bashResult.data.isError).toBe(false)
-    expect(bashResult.data.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+    expect(bashResult.data.message.content[0].isError).toBe(false)
+    expect(bashResult.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text).join(''))
       .toBe('WEB_E2E_OK\n')
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')
     expect(turnEnds.length).toBe(1)

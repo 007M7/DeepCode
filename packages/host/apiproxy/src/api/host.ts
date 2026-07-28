@@ -89,4 +89,15 @@ export interface HostApi {
   createDirectory(
     request: RpcRequest<{ path: string; name: string }>,
   ): Promise<RpcResponse<{ path: string }>>
+
+  /**
+   * Open a filesystem path with the operating system's default application
+   * (Finder / Explorer / xdg-open hand-off). The browser carrier's
+   * prefix-wide trust fence covers this privileged method like every other
+   * `/api` request.
+   */
+  openPath(
+    request: RpcRequest<{ path: string }>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>>
 }

@@ -206,11 +206,14 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Hot plain-text reference lexicons for the decoration scan (decision 21).
-   * @returns the controller's per-trigger aggregation; empty Map without a pipeline.
+   * Hot plain-text reference lexicon source for the decoration scan
+   * (decision 21): delegates to the controller's aggregated store. Stable
+   * identity per shell; without a pipeline the snapshot is the empty Map and
+   * subscribers never fire.
    */
-  lexicon(): ReadonlyMap<'/' | '@', readonly string[]> {
-    return this.deps.slash?.()?.lexicon() ?? EMPTY_LEXICON
+  readonly lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>> = {
+    getSnapshot: () => this.deps.slash?.()?.lexicon.getSnapshot() ?? EMPTY_LEXICON,
+    subscribe: fn => this.deps.slash?.()?.lexicon.subscribe(fn) ?? (() => {}),
   }
 
   /**

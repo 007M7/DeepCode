@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
-import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
@@ -33,9 +33,9 @@ describe('all-messages LLM title provider', () => {
   it('includes seeded history and the latest prompt while inheriting the logged request route', async () => {
     const seeded = new Session(SessionId('seed-source'))
     seeded.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const inherited = seeded.append('user/message', {
+    const inherited = seeded.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'inherited prompt' }], source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     seeded.append('session/title', {
       title: 'Inherited fallback', messageSeqs: [inherited.seq], source: { kind: 'fallback' },
     })
@@ -53,9 +53,9 @@ describe('all-messages LLM title provider', () => {
       meta: { parentSession: seeded.id, seedLength: seeded.seq },
     })
     session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const latest = session.append('user/message', {
+    const latest = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'latest prompt' }], source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await settle()
     session.append('request/header', {
       header: { config: { provider: 'current-route', model: 'current-model' } }, reason: 'resume',

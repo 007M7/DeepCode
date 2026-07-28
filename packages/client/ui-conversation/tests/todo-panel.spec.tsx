@@ -64,20 +64,23 @@ describe('TodoPanel', () => {
   })
 })
 
-/** Dock props stub: the adapter reads useSession only; the rest of the owner share is unused. */
-function dockProps(store: ReturnType<typeof createSnapshotStore<{ todos: readonly TodoItem[] }>>): TodoDockProps {
-  return { useSession: bindSnapshotSelector(store) } as unknown as TodoDockProps
+/** Dock props stub: the adapter reads the 'todos' projection only; the rest of the owner share is unused. */
+function dockProps(store: ReturnType<typeof createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>>): TodoDockProps {
+  const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
+    bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
+  return { useProjection } as unknown as TodoDockProps
 }
 
 describe('TodoDock', () => {
-  it('selects the plan off the session snapshot and follows later writes', () => {
-    const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos: [] })
+  it('reads the host-computed todos projection and follows pushed updates', () => {
+    const store = createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>({ value: undefined })
     render(<TodoDock {...dockProps(store)} />)
+    // Capability absent (no baseline/frame yet) renders nothing.
     expect(screen.queryByTestId('todo-panel')).toBeNull()
-    act(() => { store.set({ todos: LIST }) })
+    act(() => { store.set({ value: LIST }) })
     expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
-    // A rollback to the empty list retires the strip (the panel owns no data).
-    act(() => { store.set({ todos: [] }) })
+    // The pre-first-write whole value (null) retires the strip (the panel owns no data).
+    act(() => { store.set({ value: null }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()
   })
 
@@ -96,10 +99,10 @@ const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResult
   content: [], isError: false, callView: null, resultView: null, ...over,
 })
 
-function rowProps(block: unknown, openDetails = vi.fn()): ToolRowProps {
+function rowProps(block: unknown): ToolRowProps {
   return {
     callId: 'c1', toolName: 'todo_write', block,
-    openDetails,
+    openFile: vi.fn(),
     sessionId: 's1',
     useSessions: () => undefined,
   } as unknown as ToolRowProps
@@ -140,27 +143,10 @@ describe('TodoRow', () => {
     expect(screen.getByText('todo_write · not json')).toBeTruthy()
   })
 
-  it('falls back when parsed args carry no todos array, and click opens details', () => {
-    const openDetails = vi.fn()
-    render(<TodoRow {...rowProps(resultNode('{"other":1}'), openDetails)} />)
+  it('falls back when parsed args carry no todos array and stays non-interactive', () => {
+    render(<TodoRow {...rowProps(resultNode('{"other":1}'))} />)
     expect(screen.getByText('todo_write · {"other":1}')).toBeTruthy()
-    fireEvent.click(screen.getByText('更新任务清单'))
-    expect(openDetails).toHaveBeenCalledTimes(1)
-  })
-
-  it('opens details from the keyboard on Enter and Space, ignoring other keys', () => {
-    const openDetails = vi.fn()
-    render(<TodoRow {...rowProps(resultNode(ARGS), openDetails)} />)
-    const row = screen.getByRole('button')
-    expect(row.getAttribute('tabindex')).toBe('0')
-    fireEvent.keyDown(row, { key: 'Enter' })
-    fireEvent.keyDown(row, { key: ' ' })
-    expect(openDetails).toHaveBeenCalledTimes(2)
-    // Space must not also scroll the flow: the handler claims the event.
-    expect(fireEvent.keyDown(row, { key: ' ' })).toBe(false)
-    fireEvent.keyDown(row, { key: 'a' })
-    fireEvent.keyDown(row, { key: 'ArrowDown' })
-    expect(openDetails).toHaveBeenCalledTimes(3)
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it.each([

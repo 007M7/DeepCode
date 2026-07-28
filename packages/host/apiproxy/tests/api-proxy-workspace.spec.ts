@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -47,10 +47,10 @@ function stubAgent(session: Session): Agent {
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -60,6 +60,7 @@ function stubAgent(session: Session): Agent {
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
+  extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -102,6 +103,7 @@ async function harness(
     model: 'test-model',
     cwd: workspaceRoot,
     workspaceRoot,
+    ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
   })
   return { api, ctx, storageDomain, workspaceRoot }
 }
@@ -201,6 +203,30 @@ describe('host.listDirectory / host.createDirectory', () => {
     })
     const browse = await harness(undefined, BROWSE_STUB)
     expect((await browse.api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'browse' } })
+  })
+})
+
+describe('host.openPath', () => {
+  it('opens through the injected native boundary', async () => {
+    const opened: string[] = []
+    const { api } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect(opened).toEqual(['/tmp/a.txt'])
+  })
+
+  it('propagates abort into the native boundary as a cancelled RPC error', async () => {
+    const { api } = await harness(undefined, undefined, {
+      openPath: (_path, signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }),
+    })
+    const abort = new AbortController()
+    const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
+    abort.abort()
+    expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })
 })
 

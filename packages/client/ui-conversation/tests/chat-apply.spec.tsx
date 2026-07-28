@@ -32,12 +32,13 @@ async function bench() {
     current: undefined,
     phase: 'ready',
   })
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const sessionsFake = {
     list: listStore,
     binding: vi.fn(),
     scope: () => undefined,
     provideInfo: () => undefined,
-    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),
@@ -47,6 +48,7 @@ async function bench() {
   ctx.provide('workspaces', {
     startSession: vi.fn(),
     sendSession: vi.fn(),
+    openPath: vi.fn(async () => {}),
   })
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
   ctx.provide('locale', { bind: () => (key: string) => key })

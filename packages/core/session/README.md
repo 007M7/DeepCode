@@ -14,9 +14,8 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 - `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt`, `seedLength`, and `delegationDepth`.
 - `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; unpublished, detached, and stale objects reject.
-- `ctx.sessions.appendOutOfBand(session, type, data, trigger)` accepts only plugin event types opted into `OutOfBandSessionEventMap`. It appends directly inside an open turn; otherwise it atomically opens a zero-step plugin turn, appends, closes, and flushes. A target failure still closes and flushes the synthetic turn, and detach is deferred until the sequence settles.
-- `findLastMessageTurnEnd(events)` pairs message-triggered starts with their ends and returns the latest matched `turn/end`. Outcome consumers use this fold instead of the raw latest turn boundary because a later injection or plugin-owned zero-step turn has its own outcome.
-- `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
+- `findLastMessageTurnEnd(events)` pairs message-triggered starts with their ends and returns the latest matched `turn/end`. Outcome consumers use this fold instead of the raw latest log event because between-turn records and non-message turns have no prompt outcome.
+- `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that prefix to end outside an open turn, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -39,7 +38,7 @@ The store pairs announced creation with disposal, publishes post-commit append n
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, complete replacement coverage, and content-only single-result `tool/result` rewrites, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
-- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
+- `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over the complete identified, frozen messages stored by those entries. Assistant messages preserve provider/model provenance and adapter-private replay state in their model source. A surface rewrite rebuilds the projection; there is no raw-log fallback.
 - `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and request checks.
 - `session.surface` exposes the readonly `SessionSurface` view owned by the session's single incremental surface manager; `replaceGeneration` changes on every committed rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
@@ -66,15 +65,15 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-A `user/message` renders its `content` verbatim as a user-role message whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
+A `user/message` stores the complete `UserMessage` directly, including the identity created before routing or prompt admission. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message`, `tool/result`, and `steering/message` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
 
-`tool/result` persists the model-facing content, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message. This preserves the existing event shape and does not change `SESSION_FORMAT_VERSION`.
+`tool/result` persists one identified user-role tool-result message, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message.
 
 ### Session event vocabulary (`types.ts`)
 
 The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message. Provider/model/replay provenance rides on `assistant/message`; an operational error's step is on `turn/end.reason` for `kind: 'error'`, with structured provider facts for a final model-request failure.
 
-Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, bounded recovery's non-surface `llm/retry`, the hook bridges' `hook/*`); merged members appear in the same catalog. `OutOfBandSessionEventMap` is a separate empty-by-default marker map: an event owner must merge the same key there before `appendOutOfBand()` accepts that log-only type, while surface and lifecycle types remain excluded.
+Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, bounded recovery's non-surface `llm/retry`, the hook bridges' `hook/*`); merged members appear in the same catalog. A plugin owns the relational invariant for its merged events, including whether a log-only event may appear between turns. A producer that requires durability appends through `Session` and then awaits `ctx.sessions.flush(session)` without fabricating an execution turn.
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings). A final model-request error retains one structured `LlmFailure`; other turn errors retain message/code, and both identify the failed step.
 
@@ -101,7 +100,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 #### What the model sees
 
-The model receives projections of `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives the complete messages from `user/message`, `assistant/message`, `tool/result`, and `steering/message` surface entries verbatim. Their identities, roles, sources, and content blocks are the same values established at creation; projections do not mint identities. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 
@@ -142,6 +141,6 @@ Logging causes no invalidation, and exact reconstruction preserves request-prefi
 ## Known Limitations and Deferred Work
 
 - **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
-- **`fork()` cuts only at closed-turn boundaries of live sessions** — the boundary must be a `turn/end` event and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
+- **`fork()` cuts only at stable boundaries of live sessions** — the selected prefix must end outside an open turn and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
 - **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no compatibility implied: a backend rejects any other version, and no migration path exists until the first release ([policy](../../../AGENTS.md)).
 - **`TurnEndReasonMap` omits the ACP-named `refusal` / `max_turn_requests` variants** — producer-gated: they land when an adapter or the loop first emits them.

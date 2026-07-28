@@ -87,12 +87,13 @@ async function bench() {
     }
   }
   const providers: TestProvider[] = []
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const sessionsFake = {
     list: listStore,
     binding: (id: SessionId) => ({ sessionId: id, session: sessionFake, ctx: mint(id) }),
     scope: (id: SessionId) => mint(id),
     provideInfo: () => undefined,
-    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     provide: (descriptor: TestProvider) => { providers.push(descriptor); return () => {} },
     scopeOf,
     sessionOf: (actx: Context) => (scopeOf(actx) === undefined ? undefined : sessionFake),
@@ -106,6 +107,7 @@ async function bench() {
   const workspacesFake = {
     list: workspaceStore,
     connectWorkspace: vi.fn(async () => ROOT),
+    openPath: vi.fn(async () => {}),
   }
   ctx.provide('workspaces', workspacesFake)
   const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
@@ -256,6 +258,15 @@ describe('conversation slot inject surface', () => {
     // writes land where the skeleton and details read.
     const conv = b.conversationSurface(ROOT)
     expect(conv.instance).toBe(instance)
+  })
+
+  it('openFile (chat view face) resolves against session cwd and calls workspaces.openPath', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewSurface(ROOT)
+    injected.openFile('src/a.ts')
+    await vi.waitFor(() => {
+      expect(b.workspacesFake.openPath).toHaveBeenCalledWith('/proj/src/a.ts')
+    })
   })
 
   it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {

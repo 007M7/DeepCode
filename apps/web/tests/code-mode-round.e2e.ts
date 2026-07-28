@@ -118,19 +118,14 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     expect(await nest.locator('[data-state="error"]').count()).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('a sub-row click opens the details panel on the sub-call material', async () => {
+  it.skipIf(MODE === 'record')('a bash sub-row click leaves the details panel collapsed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-code-mode-details'))
     const nest = page.locator('[data-subcalls]').first()
+    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
     await nest.locator('[data-sample="bash-global"]').first().click()
-    // The details column opens (width > 0) and shows the sub-call's complete
-    // output — the full-content log contract, no truncation marker anywhere.
-    await page.waitForFunction(() => {
-      const frame = document.querySelector('[class*="frame"]')
-      if (frame === null) return false
-      return Number(getComputedStyle(frame).gridTemplateColumns.split(' ').pop()!.replace('px', '')) > 0
-    }, undefined, { timeout: 10_000 })
-    await expect.poll(() => page.getByText('CODE_ROUND_OK', { exact: false }).count(), { timeout: 5_000 })
-      .toBeGreaterThanOrEqual(1)
+    // Tool rows no longer open details; the column stays width 0.
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
   })
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden with stable anchors', async () => {

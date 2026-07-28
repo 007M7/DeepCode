@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
 import type { PtySendOperation } from '@deepseek-ai/dsh-pty'
@@ -35,7 +35,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   return {
     id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -170,12 +170,15 @@ describe('pty-local real shell', () => {
     controller.abort()
     const result = await foreground.done
     expectReadyForNextSend(result.waitReason)
-    const after = await ctx.pty.startSend(agent, created.sessionId, {
-      text: 'echo AFTER_SIGINT',
+    const afterReady = 'AFTER_SIGINT'
+    const afterCommand = 'printf "AFTER_%s\\n" SIGINT'
+    expect(afterCommand).not.toContain(afterReady)
+    const after = ctx.pty.startSend(agent, created.sessionId, {
+      text: afterCommand,
       submit: true,
-    }).done
-    expect(after.viewport).toContain('AFTER_SIGINT')
-    expectReadyForNextSend(after.waitReason)
+    })
+    await waitForOutput(after, afterReady, 15_000)
+    expectReadyForNextSend((await after.done).waitReason)
     await ctx.pty.kill(agent, created.sessionId)
-  }, 20_000)
+  }, 35_000)
 })

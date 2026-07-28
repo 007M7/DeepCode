@@ -5,6 +5,8 @@
 // The owner controls `open`; outside-click closing uses one document listener
 // active only while open. Submenus open on hover/focus inside the same root.
 // Entries also cover non-interactive `label` headings and `danger` rows.
+// Lists keep 12px clearance to the viewport's top/bottom edges and scroll
+// internally past that; submenu-bearing menus are exempt (see .scrollable).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -50,6 +52,9 @@ function isLabel(entry: MenuEntry): entry is MenuLabel {
   return 'type' in entry && entry.type === 'label'
 }
 
+/** Unplaced portal list: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real. */
+const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
+
 /**
  * Render an anchored dropdown menu.
  * @param props.open - whether the list is showing (owner-controlled).
@@ -72,17 +77,20 @@ function isLabel(entry: MenuEntry): entry is MenuLabel {
  * the trigger (render-prop anchors, effect-positioned proxies — measuring the
  * wrapper there races the host's layout effects). Called on open and on every
  * scroll/resize; return null to skip placement for that frame.
+ * @param props.footer - rows pinned below the scrolling items area, separated
+ * by a hairline; they stay visible while the items above scroll.
  * @returns anchor wrapper with the conditional list.
  */
-export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, getAnchorRect, className }: {
+export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, getAnchorRect, footer, className }: {
   open: boolean
   anchor: ReactNode
   items: readonly MenuEntry[]
-  selectedId?: string
+  footer?: readonly MenuEntry[]
+  selectedId?: string | undefined
   onSelect: (id: string) => void
   onClose: () => void
   align?: 'start' | 'end'
-  side?: 'bottom' | 'top'
+  side?: 'bottom' | 'top' | 'right'
   portal?: boolean
   closeOnPointerLeave?: boolean
   getAnchorRect?: () => DOMRect | null
@@ -109,11 +117,34 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
         r = rootRef.current?.getBoundingClientRect() ?? null
       }
       if (r === null) return
-      setFixedPos({
-        ...(align === 'start' ? { left: r.left } : { right: window.innerWidth - r.right }),
-        ...(side === 'bottom' ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }),
-      })
+      const MARGIN = 12
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const listEl = listRef.current
+      const lw = listEl?.offsetWidth ?? 0
+      const lh = listEl?.offsetHeight ?? 0
+
+      let x: number
+      let y: number
+      if (side === 'right') {
+        x = r.right + 4
+        y = r.top
+      } else if (align === 'start') {
+        x = r.left
+        y = side === 'bottom' ? r.bottom + 4 : r.top - lh - 4
+      } else {
+        x = r.right - lw
+        y = side === 'bottom' ? r.bottom + 4 : r.top - lh - 4
+      }
+
+      if (lw > 0) x = Math.min(Math.max(x, MARGIN), vw - lw - MARGIN)
+      if (lh > 0) y = Math.min(Math.max(y, MARGIN), vh - lh - MARGIN)
+
+      setFixedPos({ left: x, top: y })
     }
+    // First run measures the hidden pre-render (same commit as `open`), so
+    // end/top alignment and clamping use real dimensions before anything
+    // paints — no visible jump from a zero-size first guess.
     place()
     window.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
@@ -146,11 +177,77 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
     }
   }, [open, onClose])
 
-  const list = open && (!portal || fixedPos !== null) && (
+  // The submenu card is absolutely positioned outside the list box; the
+  // scroll clip would crop it, so only submenu-free menus get the height cap.
+  const scrollable = !items.some(entry => !isSeparator(entry) && !isLabel(entry) && entry.submenu !== undefined && entry.submenu.length > 0)
+
+  const renderEntry = (entry: MenuEntry) => {
+    if (isSeparator(entry)) {
+      return <div key={entry.id} className={css.separator} role="separator" />
+    }
+    if (isLabel(entry)) {
+      return <div key={entry.id} className={css.label} role="presentation">{entry.text}</div>
+    }
+    const hasSub = entry.submenu !== undefined && entry.submenu.length > 0
+    const subOpen = hasSub && openSubmenuId === entry.id
+    return (
+      <div
+        key={entry.id}
+        className={css.itemWrap}
+        onMouseEnter={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
+        onMouseLeave={() => { setOpenSubmenuId(null) }}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          className={clsx(css.item, entry.id === selectedId && css.selected, entry.danger === true && css.danger)}
+          disabled={entry.disabled}
+          aria-haspopup={hasSub ? 'menu' : undefined}
+          aria-expanded={hasSub ? subOpen : undefined}
+          onFocus={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
+          onClick={() => {
+            if (hasSub) {
+              setOpenSubmenuId(entry.id)
+              return
+            }
+            onSelect(entry.id)
+          }}
+        >
+          {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
+          <span className={css.itemLabel}>{entry.label}</span>
+          {/* Selection marker is a trailing check (figma .Menu_cell), not a fill. */}
+          {entry.id === selectedId && <IconCheckOutline16 className={css.check} />}
+        </button>
+        {subOpen && entry.submenu !== undefined && (
+          <div className={css.submenu} role="menu">
+            {entry.submenu.map(sub => (
+              <button
+                key={sub.id}
+                type="button"
+                role="menuitem"
+                className={css.item}
+                disabled={sub.disabled}
+                onClick={() => { onSelect(sub.id) }}
+              >
+                {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
+                <span className={css.itemLabel}>{sub.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Portal lists render hidden until placed: the placement effect measures
+  // this pre-render in the same commit, so the first painted frame is
+  // already at the final position (with getAnchorRect returning null the
+  // list simply stays hidden).
+  const list = open && (
     <div
       ref={listRef}
-      className={clsx(css.list, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
-      style={fixedPos ?? undefined}
+      className={clsx(css.list, scrollable && css.scrollable, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
+      style={portal ? fixedPos ?? MEASURE_STYLE : undefined}
       role="menu"
       onPointerLeave={closeOnPointerLeave ? () => { onClose() } : undefined}
       // React portals bubble synthetic events through the REACT tree: without
@@ -158,63 +255,14 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
       // (open/toggle) after onSelect.
       onClick={(e) => { e.stopPropagation() }}
     >
-      {items.map((entry) => {
-        if (isSeparator(entry)) {
-          return <div key={entry.id} className={css.separator} role="separator" />
-        }
-        if (isLabel(entry)) {
-          return <div key={entry.id} className={css.label} role="presentation">{entry.text}</div>
-        }
-        const hasSub = entry.submenu !== undefined && entry.submenu.length > 0
-        const subOpen = hasSub && openSubmenuId === entry.id
-        return (
-          <div
-            key={entry.id}
-            className={css.itemWrap}
-            onMouseEnter={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
-            onMouseLeave={() => { setOpenSubmenuId(null) }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              className={clsx(css.item, entry.id === selectedId && css.selected, entry.danger === true && css.danger)}
-              disabled={entry.disabled}
-              aria-haspopup={hasSub ? 'menu' : undefined}
-              aria-expanded={hasSub ? subOpen : undefined}
-              onFocus={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
-              onClick={() => {
-                if (hasSub) {
-                  setOpenSubmenuId(entry.id)
-                  return
-                }
-                onSelect(entry.id)
-              }}
-            >
-              {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
-              <span className={css.itemLabel}>{entry.label}</span>
-              {/* Selection marker is a trailing check (figma .Menu_cell), not a fill. */}
-              {entry.id === selectedId && <IconCheckOutline16 className={css.check} />}
-            </button>
-            {subOpen && entry.submenu !== undefined && (
-              <div className={css.submenu} role="menu">
-                {entry.submenu.map(sub => (
-                  <button
-                    key={sub.id}
-                    type="button"
-                    role="menuitem"
-                    className={css.item}
-                    disabled={sub.disabled}
-                    onClick={() => { onSelect(sub.id) }}
-                  >
-                    {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
-                    <span className={css.itemLabel}>{sub.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
+      <div className={css.viewport} role="presentation">
+        {items.map(renderEntry)}
+      </div>
+      {footer !== undefined && footer.length > 0 && (
+        <div className={css.footer} role="presentation">
+          {footer.map(renderEntry)}
+        </div>
+      )}
     </div>
   )
 

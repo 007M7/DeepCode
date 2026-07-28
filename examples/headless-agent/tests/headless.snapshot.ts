@@ -306,10 +306,17 @@ describe('headless stream-json snapshots', () => {
         const calls = records.filter(record => record.type === 'tool/call')
           .map(record => (record.data as JsonObject | undefined)?.name)
         expect(calls).toEqual(['update_goal', 'create_goal', 'get_goal'])
-        const probeResult = records.find(record => record.type === 'tool/result'
-          && (record.data as JsonObject | undefined)?.callId === 'call_goal_probe')
+        const probeResult = records.find((record) => {
+          if (record.type !== 'tool/result') return false
+          const data = record.data as JsonObject | undefined
+          const message = data?.message as JsonObject | undefined
+          const source = message?.source as JsonObject | undefined
+          return source?.callId === 'call_goal_probe'
+        })
         const probeData = probeResult?.data as JsonObject | undefined
-        expect(probeData?.isError).toBe(true)
+        const probeMessage = probeData?.message as JsonObject | undefined
+        const probeContent = probeMessage?.content as JsonObject[] | undefined
+        expect(probeContent?.[0]?.isError).toBe(true)
         expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
         const goalChanges = records.filter((record) => {
           if (record.type !== 'user/message') return false
@@ -382,8 +389,10 @@ describe('headless stream-json snapshots', () => {
         expect(parentCalls.map(record => (record.data as JsonObject | undefined)?.name)).toEqual(['ralph'])
         const parentResult = parentRecords.find(record => record.type === 'tool/result')
         const parentResultData = parentResult?.data as JsonObject | undefined
-        expect(parentResultData?.isError).toBe(false)
-        expect(JSON.stringify(parentResultData?.content)).toContain('reported completion after 2 rounds')
+        const parentMessage = parentResultData?.message as JsonObject | undefined
+        const parentContent = parentMessage?.content as JsonObject[] | undefined
+        expect(parentContent?.[0]?.isError).toBe(false)
+        expect(JSON.stringify(parentContent?.[0]?.content)).toContain('reported completion after 2 rounds')
 
         const childRecords = children.map(child => parseJsonl(child.content))
         const childPrompts = childRecords.map((records) => {

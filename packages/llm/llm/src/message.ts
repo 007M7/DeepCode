@@ -1,0 +1,159 @@
+/** Message value types, identity, and immutable construction helpers. */
+
+import { MessageId, type CallId } from './brand.ts'
+import { deepFreeze } from './call-config.ts'
+import type { ContentBlock, ToolResultBlock } from './types.ts'
+
+/** Provider ownership and adapter-private replay data for an assistant message. */
+export interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+
+/** Required source of an assistant message produced by a routed model. */
+export interface ModelMessageSource extends AssistantProvenance {
+  kind: 'model'
+}
+
+/** Required source of a user-role message carrying one tool result. */
+export interface ToolMessageSource {
+  kind: 'tool'
+  callId: CallId
+}
+
+/**
+ * Where a message (or injected content) came from.
+ * Merge-extensible sum type — plugins add their own `kind`s.
+ */
+export interface MessageSourceMap {
+  user: { kind: 'user' }
+  plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
+}
+
+/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
+export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
+
+/** One immutable message representation shared by delivery, durable history, and model requests. */
+export interface Message {
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
+}
+
+/** A user-role specialization of the one shared message representation. */
+export interface UserMessage extends Message {
+  readonly role: 'user'
+}
+
+/** A model-produced assistant specialization of the shared message representation. */
+export interface AssistantMessage extends Message {
+  readonly role: 'assistant'
+  readonly source: ModelMessageSource
+}
+
+/** A tool-result specialization whose model-facing block retains call correlation. */
+export interface ToolResultMessage extends Message {
+  readonly role: 'user'
+  readonly content: [ToolResultBlock]
+  readonly source: ToolMessageSource
+}
+
+type NewMessage = Omit<Message, 'id'>
+type NewUserMessage = Omit<UserMessage, 'id' | 'role'>
+type NewAssistantMessage = Omit<AssistantMessage, 'id' | 'role' | 'source'> & {
+  readonly source: Omit<ModelMessageSource, 'kind'> & { readonly kind?: never }
+}
+
+/**
+ * Detach and deep-freeze a message whose identity already exists.
+ * @param message - complete message, including its stable identity.
+ * @returns an immutable snapshot that preserves the identity.
+ */
+export function freezeMessage<T extends Message>(message: T): T {
+  return deepFreeze(structuredClone(message))
+}
+
+/**
+ * Create one identified message and freeze it before publication.
+ * @param input - complete role, content, and source for a new message.
+ * @returns an immutable message with a fresh stable identity.
+ */
+export function createMessage<T extends NewMessage>(
+  input: T & { readonly id?: never },
+): T & Pick<Message, 'id'> {
+  return freezeMessage({
+    ...input,
+    id: MessageId(crypto.randomUUID()),
+  })
+}
+
+/**
+ * Create one identified user-role message and freeze it before publication.
+ * @param input - complete content and source for a new user message.
+ * @returns an immutable user message with a fresh stable identity.
+ */
+export function createUserMessage<T extends NewUserMessage>(
+  input: T & { readonly id?: never; readonly role?: never },
+): T & Pick<UserMessage, 'id' | 'role'> {
+  return createMessage({
+    ...input,
+    role: 'user',
+  })
+}
+
+/**
+ * Create one identified model-produced assistant message and freeze it before publication.
+ * @param input - complete content and model provenance for a new assistant message.
+ * @returns an immutable assistant message with fixed role/source tags and a fresh stable identity.
+ */
+export function createAssistantMessage(
+  input: NewAssistantMessage & { readonly id?: never; readonly role?: never },
+): AssistantMessage {
+  return createMessage({
+    role: 'assistant',
+    content: input.content,
+    source: {
+      kind: 'model',
+      ...input.source,
+    },
+  })
+}
+
+/** Input whose acceptance creates one tool-result message. */
+export interface ToolResultMessageInput {
+  readonly callId: CallId
+  readonly content: ContentBlock[]
+  readonly isError: boolean
+}
+
+/**
+ * Create and freeze one identified tool-result message.
+ * @param input - call identity, raw result blocks, and outcome.
+ * @returns an immutable user-role tool-result message.
+ */
+export function createToolResultMessage(input: ToolResultMessageInput): ToolResultMessage {
+  return createUserMessage({
+    source: { kind: 'tool', callId: input.callId },
+    content: [{
+      type: 'tool-result',
+      toolCallId: input.callId,
+      content: input.content,
+      isError: input.isError,
+    }],
+  })
+}

@@ -64,3 +64,12 @@ export const hostCreateDirectoryRequestSchema = z.object({
 export const hostCreateDirectoryValueSchema = z.object({
   path: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.createDirectory'>>>
+/** host.openPath request payload. */
+export const hostOpenPathRequestSchema = z.object({
+  path: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'host.openPath'>>>
+
+/** host.openPath response value. */
+export const hostOpenPathValueSchema = z.object({
+  opened: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'host.openPath'>>>

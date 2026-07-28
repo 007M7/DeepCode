@@ -10,7 +10,7 @@ export type {
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   DirectoryEntry, DirectoryListing, DirectoryPickerKind,
   WorkspaceApi, WorkspaceId, WorkspaceView,
-  CommandsApi, CommandDescriptor, CommandExecuteResult, SkillsApi, SkillEntry,
+  CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelTarget, SessionModels,
 } from '@deepseek-ai/dsh-host-apiproxy/api'

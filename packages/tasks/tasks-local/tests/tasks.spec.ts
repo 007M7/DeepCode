@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
@@ -25,10 +25,10 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     status: 'idle' as const,
     acceptsNextStep: false,
     ctx: scopeFiber.ctx,
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
