@@ -1,4 +1,4 @@
-/** Trust check for browser requests that can open an operating-system dialog. */
+/** Trust check for browser requests that can invoke privileged native host actions. */
 
 import type { IncomingHttpHeaders } from 'node:http'
 

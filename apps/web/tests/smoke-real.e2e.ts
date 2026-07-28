@@ -7,7 +7,7 @@
 //
 // Selector convention: CSS Modules hash as [hash]_[local], so class-substring
 // selectors are unreliable — anchor on data-* attributes (data-variant /
-// data-clickable / data-sample) or visible text. The one [class*=] use below
+// data-sample) or visible text. The one [class*=] use below
 // (frame/handle) rides local names that survive hashing as suffixes; prefer
 // data-* for anything new.
 //
@@ -448,7 +448,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click opens the details column', async () => {
+  it('5 bash differential rendering: tool row click leaves the details column collapsed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -462,13 +462,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Selection channel: click writes selection + layout.openDetails.
-    await page.waitForFunction(() => {
-      const frame = document.querySelector('[class*="frame"]')
-      if (frame === null) return false
-      return Number(getComputedStyle(frame).gridTemplateColumns.split(' ').pop()!.replace('px', '')) > 0
-    }, undefined, { timeout: 10_000 })
-    await screen(page, '09-details-open')
+    // Tool rows no longer drive layout.openDetails; the column stays closed.
+    expect(await detailsTrack(page)).toBe(0)
+    await screen(page, '09-details-closed')
   }, 150_000)
 
   it('6 sidebar drag widens the column and persists across reload', async () => {

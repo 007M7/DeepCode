@@ -5,7 +5,7 @@
  * switch inside ConversationRoot (renderSlot share driven by the same tab
  * projection apply uses) without collapsing chat, trajectory renders the
  * event ledger with its timing overview, and fiber disposal removes the tab.
- * Timeline projection and inclusive filtering edge cases ride along.
+ * Timeline projection and inclusive focus edge cases ride along.
  */
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -83,6 +83,7 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useProjection: (() => undefined) as never,
   } as unknown as ConvViewProps
 }
 
@@ -154,6 +155,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useSession={useSession}
       useSessions={emptySessions()}
       useWorkspaces={emptyWorkspaces()}
+      useProjection={(() => undefined)}
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}

@@ -27,7 +27,6 @@ export const askUserQuestionItemSchema = z.object({
 export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session/event'), sessionId: sessionIdSchema, event: sessionEventSchema, view: toolEventViewSchema.optional() }),
   z.object({ type: z.literal('session/subscribed'), sessionId: sessionIdSchema, lastSeq: z.number().int() }),
-  z.object({ type: z.literal('session/title'), sessionId: sessionIdSchema, title: z.string().min(1), eventSeq: z.number().int().nonnegative(), updatedAt: z.number() }),
   z.object({ type: z.literal('approval/requested'), sessionId: sessionIdSchema, approvalId: approvalRequestIdSchema, toolName: z.string(), callId: z.string().optional(), reason: z.string().optional() }),
   z.object({ type: z.literal('approval/resolved'), sessionId: sessionIdSchema, approvalId: approvalRequestIdSchema, outcome: z.union([z.literal('allowed-once'), z.literal('rejected'), z.literal('cancelled'), z.literal('unavailable')]) }),
   // Non-empty by wire contract: the user-interaction service rejects empty
@@ -37,6 +36,9 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('question/resolved'), sessionId: sessionIdSchema, questionRpcId: rpcIdSchema, outcome: z.union([z.literal('answered'), z.literal('cancelled')]) }),
   // content/source reuse the wide passthroughs (both are merge-extensible in core).
   z.object({ type: z.literal('session/queued'), sessionId: sessionIdSchema, content: z.array(contentBlockSchema), source: z.looseObject({ kind: z.string() }), steering: z.boolean() }),
+  // value stays wide: it already passed its unit's own schema on the host,
+  // and deep-validating here would import every domain's schema into the carrier.
+  z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<MuxFrame>
 
