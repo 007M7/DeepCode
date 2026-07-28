@@ -81,6 +81,22 @@ export class SessionCreateError extends Error {
   }
 }
 
+/** Structured session-fork failure. */
+export class SessionForkError extends Error {
+  override readonly name = 'SessionForkError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param sourceSessionId - the session the fork was cut from.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly sourceSessionId: SessionId,
+  ) {
+    super(`session fork failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
+
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
   readonly sessionId: SessionId
@@ -313,6 +329,22 @@ export class SessionsService implements ISessions {
   async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
+    this.projectList()
+    return result.value.sessionId
+  }
+
+  /**
+   * Fork a session from a completed-turn prefix of the source (same
+   * synchronous-addressability guarantee as {@link SessionsService.create}:
+   * on resolution the child is in the list store and open() can target it).
+   * @param opts - source session id and the optional event seq anchoring the
+   *   cut (the boundary is the first turn/end at or after it).
+   * @returns the child session id.
+   * @throws {SessionForkError} with the source id.
+   */
+  async fork(opts: { sessionId: SessionId; atSeq?: number }): Promise<SessionId> {
+    const result = await this.manager.fork(opts)
+    if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
     this.projectList()
     return result.value.sessionId
   }

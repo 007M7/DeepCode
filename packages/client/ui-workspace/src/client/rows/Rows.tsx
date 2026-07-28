@@ -2,8 +2,8 @@
  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
- * except workspace Rename/Delete and session Rename; the session and workspace
- * hover cards are suppressed while a menu is open.
+ * except workspace Rename/Delete and session Rename/Fork; the session and
+ * workspace hover cards are suppressed while a menu is open.
  */
 import { useState } from 'react'
 import clsx from 'clsx'
@@ -184,7 +184,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename, onToggle, drag, flat = false }: {
+export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename, onFork, onToggle, drag, flat = false }: {
   node: SessionNode
   depth: number
   currentId: string | undefined
@@ -192,6 +192,8 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
   onOpen: (id: SessionNode['id']) => void
   /** Open the browser-owned session rename dialog (row menu action). */
   onRename: (id: SessionNode['id'], currentTitle: string) => void
+  /** Fork a session at its last completed turn (row menu action). */
+  onFork: (id: SessionNode['id']) => void
   onToggle: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group roots outside search). */
   drag?: RowDragProps | undefined
@@ -259,9 +261,10 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
           items={SESSION_MENU_ITEMS}
-          onSelect={(id) => {
-            setMenuOpen(false)
-            if (id === 'rename') onRename(node.id, row.title) // fork/delete stay visual-only.
+            onSelect={(id) => {
+              setMenuOpen(false)
+              if (id === 'rename') onRename(node.id, row.title)
+              if (id === 'fork') onFork(node.id) // delete stays visual-only.
           }}
           portal
           closeOnPointerLeave
@@ -295,6 +298,7 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
           now={now}
           onOpen={onOpen}
           onRename={onRename}
+          onFork={onFork}
           onToggle={onToggle}
         />
       ))}

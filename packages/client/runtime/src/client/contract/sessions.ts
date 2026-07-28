@@ -30,6 +30,14 @@ export interface ISessions {
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**
+   * Fork a session from a completed-turn prefix of the source; on resolution
+   * the child is in the list store and `open()` can target it.
+   * @param opts - source session id and the optional event seq anchoring the
+   *   cut (the boundary is the first turn/end at or after it).
+   * @returns the child session id.
+   */
+  fork(opts: { sessionId: SessionId; atSeq?: number }): Promise<SessionId>
+  /**
    * Register a per-session standard-props provider (hooks become `use<Name>`
    * selector hooks on the render side; props spread verbatim).
    * @param descriptor - static member roster plus per-session resolver.

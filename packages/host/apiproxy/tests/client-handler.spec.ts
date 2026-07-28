@@ -47,6 +47,7 @@ function scriptedApi(overrides: {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
+      fork: r => ok(r, { sessionId: sid('s-fork') }),
       prompt: r => ok(r, { accepted: true as const }),
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),

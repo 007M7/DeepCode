@@ -59,6 +59,13 @@ export function apply(ctx: ClientContext): void {
       const result = await session.rename(title)
       if (!result.ok) throw new Error(result.error.message)
     },
+    forkSession: (sessionId) => {
+      ctx.sessions.fork({ sessionId })
+        .then((childId) => { ctx.sessions.open(childId) })
+        .catch(() => {
+          // Fork failure keeps the list untouched (composer-stop posture).
+        })
+    },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {

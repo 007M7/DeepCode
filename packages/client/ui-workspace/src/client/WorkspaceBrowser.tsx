@@ -83,7 +83,7 @@ interface DragState {
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'startSession' | 'open' | 'insertSessionBefore'
+  'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore'
 > & {
   workspaces: readonly WorkspaceView[]
   /** Live search filter owned by the browser root (the query outlives the tree). */
@@ -98,7 +98,7 @@ type SessionTreeProps = Pick<
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
-  useSessions, startSession, open, workspaces, query,
+  useSessions, startSession, open, forkSession, workspaces, query,
   onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
@@ -115,6 +115,24 @@ function SessionTree({
     if (current === undefined || currentGroup === undefined) return
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
+  // The selected session must be visible: unfold its ancestor chain (fork
+  // lands the child under a possibly folded parent row).
+  const currentAncestors = useMemo(() => {
+    const chain: string[] = []
+    let cursor = current === undefined ? undefined : list.byId[current]?.parentId
+    while (cursor !== undefined && !chain.includes(cursor)) {
+      chain.push(cursor)
+      cursor = list.byId[cursor]?.parentId
+    }
+    return chain
+  }, [current, list])
+  useEffect(() => {
+    if (currentAncestors.length === 0) return
+    setExpandedSessions((l) => {
+      const missing = currentAncestors.filter(id => !l.includes(id))
+      return missing.length === 0 ? l : [...l, ...missing]
+    })
+  }, [currentAncestors])
   const groups = useMemo(
     () => deriveGroups(list, workspaces, { expandedProjects, expandedSessions, query }),
     [list, workspaces, expandedProjects, expandedSessions, query],
@@ -195,6 +213,7 @@ function SessionTree({
                   now={now}
                   onOpen={open}
                   onRename={onSessionRename}
+                  onFork={forkSession}
                   onToggle={(id) => { setExpandedSessions(l => toggled(l, id)) }}
                   drag={dragProps}
                 />
@@ -209,7 +228,7 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, onSessionRename, query }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'onSessionRename' | 'query'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename, query }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'query'>) {
   const list = useSessions(s => s)
   const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
   const now = Date.now()
@@ -228,6 +247,7 @@ function FlatList({ useSessions, open, onSessionRename, query }: Pick<SessionTre
             now={now}
             onOpen={open}
             onRename={onSessionRename}
+            onFork={forkSession}
             /* v8 ignore next -- required-prop filler: flat rows render no twist, so it never fires. */
             onToggle={() => {}}
             flat
@@ -254,6 +274,7 @@ export function WorkspaceBrowser({
   startSession,
   open,
   renameSession,
+  forkSession,
   renameWorkspace,
   deleteWorkspace,
   insertSessionBefore,
@@ -460,13 +481,14 @@ export function WorkspaceBrowser({
 
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
-      <div className={css.listArea}>
-        {wide && (groupBy === 'flat'
-          ? <FlatList useSessions={useSessions} open={open} onSessionRename={onSessionRename} query={query} />
+        <div className={css.listArea}>
+          {wide && (groupBy === 'flat'
+          ? <FlatList useSessions={useSessions} open={open} forkSession={forkSession} onSessionRename={onSessionRename} query={query} />
           : (
             <SessionTree
               useSessions={useSessions}
               onSessionRename={onSessionRename}
+              forkSession={forkSession}
               workspaces={workspaces}
               startSession={startSession}
               open={open}

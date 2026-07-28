@@ -94,6 +94,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
   const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
+  const forkAt = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
   // renderSlot stub renders the render-site fallback (an empty keyed ledger:
@@ -120,9 +121,10 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     openDetails,
     openFile,
     loadOlder,
+    forkAt,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, openFile, loadOlder, setSelection }
+  return { set, ChatView, props, openDetails, openFile, loadOlder, forkAt, setSelection }
 }
 
 describe('chat-flow derivation', () => {

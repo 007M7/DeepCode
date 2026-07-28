@@ -1148,6 +1148,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async fork(request) {
+        const { sessionId, atSeq } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const source = found.agent.session
+        const events = source.events
+        // Boundary: the first turn/end at or after atSeq (fork includes that
+        // whole turn); an overshooting atSeq or an omitted one falls back to
+        // the last completed turn.
+        const boundary = (atSeq === undefined ? undefined : events.find(e => e.type === 'turn/end' && e.seq >= atSeq))
+          ?? events.findLast(e => e.type === 'turn/end')
+        if (boundary === undefined) {
+          return err(request, {
+            code: 'fork-unavailable',
+            message: `session "${sessionId}" has no completed turn to fork from`,
+            details: { sessionId },
+          })
+        }
+        // Extend the cut through trailing out-of-band appends (session/title,
+        // injections) up to the next turn/start: they are standalone events, so
+        // the seed stays balanced, and the child inherits a title generated
+        // right after the boundary turn.
+        let cut = boundary.seq + 1
+        while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+        const childId = `session-${randomUUID()}` as SessionId
+        try {
+          await ctx.agents.create({
+            sessionId: childId,
+            seed: events.slice(0, cut),
+            meta: {
+              ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
+              parentSession: source.id,
+              seedLength: cut,
+            },
+            agentOptions,
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to fork session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        // Keep the child in the source's Workspace so the list nests it under
+        // its parent; the child is already published if the attach fails.
+        const workspace = ctx.workspace.list().find(w => w.sessionIds.includes(source.id))
+        if (workspace !== undefined) {
+          try {
+            await workspace.attachSession(childId)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'workspace-attach-failed',
+              message: `session "${childId}" was forked but could not attach to workspace "${workspace.id}": ${String(error)}`,
+              details: { sessionId: childId, workspaceId: workspace.id },
+            })
+          }
+        }
+        return ok(request, { sessionId: childId })
+      },
+
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
         const found = await agentFor(sessionId)
