@@ -76,11 +76,16 @@ describe('BrowseDirectoryPicker', () => {
     expect(fullyQualified('C:\\projects', 'win32')).toBe(true)
     expect(fullyQualified('C:/projects', 'win32')).toBe(true)
     expect(fullyQualified('\\\\server\\share', 'win32')).toBe(true)
+    expect(fullyQualified('//server/share/deep', 'win32')).toBe(true)
     // Rooted but drive-less: isAbsolute accepts these, yet resolve() would
     // inject the process's current drive.
     expect(fullyQualified('\\foo', 'win32')).toBe(false)
     expect(fullyQualified('/foo', 'win32')).toBe(false)
     expect(fullyQualified('C:relative', 'win32')).toBe(false)
+    // Incomplete UNC prefixes collapse to drive-relative roots under resolve().
+    expect(fullyQualified('\\\\', 'win32')).toBe(false)
+    expect(fullyQualified('\\\\server', 'win32')).toBe(false)
+    expect(fullyQualified('\\\\server\\', 'win32')).toBe(false)
   })
 
   it('rejects non-absolute paths instead of rebasing them under the process cwd', async () => {

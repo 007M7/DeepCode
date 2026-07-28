@@ -38,16 +38,16 @@ function ancestryCrumbs(target: string): DirectoryEntry[] {
 /**
  * True when the path names one fixed filesystem location regardless of
  * process state: POSIX-absolute on POSIX; on Windows only drive-qualified
- * (`C:\…`) or UNC (`\\server\…`) forms — rooted drive-less forms (`\foo`,
- * `/foo`) pass `isAbsolute` yet still resolve against the process's current
- * drive.
+ * (`C:\…`) or complete UNC (`\\server\share…`) forms. Rooted drive-less
+ * forms (`\foo`, `/foo`) and incomplete UNC prefixes (`\\`, `\\server`)
+ * pass `isAbsolute` yet still resolve against the process's current drive.
  * @param path - candidate path.
  * @param platform - replaces `process.platform` for deterministic tests.
  * @returns whether the path is fully qualified on the platform.
  */
 export function fullyQualified(path: string, platform: NodeJS.Platform = process.platform): boolean {
   return platform === 'win32'
-    ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(path)
+    ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)/.test(path)
     : posix.isAbsolute(path)
 }
 
