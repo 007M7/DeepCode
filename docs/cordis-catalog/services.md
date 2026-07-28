@@ -1204,7 +1204,7 @@ Exact-read consumer that prepares immutable cross-session message context.
 /**
  * List reference candidates, ranked by working-directory affinity.
  * @param agent - target agent; self is excluded and its cwd drives ranking.
- * @param query - optional case-insensitive session-id/cwd substring.
+ * @param query - optional case-insensitive session-id/cwd/title substring.
  * @param limit - optional positive result cap.
  * @param signal - optional cancellation boundary for host autocomplete teardown.
  * @returns candidates labeled by latest title or, when absent, session id.

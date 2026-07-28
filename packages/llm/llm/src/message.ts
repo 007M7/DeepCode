@@ -125,8 +125,8 @@ export function createAssistantMessage(
   input: NewAssistantMessage & { readonly id?: never; readonly role?: never },
 ): AssistantMessage {
   return createMessage({
-    content: input.content,
     role: 'assistant',
+    content: input.content,
     source: {
       ...input.source,
       kind: 'model',
