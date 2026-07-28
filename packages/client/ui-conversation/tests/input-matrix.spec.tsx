@@ -124,7 +124,7 @@ describe('matrix row: claimed', () => {
 describe('matrix row: submitting', () => {
   it('locks enter, renders pending + read-only, keeps the claim snapshot on the currency', async () => {
     const submit = vi.fn(() => new Promise<SubmitOutcome>(() => {})) // never settles
-    const { view, textarea, shell, sink, claim } = bench({ submit })
+    const { textarea, shell, sink, claim } = bench({ submit })
     claim()
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(shell.snapshot.phase).toBe('submitting')
