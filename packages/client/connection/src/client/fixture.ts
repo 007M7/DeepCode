@@ -1009,8 +1009,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           plan: args.trim() === 'off'
             ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
             : (running
-                ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
-                : 'Plan mode on. Use /plan off to leave.'),
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
