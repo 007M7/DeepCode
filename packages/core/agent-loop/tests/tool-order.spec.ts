@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Loop-level tool-order determinism: the request/header event — and therefore the frozen
  * request the adapter receives — carries the assembly's canonical tool order (system-prompt's
@@ -12,7 +13,7 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -42,7 +43,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function registerNamed(ctx: Context, name: string) {
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name,
     description: `the ${name} tool`,
     parameters: {},
@@ -58,7 +59,7 @@ async function runTurn(registrationOrder: string[], toolOrder?: SystemPromptConf
   const ctx = await harness(adapter, toolOrder)
   for (const name of registrationOrder) registerNamed(ctx, name)
   const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-  agent.send([{ type: 'text', text: 'go' }])
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
   await waitForIdle(ctx, agent)
   return { ctx, agent, adapter }
 }
@@ -98,9 +99,11 @@ describe('loop-level canonical tool order', () => {
     const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
     registerNamed(ctx, 'alpha')
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+      if (error instanceof Error) errors.push(error)
+    })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
     expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; known tools: alpha'])

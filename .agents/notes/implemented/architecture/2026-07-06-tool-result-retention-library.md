@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-06-tool-result-retention-library.zh.md)
+
 ## Problem
 
 Several model-facing tools already bound the amount of context they return, but each one owns a different local mechanism and vocabulary: bash keeps a tail plus spill files, web search caps source lists, web fetch caps body content, and `glob` / `grep` discovery needs an inline first page while keeping exact omission metadata for the full result set. A single `truncate(text)` helper cannot cover those cases: item tools need item counts and grouping outside the primitive, while text tools need byte budgets and UTF-8-safe head/tail cuts.
@@ -150,6 +152,6 @@ The formatter hook is deliberately small: a tool turns a `RetentionNotice` into 
 
 **Put `read` windowing behind `ItemRetainer`.** Rejected for v1: `read` is the only current window consumer, and its semantics are file pagination rather than generic retention. A single `Omitted` count cannot represent both sides of a line window, and `read` also carries `totalLines`, offset-range errors, per-line preview truncation, and a byte cap over selected output. Keeping `read-render` tool-owned avoids growing the shared library around one special case.
 
-**Make truncation part of `ToolExecutionResult`.** Rejected: the tool registry would have to understand tool-specific recovery guidance, grouping, line numbering, exit status, and provider semantics. Retention is a library used before a tool returns `ContentBlock[]`; the model-facing result remains tool-owned.
+**Make truncation part of `ToolExecutionResult`.** Rejected: the tool registry would have to understand tool-specific recovery guidance, grouping, line numbering, exit status, and provider semantics. Retention is a library used by a tool's Native renderer; the model-facing projection remains tool-owned while the [canonical value](2026-07-20-canonical-tool-output-contract.md) may retain the complete acquired result.
 
 **Expose limits in every model-facing tool schema.** Rejected as the default: Claude Code's grep exposes `head_limit` / `offset`, but this harness keeps routine budgets as deployment config unless the model genuinely needs pagination control. A future read-like continuation field can be added per tool; it does not belong in the shared retention primitive.

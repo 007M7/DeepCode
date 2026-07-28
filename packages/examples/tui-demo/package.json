@@ -1,14 +1,11 @@
 {
   "name": "@deepseek-ai/dsh-tui-demo",
-  "description": "Full-screen terminal app: agent spine + persisted goals + human commands + JSONL persistence + pi-tui front door + pre-created main agent",
+  "description": "Full-screen TUI app bundle plugin: agent spine + persisted goals + human commands + JSONL persistence + pi-tui front door + pre-created main agent (mounted by the dsh CLI's config)",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
-  "bin": {
-    "dsh-tui-demo": "lib/bin.js"
-  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
@@ -18,26 +15,19 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
-    "./bin": {
-      "types": "./lib/types/bin.d.ts",
-      "default": "./lib/bin.js"
-    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/bin.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@cordisjs/plugin-include": "^1.0.4",
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
-    "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-agent-loop": "^0.0.1",
     "@deepseek-ai/dsh-commands": "^0.0.1",
@@ -46,6 +36,10 @@
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "^0.0.1",
+    "@deepseek-ai/dsh-session-query": "^0.0.1",
+    "@deepseek-ai/dsh-session-query-sqlite": "^0.0.1",
+    "@deepseek-ai/dsh-session-reference": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
     "@deepseek-ai/dsh-tui": "^0.0.1",
     "@deepseek-ai/dsh-tool-ask-user": "^0.0.1",
@@ -56,9 +50,7 @@
     "schemastery": "^3.17.0"
   },
   "devDependencies": {
-    "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
-    "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
@@ -67,6 +59,10 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "workspace:^",
+    "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-session-query-sqlite": "workspace:^",
+    "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tui": "workspace:^",

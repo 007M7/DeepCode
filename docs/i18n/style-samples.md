@@ -28,9 +28,9 @@
 
 **dispose（资源释放）必须等待所有任务完全停稳，不能仅下发终止指令就返回**：如果清理过程只发出终止或中断信号，却不等任务停止就返回，就会留下孤儿进程。清理应采用异步方式，等待所有子任务彻底退出（先发出终止信号，再等待退出）；发出信号前应先关闭监听器与通知注册表，使延迟到达的完成事件不再触发通知。测试要证明 dispose 的确等到清理完成：执行完 `await fiber.dispose()` 后进程 PID 立即消失，不能只检查进程最终会自行消亡。
 
-> **Async state is not synchronous state** — `agent.send()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) instead of treating status as a per-send result: several queued sends run as consecutive turns under one `running` interval, while cancellation or disposal can discard unstarted items.
+> **Async state is not synchronous state** — `agent.followup()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) instead of treating status as a per-follow-up result: several queued follow-ups run as consecutive turns under one `running` interval, while cancellation or disposal can discard unstarted items.
 
-**异步状态不等同于同步瞬时状态**：调用 `agent.send()` 不会在返回前同步更新状态；后台任务的完成时间与轮次边界存在竞态；`reader.close()` 既会在读到文件末尾时触发，也会在资源释放时触发。切勿把刚刚发起的状态变更当成已经生效，据此控制流程；生命周期逻辑应以实际触发的事件和已完成的 promise（`agent/status`、`task.done`）为准，并观察完整的状态变化（先 `running`，再 `idle`），不要把状态当作逐次 `send()` 的结果：多次排队的 `send()` 会作为连续轮次运行，但可能共用一个 `running` 区间；取消或资源释放还可能丢弃尚未启动的队列项。
+**异步状态不等同于同步瞬时状态**：调用 `agent.followup()` 不会在返回前同步更新状态；后台任务的完成时间与轮次边界存在竞态；`reader.close()` 既会在读到文件末尾时触发，也会在资源释放时触发。切勿把刚刚发起的状态变更当成已经生效，据此控制流程；生命周期逻辑应以实际触发的事件和已完成的 promise（`agent/status`、`task.done`）为准，并观察完整的状态变化（先 `running`，再 `idle`），不要把状态当作逐次 `followup()` 的结果：多次排队的 `followup()` 会作为连续轮次运行，但可能共用一个 `running` 区间；取消或资源释放还可能丢弃尚未启动的队列项。
 
 ## ③ 测试政策清单
 
@@ -68,17 +68,17 @@
 
 对比双语文件的 git 时间戳（无记录方案）——不予采纳：仅调整格式的改动会触发误报，无关修改后再提交译文又会造成漏检。只有基于内容本身的标识（每侧文件的 blob hash 与伴随记录比对），才能承载门禁所声称的语义。
 
-## ⑦ 推进策略（长段拆分示范）
+## ⑦ 统一要求（长段拆分示范）
 
-> **Rollout**: date-named Agent Notes don't wait for a batch — one dated on or after the manifest's `requiredSince` cutoff must merge with its pair, so each new date-named Agent Note is bilingual from birth. For the back-catalog, the `required` list in the manifest is the enforcement frontier, not the goal. […] Pairing a document is a commitment: every later edit to either side must carry the counterpart along, so grow the frontier at the pace translation review is actually resourced, not ahead of it.
+> **Universal requirement**: every in-scope document merges as a complete bilingual pair. The manifest contains only explicit exclusions: it has no per-file rollout list, date cutoff, or README-specific policy class. […] Pairing is a continuing obligation: every later edit to either side updates the counterpart and consistency record in the same change.
 
-**推进**：日期命名的 Agent Note 无需等待批量翻译。只要文件名中的日期不早于 manifest（元数据清单）的 `requiredSince` 分界日期，合入时就必须配齐中英文，因此此类 Agent Note 从创建起就要求双语齐备。对于存量文档，manifest 中的 `required` 列表只是当前的执行红线，并非最终目标。（……）一旦文档完成配对，后续修改任一侧都必须同步更新另一侧。因此，应根据实际可投入的翻译评审能力逐步扩展执行红线，不能超前。
+**统一要求**：每篇纳入范围的文档合入时都必须构成完整的双语配对。manifest（元数据清单）只包含显式排除项：其中没有逐文件推进清单、日期分界或 README 专用政策类别。（……）配对是一项持续义务：后续修改任一侧时，都必须在同一变更中同步更新对侧文件和一致性记录。
 
 ## 从样例提炼的要点
 
 - 语体是规范制度文：完整主谓、确定语气；不口语化，也不学术腔。
 - 给句子补显式执行主体：英文的被动句和抽象主语，中文写成「系统／门禁／工具／评审人」做主语。
-- 用中文工程惯用语替换直译：false positive/negative→误报／漏检、enforcement frontier→执行红线、ratchet→只向前收紧不倒退放宽、reviewable act→评审凭证。
+- 用中文工程惯用语替换直译：false positive/negative→误报／漏检、ratchet→只向前收紧不倒退放宽、reviewable act→评审凭证。
 - 隐喻本地化而非移植：bilingual from birth→从创建起就要求双语齐备；grandfathered→历史存量遗留。
 - 类别名词说中文并在首现括注英文：实操手册（cookbook）、事故复盘（postmortem）；指目录或路径时保留代码体英文。
 - 长段按语义单元拆段，一段一件事；名词短语展开为动词句。

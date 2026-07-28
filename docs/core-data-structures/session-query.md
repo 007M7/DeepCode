@@ -1,6 +1,8 @@
 # Session Query
 
-Exact reads and relationship traces over the live-preferred logical session corpus. The [package contract](../../packages/session-query/session-query) owns source precedence, dynamic optional persistence, cloning, surface classification, bounded windows, tracing validation, and typed failures. Full-text search is a separate proposed SQLite package.
+English | [中文](session-query.zh.md)
+
+Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -25,6 +27,63 @@ interface SessionRecord {
 }
 ```
 
+`SessionLogSnapshot` is the complete detached, replay-validated raw log used by resume preflight. `SessionSurfaceSnapshot` is one exact-read surface observation rather than a retained subscription.
+
+```ts type-equiv
+/** One validated detached observation of a logical session's complete raw log. */
+interface SessionLogSnapshot {
+  /** Cloned session header selected from the same observation as `events`. */
+  session: SessionHeader
+  /** Cloned contiguous raw events after persistence repair and replay validation. */
+  events: SessionEvent[]
+}
+```
+
+```ts type-equiv
+/** One atomic live-preferred observation of a session's current model surface. */
+interface SessionSurfaceSnapshot {
+  /** Cloned session header selected from the same corpus observation as `events`. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Cloned current surface events in model-history order. */
+  events: SurfaceEvent[]
+}
+```
+
+`SessionTitleObservation` applies the same atomic-observation rule to title folding, so an authorization consumer can validate the source header that supplied the title. Batch reads return one ordered `SessionTitleObservationResult` per unique requested id: operational failures remain local to that id, while cancellation rejects the complete operation.
+
+```ts type-equiv
+/** Latest folded title bound to the same session-header observation. */
+interface SessionTitleObservation {
+  /** Cloned header selected with the event log used for the title fold. */
+  session: SessionHeader
+  /** Latest title snapshot, absent when the observed log has no title. */
+  title?: SessionTitleSnapshot
+}
+```
+
+```ts type-equiv
+/** One ordered result from a batch title observation. */
+type SessionTitleObservationResult =
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Successful atomic header/title observation. */
+    status: 'fulfilled'
+    /** Header and optional latest title from one logical source. */
+    value: SessionTitleObservation
+  }
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Operational failure isolated to this session. */
+    status: 'rejected'
+    /** Original failure from logical-source resolution or title folding. */
+    reason: unknown
+  }
+```
+
 ```ts type-equiv
 /** Lightweight metadata for one event within a logical session. */
 interface SessionEventRecord {
@@ -38,6 +97,123 @@ interface SessionEventRecord {
   time: number
   /** Event placement in the folded session surface. */
   surface: SessionEventSurface
+}
+```
+
+## Provider-independent filters and documents
+
+Session and event filter arrays are ANDed; values inside one list clause are ORed. Ranges are inclusive. The event `text` clause is a literal Unicode case-insensitive, whitespace-flexible regular-expression scan over extracted semantic text, independent of full-text providers.
+
+```ts type-equiv
+/**
+ * One logical-session predicate. A filter array is ANDed; `values` within a
+ * clause are ORed.
+ */
+type SessionResultFilter =
+  | { kind: 'id'; values: readonly SessionId[] }
+  | { kind: 'cwd'; values: readonly (string | null)[] }
+  | ({ kind: 'created-at' } & SessionResultRange)
+  | { kind: 'parent'; values: readonly (SessionId | null)[] }
+  | { kind: 'availability'; values: readonly SessionAvailability[] }
+```
+
+```ts type-equiv
+/**
+ * One event predicate. A filter array is ANDed; list-valued clauses are ORed.
+ * Text is a literal, case-insensitive, whitespace-flexible semantic-text scan.
+ */
+type SessionEventResultFilter =
+  | ({ kind: 'seq' } & SessionResultRange)
+  | ({ kind: 'time' } & SessionResultRange)
+  | { kind: 'type'; values: readonly SessionEventType[] }
+  | { kind: 'surface'; values: readonly SessionEventSurface[] }
+  | { kind: 'text'; text: string }
+```
+
+```ts type-equiv
+/** Searchable semantic document derived from one session event. */
+interface SessionEventSearchDocument extends SessionEventRecord {
+  /** First-party semantic text used by scan filters and full-text indexes. */
+  text: string
+}
+```
+
+`ctx.sessionQuery.filterSessions(filters)` applies `SessionResultFilter` to the complete logical corpus; `ctx.sessionQuery.filterEvents(sessionId, filters)` returns matching documents in ascending seq order. Messages, reasoning, tool calls/results, blocked prompts, todos, and failure/status detail contribute semantic text; structural events and stream chunks do not.
+
+## Full-text search pages
+
+The combined `ctx.sessionQuery` seam has two full-text scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
+
+```ts type-equiv
+/** Provider-owned opaque continuation token returned by session search. */
+type SessionSearchCursor = Branded<'SessionSearchCursor'>
+```
+
+```ts type-equiv
+/** Cross-session full-text search request. */
+interface SessionSearchRequest {
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Logical-session predicates applied before event ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Event predicates applied before event ranking. */
+  eventFilters?: readonly SessionEventMetadataFilter[]
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** Within-session full-text search request. */
+interface SessionEventSearchRequest {
+  /** Session whose live-preferred logical log is searched. */
+  sessionId: SessionId
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Event predicates applied before ranking. */
+  filters?: readonly SessionEventMetadataFilter[]
+  /** Maximum events in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** One cursor-paginated result page. */
+interface SessionSearchPage<T> {
+  /** Results for this page in contract-defined order. */
+  items: readonly T[]
+  /** Opaque continuation cursor, absent on the final page. */
+  nextCursor?: SessionSearchCursor
+}
+```
+
+Unlike grouped cross-session hits, a within-session search must also expose its observed target header even when the page contains no hits.
+
+```ts type-equiv
+/** Event-search results bound to the indexed target-session observation. */
+interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit> {
+  /** Cloned target header from the same indexed generation as `items`. */
+  session: SessionHeader
+}
+```
+
+```ts type-equiv
+/** One event full-text search hit with a bounded plain-text excerpt. */
+interface SessionEventSearchHit extends SessionEventRecord {
+  /** Plain text excerpt selected around the match. */
+  snippet: string
+}
+```
+
+```ts type-equiv
+/** One grouped cross-session hit, ranked by its strongest matching event. */
+interface SessionSearchHit extends SessionRecord {
+  /** Strongest matching event for this session. */
+  bestMatch: SessionEventSearchHit
 }
 ```
 
@@ -146,19 +322,34 @@ interface SessionEventTrace {
 }
 ```
 
+```ts type-equiv
+/** Event relationships bound to the same session-header observation. */
+interface SessionEventTraceObservation extends SessionEventTrace {
+  /** Cloned header selected with the event log used for the trace. */
+  session: SessionHeader
+}
+```
+
 ## Errors
 
 The closed code union distinguishes request validation, missing targets, malformed surface logs, optional-backend failure, and contradictory source metadata.
 
 ```ts type-equiv
-/** Stable machine-routable failure taxonomy for exact session reads and traces. */
+/** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 type SessionQueryErrorCode =
+  | 'SESSION_QUERY_ABORTED'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
+  | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_CURSOR'
+  | 'SESSION_QUERY_INVALID_FILTER'
+  | 'SESSION_QUERY_INVALID_LIMIT'
+  | 'SESSION_QUERY_INVALID_QUERY'
   | 'SESSION_QUERY_INVALID_LINEAGE'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
+  | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'
 ```

@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-bash
 
+English | [中文](README.zh.md)
+
 The model-facing `bash` tool registered over the `ctx.bash` executor seam. Foreground execution stays behind that seam; a background process handle is registered with the generic `ctx.tasks` runtime and controlled through `task_output`, `task_list`, and `task_kill` from `@deepseek-ai/dsh-tool-tasks`.
 
 Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); the plugin stays pending until `ctx.bash` exists (`inject: ['tools', 'bash', 'systemPrompt']`).
@@ -17,12 +19,12 @@ The plugin also contributes the `tool:bash` prompt section (order 105): check th
 | `command` | string (required) | Run via `bash -c`. No state persists between calls — use `workdir`, not `cd`. |
 | `description` | string (required) | One-line, active-voice summary of the command (5-10 words), for UI/log display only — no effect on execution. |
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
-| `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that session cwd. |
+| `workdir` | string | Working directory for this call. Defaults to the filesystem identity of the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that same identity. |
 | `run_in_background` | boolean | Return a task id immediately; no timeout applies. |
 | `sandbox_permissions` | string enum | ADVERTISED ONLY when the mounted executor sandboxes (`ctx.bash.sandboxMode` reports a confining default): the wider mode a denied command needs, from the closed target vocabulary `workspace-write`/`danger-full-access` (never cut down to the executor's default — the effective mode is per-session; strict widening is checked at execution against it, and a non-widening request fails without prompting anyone). |
 | `justification` | string | Required together with `sandbox_permissions` (each without the other is a validation error): one sentence for the user explaining why this exact command needs the wider access. |
 
-`command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
+`command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer from the calling agent's `session.header.cwd` BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`. When sandbox policy is present, the tool reuses its already-canonical `workspaceRoot` as the workdir base so confinement and process launch cannot resolve the same session spelling differently.
 
 ### Managed shell environment
 
@@ -48,6 +50,8 @@ export function apply(ctx: Context): void {
 The overlay is computed from the current `ToolExecution` and passed through the dedicated `BashExecRequest.dshEnv` channel. The local executor removes all inherited `DSH_*` before merging that snapshot, so nested harnesses and concurrent parent/child agents cannot leak stale identities. `process.env` is never modified. The tool description teaches the generic `$DSH_*` convention rather than naming persistence-specific variables or adding a permanent system-prompt section.
 
 Result text contains stdout, an optional `[stderr]` section, then applicable sandbox-denial, timeout, signal, exit-code, and truncation markers. Timeout is reported independently of final exit status; nonzero exit remains a model-interpreted result rather than `isError`. Truncation links a safe complete spill file or reports it unavailable. Only infrastructure failures such as spawn errors and aborts produce `isError`.
+
+The canonical success is `{ kind: 'foreground', ...BashRunResult }` for a completed foreground process or `{ kind: 'background', taskId }` for a published task. The Native renderer preserves the text above, including exactly `started background task <id>`; programmatic consumers use the typed fields without parsing those strings. Executor stream caps remain acquisition limits on `BashRunResult` and carry their spill paths.
 
 When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` before spawning, registers the calling agent as owner, and adapts the returned `BashProcess` handle into generic cancel/done/incremental-output hooks. The task runtime owns ids, cross-session isolation, completion notices, waiting, and disposal cleanup; this plugin only maps bash exit/sandbox facts into task output and outcome detail. `enableRunInBackground: false` removes the parameter and rejects a forced background call at execution time.
 

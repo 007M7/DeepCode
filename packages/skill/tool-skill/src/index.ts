@@ -1,13 +1,15 @@
 /**
- * Session-prefix skill catalog and model-facing `skill` loader tool.
+ * Durable session skill catalog and model-facing `skill` loader tool.
  *
  * @module @deepseek-ai/dsh-tool-skill
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
@@ -28,7 +30,7 @@ export const Config: z<Config> = z.object({
 
 /**
  * Register the model-facing skill loader and its visibility-matched
- * session-prefix catalog. The catalog is emitted only when the calling agent
+ * durable session catalog. The catalog is emitted only when the calling agent
  * resolves this plugin's exact tool registration; a restriction or scoped
  * same-name shadow therefore removes both the schema and its call guidance.
  */
@@ -42,6 +44,46 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       name: { type: 'string', required: true, description: 'The exact skill name from the available skills list.' },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', required: true },
+          provider: { type: 'string', required: true },
+          resourceBase: {
+            oneOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'directory' },
+                  path: { type: 'string', required: true },
+                },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'url' },
+                  url: { type: 'string', required: true },
+                },
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  kind: { type: 'string', required: true, const: 'opaque' },
+                  description: { type: 'string', required: true },
+                },
+              },
+            ],
+          },
+          content: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
+    },
     async execute(args, exec) {
       if (!isSkillName(args.name)) {
         throw new Error(`invalid skill name "${args.name}"`)
@@ -53,7 +95,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (skill.disableModelInvocation === true) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
-      return [{ type: 'text', text: renderSkillContent(skill) }]
+      return {
+        name: skill.name,
+        provider: skill.provider,
+        ...skill.resourceBase !== undefined ? {
+          resourceBase: { ...skill.resourceBase },
+        } : {},
+        content: skill.content,
+      }
     },
     presentCall(args) {
       return { card: 'generic', title: `Load skill ${args.name}`, kind: 'read', rawInput: args.name }
@@ -68,16 +117,23 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
-  ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
-    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) return await next()
+  const catalogLoaded = new WeakSet<object>()
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+    if (catalogLoaded.has(agent.session)) return
+    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) {
+      catalogLoaded.add(agent.session)
+      return
+    }
     const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
-    const rest = await next()
-    if (skills.length === 0) return rest
-    return [renderCatalogMessage(skills, catalogDescriptionMaxLength), ...rest]
+    if (skills.length > 0) {
+      const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
+      agent.inject(catalog)
+    }
+    catalogLoaded.add(agent.session)
   })
 }
 
-function renderSkillContent(skill: SkillDefinition): string {
+function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
   const resourceHint = renderResourceHint(skill)
   return [
     `<skill_content name="${escapeAttr(skill.name)}">`,
@@ -92,7 +148,7 @@ function renderSkillContent(skill: SkillDefinition): string {
   ].join('\n')
 }
 
-function renderResourceHint(skill: SkillDefinition): string[] {
+function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
   const base = skill.resourceBase
   if (base === undefined) {
     return [
@@ -116,15 +172,16 @@ function renderResourceHint(skill: SkillDefinition): string[] {
         `Resources for this skill: ${escapeText(base.description)}`,
         'Load referenced resources only as needed.',
       ]
+    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
     default:
       return assertNever(base, 'SkillResourceBase.kind')
+    /* v8 ignore stop */
   }
 }
 
-function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): Message {
+function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
   const entries = skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
-  return {
-    role: 'user',
+  return createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -139,7 +196,8 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
         '</system-reminder>',
       ].join('\n'),
     }],
-  }
+    source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+  })
 }
 
 function catalogDescription(value: string, maxLength: number): string {

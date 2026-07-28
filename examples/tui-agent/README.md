@@ -1,5 +1,7 @@
 # tui-agent
 
+English | [中文](README.zh.md)
+
 The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, plan mode (`/plan` enters and `exit_plan_mode` reviews the exit), timeout/spill policy, and JSONL persistence through [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), loaded from `cordis.yml`. The sibling [`headless-agent`](../headless-agent/README.md) runs the same capability class as a one-shot pipe-friendly task, and [`acp-agent`](../acp-agent/README.md) serves it over JSON-RPC.
 
 ## Run it
@@ -17,7 +19,7 @@ Type a coding task. The agent works through the `read`/`write`/`edit` filesystem
 
 The `todo_write` task tracker is opt-in and not in the shipped config: add `@deepseek-ai/dsh-tool-todo` to `cordis.yml` (or a personal-config overlay under `~/.dsh`) to expose it. Once loaded, the model records a whole-list plan to the session log and the TUI renders it.
 
-The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/plan` selects plan mode for the next step; `/plan <message>` also submits the message into that step. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down and Enter, or `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
+The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/plan` selects plan mode for the next step; `/plan <message>` also submits the message into that step, while `/plan off` selects the default mode without model input. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down to focus a model, Shift+Tab to cycle its advertised reasoning efforts, and Enter to select, or use `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
 
 ### Resuming a prior session
 
@@ -27,7 +29,7 @@ Each run starts a fresh session by default (its event log lands under `./.sessio
 dsh --resume <prior-session-id>
 ```
 
-The TUI prints this exact command on exit and lists it under `/resume`, so resuming is copy-paste. The flag sets `RESUME_SESSION_ID`, wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); the env var still works directly for the uninstalled demo (`RESUME_SESSION_ID=<prior-session-id> pnpm run demo:tui`), and with neither set the agent starts a new session. A missing or unreadable id starts no agent and emits `agent-loop/config-start-failed`: the TUI prints the failure and exits nonzero.
+`/resume` opens a searchable keyboard selector with titles, activity, last-turn results, model route, durable goal phase, and live/persisted state. The installed `dsh` host flushes and disposes the current app, then replaces the process with `dsh --resume <id>`. The TUI still prints that command on exit and shows it when a custom host cannot hand off. `dsh --resume <id>` provides the id on the boot context, which `cordis.yml` reads (`resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"`); with no flag the agent starts a new session. A missing or unreadable id starts no agent and emits `agent-loop/config-start-failed`: the TUI prints the failure and exits nonzero. The selector has no cross-process session lock, so deployments with concurrent hosts must coordinate session ownership separately.
 
 ## Code Mode
 
@@ -50,14 +52,14 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 
 | Entry | Demonstrates |
 |---|---|
-| `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:tui` passes |
-| `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
+| `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it depends on the Loader's internal module access |
+| `llm-deepseek` | the default native adapter |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the pi-tui channel + a pre-created `main` agent |
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `workflow-workerthread`, `tool-workflow` | the worker-thread workflow engine and its model-facing `workflow` tool, with child calls routed through the spawn backend |
-| `plan-mode` | the plugin-owned `/plan [message]` command, plan-mode prompt policy, tool restrictions, and reviewed `exit_plan_mode` transition |
+| `plan-mode` | the plugin-owned `/plan [message]` entry and `/plan off` exit commands, plan-mode prompt policy, tool restrictions, and reviewed `exit_plan_mode` transition |
 | `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 
 ## End-to-end tests (`pnpm run test:e2e`)

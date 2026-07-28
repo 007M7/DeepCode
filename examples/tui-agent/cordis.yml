@@ -1,11 +1,10 @@
 # Full-screen TUI coding agent with swappable DeepSeek and local-bash backends.
 # `dsh-tui-demo` supplies the agent spine, workspace instructions, generic
 # task controls, JSONL persistence, the pi-tui front door, and `main`.
-# HMR remains a leaf because it requires Loader internals; `demo:tui` passes
-# `--expose-internals`. The app bin loads the gitignored root `.env`; this file
-# reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
+# HMR remains a leaf because it depends on Loader internals. The app bin loads
+# the gitignored root `.env`; this file reads `DEEPSEEK_API_KEY` and optional
+# `DEEPSEEK_BASE_URL` through `!!js`.
 
-# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
@@ -22,6 +21,10 @@
     reasoningEffort: max
 
 # Local executor for the app bundle's bash tool.
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -33,12 +36,14 @@
   config:
     provider: deepseek
     model: deepseek-v4-pro
-    # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
-    # under ./.sessions); unset starts a fresh session each run.
-    resumeSessionId: !!js process.env.RESUME_SESSION_ID
+    # `dsh --resume <id>` provides the session id on the boot context (the ids
+    # live under ./.sessions); with no flag the identifier is undefined and a
+    # fresh session starts each run. The typeof guard tolerates a launcher that
+    # never provides the slot, reading undefined rather than throwing.
+    resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
     persistenceRoot: './.sessions'
     # Printed on exit and listed by `/resume`; `{session}` fills the live id.
-    # `dsh --resume <id>` sets RESUME_SESSION_ID above, so run it from this cwd.
+    # `dsh --resume <id>` resumes that session, so run it from this cwd.
     resumeCommand: 'dsh --resume {session}'
     workspaceContext:
       maxBytes: 65536
@@ -122,8 +127,8 @@
 - id: tool-ralph
   name: '@deepseek-ai/dsh-tool-ralph'
 
-# Plan mode gives the TUI a plugin-owned /plan [message] command; the exit
-# review rides the TUI's user-interaction provider.
+# Plan mode gives the TUI plugin-owned /plan [message] entry and /plan off exit
+# commands; the reviewed exit rides the TUI's user-interaction provider.
 - id: plan-mode
   name: '@deepseek-ai/dsh-plan-mode'
   config:

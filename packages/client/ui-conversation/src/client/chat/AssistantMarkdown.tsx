@@ -1,19 +1,20 @@
 // AssistantMarkdown: renders assistant blocks in order — markdown text body,
 // reasoning as the figma Think summary row (expand = indented gray text),
 // other-block JSON fallback. Tool-call heads are NOT rendered here: the chat
-// view groups them into tool rows via the toolview outlet (figma step-summary
-// flow). Shared by finalized nodes and the streaming partial (pulse marker).
+// view groups them into tool rows through its keyed toolview slot (figma
+// step-summary flow). Shared by finalized nodes and the streaming partial;
+// the turn-level loading dots live in the chat view's tail, not here.
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconThinkOutline14, JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconThinkOutline14, JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
 export interface AssistantMarkdownProps {
   blocks: readonly AssistantBlock[]
   streaming: boolean
-  /** Frozen partial of an aborted turn: rendered with a 已停止 marker, no pulse. */
+  /** Frozen partial of an aborted turn: rendered with a 已停止 marker. */
   interrupted?: boolean | undefined
 }
 
@@ -27,29 +28,36 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
   return (
     <ToolRow
       variant="think"
-      icon={<IconThinkOutline14 />}
+      icon={<IconThinkOutline14 size={14} />}
       title="Think"
       summary={firstLine(text)}
       body={text}
       state={running ? 'running' : 'ok'}
+      expandOnRowClick
     />
   )
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, streaming, interrupted }: AssistantMarkdownProps) {
   const last = blocks.length - 1
+  // Tool-call heads render as tool rows in the chat view's grouping pass, so
+  // a node that is only those heads (or empty) would paint an empty root
+  // between tool groups — skip the shell unless something visible remains.
+  const hasVisible = streaming
+    || interrupted === true
+    || blocks.some(block => block.kind !== 'tool-call')
+  if (!hasVisible) return null
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
       {blocks.map((block, i) => {
         switch (block.kind) {
-          case 'text': return <MessageText key={i} text={block.text} />
+          case 'text': return <MarkdownText key={i} text={block.text} streaming={streaming} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
-          // Tool-call heads render as tool rows in the chat view's grouping pass.
+          // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
           case 'tool-call': return null
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />
         }
       })}
-      {streaming && <span className={css.pulse} />}
       {interrupted && <span className={css.stopped}>已停止</span>}
     </div>
   )

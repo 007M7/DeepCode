@@ -8,7 +8,7 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as mock from './scripted-provider.ts'
 import * as tool from '../src/index.ts'
@@ -65,6 +65,12 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
     const result = await callSubagent(ctx, { description: 'do a thing', prompt: 'go research X' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected subagent success')
+    expect(result.value).toEqual({
+      kind: 'foreground',
+      runId: 'scripted-subagent:mock:parent-1',
+      output: [{ type: 'text', text: 'child says hi' }],
+    })
     expect(text(result)).toBe('child says hi')
   })
 
@@ -445,7 +451,10 @@ describe('dsh-tool-subagent', () => {
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
     expect(sawAborted).not.toHaveBeenCalled()
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
   })
 
   it('tools depend on the service: no `subagent` tool without ctx.subagents', async () => {
@@ -632,7 +641,7 @@ describe('dsh-tool-subagent background mode', () => {
   async function backgroundSetup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> = {}) {
     const ctx = await setup(toolConfig, mockConfig)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
     return ctx
   }
@@ -643,6 +652,8 @@ describe('dsh-tool-subagent background mode', () => {
 
     const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
     expect(start.isError).toBe(false)
+    if (start.isError) throw new Error('expected background subagent success')
+    expect(start.value).toEqual({ kind: 'background', taskId: 'subagent-1' })
     expect(text(start)).toBe('started background subagent task subagent-1')
 
     const collected = await ctx.tools.execute({
@@ -679,7 +690,10 @@ describe('dsh-tool-subagent background mode', () => {
     controller.abort()
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(text(result)).toBe('Error: tool call aborted before dispatch')
   })
 
@@ -854,7 +868,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
     // With no control surface, task preflight fails before the provider can spawn.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     const scopeFiber = ctx.plugin(() => {})
     const id = SessionId('sess-p')
     const parent = {

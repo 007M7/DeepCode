@@ -1,7 +1,8 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context, symbols, type EffectMeta } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -13,6 +14,7 @@ import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-sub
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -49,6 +51,17 @@ function text(blocks: { type: string; text?: string }[]): string {
 
 function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
   return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
+}
+
+/** Invoke the child lifecycle effect while its parent-owned setup is still unpublished. */
+function disposeChildLifecycle(parent: Agent): void {
+  const lifecycle = [...parent.ctx.fiber._disposables]
+    .find((dispose) => {
+      const effect = (dispose as typeof dispose & { [symbols.effect]?: EffectMeta })[symbols.effect]
+      return effect?.label.startsWith('agentLoop.lifecycle(') === true
+    })
+  if (lifecycle === undefined) throw new Error('child lifecycle effect not found')
+  void lifecycle()
 }
 
 describe('dsh-subagent-spawn', () => {
@@ -94,7 +107,7 @@ describe('dsh-subagent-spawn', () => {
   it('a fresh child does NOT inherit the parent conversation (its log starts empty before the prompt)', async () => {
     // Drive the parent through one real turn so it has history, THEN spawn.
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('child sees nothing')])
-    parent.send([{ type: 'text', text: 'parent prompt' }])
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent prompt' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const parentEventCount = parent.session.events.length
     expect(parentEventCount).toBeGreaterThan(0)
@@ -187,10 +200,10 @@ describe('dsh-subagent-spawn', () => {
     expect(published).toEqual([])
   })
 
-  it('a cancel from agent/queued maps a no-turn child log to aborted', async () => {
+  it('a cancel from agent/inbox/enqueue maps a no-turn child log to aborted', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
-    ctx.on('agent/queued', () => { controller.abort('queued-window') })
+    ctx.on('agent/inbox/enqueue', () => { controller.abort('queued-window') })
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
     const result = await run.result
     expect(result).toMatchObject({ stopReason: 'aborted', output: [] })
@@ -371,7 +384,7 @@ describe('dsh-subagent-spawn', () => {
         textResponse('parent answer'),
         textResponse('child answer'),
       ])
-      parent.send([{ type: 'text', text: 'hi' }])
+      parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await parent.whenIdle()
 
       const run = await start(ctx, 'spawn', {
@@ -393,10 +406,10 @@ describe('dsh-subagent-spawn', () => {
         toolCallResponse('c1', 'forbidden_tool', {}),
         textResponse('done'),
       ])
-      ctx.tools.register({
+      ctx.tools.register(defineContentToolFixture({
         name: 'forbidden_tool', description: 'global', parameters: {},
         execute: () => Promise.resolve([{ type: 'text', text: 'ran' }]),
-      })
+      }))
       const run = await start(ctx, 'spawn', {
         prompt: [{ type: 'text', text: 'do X' }],
         parent,
@@ -459,6 +472,12 @@ describe('dsh-subagent-spawn', () => {
     ctx.on('session/created', () => void published.push('session/created'))
     ctx.on('agent/created', () => void published.push('agent/created'))
     ctx.on('agent/session-start', () => void published.push('agent/session-start'))
+    let teardownStarted = false
+    ctx.on('internal/plugin', (fiber) => {
+      if (teardownStarted || fiber.name !== 'scope') return
+      teardownStarted = true
+      disposeChildLifecycle(parentHandle.agent)
+    })
 
     const starting = start(ctx, 'spawn', {
       prompt: [{ type: 'text', text: 'must never run' }],
@@ -467,8 +486,8 @@ describe('dsh-subagent-spawn', () => {
     // The factory has entered its awaited unpublished setup transaction. The
     // parent context owns that transaction, so disposal wins without an
     // observer ever seeing the child.
-    await parentHandle.dispose()
     await expect(starting).rejects.toThrow(/owner disposed during setup|inactive context/)
+    await parentHandle.dispose()
 
     expect(published).toEqual([])
   })

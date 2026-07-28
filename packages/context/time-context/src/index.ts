@@ -8,6 +8,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
@@ -64,7 +65,6 @@ function precedingMessageTime(agent: Agent): number | undefined {
       case 'user/message':
       case 'assistant/message':
       case 'tool/result':
-      case 'context/message':
       case 'steering/message':
         return event.time
       default:
@@ -79,7 +79,7 @@ function precedingMessageTime(agent: Agent): number | undefined {
 function precedingStepContextTime(agent: Agent, turn: number): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
     if (event.type === 'turn/start' && event.data.turn === turn) return undefined
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === name) {
       return event.time
@@ -91,7 +91,7 @@ function precedingStepContextTime(agent: Agent, turn: number): number | undefine
 /** Find this plugin's latest durable injection, including a shadowed surface event. */
 function latestInjectionTime(agent: Agent): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === name) {
       return event.time
@@ -157,7 +157,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
-  ctx.on('agent/pre-step', (
+  ctx.on('agent/step', (
     agent: Agent,
     turn: number,
     step: number,
@@ -174,9 +174,6 @@ export function apply(ctx: Context, config: Config): void {
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
-    agent.inject(
-      [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }],
-      { source: { kind: 'plugin', plugin: name } },
-    )
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } }))
   }, { prepend: true })
 }

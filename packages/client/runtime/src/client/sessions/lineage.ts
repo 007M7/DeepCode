@@ -1,14 +1,22 @@
 // flattenLineage: summaries -> flat list with lineage indentation (pure function).
-// Roots sort by updatedAt desc, DFS expansion with children in the same order; orphaned lineage
-// degrades to root level; cycles fail soft and emit as roots.
+// The input order is authoritative; lineage only makes each child adjacent to its parent.
+// Orphaned lineage degrades to root level; cycles fail soft and emit as roots.
 
 import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
+
+/** Host list summary enriched with the latest mux-projected durable title. */
+export interface TitledSessionSummary extends SessionSummary {
+  title?: string
+}
 
 /** One flattened session-list row (summary + lineage indent depth). */
 export interface SessionListEntry {
   sessionId: SessionId
+  title?: string
   updatedAt: number
   running: boolean
+  /** Empty-log bit mirrored from the summary; lists hide blank sessions (filtering stays with the consumer). */
+  blank: boolean
   parentSessionId?: SessionId
   cwd?: string
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */
@@ -16,17 +24,18 @@ export interface SessionListEntry {
 }
 
 /**
- * summaries -> flat list with lineage indentation (pure; roots by updatedAt
- * desc, DFS children in the same order, orphans degrade to roots).
+ * Summaries -> flat list with lineage indentation. Root and sibling order
+ * follows the established input order; this projection never re-sorts a
+ * hydrated list from mutable timestamps.
  * @param summaries - the host's session.list items.
  * @returns display rows in render order.
  */
-export function flattenLineage(summaries: readonly SessionSummary[]): SessionListEntry[] {
-  const byId = new Map<SessionId, SessionSummary>()
+export function flattenLineage(summaries: readonly TitledSessionSummary[]): SessionListEntry[] {
+  const byId = new Map<SessionId, TitledSessionSummary>()
   for (const s of summaries) byId.set(s.sessionId, s)
 
-  const children = new Map<SessionId, SessionSummary[]>()
-  const roots: SessionSummary[] = []
+  const children = new Map<SessionId, TitledSessionSummary[]>()
+  const roots: TitledSessionSummary[] = []
   for (const s of summaries) {
     if (s.parentSessionId !== undefined && byId.has(s.parentSessionId)) {
       const list = children.get(s.parentSessionId) ?? []
@@ -37,12 +46,9 @@ export function flattenLineage(summaries: readonly SessionSummary[]): SessionLis
     }
   }
 
-  const byUpdatedDesc = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt
-  roots.sort(byUpdatedDesc)
-
   const out: SessionListEntry[] = []
   const visited = new Set<SessionId>()
-  const walk = (s: SessionSummary, depth: number): void => {
+  const walk = (s: TitledSessionSummary, depth: number): void => {
     if (visited.has(s.sessionId)) {
       console.warn(`[web-runtime] lineage cycle at ${s.sessionId}; emitting as root`)
       return
@@ -51,7 +57,6 @@ export function flattenLineage(summaries: readonly SessionSummary[]): SessionLis
     out.push({ ...s, depth })
     const kids = children.get(s.sessionId)
     if (kids === undefined) return
-    kids.sort(byUpdatedDesc)
     for (const kid of kids) walk(kid, depth + 1)
   }
   for (const root of roots) walk(root, 0)

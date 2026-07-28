@@ -64,14 +64,14 @@ export function goalToolExecution(ctx: Context, exec: ToolRunContext): GoalToolE
 
 /**
  * Whether host-attested human input appears in the current root-agent turn.
- * An omitted `Agent.send()` / `steer()` source resolves to `user`, so non-human
+ * An omitted `Agent.followup()` / `steer()` source resolves to `user`, so non-human
  * producers must supply their own source rather than inheriting this authority.
  */
 function hasDirectHumanInput(ctx: Context, execution: GoalToolExecution): boolean {
   if (!ctx.agents.roots().includes(execution.agent)) return false
   return execution.events.some(event =>
-    (event.type === 'user/message' || event.type === 'steering/message')
-    && event.data.source.kind === 'user')
+    (event.type === 'user/message' && event.data.source.kind === 'user')
+    || (event.type === 'steering/message' && event.data.message.source.kind === 'user'))
 }
 
 /** Whether this turn is the current goal's exact admitted round. */

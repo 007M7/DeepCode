@@ -12,7 +12,7 @@ Status: implemented
 
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
-**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 作为 `packages/*` 库之上的产品装配层加入 workspaces。bin 的分发把 `web` 和 `-p`/`--prompt` 保留给 PR #443（它们以指引退出），使两个分支能以接近并集的方式合并；其余一切都运行默认表面：交互式 TUI，加载随仓库提供的 `examples/tui-agent/cordis.yml`（或显式的配置参数），并以调用目录为工作区。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，用仓库的 tsx **从源码**运行该 bin（带 `--expose-internals`，供配置里的 HMR 配置项使用），因此 `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` 安装的命令永远执行当前工作树。`pnpm run demo:tui` 运行同一入口。
+**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 作为 `packages/*` 库之上的产品装配层加入 workspaces。bin 的分发把 `web` 和 `-p`/`--prompt` 保留给 PR #443（它们以指引退出），使两个分支能以接近并集的方式合并；其余一切都运行默认表面：交互式 TUI，加载随仓库提供的 `examples/tui-agent/cordis.yml`（或显式的配置参数），并以调用目录为工作区。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，用仓库的 tsx **从源码**运行该 bin，因此 `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` 安装的命令永远执行当前工作树。`pnpm run demo:tui` 运行同一入口。
 
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI 表面消费其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
@@ -21,6 +21,8 @@ Status: implemented
 - 文件缺失即无 overlay；文件存在但不可读、不可解析或非数组则在启动时抛出（配置错误响亮失败，绝不静默跳过）。
 
 PTY 冒烟测试的启动器把 `$DSH_HOME` 隔离到每个测试自己的目录，与它已有的 `DSH_AGENTS_HOME` 隔离方式完全一致，开发者真实的个人 overlay 不可能泄漏进 fixture；只有 dsh CLI 读取个人配置，因此其他测试启动器无需改动。
+
+与热重载的交互：include 在每次配置重读时重新应用其 `patches`（见[配置热重载韧性 Agent Note](../bug-fix/2026-07-20-config-hot-reload-resilience.md)），因此运行中编辑 `cordis.yml` 后个人 overlay 仍保持生效。
 
 ## Alternatives considered
 

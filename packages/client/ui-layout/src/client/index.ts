@@ -1,22 +1,26 @@
 /**
- * Layout plugin, browser half: three-column AppFrame plus ctx.layout, the
- * shell-level viewing-state authority (navigation + panel geometry).
- * Contract: api-contracts v3 section 5. apply provides the service and
- * defines the three top-level slots; frame components are exported for the
- * web shell's assembly (the shell resolves this surface from the loader
- * module table and closes the slots over its own scopedSlots).
+ * Layout plugin, browser half: one register() call contributes AppFrame into
+ * the runtime's built-in 'root' slot and, in the same breath, declares the
+ * four child slots (declaration = exclusive render authority), seats the
+ * layout store (panel geometry), and wires the panel-action service face.
+ * ctx.layout is the cross-plugin panel-action seam; navigation state lives
+ * with the runtime sessions service. A second effect seats the theme
+ * presenter, which projects ctx.theme snapshots onto document.body.
  */
-import type { Context } from 'cordis'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { PanelActions } from './service.ts'
+import { AppFrame } from './AppFrame.tsx'
+import { createLayoutStore } from './stores.ts'
 import { LayoutService } from './service.ts'
+import { ThemePresenter } from './theme-presenter.ts'
 
-export { AppFrame, CenterColumn, DetailsColumn, type AppFrameProps } from './AppFrame.tsx'
-export {
-  clampWidth, computeColumns,
-  CENTER_MIN, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
-  type Columns, type PanelInput,
-} from './columns.ts'
-export { LayoutService, type NavState, type PanelState, type ViewId } from './service.ts'
+// Contract surface only (export-convergence rule: cross-package consumers
+// keep a symbol exported; test-only/package-internal symbols live off /src).
+// LayoutService: the ctx.layout service class (consumers type against it).
+// OwnerShare contracts below are the render-side halves registrants compose
+// against; the frame components and the store factory are package-internal.
+export { LayoutService } from './service.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -26,56 +30,84 @@ declare module 'cordis' {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    // The 'root' entry itself is the runtime's built-in slot (declared
+    // there); these four are the frame's children, declared by the same
+    // register() call that contributes AppFrame. Session owners never pass
+    // sessionId: the framework injects it as a standard prop.
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
-    // children deliberately absent on every entry: the B-a validation layer
-    // gates COMPONENT delegation, and no P-I slot component delegates —
-    // conversation.empty is rendered by the shell's assembly closure, not
-    // handed down by ConversationRoot (its slots face is ScopedSlots<never>).
-    'conversation': { kind: 'single'; scope: 'session'; owner: ConvOwnerProps }
+    // Current-session-optional: the occupant owns both the no-session hero
+    // and live conversation states without changing its React identity.
+    'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
-    'conversation.empty': { kind: 'single'; scope: 'root'; owner: EmptyOwnerProps }
   }
 }
 
 // OwnerShare contracts — the render-side share the slot owner supplies at
 // renderSlot. Registrants IMPORT these and compose their full component props
-// as OwnerOf<K> & StandardOf<K> & OwnInjected (reference, never re-typed).
+// through the four-share intersection (PropsRuntime & PropsRenderSlots &
+// PropsStore & I). Conversation business state and actions arrive through
+// framework-standard hooks and each registrant's inject face, not owner props.
 
-/** Sidebar owner share: the owner supplies nothing — everything arrives via inject. */
-export interface SidebarOwnerProps { slots?: never }
+/** Sidebar owner share: live column state from the frame's concession solve. */
+export interface SidebarOwnerProps {
+  /** True when the sidebar is closed (the column renders the compact control rail). */
+  collapsed: boolean
+  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
+  width: number
+}
 
-/** Conversation owner share. */
-export interface ConvOwnerProps { sessionId: SessionId }
+/** Conversation owner share: business state and actions belong to the registrant. */
+export interface ConvOwnerProps {}
 
-/** Details owner share. */
-export interface DetailsOwnerProps { sessionId: SessionId }
-
-/** Empty-state owner share (ui-conversation registers EmptyState here). */
-export interface EmptyOwnerProps { slots?: never }
+/** Details owner share: empty — sessionId arrives as a framework-standard prop. */
+export interface DetailsOwnerProps {}
 
 /** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['slots']
+export const inject = ['slots', 'theme']
 
 /**
- * Client plugin body: provide ctx.layout and define the three top-level slots.
+ * Client plugin body: provide ctx.layout, then one register() call — AppFrame
+ * into 'root' with the four child-slot declarations, the layout store seat,
+ * and the inject hook that hands the store's bound actions to the service.
  * @param ctx - client root context.
  */
-export function apply(ctx: Context): void {
-  const layout = new LayoutService(ctx)
+export function apply(ctx: ClientContext): void {
+  const layout = new LayoutService()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
-    const disposeSidebar = ctx.slots.define('sidebar', { kind: 'single', scope: 'root' })
-    const disposeConversation = ctx.slots.define('conversation', { kind: 'single', scope: 'session' })
-    const disposeDetails = ctx.slots.define('details', { kind: 'single', scope: 'session' })
-    const disposeEmpty = ctx.slots.define('conversation.empty', { kind: 'single', scope: 'root' })
+    const disposeRegistration = ctx.slots.register({
+      name: 'root',
+      children: {
+        'sidebar': { kind: 'single', scope: 'root' },
+        'conversation': { kind: 'single', scope: 'session-maybe' },
+        'details': { kind: 'single', scope: 'session' },
+      },
+      // Exclusive store: the factory itself — the framework instantiates per
+      // entry and delivers useStore/actions to AppFrame as standard props.
+      store: createLayoutStore,
+      // The hook's only side effect connects the root store to ctx.layout;
+      // conversation business actions belong to their registrants.
+      inject: (actions: PanelActions) => {
+        layout.attachPanels(actions)
+        return {}
+      },
+    }, AppFrame)
     return () => {
-      disposeEmpty()
-      disposeDetails()
-      disposeConversation()
-      disposeSidebar()
+      disposeRegistration()
       // provide()'s disposer settles asynchronously; teardown is synchronous fire-and-forget.
       void disposeService()
-      layout.dispose()
     }
-  }, 'ui-layout: service + slot definitions')
+  }, 'ui-layout: service + root registration')
+
+  // Theme presentation: pure DOM writes from resolved snapshots — initial
+  // state through the getter once, then event-driven only; no React path.
+  ctx.effect(() => {
+    const presenter = new ThemePresenter()
+    presenter.apply(ctx.theme.getTheme())
+    const off = ctx.on('theme/change', (snapshot) => { presenter.apply(snapshot) })
+    return () => {
+      off()
+      presenter.dispose()
+    }
+  }, 'ui-layout: theme presenter')
 }

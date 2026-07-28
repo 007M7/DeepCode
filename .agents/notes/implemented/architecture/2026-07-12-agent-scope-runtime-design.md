@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-12-agent-scope-runtime-design.zh.md)
+
 ## Problem
 
 The [agent-scope contract](2026-07-08-agent-scope-contexts.md) is simple for contributors: register through `agent.ctx`, resolve one global-plus-agent view, publish only after setup, and retain the scope until work stops. The runtime must preserve that contract across a cooperative plugin framework, asynchronous creation, reentrant listeners, durable session commits, and worker or process failure.
@@ -218,7 +220,7 @@ A fresh registry-assigned Symbol provides collision-free execution identity with
 
 Arguments are materialized once where model/tool JSON enters the pipeline. Pre-, around-, and post-execute listeners operate on the typed execution and decisions. Call ID correlation, approval, monotonic guards, and Code Mode nesting remain explicit relational checks.
 
-After the last post-execute listener, the registry materializes and freezes the accepted final result once. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline failure is normalized into a committed error result, so observers can discard staged work against the same authoritative boundary.
+After post-execute or outer pipeline normalization, the registry losslessly snapshots the candidate result, converting a snapshot failure into an ordinary error, invokes the call's snapshotted optional `ToolDefinition.finalizeContent` callback, then materializes and freezes the accepted final result once. The callback may replace only content, so structured error identity, contexts, and metadata remain registry-owned even when a tool enforces a last-mile result bound. Every synchronous `tools/result` observer receives that exact committed object, and observer failures are contained individually. An outer pipeline or candidate-snapshot failure is normalized before final content, so observers can discard staged work against the same authoritative boundary.
 
 ### The assembly waterfall owns the final model-visible composition
 
@@ -286,9 +288,9 @@ An ACP provider crosses a real process and wire boundary, so it retains validati
 
 Start resolves only after `initialize` and `newSession` succeed. Abort, spawn failure, RPC failure, or invalid startup response reaps the process before rejection. After readiness, result maps the ACP prompt outcome and streamed output; dispose requests cancellation, closes the connection, and awaits process exit through one memoized path.
 
-## Workflows and ACP UI: retain only independent async facts
+## Workflows and ACP processes: retain only independent async facts
 
-Worker and editor bridges need more state than same-process registries because messages, process death, and rendering can settle independently. Their state is organized around those real facts rather than duplicate cancellation protocols.
+Worker and child-process bridges need more state than same-process registries because messages, process death, and cleanup can settle independently. Their state is organized around those real facts rather than duplicate cancellation protocols.
 
 ### Workflow children are pending starts or published records
 
@@ -304,11 +306,11 @@ The workflow result records the first accepted terminal outcome according to the
 
 Public disposal claims its memoized promise before invoking callbacks. Worker death closes admission before processing any queued late child request, synthesizes missing lifecycle ends, and starts child/process cleanup without rewriting an outcome already claimed.
 
-### ACP prompt settlement does not depend on rendering success
+### ACP prompt settlement does not depend on update delivery
 
-The ACP UI correlates a prompt with its observed turn directly. It does not scan from a `logWatermark` or use session status as a second reconciliation oracle.
+The [automation-only ACP bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) correlates one in-flight prompt with its observed user-message turn directly. It does not scan from a log watermark or use session status as a second reconciliation oracle.
 
-Prompt handling settles correlation in a `finally` around transcript rendering. A rendering failure can fail presentation, but it cannot skip prompt settlement or leave the session permanently in flight. Concurrent loads of the same persisted caller-supplied session ID remain excluded because that is a real persistence identity race, not a UUID collision concern.
+The session-event listener settles correlation from the matching `turn/end` even when a committed-message update cannot reach the client. Update delivery therefore cannot leave the session permanently in flight. ACP creates server-assigned fresh session ids and owns every resulting agent handle until connection teardown.
 
 ## Correctness enforcement
 

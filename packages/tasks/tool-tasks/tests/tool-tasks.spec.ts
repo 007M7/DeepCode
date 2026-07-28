@@ -6,7 +6,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import { TaskId } from '@deepseek-ai/dsh-tasks'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
@@ -20,7 +21,7 @@ async function setup(config: ToolTasks.Config = {}) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   const agentsFiber = await ctx.plugin(AgentRegistry)
-  await ctx.plugin(TaskService)
+  await ctx.plugin(LocalTaskService)
   const toolsFiber = await ctx.plugin(ToolTasks, config)
   return { ctx, agentsFiber, toolsFiber }
 }
@@ -52,13 +53,19 @@ function detachAgent(agent: Agent): void {
 function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   let settle!: (outcome: TaskOutcome) => void
   const cancels: (string | undefined)[] = []
-  const { kind = 'bash', label = 'sleep 60', owner, ...hookOverrides } = overrides
+  const { kind = 'bash', label = 'sleep 60', owner, outputLimitBytes, ...hookOverrides } = overrides
   const hooks: TaskHooks = {
     cancel(reason) { cancels.push(reason) },
     done: new Promise<TaskOutcome>((res) => { settle = res }),
     ...hookOverrides,
   }
-  const spec: TaskStart = { kind, label, ...owner !== undefined ? { owner } : {}, run: () => hooks }
+  const spec: TaskStart = {
+    kind,
+    label,
+    ...owner !== undefined ? { owner } : {},
+    ...outputLimitBytes !== undefined ? { outputLimitBytes } : {},
+    run: () => hooks,
+  }
   return { spec, settle, cancels }
 }
 
@@ -85,7 +92,7 @@ describe('tool-tasks setup', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     await expect(ctx.plugin(ToolTasks, { waitTimeoutMs: 100, maxWaitTimeoutMs: 50 }))
       .rejects.toThrow('waitTimeoutMs (100) exceeds maxWaitTimeoutMs (50)')
   })
@@ -102,7 +109,7 @@ describe('tool-tasks setup', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(TaskService)
+    await ctx.plugin(LocalTaskService)
     ToolTasks.apply(ctx, {})
     expect(ctx.tools.get('task_output')).toBeDefined()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
@@ -116,7 +123,16 @@ describe('task_output', () => {
     ctx.tasks.start(producer({ readOutput: () => chunks.shift() ?? '' }).spec)
 
     // A body already ending in a newline gets no doubled separator.
-    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('line one\n[status: running]')
+    const first = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    if (first.isError) throw new Error('expected task_output success')
+    const firstValue = first.value as { text: string; task: Record<string, unknown> }
+    expect(firstValue).toMatchObject({
+      text: 'line one\n',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'running' },
+    })
+    expect(firstValue.task).not.toHaveProperty('ownerSession')
+    expect(firstValue.task).not.toHaveProperty('reported')
+    expect(text(first)).toBe('line one\n[status: running]')
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('(no new output)\n[status: running]')
   })
 
@@ -129,6 +145,118 @@ describe('task_output', () => {
     p.settle({ status: 'completed', detail: 'completed', output: 'the answer' })
     await tick()
     expect(text(await call(ctx, 'task_output', { task_id: 'subagent-1' }))).toBe('the answer\n[status: completed, completed]')
+  })
+
+  it('applies a producer limit to the complete body and status result', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 48,
+      readOutput: () => '界'.repeat(100),
+    }).spec)
+
+    const output = text(await call(ctx, 'task_output', { task_id: 'bash-1' }))
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(48)
+    expect(output).toContain('[status: running]')
+  })
+
+  it('preserves empty and newline-terminated output under a producer limit', async () => {
+    const { ctx } = await setup()
+    const chunks = ['', 'line\n']
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => chunks.shift() ?? '',
+    }).spec)
+
+    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' })))
+      .toBe('(no new output)\n[status: running]')
+    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' })))
+      .toBe('line\n[status: running]')
+  })
+
+  it('bounds post-policy output without restoring the canonical status rendering', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => 'canonical output',
+    }).spec)
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name !== 'task_output') return next()
+      return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'p'.repeat(1_000) }] })
+    })
+
+    const result = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+    expect(text(result)).not.toContain('[status: running]')
+  })
+
+  it('applies a producer limit to a normalized read failure', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => { throw new Error('read failed: '.repeat(100)) },
+    }).spec)
+
+    const result = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(result.isError).toBe(true)
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+  })
+
+  it('bounds pre-, around-, and post-execute policy outcomes and failures', async () => {
+    const { ctx } = await setup()
+    for (let index = 0; index < 5; index += 1) {
+      ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    }
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      if (taskId === 'bash-1') return { kind: 'deny', reason: 'd'.repeat(1_000) }
+      if (taskId === 'bash-3') throw new Error(`pre failed: ${'p'.repeat(1_000)}`)
+      return next()
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      if (taskId === 'bash-2') {
+        return {
+          content: [],
+          isError: false,
+          value: {
+            text: 'a'.repeat(1_000),
+            task: {
+              id: 'bash-2', kind: 'bash', label: 'sleep 60', status: 'running', startedAt: 0,
+            },
+          },
+        }
+      }
+      if (taskId === 'bash-4') throw new Error(`around failed: ${'e'.repeat(1_000)}`)
+      return next()
+    })
+    ctx.on('tools/post-execute', async (exec, _result, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      if (taskId === 'bash-5') throw new Error(`post failed: ${'o'.repeat(1_000)}`)
+      return next()
+    })
+
+    const denied = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(denied.isError).toBe(true)
+    expect(Buffer.byteLength(text(denied))).toBeLessThanOrEqual(64)
+    expect(text(denied)).toContain('[result truncated]')
+
+    const shortCircuited = await call(ctx, 'task_output', { task_id: 'bash-2' })
+    expect(shortCircuited.isError).toBe(false)
+    expect(Buffer.byteLength(text(shortCircuited))).toBeLessThanOrEqual(64)
+    expect(text(shortCircuited)).toContain('[output truncated]')
+
+    const failures = [
+      await call(ctx, 'task_output', { task_id: 'bash-3' }),
+      await call(ctx, 'task_output', { task_id: 'bash-4' }),
+      await call(ctx, 'task_output', { task_id: 'bash-5' }),
+    ]
+    for (const failure of failures) {
+      expect(failure.isError).toBe(true)
+      expect(Buffer.byteLength(text(failure))).toBeLessThanOrEqual(64)
+      expect(text(failure)).toContain('[result truncated]')
+    }
   })
 
   it('wait: true blocks until settlement and reports the terminal state', async () => {
@@ -173,7 +301,17 @@ describe('task_list', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_list', {}, alice))).toBe([
+    const listed = await call(ctx, 'task_list', {}, alice)
+    if (listed.isError) throw new Error('expected task_list success')
+    const listedValue = listed.value as Array<Record<string, unknown>>
+    expect(listedValue).toHaveLength(3)
+    expect(listedValue[0]).toMatchObject({ id: 'bash-1', kind: 'bash', label: 'pnpm test', status: 'running' })
+    expect(listedValue[2]).toMatchObject({ id: 'bash-2', kind: 'bash', label: 'build', status: 'completed', detail: 'exit code: 0' })
+    for (const task of listedValue) {
+      expect(task).not.toHaveProperty('ownerSession')
+      expect(task).not.toHaveProperty('reported')
+    }
+    expect(text(listed)).toBe([
       'bash-1 [bash] running — pnpm test',
       'subagent-1 [subagent] running — open research',
       'bash-2 [bash] completed — build',
@@ -191,8 +329,83 @@ describe('task_kill', () => {
     ctx.tasks.start(p.spec)
 
     const result = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'superseded' })
+    if (result.isError) throw new Error('expected task_kill success')
+    const killValue = result.value as { outcome: string; task: Record<string, unknown> }
+    expect(killValue).toMatchObject({
+      outcome: 'cancellation-requested',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'stopping' },
+    })
+    expect(killValue.task).not.toHaveProperty('ownerSession')
+    expect(killValue.task).not.toHaveProperty('reported')
     expect(text(result)).toBe('requested cancellation of task bash-1')
     expect(p.cancels).toEqual(['superseded'])
+  })
+
+  it('applies the producer output limit to a cancellation acknowledgement', async () => {
+    const { ctx } = await setup()
+    const p = producer({ outputLimitBytes: 8 })
+    ctx.tasks.start(p.spec)
+
+    const result = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(8)
+    expect(p.cancels).toEqual([undefined])
+  })
+
+  it('applies the producer output limit to a normalized cancellation failure', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      cancel: () => { throw new Error('cancel failed: '.repeat(100)) },
+    }).spec)
+
+    const result = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    expect(result.isError).toBe(true)
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+    expect(ctx.tasks.get(TaskId('bash-1'))).toMatchObject({ status: 'running', reported: false })
+  })
+
+  it('bounds single-text post policy while preserving structured policy results', async () => {
+    const { ctx } = await setup()
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name !== 'task_kill') return next()
+      const reason = (exec.arguments as { reason?: unknown }).reason
+      if (reason === 'replace') {
+        return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'r'.repeat(1_000) }] })
+      }
+      if (reason === 'block') {
+        return Promise.resolve({ kind: 'block', feedback: [{ type: 'text', text: 'b'.repeat(1_000) }] })
+      }
+      if (reason === 'multi') {
+        return Promise.resolve({
+          kind: 'block',
+          feedback: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
+        })
+      }
+      if (reason === 'reasoning') {
+        return Promise.resolve({ kind: 'block', feedback: [{ type: 'reasoning', text: 'policy detail' }] })
+      }
+      return next()
+    })
+    for (let index = 0; index < 4; index += 1) {
+      ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    }
+
+    const replaced = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'replace' })
+    expect(replaced.isError).toBe(false)
+    expect(Buffer.byteLength(text(replaced))).toBeLessThanOrEqual(64)
+    expect(text(replaced)).toContain('[result truncated]')
+
+    const blocked = await call(ctx, 'task_kill', { task_id: 'bash-2', reason: 'block' })
+    expect(blocked.isError).toBe(true)
+    expect(Buffer.byteLength(text(blocked))).toBeLessThanOrEqual(64)
+    expect(text(blocked)).toContain('[result truncated]')
+
+    const multi = await call(ctx, 'task_kill', { task_id: 'bash-3', reason: 'multi' })
+    expect(multi.content).toEqual([{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }])
+
+    const reasoning = await call(ctx, 'task_kill', { task_id: 'bash-4', reason: 'reasoning' })
+    expect(reasoning.content).toEqual([{ type: 'reasoning', text: 'policy detail' }])
   })
 
   it('reports an already-finished task without consuming its pending delta', async () => {
@@ -203,8 +416,13 @@ describe('task_kill', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_kill', { task_id: 'bash-1' })))
-      .toBe('task bash-1 had already finished [status: completed, exit code: 0]')
+    const killed = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    if (killed.isError) throw new Error('expected task_kill success')
+    expect(killed.value).toMatchObject({
+      outcome: 'already-finished',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'completed', detail: 'exit code: 0' },
+    })
+    expect(text(killed)).toBe('task bash-1 had already finished [status: completed, exit code: 0]')
     // The kill described the task via a non-consuming snapshot: the delta is intact.
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('unread tail\n[status: completed, exit code: 0]')
   })
@@ -238,10 +456,100 @@ describe('completion notices', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
-    expect(inject).toHaveBeenCalledWith(
-      [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
-      { source: { kind: 'plugin', plugin: 'tool-tasks' } },
+    expect(inject).toHaveBeenCalledWith({
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
+      source: { kind: 'plugin', plugin: 'tool-tasks' },
+    })
+  })
+
+  it('preserves task ids and collection guidance in bounded completion notices', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const first = producer({
+      owner,
+      kind: 'subagent',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 64,
+    })
+    ctx.tasks.start(first.spec)
+    first.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    expect(inject).toHaveBeenNthCalledWith(
+      1,
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
+        source: { kind: 'plugin', plugin: 'tool-tasks' },
+      },
     )
+
+    const second = producer({
+      owner,
+      kind: 'subagent',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 80,
+    })
+    ctx.tasks.start(second.spec)
+    second.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    const content = (inject.mock.calls[1]?.[0] as { content?: Array<{ type: string; text?: string }> } | undefined)?.content
+    const notice = content?.[0]?.text ?? ''
+    expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(80)
+    expect(notice).toContain('background task subagent-2 (subagent: xxxx')
+    expect(notice).toContain('[notice truncated]\nDone; task_output.')
+  })
+
+  it('keeps the complete PTY task id and collection action at the minimum PTY limit', async () => {
+    const { ctx } = await setup()
+    for (let index = 0; index < 99; index += 1) {
+      const prior = producer({ kind: 'pty-send' })
+      ctx.tasks.start(prior.spec)
+      prior.settle({ status: 'completed' })
+    }
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const target = producer({
+      owner,
+      kind: 'pty-send',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 64,
+    })
+    ctx.tasks.start(target.spec)
+
+    target.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    const content = (inject.mock.calls[0]?.[0] as { content?: Array<{ type: string; text?: string }> } | undefined)?.content
+    const notice = content?.[0]?.text ?? ''
+    expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(64)
+    expect(notice).toBe('background task pty-send-100\nDone; task_output.')
+  })
+
+  it('reserves the collection-action tail when a producer supplies a smaller budget', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const tiny = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 8 })
+    const short = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 32 })
+    ctx.tasks.start(tiny.spec)
+    ctx.tasks.start(short.spec)
+
+    tiny.settle({ status: 'completed' })
+    short.settle({ status: 'completed' })
+    await tick()
+
+    const tinyNotice = (inject.mock.calls[0]?.[0] as { content?: Array<{ text?: string }> } | undefined)?.content?.[0]?.text ?? ''
+    const shortNotice = (inject.mock.calls[1]?.[0] as { content?: Array<{ text?: string }> } | undefined)?.content?.[0]?.text ?? ''
+    expect(Buffer.byteLength(tinyNotice)).toBeLessThanOrEqual(8)
+    expect(tinyNotice).toBe('_output.')
+    expect(Buffer.byteLength(shortNotice)).toBeLessThanOrEqual(32)
+    expect(shortNotice).toBe('background ta\nDone; task_output.')
   })
 
   it('suppresses the notice for a task the model already killed', async () => {
@@ -270,27 +578,21 @@ describe('completion notices', () => {
     expect(inject).not.toHaveBeenCalled()
   })
 
-  it('drops the notice for unowned tasks and for a disposed owner (benign race)', async () => {
+  it('drops the notice for unowned tasks without throwing', async () => {
     const { ctx } = await setup()
     // Unowned: settles with nobody to notify — nothing throws.
     const unowned = producer()
     ctx.tasks.start(unowned.spec)
     unowned.settle({ status: 'completed' })
     await tick()
-
-    // Disposed owner: inject throws the disposed message — contained.
-    const inject = vi.fn(() => { throw new Error('agent "sess-1" is disposed') })
-    const owner = fakeAgent(ctx, 'sess-1', inject)
-    const p = producer({ owner })
-    ctx.tasks.start(p.spec)
-    p.settle({ status: 'completed' })
-    await tick()
-    expect(inject).toHaveBeenCalledTimes(1)
   })
 
   it('does not route an old owner completion notice to a same-session replacement', async () => {
     const { ctx } = await setup()
-    const oldInject = vi.fn(() => { throw new Error('agent "shared" is disposed') })
+    // Delivery into a tearing-down owner is a plain inject: the loop has no
+    // terminal state, so the notice lands in the old owner's (detached)
+    // session instead of throwing or re-routing.
+    const oldInject = vi.fn()
     const oldOwner = fakeAgent(ctx, 'shared', oldInject)
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)
@@ -305,7 +607,7 @@ describe('completion notices', () => {
     expect(replacementInject).not.toHaveBeenCalled()
   })
 
-  it('propagates a non-disposed inject failure (a real bug must surface)', async () => {
+  it('surfaces an inject failure through listener containment (a real bug must be visible)', async () => {
     const { ctx } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const owner = fakeAgent(ctx, 'sess-1', () => { throw new Error('unexpected inject bug') })

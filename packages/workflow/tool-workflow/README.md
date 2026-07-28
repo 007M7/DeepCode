@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-workflow
 
+English | [中文](README.zh.md)
+
 The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. This package owns schema and lifecycle shaping over [`ctx.workflows`](../workflow/README.md); script parsing, execution, caps, and cancellation live behind the seam, while the consumer retains ownership of the parent-facing schema and result envelope.
 
 ## What the model sees
@@ -8,7 +10,7 @@ Three parameters: `meta` (required identity data: `name`, `description`, and opt
 
 ## Lifecycle
 
-Collection is SYNCHRONOUS this cut (like [`dsh-tool-subagent`](../../subagent/tool-subagent/README.md)): `execute` starts a run and awaits `run.result` inside a `try/finally` that always disposes the run, so the script and its children reach quiescence on every path. `exec.signal` is bridged to `run.cancel()` (including the already-aborted-before-start case). A non-`completed` stop reason maps to an `isError` result reporting the reason — never partial output as success; a parse/meta failure thrown synchronously by `start()` becomes an `isError` the model can correct from. The completed result renders the meta name, the agent count, and the return value as JSON, truncated at `maxResultChars` with an explicit notice.
+Collection is SYNCHRONOUS this cut (like [`dsh-tool-subagent`](../../subagent/tool-subagent/README.md)): `execute` starts a run and awaits `run.result` inside a `try/finally` that always disposes the run, so the script and its children reach quiescence on every path. `exec.signal` is bridged to `run.cancel()` (including the already-aborted-before-start case). A non-`completed` stop reason maps to an `isError` result reporting the reason—never partial output as success; a parse/meta failure thrown synchronously by `start()` becomes an `isError` the model can correct from. Completion returns canonical `{ runId, agentsStarted, result }`; the Native renderer preserves the meta name, agent count, and JSON value, truncating only that projection at `maxResultChars`.
 
 ## Render intent
 
@@ -74,5 +76,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **The parent turn blocks until the whole workflow settles** — there is no background start/poll surface, and cancellation discards partial output as an error.
-- **`args` must be an object and the result is bounded text** — callers wrap top-level arrays/scalars in a field, and JSON beyond `maxResultChars` is truncated rather than stored behind a retrieval handle.
+- **`args` must be an object and Native result text is bounded** — callers wrap top-level arrays/scalars in a field; the canonical workflow result remains complete, while JSON beyond `maxResultChars` is truncated in the model-facing projection rather than stored behind a retrieval handle.
 - **Workflow policy is fixed per tool registration** — provider selection, caps, and tool name are deployment config, not model-call arguments.

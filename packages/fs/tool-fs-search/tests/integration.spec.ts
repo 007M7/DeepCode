@@ -18,6 +18,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 
 const testToolSignal = new AbortController().signal
@@ -61,6 +62,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, { cwd: dir, timeoutMs: 20_000 })
     await ctx.plugin(ToolFsSearch)
   })
@@ -99,7 +101,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     it('classifies an invalid glob as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('glob', { pattern: '[' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_INVALID_PATTERN' })
+      expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_INVALID_PATTERN' } })
     })
   })
 
@@ -142,13 +144,13 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     it('classifies a real rg regex error as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('grep', { pattern: '(unclosed' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
     })
 
     it('classifies a missing target as SEARCH_FAILED', async () => {
       const result = await call('grep', { pattern: 'x', path: 'no-such-dir' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     })
   })
 
@@ -179,14 +181,14 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
         signal: controller.signal,
       })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+      expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     })
 
     it('an unusable session cwd (spawn failure) is SEARCH_FAILED', async () => {
       const gone = join(dir, 'deleted-session-dir')
       const result = await call('glob', { pattern: '*' }, { session: { header: { id: 'session-int', cwd: gone } } })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+      expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
       expect(text(result)).toContain('could not start')
     })
   })

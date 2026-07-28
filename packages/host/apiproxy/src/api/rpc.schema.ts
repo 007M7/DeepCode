@@ -33,7 +33,15 @@ export const rpcIdSchema = z.string() as unknown as z.ZodType<RpcId>
 /** Error body: discriminated by code, per-branch details aligned to RpcErrorDetailsMap; details is required. */
 export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', [
   z.object({ code: z.literal('bad-request'), message: z.string(), details: z.object({ issues: z.array(z.custom<ZodIssue>()) }) }),
+  z.object({ code: z.literal('cancelled'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('session-not-found'), message: z.string(), details: z.object({ sessionId: z.string() }) }),
+  z.object({ code: z.literal('model-unavailable'), message: z.string(), details: z.object({ provider: z.string(), model: z.string() }) }),
+  z.object({ code: z.literal('session-conflict'), message: z.string(), details: z.object({ sessionId: z.string(), requestedCwd: z.string(), existingCwd: z.string().optional() }) }),
+  z.object({ code: z.literal('workspace-attach-failed'), message: z.string(), details: z.object({ sessionId: z.string(), workspaceId: z.string() }) }),
+  z.object({ code: z.literal('workspace-not-found'), message: z.string(), details: z.object({ workspaceId: z.string() }) }),
+  z.object({ code: z.literal('workspace-invalid-path'), message: z.string(), details: z.object({ path: z.string() }) }),
+  z.object({ code: z.literal('workspace-name-conflict'), message: z.string(), details: z.object({ name: z.string() }) }),
+  z.object({ code: z.literal('workspace-move-invalid'), message: z.string(), details: z.object({ workspaceId: z.string(), sessionId: z.string(), beforeSessionId: z.string().optional() }) }),
   z.object({ code: z.literal('agent-busy'), message: z.string(), details: z.object({ reason: z.string() }) }),
   z.object({ code: z.literal('command-error'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('unknown-command'), message: z.string(), details: z.object({}) }),

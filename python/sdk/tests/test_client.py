@@ -9,12 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig
+from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Notification
 
 
 def test_high_level_sdk_runs_turn_and_collects_final_response(tmp_path: Path) -> None:
     script = tmp_path / "fake_runtime.py"
     env_dump = tmp_path / "env.json"
+    init_dump = tmp_path / "init.json"
     script.write_text(
         """
 import json
@@ -34,6 +35,7 @@ for line in sys.stdin:
     msg = json.loads(line)
     method = msg.get("method")
     if method == "initialize":
+        json.dump(msg.get("params"), open(os.environ["INIT_DUMP"], "w"))
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
         params = msg.get("params") or {}
@@ -62,12 +64,14 @@ for line in sys.stdin:
 
     with DeepSeekHarness(
         model="deepseek-v4-flash",
+        max_tokens=4096,
         cwd=str(tmp_path),
         cordis=str(tmp_path / "cordis.yml"),
         session_root=str(tmp_path / "sessions"),
         launch_args_override=(sys.executable, str(script)),
         env={
             "ENV_DUMP": str(env_dump),
+            "INIT_DUMP": str(init_dump),
             "DEEPSEEK_API_KEY": "env-key",
             "DEEPSEEK_BASE_URL": "http://127.0.0.1:4321",
         },
@@ -83,6 +87,12 @@ for line in sys.stdin:
     assert dumped_env["DSH_CWD"] == str(tmp_path)
     assert dumped_env["DSH_SESSION_ROOT"] == str(tmp_path / "sessions")
     assert dumped_env["DSH_CORDIS_CONFIG"] == str(tmp_path / "cordis.yml")
+    assert json.loads(init_dump.read_text()) == {
+        "cwd": str(tmp_path),
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "maxTokens": 4096,
+    }
 
 
 def test_session_run_invokes_notification_callback_before_returning(tmp_path: Path) -> None:
@@ -196,6 +206,65 @@ for line in sys.stdin:
         "subagent.finished",
         "session.finished",
     ]
+
+
+def test_session_run_collects_nested_subagent_tree_without_polluting_root_events(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "fake_runtime.py"
+    script.write_text(
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
+    elif method == "session/prompt":
+        root = (msg.get("params") or {})["sessionId"]
+        print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": root, "childSessionId": "child"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "child", "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "child response"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": "child", "childSessionId": "grandchild"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "grandchild", "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "grandchild response"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "subagent.finished", "params": {"parentSessionId": "child", "childSessionId": "grandchild", "status": "ok"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "subagent.finished", "params": {"parentSessionId": root, "childSessionId": "child", "status": "ok"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": root, "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "root response"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": root, "status": "ok"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    seen: list[str] = []
+    with DeepSeekHarness(
+        launch_args_override=(sys.executable, str(script)),
+        cwd=str(tmp_path),
+    ) as harness:
+        result = harness.run(
+            "delegate recursively",
+            session_id="main",
+            on_notification=lambda notification: seen.append(notification.method),
+        )
+        assert harness.client._notifications.qsize() == 0
+
+    assert result.status == "ok"
+    assert result.final_response == "root response"
+    assert [event["data"]["content"][0]["text"] for event in result.events] == ["root response"]
+    assert [notification.method for notification in result.notifications] == [
+        "subagent.started",
+        "session.event",
+        "subagent.started",
+        "session.event",
+        "subagent.finished",
+        "subagent.finished",
+        "session.event",
+        "session.finished",
+    ]
+    assert seen == [notification.method for notification in result.notifications]
 
 
 def test_session_run_ignores_notifications_for_other_sessions(tmp_path: Path) -> None:
@@ -354,6 +423,92 @@ def test_client_keeps_unmatched_notifications_available_globally_while_subscribe
         assert not isinstance(notification, BaseException)
         assert notification.method == "session.event"
         assert notification.payload["sessionId"] == "other"
+
+
+def test_session_subscription_keeps_descendant_relationships_across_subscriptions() -> None:
+    client = HarnessClient()
+    with client.subscribe_session_notifications("main") as first:
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "main", "childSessionId": "child"},
+        })
+        assert first.next().payload["childSessionId"] == "child"
+
+    with client.subscribe_session_notifications("main") as second:
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "child", "childSessionId": "grandchild"},
+        })
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "session.event",
+            "params": {"sessionId": "grandchild", "event": {"type": "assistant/message"}},
+        })
+        assert second.next().payload["childSessionId"] == "grandchild"
+        assert second.next().payload["sessionId"] == "grandchild"
+
+    assert client._notifications.qsize() == 0
+
+
+def test_session_subscription_preserves_reused_child_ancestry_after_late_finish() -> None:
+    client = HarnessClient()
+    old_seen: list[Notification] = []
+    new_seen: list[Notification] = []
+    with (
+        client.subscribe_session_notifications("old-parent") as old_subscription,
+        client.subscribe_session_notifications("new-parent") as new_subscription,
+    ):
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "old-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in old_seen] == ["subagent.started"]
+        assert new_seen == []
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.started",
+            "params": {"parentSessionId": "new-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in new_seen] == ["subagent.started"]
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "subagent.finished",
+            "params": {"parentSessionId": "old-parent", "childSessionId": "reused-child"},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+        assert [notification.method for notification in old_seen] == [
+            "subagent.started",
+            "subagent.finished",
+        ]
+        assert [notification.method for notification in new_seen] == ["subagent.started"]
+
+        client._handle_message({
+            "jsonrpc": "2.0",
+            "method": "session.event",
+            "params": {"sessionId": "reused-child", "event": {"type": "assistant/message"}},
+        })
+        old_subscription.drain(old_seen.append)
+        new_subscription.drain(new_seen.append)
+
+    assert [notification.method for notification in old_seen] == [
+        "subagent.started",
+        "subagent.finished",
+    ]
+    assert [notification.method for notification in new_seen] == [
+        "subagent.started",
+        "session.event",
+    ]
+    assert client._notifications.qsize() == 0
 
 
 def test_client_contains_notification_filter_failure_to_its_subscription(tmp_path: Path) -> None:
@@ -586,6 +741,8 @@ def test_public_signatures_omit_unsupported_wire_parameters() -> None:
     assert "profile" not in inspect.signature(DeepSeekHarness.run).parameters
     assert "profile" not in inspect.signature(Session.run).parameters
     assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "max_tokens" in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "max_tokens" in inspect.signature(HarnessClient.initialize).parameters
     assert "client_name" not in HarnessConfig.__dataclass_fields__
     assert "client_version" not in HarnessConfig.__dataclass_fields__
 

@@ -1,5 +1,7 @@
 # Glossary
 
+English | [中文](glossary.zh.md)
+
 Domain vocabulary for the DeepSeek Harness SDK uses one canonical term per concept. Terms link to their entries with standard Markdown anchors; implementation detail stays in package READMEs and Agent Notes.
 
 FIXME(glossary-completeness): Expand this glossary before the first release so it covers the SDK's other core and capability subsystems, not only agent scope.
@@ -19,7 +21,7 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 ## goal
 
 - **goal** — one durable completion objective attached to an existing session, with a revisioned `active` / `paused` / `blocked` / `complete` phase and a goal-round cap; `blocked` retains a policy code and explanation. A goal is state, not a scheduler or a separate conversation; the session log remains its source of truth.
-- **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain multiple steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
+- **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain zero or more steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
 - **goal activation** — process-local permission for a continuation consumer to admit another goal round. Activation is either `armed` or `disarmed`; it is deliberately absent from durable replay, so resume and fork require a later human-authorized resume mutation through `/goal` or the model tool before automatic work.
 
 ## human command
@@ -31,7 +33,7 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 ## loop hierarchy
 
 - **turn** — one drain of admitted input in a session, ending after the model and its tools stop or a terminal policy intervenes. <a id="turn"></a>
-- **step** — one model request plus the tool executions caused by its response; a turn contains one or more steps. <a id="step"></a>
+- **step** — one model request plus the tool executions caused by its response; a turn contains zero or more steps. <a id="step"></a>
 - **round** — an outer policy iteration containing a turn, such as a [goal round](#goal-round) or one fresh-agent Ralph attempt. Round counters belong to that policy and do not count every turn in a session. <a id="round"></a>
 
 ## Ralph

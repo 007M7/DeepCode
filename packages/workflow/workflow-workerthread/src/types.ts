@@ -6,7 +6,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { WorkflowMeta } from '@deepseek-ai/dsh-workflow'
 
 /**
@@ -41,7 +41,7 @@ export interface ChildStartRequest {
   /** The child's prompt text. */
   prompt: string
   /** The structured-output schema, if the call passed one (already subset-checked). */
-  schema?: StructuredOutputSchema
+  schema?: ObjectJsonSchema
   /** The per-child provider override, if the call passed one. */
   provider?: string
   /** The per-child model override, if the call passed one. */

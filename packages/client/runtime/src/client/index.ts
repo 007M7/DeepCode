@@ -1,52 +1,52 @@
-/**
- * Browser half: the whole runtime contract surface (api-contracts v3 §4) —
- * SlotsService, SessionsService (list store + scope tree + object layer),
- * the ClientLoader interface, and the cordis Context/Events merges. apply
- * mounts ctx.slots + ctx.sessions and wires the connection stream loop into
- * the object layer. The loader machinery implementation is NOT in the plugin
- * bundle — it ships via the package's `./loader` subpath, statically held by
- * the web shell (a loader cannot load itself).
- */
+/** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from 'cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionBinding as GenericSessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
+import type { SessionListState } from './sessions/service.ts'
+import { WorkspacesService } from './workspaces/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
+import type { UseProjection } from './sessions/projection-store.ts'
 
 export { SlotsService } from './slots.ts'
-export { SessionsService, scopeOf } from './sessions/service.ts'
-export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
-export { SessionManager } from './sessions/manager.ts'
-export type { SessionListSnapshot } from './sessions/manager.ts'
-export { Session, PAGE_MESSAGES } from './sessions/session.ts'
-export type { SessionListEntry } from './sessions/lineage.ts'
+export type { RootOwnerProps } from './slots.ts'
+export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
+export { createScope } from './agents/scope.ts'
+export type { AgentScopeHandle } from './agents/scope.ts'
+export { WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
+export type { Session } from './sessions/session.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
-  OpenState, PartialAssistant, PendingInteraction, PromptError, RunningToolCall, SteeringMessageNode,
-  ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
+} from './sessions/service.ts'
+export type { SessionListPhase } from './sessions/manager.ts'
+export type { WorkspaceListPhase } from './workspaces/manager.ts'
+export type { WorkspaceListState } from './workspaces/service.ts'
+export type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
+// Runtime owns the snapshot store; web-react only binds it to React.
+export { createSnapshotStore, defineStore, shallowEqual } from './contract/store.ts'
+export type {
+  EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
+} from './contract/store.ts'
+export type {
+  AssistantBlock, AssistantMessageNode, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
+  ConversationSnapshot, QueuedMessage, RunningToolCall,
+  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
+export { PendingWait } from './sessions/pending.ts'
+export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
+// Projection value store (session-projection RFC, push model): host-computed
+// whole values per key; domains ship projection support with zero client code.
+export type {
+  ProjectionsBaseline, ProjectionValueStore, SessionProjectionMap, UseProjection,
+} from './sessions/projection-store.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-export type { GoalView, GoalRef, GoalPhase, GoalBlockReason } from '@deepseek-ai/dsh-client-connection/client'
 
-// ---- Narrowed aliases (the single narrowing point of the slot type chain:
-// ui-slots/web-react stay generic and dependency-inverted; the client-tree
-// concrete types live here, where their subjects live) ----
-
-/**
- * The client cordis context face: the base Context plus the service keys
- * this package's declaration merge contributes (slots/sessions/loader) and
- * every later plugin's merge. A plain alias — the merges land on Context
- * itself inside the client program; the name marks intent at consumer seams.
- */
+/** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context
 
-/** SessionBinding narrowed to the client context (inject factories dot services directly). */
-export type ClientSessionBinding = GenericSessionBinding<ClientContext>
-
-/** The conversation-snapshot selector hook (ConvViewProps/ToolViewProps take this). */
-export type UseConversationSession = UseSession<ConversationSnapshot>
+/** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
+export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**
  * One tool call as the chat flow renders it: still-running (spinner card) or
@@ -54,6 +54,35 @@ export type UseConversationSession = UseSession<ConversationSnapshot>
  * narrow on the discriminant fields.
  */
 export type ToolCallBlock = RunningToolCall | ToolResultNode
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  /**
+   * Session standard kit, real members (ui-slots declares the empty seat;
+   * the runtime — where the subjects live — merges the concrete types):
+   * every session-scope slot component receives these from the framework.
+   */
+  interface SessionStandardProps {
+    useSession: SnapshotSelectorHook<ConversationSnapshot>
+    /** The framework-resolved session id (owners never pass it). */
+    sessionId: SessionId
+    /** The fifth framework hook seat: key-addressed projection reader (undefined = capability absent). */
+    useProjection: UseProjection
+  }
+  /** Standard kit for slots that remain mounted while current session changes. */
+  interface SessionMaybeStandardProps {
+    useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>
+    /** Current session id; absent in the no-session state. */
+    sessionId: SessionId | undefined
+    /** Key-addressed projection reader; every key reads absent while no session is current. */
+    useProjection: UseProjection
+  }
+  /** Props injected into every global slot component. */
+  interface GlobalStandardProps {
+    useSessions: SnapshotSelectorHook<SessionListState>
+    /** Selector hook over real Workspaces and their independent baseline lifecycle. */
+    useWorkspaces: SnapshotSelectorHook<import('./workspaces/service.ts').WorkspaceListState>
+  }
+}
 
 declare module 'cordis' {
   interface Events {
@@ -63,67 +92,57 @@ declare module 'cordis' {
      * @param key - the mutated SlotMap key.
      */
     'slots/changed'(key: string): void
+    /**
+     * The host command registry changed (host/commands-changed passthrough).
+     * Pure invalidation signal: subscribers refetch `command.list` in the
+     * background rather than diffing.
+     * @mode emit
+     */
+    'commands/changed'(): void
+    /**
+     * A connection generation was (re-)established. Wire-derived caches must
+     * treat their state as stale and repull (commands directory; the queue
+     * mirrors reset themselves through the session resync path).
+     * @mode emit
+     */
+    'connection/reset'(): void
   }
   interface Context {
     slots: import('./slots.ts').SlotsService
     sessions: import('./sessions/service.ts').SessionsService
-    loader: ClientLoader
+    workspaces: import('./workspaces/service.ts').WorkspacesService
   }
-}
-
-/** One __DSH_BOOT__ manifest row. */
-export interface BootPluginEntry { id: string; url: string; inject: string[]; immediately?: boolean }
-
-/** Per-plugin load status store shape. */
-export type LoaderStatus = Record<string, 'loading' | 'active' | 'failed'>
-
-/**
- * Client bundle loader. The immediately group loads first (parallel fetch,
- * apply in inject topology order); remaining plugins follow in inject
- * topology. Loaded bundle export surfaces are registered back into the
- * require module table. Implementation lives in the `./loader` subpath
- * (shell-held machinery).
- */
-export interface ClientLoader {
-  /** Start loading from window.__DSH_BOOT__ (non-blocking). */
-  start(): void
-  /**
-   * Load one plugin bundle (script inject, factory handoff, ctx.plugin, style registration).
-   * @param id - plugin id (package name).
-   */
-  load(id: string): Promise<void>
-  /**
-   * Unload a plugin. P-I: not implemented (full chain lands with HMR).
-   * @param id - plugin id.
-   */
-  unload(id: string): Promise<void>
-  /** Resolves when every manifest plugin reached active (AppRoot gates the real UI on this). */
-  settled(): Promise<void>
-  /**
-   * Read a loaded module's export surface from the module table (same
-   * implementation the bundle-facing require uses; unknown spec throws).
-   * @param spec - module specifier (package name or seeded library id).
-   */
-  requireModule(spec: string): unknown
-  /** Per-plugin status store. */
-  readonly status: SnapshotStore<LoaderStatus>
 }
 
 /** Required services: the wire handle mounted by the connection plugin. */
 export const inject = ['connection']
 
-/**
- * Client plugin body: mount slots + sessions, start the stream loop.
- * @param ctx - client cordis context.
+/** Mounts the browser runtime services and connection stream.
+ * @param ctx - Client Cordis context.
  */
 export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new SessionsService(ctx, connection.api)
+  const workspaces = new WorkspacesService(ctx, connection.api, sessions)
+  ctx.effect(
+    () => workspaces.startInitialSelection(),
+    'runtime: initial Workspace selection',
+  )
   const loop = connection.start({
-    onMuxEnvelope: (envelope) => { sessions.manager.handleMuxEnvelope(envelope) },
-    onHostEnvelope: (envelope) => { sessions.manager.handleHostEnvelope(envelope) },
-    onConnected: () => { sessions.manager.handleConnected() },
+    onMuxEnvelope: (envelope) => { sessions.handleMuxEnvelope(envelope) },
+    onHostEnvelope: (envelope) => {
+      sessions.handleHostEnvelope(envelope)
+      workspaces.handleHostEnvelope(envelope)
+      // Typed-event bridge: the session layer ignores registry frames (no
+      // session routing); consumers (command directory caches) subscribe on ctx.
+      if (envelope.payload.type === 'host/commands-changed') ctx.emit('commands/changed')
+    },
+    onConnected: () => {
+      sessions.handleConnected()
+      workspaces.handleConnected()
+      ctx.emit('connection/reset')
+    },
   })
   ctx.effect(() => () => { loop.stop() }, 'runtime: connection stream loop')
 }

@@ -15,7 +15,7 @@ with DeepSeekHarness() as harness:
 
 `DeepSeekHarness` 会保留延迟启动的运行时子进程，以供多次调用复用。请像上例一样将其用作上下文管理器，或在用完后显式调用 `close()`。
 
-默认情况下，SDK 启动 `deepseek-harness-runtime-bin` 包内置的单文件 `dsh-jsonrpc-agent` 可执行程序，并通过 `DSH_CORDIS_CONFIG` 注入该包的默认配置（stdio JSON-RPC 服务器、`agent-core`、预载的 DeepSeek 适配器、JSONL 会话持久化、本地 bash）。要运行自己的插件组合，请在配置里保留 `@deepseek-ai/dsh-jsonrpc` 条目，并传入 Cordis 配置路径。
+默认情况下，SDK 启动 `deepseek-harness-runtime-bin` 包内置的单文件 `dsh-jsonrpc-agent` 可执行程序，并通过 `DSH_CORDIS_CONFIG` 注入该包的默认配置（stdio JSON-RPC 服务器、`agent-core`、预载的 DeepSeek 适配器、配有显式组合语义检查点策略的 JSONL 会话持久化、本地 bash）。要运行自己的插件组合，请在配置里保留 `@deepseek-ai/dsh-jsonrpc` 条目，并传入 Cordis 配置路径。
 
 ```py
 from deepseek_harness import DeepSeekHarness
@@ -23,14 +23,15 @@ from deepseek_harness import DeepSeekHarness
 with DeepSeekHarness(
     provider="deepseek",
     model="deepseek-v4-flash",
+    max_tokens=49_152,
     cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent 及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
-`TurnResult.final_response` 是本轮次最后一个 `assistant/message` 事件的文本内容。完整的事件流（包括中间的助手消息与工具活动）用 `TurnResult.events` 获取。
+`HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`TurnResult.notifications` 与 `on_notification` 会按线上的原始顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期与会话事件。`TurnResult.events` 仍只保存根会话的完整事件流，`TurnResult.final_response` 则取该会话最后一个 `assistant/message` 的文本内容，因此后代消息不会覆盖根会话回复。
 
 同样的行为也可以通过 `DSH_CORDIS_CONFIG` 为运行时子进程选定。注入逻辑位于 `HarnessClient.start()`，因此底层客户端的默认启动也具有此行为：当启动解析到内置运行时，且 `cordis` 与非空的 `DSH_CORDIS_CONFIG` 均未设置时（运行时把空值视为缺省，注入检查与之一致），使用内置的默认配置；显式给出 `runtime_bin`、`bridge_bin` 或 `launch_args_override` 则完全禁用注入。运行时载体（生产用 exe 与仅限开发的 `node` 闭包）及其获取方式见 [sdk-runtime README](../sdk-runtime/README.md)。
 

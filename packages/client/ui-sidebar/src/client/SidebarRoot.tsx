@@ -1,163 +1,118 @@
 /**
- * SidebarRoot (figma 133:7629): logo row + collapse, New Session, search,
- * WorkSpace section header with the group-by menu, session tree list,
- * Settings foot. Pure presentational — data and actions arrive through the
- * inject surface; the tree store is subscribed via useTree, never derived in
- * render.
+ * Sidebar shell: column geometry only. Collapse is a slide plus crossfade:
+ * content freezes at its expanded width (inline style) and fades out in place
+ * while the sliding column (AppFrame grid tracks) clips it — nothing reflows
+ * mid-slide. At settle the wide-only content unmounts and the control rows
+ * snap to the 56px rail (one icon each, same top-down order) fading in as the
+ * slide ends. The workspace/session browsing region between the New Session
+ * button and the foot is the `sidebar.workspaces` registrant's, and the foot
+ * is the `sidebar.settings` registrant's; the shell hands them the wide flag
+ * (plus an expand request callback for the browser).
  */
-import { Fragment, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo,
-  IconCloseFill14, IconNewChatOutline16, IconPanelLeftOutline16, IconPersonalizationOutline16,
-  IconProjectAddOutline16, IconSearchOutline16, IconSettingsOutline14,
-  Menu,
+  BrandWordmark, FishLogo,
+  IconNewChatOutline16, IconPanelLeftOutline16,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
-import { ProjectRowItem, SessionRowItem } from './Rows.tsx'
 import css from './SidebarRoot.module.css'
 
-const GROUP_BY_ITEMS = [
-  { id: 'workspace', label: 'WorkSpace' },
-  // Update/Status grouping has no design yet (figma §3) — visible, disabled.
-  { id: 'update', label: 'Update', disabled: true },
-  { id: 'status', label: 'Status', disabled: true },
-]
+/** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
+const COLLAPSE_SETTLE_MS = 150
 
 /**
- * Render the sidebar column.
- * @param props - composed slot props (owner share + injected surface, contract/slots.ts).
+ * Render the sidebar column shell.
+ * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
  * @returns the sidebar element tree.
  */
-export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootComponentProps) {
-  const rows = useTree((s) => s.rows)
-  const query = useTree((s) => s.query)
-  const groupBy = useTree((s) => s.groupBy)
-  const current = useCurrent()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const now = Date.now()
+export function SidebarRoot({
+  collapsed,
+  width,
+  startSession,
+  toggleSidebar,
+  renderSlot,
+}: SidebarRootComponentProps) {
+  // Wide content stays mounted while the collapse animates (fading via
+  // .collapsed .wide), unmounts at settle, and remounts right away on expand.
+  const [settled, setSettled] = useState(collapsed)
+  useEffect(() => {
+    if (!collapsed) { setSettled(false); return }
+    const timer = window.setTimeout(() => { setSettled(true) }, COLLAPSE_SETTLE_MS)
+    return () => { window.clearTimeout(timer) }
+  }, [collapsed])
+  const wide = !collapsed || !settled
 
-  // Presentational lookup (not tree derivation): the group holding the
-  // selected session gets the active folder; only expanded groups can show it.
-  let activeGroup: string | undefined
-  if (current !== undefined) {
-    for (const row of rows) {
-      if (row.type === 'session' && row.id === current) { activeGroup = row.groupKey; break }
-    }
-  }
+  // Freeze the content at its expanded width while it fades out (collapsed
+  // && wide): the sliding column then clips it instead of reflowing it. The
+  // rail layout (.collapsed styles) only applies once the fade settles.
+  const lastWideWidth = useRef(width)
+  if (!collapsed) lastWideWidth.current = width
+
+  // Rail-in only crossfades a live collapse: a refresh straight into the
+  // collapsed state renders the rail statically (no delay-hidden icons).
+  const everWide = useRef(!collapsed)
+  if (!collapsed) everWide.current = true
 
   return (
-    <div className={css.root}>
-      <div className={css.headerBlock}>
-        <div className={css.logoRow}>
-          <span className={css.brand}>
-            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-            <FishLogo size={23} />
-            <span className={css.wordmark}>deepseek</span>
-            <span className={css.badge}>HARNESS</span>
-          </span>
+    <div
+      className={clsx(css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn, collapsed && wide && css.fading)}
+      style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+    >
+      <div className={css.logoRow}>
+        {/* Expanded, the wordmark doubles as a New Session shortcut; the
+            collapsed rail's logo is the expand toggle below instead. */}
+        {wide && (
           <button
             type="button"
-            className={css.iconButton}
-            aria-label="Collapse sidebar"
-            onClick={() => { actions.toggleSidebar() }}
+            className={clsx(css.brand, css.wide)}
+            aria-label="New session"
+            onClick={() => { startSession() }}
           >
-            <IconPanelLeftOutline16 />
+            <BrandWordmark />
           </button>
-        </div>
-
-        <button type="button" className={css.newSession} onClick={() => { actions.create() }}>
-          <IconNewChatOutline16 size={14} />
-          New Session
-        </button>
+        )}
+        {/* Rail resting state is the whale mark; hovering swaps in the panel
+            icon (the expand affordance, figma sidebar-hover flow). */}
+        <Tooltip label="Open sidebar" disabled={wide}>
+          <button
+            type="button"
+            className={clsx(css.iconButton, css.toggle)}
+            aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
+            onClick={() => { toggleSidebar() }}
+          >
+            {!wide && <FishLogo className={css.railFish} size={24} />}
+            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
+            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+          </button>
+        </Tooltip>
       </div>
 
-      <div className={css.listArea}>
-      <div className={css.sectionHeader}>
-        <span className={css.sectionLabel}>WorkSpace</span>
-        <Menu
-          open={menuOpen}
-          onClose={() => { setMenuOpen(false) }}
-          items={GROUP_BY_ITEMS}
-          selectedId={groupBy}
-          onSelect={() => { setMenuOpen(false) }}
-          align="end"
-          anchor={(
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label="Group by"
-              onClick={() => { setMenuOpen((v) => !v) }}
-            >
-              <IconPersonalizationOutline16 />
-            </button>
-          )}
-        />
+      <Tooltip label="New session" disabled={wide}>
         <button
           type="button"
-          className={css.iconButton}
-          aria-label="New workspace"
-          onClick={() => { actions.create() }}
+          className={css.newSession}
+          aria-label="New session"
+          onClick={() => { startSession() }}
         >
-          <IconProjectAddOutline16 />
+          <IconNewChatOutline16 size={wide ? 14 : 18} />
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>New Session</span>}
         </button>
+      </Tooltip>
+
+      {/* The browsing region fills the column between the controls and the
+          foot in both states; its rail icon column rides the same slot. */}
+      <div className={css.regionArea}>
+        {renderSlot('sidebar.workspaces', {
+          wide,
+          expandSidebar: () => { if (collapsed) toggleSidebar() },
+        })}
       </div>
 
-      <label className={css.search}>
-        <IconSearchOutline16 size={14} />
-        <input
-          className={css.searchInput}
-          type="text"
-          placeholder="Search name, keywords..."
-          value={query}
-          onChange={(e) => { tree.setQuery(e.target.value) }}
-        />
-        {query !== '' && (
-          <button
-            type="button"
-            className={css.clearButton}
-            aria-label="Clear search"
-            onClick={() => { tree.setQuery('') }}
-          >
-            <IconCloseFill14 />
-          </button>
-        )}
-      </label>
-
-      <div className={css.list} role="tree" aria-label="Sessions">
-        {rows.length === 0 && (
-          <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
-        )}
-        {rows.map((row, i) => row.type === 'project'
-          ? (
-              <Fragment key={`p:${row.key}`}>
-                {/* Batch separator: a project row closing an expanded session run (figma 133:7661). */}
-                {i > 0 && rows[i - 1]!.type === 'session' && <span className={css.batchGap} />}
-                <ProjectRowItem
-                  row={row}
-                  active={row.key === activeGroup}
-                  onToggle={() => { tree.toggleProject(row.key) }}
-                  onCreate={() => { actions.create(row.cwd) }}
-                />
-              </Fragment>
-            )
-          : (
-              <SessionRowItem
-                key={row.id}
-                row={row}
-                selected={row.id === current}
-                now={now}
-                onOpen={() => { actions.open(row.id) }}
-                onToggle={() => { tree.toggleSession(row.id) }}
-              />
-            ))}
-      </div>
-      <span className={css.fade} />
-      </div>
-
-      <div className={clsx(css.foot)} role="button" tabIndex={0} aria-label="Settings">
-        <IconSettingsOutline14 />
-        Settings
+      {/* Foot seat: ui-settings registers the trigger row + panel here. */}
+      <div className={css.footArea}>
+        {renderSlot('sidebar.settings', { wide })}
       </div>
     </div>
   )

@@ -12,6 +12,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
@@ -73,7 +74,8 @@ export const Config: z<Config> = z.object({
   agentOptions: z.object({
     provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { provider: string; model: string }),
+    maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+  }).default(undefined as unknown as { provider: string; model: string; maxTokens: number }),
   persona: z.string(),
   // Preserve omission; Schemastery's `{ allow: [] }` default would deny every tool.
   toolFilter: z.object({
@@ -92,6 +94,16 @@ function outputText(blocks: ContentBlock[]): string {
   return blocks
     .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
     .map(b => b.text)
+    .join('')
+}
+
+/** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
+function outputValueText(values: JsonValue[]): string {
+  return values
+    .filter((value): value is { type: 'text'; text: string } =>
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+      && value.type === 'text' && typeof value.text === 'string')
+    .map(value => value.text)
     .join('')
 }
 
@@ -268,7 +280,36 @@ export function apply(ctx: Context, config: Config): void {
           },
         } : {},
       },
-      async execute(args, exec): Promise<ContentBlock[]> {
+      output: {
+        schema: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'background' },
+                taskId: { type: 'string', required: true },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'foreground' },
+                runId: { type: 'string', required: true },
+                output: { type: 'array', required: true, items: { type: 'json' } },
+              },
+            },
+          ],
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.kind === 'background'
+            ? `started background subagent task ${value.taskId}`
+            : outputValueText(value.output),
+        }],
+      },
+      async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {
           // Non-agent callers provide no parent for delegation ownership.
@@ -305,7 +346,7 @@ export function apply(ctx: Context, config: Config): void {
               }
             },
           })
-          return [{ type: 'text', text: `started background subagent task ${id}` }]
+          return { kind: 'background' as const, taskId: id }
         }
 
         const request = startRequest(
@@ -324,7 +365,13 @@ export function apply(ctx: Context, config: Config): void {
             // The registry converts this throw to isError; partial output is not success.
             throw new Error(error)
           }
-          return [{ type: 'text', text: outputText(result.output) }]
+          return {
+            kind: 'foreground' as const,
+            runId: run.id,
+            // Content blocks already cross durable JSON boundaries elsewhere;
+            // the registry performs the authoritative lossless snapshot here.
+            output: result.output as unknown as JsonValue[],
+          }
         } finally {
           // Dispose before returning so no child session outlives the call.
           await run.dispose()

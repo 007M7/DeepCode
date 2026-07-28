@@ -1,267 +1,241 @@
 // @vitest-environment jsdom
-/**
- * Skeleton acceptance: empty-state transition (same InputBar component in
- * hero position, startSession submit), ConversationRoot view switching over
- * the registry face, DetailsPanel open/close linkage against a layout-shaped
- * fake. Components stay framework-free — everything arrives via props here,
- * exactly as the inject factories will assemble them.
- */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FC } from 'react'
-import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  ConversationRoot, DetailsPanel, EmptyState,
-} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SelectionTarget, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// ConversationRoot skeleton behavior: the ONE resident composer across the
+// hero (blank session) and active phases — same textarea DOM node, machine-
+// owned draft, and the hero workspace picker (switching = retargetWorkspace).
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ConversationSnapshot, SessionId, SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { createChatStore } from '../src/client/stores.ts'
+import { SessionInputShell } from '../src/client/input/facade.ts'
+import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
+import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
+import { InputBar } from '../src/client/skeleton/InputBar.tsx'
+import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import type { ComposerBarOwnerProps } from '../src/client/contract/slots.ts'
 
-const sid = (s: string): SessionId => s as SessionId
+/** Machine-backed wiring over a sink spy. */
+function fakeWiring() {
+  const sink = vi.fn()
+  const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+  return { wiring: shell, sink, shell }
+}
 
 afterEach(cleanup)
+beforeEach(() => { localStorage.clear() })
 
-/** Minimal conversation snapshot slice the skeleton reads. */
-interface FakeSnapshot {
-  nodes: readonly { kind: string; callId?: string; call?: { name: string; argsRaw: string } | null; content?: readonly { type: string; text?: string }[]; isError?: boolean }[]
-  runningCalls: readonly { callId: string; name: string; argsRaw: string }[]
-  running: boolean
-  removed: boolean
-  promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
+const sid = (id: string) => id as SessionId
+const wid = (id: string) => id as WorkspaceId
+const SID = sid('s1')
+
+function workspace(id = 'w1'): WorkspaceView {
+  return {
+    workspaceId: wid(id), path: `/projects/${id}`, title: id, sessionIds: [],
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }
 }
 
-function fakeSession(init: Partial<FakeSnapshot> = {}) {
-  const store = createSnapshotStore<FakeSnapshot>({
-    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
-  })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
+const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
+  items, state: 'idle', phase: 'ready', error: null,
+  baselinesReady: true, recentWorkspaceId: undefined,
+})
+
+function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+  return {
+    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
+    openState: 'open', openError: null, hasMore: false, loadingOlder: false,
+    promptError: null, blank: false, lastAgentError: null,
+    ...overrides,
+  }
 }
 
-describe('EmptyState', () => {
-  it('submits startSession with the typed text and picked cwd; failure surfaces locally', async () => {
-    const cwds = createSnapshotStore<readonly string[]>(['/w/app', '/w/lib'])
-    let reject!: (e: Error) => void
-    const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(<EmptyState useCwds={cwds.useSelector} actions={{ startSession }} />)
-
-    fireEvent.change(screen.getByRole('combobox', { name: '项目目录' }), { target: { value: '/w/app' } })
-    const box = screen.getByPlaceholderText('Message to run task, plan and build')
-    fireEvent.change(box, { target: { value: '造一个轮子' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
-    expect(startSession).toHaveBeenCalledWith({ text: '造一个轮子', mode: 'queue', cwd: '/w/app' })
-
-    reject(new Error('后端拒收'))
-    expect(await screen.findByText(/后端拒收/)).toBeTruthy()
-    // Draft survives the failure for retry.
-    expect((box as HTMLTextAreaElement).value).toBe('造一个轮子')
+function mount(
+  snapshot: ConversationSnapshot,
+  workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
+  retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
+) {
+  const root = sid('root')
+  const sessions = createSnapshotStore<SessionListState>({
+    ids: [root, SID],
+    byId: {
+      [root]: { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, blank: false, updatedAt: 2 },
+    },
+    current: SID,
+    phase: 'ready',
   })
-
-  it('new-directory option swaps the select for a free-form input', () => {
-    const cwds = createSnapshotStore<readonly string[]>([])
-    render(<EmptyState useCwds={cwds.useSelector} actions={{ startSession: () => Promise.resolve() }} />)
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '::new-directory' } })
-    const custom = screen.getByPlaceholderText(/目录路径/)
-    fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
-    expect((custom as HTMLInputElement).value).toBe('/tmp/fresh')
-  })
-})
-
-describe('ConversationRoot', () => {
-  function bench(views: ViewEntry[], active?: string) {
-    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }] })
-    const activeStore = createSnapshotStore<string | undefined>(active)
-    const openView = vi.fn((v: string) => { activeStore.set(v) })
-    const open = vi.fn()
-    const drafts = createSnapshotStore<string>('')
-    const send = vi.fn()
-    const stop = vi.fn()
-    const ancestry: SessionSummary[] = [
-      { id: sid('root'), title: 'proj', running: false, updatedAt: 1 },
-      { id: sid('s1'), title: 'child', running: false, updatedAt: 1, parentId: sid('root') },
-    ]
-    const rendered: string[] = []
-    const ui = render(
-      <ConversationRoot
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useAncestry={() => ancestry}
-        views={{
-          list: () => views,
-          subscribe: () => () => {},
-          version: () => 1,
-        }}
-        useActiveView={() => activeStore.useSelector(s => s) as ViewId | undefined}
-        composer={{
-          useDraft: () => drafts.useSelector(s => s),
-          setDraft: (t) => { drafts.set(t) },
-          send, stop,
-        }}
-        actions={{ openView: openView as (v: never) => void, open }}
-        renderView={(entry) => { rendered.push(entry.id); return <div data-testid={`view-${entry.id}`} /> }}
-      />)
-    return { ui, openView, open, rendered, send, drafts }
-  }
-
-  const comp = (() => null) as unknown as FC<never>
-  const view = (id: string, label: string): ViewEntry =>
-    ({ id, label, component: comp }) as unknown as ViewEntry
-
-  it('renders breadcrumb chain, meta turns, and the active view (default chat)', () => {
-    const { rendered, open } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
-    expect(screen.getByText('proj')).toBeTruthy()
-    expect(screen.getByText('child')).toBeTruthy()
-    expect(screen.getByText(/2 turns/)).toBeTruthy()
-    expect(rendered).toEqual(['chat'])
-    // Ancestor crumb navigates; current crumb is disabled.
-    fireEvent.click(screen.getByRole('button', { name: 'proj' }))
-    expect(open).toHaveBeenCalledWith('root')
-    expect((screen.getByRole('button', { name: 'child' }) as HTMLButtonElement).disabled).toBe(true)
-  })
-
-  it('switches views through actions.openView and re-renders the new body', () => {
-    const { openView } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
-    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(openView).toHaveBeenCalledWith('trajectory')
-    expect(screen.getByTestId('view-trajectory')).toBeTruthy()
-  })
-
-  it('hides the tab strip with a single view and wires the composer send', () => {
-    const { send } = bench([view('chat', 'Chat')])
-    expect(screen.queryByRole('tablist')).toBeNull()
-    const box = screen.getByPlaceholderText(/输入消息/)
-    fireEvent.change(box, { target: { value: 'hi' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
-    expect(send).toHaveBeenCalledWith('queue')
-  })
-
-  it('renders GoalBar when goalActions and an active goal are provided', () => {
-    const goal = {
-      id: 'g1' as never,
-      revision: 1,
-      objective: 'test-objective',
-      phase: 'active' as const,
-      maxGoalRounds: 256,
-      roundsStarted: 0,
-      createdAt: 100,
-      updatedAt: 100,
-      activation: 'armed' as const,
+  const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
+  const session = createSnapshotStore<ConversationSnapshot>(snapshot)
+  const useSession = bindSnapshotSelector(session)
+  const chat = createChatStore().create()
+  chat.actions.setDraft('ordinary draft')
+  const { wiring, sink } = fakeWiring()
+  const useInput = bindSnapshotSelector(wiring.state)
+  const inputActions = wiring.actions
+  const stop = vi.fn()
+  const open = vi.fn()
+  const slotCalls: string[] = []
+  let pickerOwner: unknown
+  const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
+    slotCalls.push(key)
+    if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
+    if (key === 'conversation.session') {
+      return (
+        <ConversationSession
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
+          useInput={useInput}
+          inputActions={inputActions}
+          useStore={bindSnapshotSelector(chat)}
+          actions={chat.actions}
+          renderSlot={renderSlot as never}
+          views={{ list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 }}
+          bindDraftMirror={write => wiring.bindMirror(write)}
+          open={open}
+        />
+      )
     }
-    const store = createSnapshotStore<FakeSnapshot & { goal: typeof goal }>({
-      nodes: [], runningCalls: [], running: false, removed: false, promptError: null, goal,
-    })
-    const useSession = bindSnapshotSelector(store) as unknown as UseSession
-    const activeStore = createSnapshotStore<string | undefined>('chat')
-    const views = [view('chat', 'Chat')]
-    render(
-      <ConversationRoot
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useAncestry={() => []}
-        views={{
-          list: () => views,
-          subscribe: () => () => {},
-          version: () => 1,
-        }}
-        useActiveView={() => activeStore.useSelector(s => s) as ViewId | undefined}
-        composer={{
-          useDraft: () => '',
-          setDraft: () => {},
-          send: () => {},
-          stop: () => {},
-        }}
-        actions={{ openView: vi.fn() as (v: never) => void, open: vi.fn() }}
-        renderView={() => null}
-        goalActions={{
-          onEdit: vi.fn(() => Promise.resolve({ ok: true as const })),
-          onResume: vi.fn(() => Promise.resolve({ ok: true as const })),
-          onClear: vi.fn(() => Promise.resolve({ ok: true as const })),
-        }}
-      />)
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
-    expect(screen.getByText('test-objective')).toBeTruthy()
-  })
-
-  it('hides GoalBar when goalActions is undefined (even with an active goal in the store)', () => {
-    const goal = {
-      id: 'g1' as never,
-      revision: 1,
-      objective: 'test-objective',
-      phase: 'active' as const,
-      maxGoalRounds: 256,
-      roundsStarted: 0,
-      createdAt: 100,
-      updatedAt: 100,
-      activation: 'armed' as const,
+    if (key === 'conversation.composer.bar') {
+      // The real entry, mounted the way the outlet composes it: standard kit
+      // (shared with the root's props below) + this entry's inject + owner.
+      const bar = owner as ComposerBarOwnerProps
+      return (
+        <InputBar
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
+          useInput={useInput}
+          inputActions={inputActions}
+          keyboard={wiring}
+          useNotices={bindSnapshotSelector(wiring.notices)}
+          useLexicon={bindSnapshotSelector(wiring.lexicon)}
+          stop={stop}
+          renderSlot={(() => null) as InputBarProps['renderSlot']}
+          {...bar}
+        />
+      )
     }
-    const store = createSnapshotStore<FakeSnapshot & { goal: typeof goal }>({
-      nodes: [], runningCalls: [], running: false, removed: false, promptError: null, goal,
-    })
-    const useSession = bindSnapshotSelector(store) as unknown as UseSession
-    render(
-      <ConversationRoot
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useAncestry={() => []}
-        views={{
-          list: () => [],
-          subscribe: () => () => {},
-          version: () => 1,
-        }}
-        useActiveView={() => 'chat' as ViewId}
-        composer={{
-          useDraft: () => '',
-          setDraft: () => {},
-          send: () => {},
-          stop: () => {},
-        }}
-        actions={{ openView: vi.fn() as (v: never) => void, open: vi.fn() }}
-        renderView={() => null}
-      />)
-    expect(screen.queryByText('Ongoing Goal')).toBeNull()
-  })
-})
-
-describe('DetailsPanel', () => {
-  function benchDetails(snapshot: Partial<FakeSnapshot>, selection: SelectionTarget | null) {
-    const { useSession } = fakeSession(snapshot)
-    const selectionStore = createSnapshotStore<SelectionTarget | null>(selection)
-    const closeDetails = vi.fn()
-    render(
-      <DetailsPanel
-        sessionId={sid('s1')}
-        useSession={useSession}
-        useSelection={selectionStore.useSelector}
-        actions={{ closeDetails }}
-      />)
-    return { closeDetails, selectionStore }
+    return <div data-testid={`view-${opts?.only ?? key}`} />
+  }) as ConversationRootProps['renderSlot']
+  const renderSlotChain = ((_key, _owner, opts) => opts?.fallback ?? null) as ConversationRootProps['renderSlotChain']
+  const props: ConversationRootProps = {
+    sessionId: SID,
+    SessionProvider: ({ children }) => children(SID),
+    useSession,
+    useSessions: bindSnapshotSelector(sessions),
+    useWorkspaces: bindSnapshotSelector(workspaces),
+    useProjection: (() => undefined),
+    useInput,
+    inputActions,
+    renderSlot,
+    renderSlotChain,
+    selectWorkspace: retargetWorkspace,
   }
+  const view = render(<ConversationRoot {...props} />)
+  return {
+    view, chat, sink, open, retargetWorkspace, session, slotCalls,
+    pickerOwner: () => pickerOwner,
+    rerender: () => { view.rerender(<ConversationRoot {...props} />) },
+  }
+}
 
-  it('renders the selected call args and result; close fires the layout-linked action', () => {
-    const { closeDetails } = benchDetails({
-      nodes: [{
-        kind: 'tool-result', callId: 'c1',
-        call: { name: 'bash', argsRaw: '{"cmd":"ls"}' },
-        content: [{ type: 'text', text: 'file-a\nfile-b' }],
-        isError: false,
-      }],
-    }, { turnSeq: 1, callId: 'c1' })
-    expect(screen.getByText('bash')).toBeTruthy()
-    expect(screen.getByText(/"cmd": "ls"/)).toBeTruthy()
-    expect(screen.getByText(/file-a/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
-    expect(closeDetails).toHaveBeenCalledTimes(1)
+describe('ConversationRoot resident composer', () => {
+  it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
+    const b = mount(conversationSnapshot())
+    const box = b.view.getByRole('textbox')
+    expect((box as HTMLTextAreaElement).value).toBe('ordinary draft')
+    fireEvent.change(box, { target: { value: 'ordinary revised' } })
+    expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
+    fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
+    expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
-  it('shows the empty hint without a selection and the running state for open calls', () => {
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, null)
-    expect(screen.getByText(/点击消息流中的工具行/)).toBeTruthy()
-    cleanup()
-    benchDetails({ runningCalls: [{ callId: 'c9', name: 'bash', argsRaw: '{}' }] }, { turnSeq: 1, callId: 'c9' })
-    expect(screen.getByText('运行中…')).toBeTruthy()
+  it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      [
+        { ...workspace('one'), sessionIds: [SID] },
+        { ...workspace('second'), title: 'Selected Folder' },
+      ],
+    )
+    // Hero chrome present, view ring absent.
+    expect(b.view.getByText("Let's start building")).toBeTruthy()
+    expect(b.view.queryByTestId('view-chat')).toBeNull()
+    // The same machine-backed textarea is live in the hero, and the
+    // persistence mirror stays bound (ConversationSession mounts chrome-less
+    // for blank sessions): hero typing reaches the chat store.
+    const box = b.view.getByRole('textbox')
+    fireEvent.change(box, { target: { value: 'draft in hero' } })
+    expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
+    // Picker: open through the chip; a pick switches to the other
+    // workspace's blank session (draft carry is apply-layer wiring).
+    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
+    expect(owner.open).toBe(true)
+    act(() => { owner.onPick(wid('second')) })
+    expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
+    expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
-  it('reports an out-of-window call distinctly', () => {
-    benchDetails({}, { turnSeq: 1, callId: 'ghost' })
-    expect(screen.getByText(/不在当前窗口内/)).toBeTruthy()
+  it('textarea DOM identity survives the hero → active flip', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    const before = b.view.getByRole('textbox')
+    fireEvent.change(before, { target: { value: 'kept across flip' } })
+    // First message landed: content exists, phase leaves blank.
+    b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
+    b.rerender()
+    const after = b.view.getByRole('textbox')
+    expect(after).toBe(before)
+    expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
+    expect(b.view.queryByText("Let's start building")).toBeNull()
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+  })
+
+  it('rolls the pending workspace label back when switching fails', async () => {
+    const selectWorkspace = vi.fn(async () => { throw new Error('connect failed') })
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true }),
+      [
+        { ...workspace('one'), sessionIds: [SID] },
+        { ...workspace('second'), title: 'Selected Folder' },
+      ],
+      selectWorkspace,
+    )
+    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
+    await act(async () => { owner.onPick(wid('second')); await Promise.resolve() })
+    expect(selectWorkspace).toHaveBeenCalledWith(wid('second'))
+    expect(b.view.queryByText('Selected Folder')).toBeNull()
+    expect(b.view.getByText('one')).toBeTruthy()
+  })
+
+  it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
+    const chip = b.view.getByRole('button', { name: 'Choose workspace' })
+    expect((chip as HTMLButtonElement).disabled).toBe(false)
+    expect(b.slotCalls).toContain('conversation.hero.workspace')
+  })
+
+  it('prompt failure renders the promptError strip (ordinary failure, no transaction UI)', () => {
+    const b = mount(conversationSnapshot({
+      promptError: { op: 'send', error: { code: 'offline', message: 'Message send failed' } as never },
+    }))
+    expect(b.view.getByRole('alert').textContent).toContain('Message send failed (offline)')
+    expect(b.view.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 })

@@ -15,16 +15,19 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../../vendor/loader"
-    },
-    {
-      "path": "../../ui/app-boot"
-    },
-    {
       "path": "../../core/agent"
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../session-query/session-query-sqlite"
+    },
+    {
+      "path": "../../context/session-reference"
     },
     {
       "path": "../../ui/commands"
@@ -46,6 +49,9 @@
     },
     {
       "path": "../../ui/tool-ask-user"
+    },
+    {
+      "path": "../../session-persistence/session-checkpoint-policy"
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"

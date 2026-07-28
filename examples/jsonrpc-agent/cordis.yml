@@ -17,6 +17,10 @@
     thinking: enabled
     reasoningEffort: max
 
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -38,6 +42,11 @@
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
     root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
+    # Snapshot runs read the raw JSONL back; production keeps zstd frames.
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'

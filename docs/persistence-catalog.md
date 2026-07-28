@@ -5,7 +5,7 @@
 
 Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
-This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/implemented/process/2026-07-04-persistence-log-catalog.md).
+This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
 The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
@@ -24,14 +24,13 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'context/message'
   | 'steering/message'
 
 /**
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -51,7 +50,7 @@ export type SurfaceOp =
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -79,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:289`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:319`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:351`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:292`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -151,7 +150,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -162,12 +161,44 @@ Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/
  * the model output and its accounting travel together (there is no separate
  * usage record). `usage` is absent when the adapter reported none.
  */
-'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
+
+### `command/*`
+
+#### `command/done` — log-only
+
+```ts persistence-catalog
+/**
+ * The paired command settled. `kind`/`text` carry the handler's verbatim
+ * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+ * rendered failure); presentation stays client-computed at render time.
+ */
+'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+```
+
+Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+
+#### `command/run` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved slash command entered its handler. Log-only (never model
+ * surface); paired with `command/done` by `commandId`, mirroring the
+ * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+ * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+ * separator whitespace included), so a consumer (a projection unit
+ * folding its own command records, a rich command card) never re-parses
+ * a line.
+ */
+'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+```
+
+Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -221,33 +252,6 @@ Types: [ContentBlock](core-data-structures/core.md)
 
 Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
 
-### `context/*`
-
-#### `context/message` — surface
-
-```ts persistence-catalog
-/**
- * In-session context injection (file-change notices, subdir AGENTS.md,
- * skill content, cron notifications, …). Rendered into the derived history
- * as a synthetic user-role message carrying `content` verbatim — NOT a
- * user prompt. `meta` is durable JSON state omitted from the model
- * projection; it is also the intended channel for any future framing
- * directive (a producer declares the frame, a dedicated renderer applies it —
- * see the deferred note in
- * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
- * so the surface keeps projecting `content` verbatim rather than wrapping it.
- */
-'context/message': {
-  content: ContentBlock[]
-  source: MessageSource
-  meta?: JsonValue
-}
-```
-
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
-
 ### `hook/*`
 
 #### `hook/invoked` — log-only
@@ -299,12 +303,24 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
-/** Durable, non-surface record of one transient retry scheduled after a closed failed step. */
+/** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
 'llm/retry': {
   turn: number
   step: number
+  provider: string
+  mode: 'normal'
+  policyKey: string
   retry: number
   maxRetries: number
+  delayMs: number
+  failure: LlmFailure
+} | {
+  turn: number
+  step: number
+  provider: string
+  mode: 'always'
+  policyKey: string
+  retry: number
   delayMs: number
   failure: LlmFailure
 }
@@ -341,23 +357,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
-
-### `prompt/*`
-
-#### `prompt/blocked` — log-only
-
-```ts persistence-catalog
-/**
- * Durable record of a prompt veto and its reason. It is log-only: the blocked
- * prompt never enters the model-visible surface, and its turn runs zero steps.
- */
-'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
-```
-
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:41`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -371,7 +371,7 @@ Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -405,7 +405,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -416,7 +416,7 @@ Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/ses
 
 Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages/session-title/session-title-llm/src/index.ts)
+Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
 
 ### `steering/*`
 
@@ -424,12 +424,10 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages
 
 ```ts persistence-catalog
 /** Steering content injected between steps of a running turn. */
-'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+'steering/message': { turn: number; message: UserMessage }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -440,7 +438,7 @@ Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -449,7 +447,7 @@ Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -462,7 +460,7 @@ Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -479,51 +477,80 @@ Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
 ```ts persistence-catalog
 /**
- * One bridged sub-dispatch from a `run_code` program: the parent
- * `run_code` call id, the deterministic sub-call id
- * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
- * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
- * so this append can never fail on payload shape — whether the sub-call
- * errored, and a bounded `resultSummary` of its model-facing text. Before
- * bounding, occurrences of a non-root session workspace path are
- * normalized to `.` so host-specific absolute path lengths cannot change
- * the summary.
+ * One bridged sub-dispatch SETTLING: the pairing ids (matching the
+ * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
+ * with the same JSON-normalized `arguments`, and the sub-call's complete
+ * model-facing outcome in `tool/result`'s own vocabulary
+ * (`content` + `isError`), so UIs render a sub-call through the exact
+ * code path that renders a native call. Every started sub-call settles
+ * with exactly one of these (abort included: the aborted pipeline result
+ * is an `isError` outcome).
  * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
  * model context; persistence and UIs get every call. Appended inside the
- * parent `run_code`'s execution (the bridge drains its queue before
- * returning), so the turn-enclosure invariant holds by construction.
+ * parent `run_code`'s execution (the bridge drains in-flight dispatches
+ * before returning), so its execution-enclosure relation holds by
+ * construction.
  */
-'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
+'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+```
+
+Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
+
+Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
+
+#### `tool/code-dispatch-start` — log-only
+
+```ts persistence-catalog
+/**
+ * One sub-dispatch STARTING inside a `run_code` program: the parent
+ * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,
+ * numbered in submission order), and the tool `name` with its
+ * JSON-normalized `arguments` — the exact value dispatched, normalized
+ * BEFORE dispatch, so this append can never fail on payload shape.
+ * Appended when the scheduler actually starts the call (not at
+ * submission), so a start means the tool body pipeline was entered; a
+ * call abandoned in the queue logs nothing. Log-only: `deriveMessages()`
+ * ignores it; UIs use it for live per-sub-call running state and pair it
+ * with `tool/code-dispatch` by `subCallId` (timing = the two events'
+ * `time` fields).
+ */
+'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
 ```
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
 
 #### `tool/result` — surface
 
 ```ts persistence-catalog
 /**
- * A completed tool call's model-facing result, plus an optional tool-private
- * `meta` presentation payload. `meta` is opaque to the core (`unknown` — the
- * producing tool owns its shape and reads it back in `presentResult`) but MUST
- * be JSON-serializable: `Session.append` runtime-validates all event data with
- * `isJsonValue`, so a non-serializable `meta` is rejected at the source, and the
- * durable log reproduces the identical card on replay. Absent unless the tool
- * attaches one (e.g. `dsh-tool-fs` carries its result-time contextual diff here).
+ * A completed tool call's model-facing result, optional internal failure
+ * identity, and optional tool-private `meta` presentation payload. `meta` is
+ * opaque to the core (the producing tool owns its shape and reads it back in
+ * `presentResult`) but MUST be JSON-serializable: `Session.append`
+ * runtime-validates all event data with `isJsonValue`, so a non-serializable
+ * `meta` is rejected at the source, and the durable log reproduces the
+ * identical card on replay. Absent
+ * unless the tool attaches one (e.g. `dsh-tool-fs` carries its result-time
+ * contextual diff here).
  */
-'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
+'tool/result': {
+  turn: number
+  step: number
+  message: ToolResultMessage
+  error?: { name: string; code: string }
+  meta?: JsonValue
+}
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -541,33 +568,35 @@ Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. `trigger` records what started it — one claimed queued
- * message or an idle-time injection. The turn is the durability/replay
- * boundary: every event sits between a `turn/start` and its matching
- * `turn/end` (the turn-enclosure invariant).
+ * Opens turn `turn`. `trigger` records what started the model loop.
  */
 'turn/start': { turn: number; trigger: TurnTrigger }
 ```
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
 #### `user/message` — surface
 
 ```ts persistence-catalog
-/** A user-visible prompt (the queued message claimed for this turn). */
-'user/message': { content: ContentBlock[]; source: MessageSource }
+/**
+ * A user-role message on the model-visible surface: a direct human prompt
+ * (the queued message claimed for this turn), a synthetic `agent.inject()`
+ * context (file-change notices, subdir AGENTS.md, skill content, cron
+ * notifications, …), or an admitted goal continuation round. All three
+ * project their `content` verbatim; `source` tells them apart. An idle
+ * injection may append this event between turns without running the model.
+ */
+'user/message': UserMessage
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:209`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)

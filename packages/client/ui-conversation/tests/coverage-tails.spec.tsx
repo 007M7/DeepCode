@@ -1,29 +1,28 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample error pill, registry disposer
-// idempotence re-entry, register.ts explicit bashSampleScope override, the
-// node-half empty apply, and AssistantMarkdown reasoning/unknown block arms.
+// PendingCard question arm, bash sample state dots, the node-half empty
+// apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ConversationService, Translate, ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import type { RunningToolCall, SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as nodeApply } from '../src/index.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
-import { registerChat } from '../src/client/chat/register.ts'
 
 afterEach(cleanup)
 
 describe('tails', () => {
   it('node-half apply is an intentional no-op', () => {
-    expect(nodeApply()).toBeUndefined()
+    expect(() => { nodeApply() }).not.toThrow()
   })
 
   it('ToolRow stopped state renders the warning dot in the leading slot', () => {
@@ -36,7 +35,7 @@ describe('tails', () => {
 
   it('PendingCard renders the question arm with its count', () => {
     const view = render(
-      <PendingCard item={{ kind: 'question', rpcId: 'r1' as RpcId, questions: [{}, {}] }} />,
+      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{}, {}] } as PendingWait<'question'>['payload'], vi.fn())} />,
     )
     expect(view.getByText(/等待回答（2 题）/)).toBeTruthy()
   })
@@ -61,17 +60,29 @@ describe('tails', () => {
     expect(stopped.getByText('已停止')).toBeTruthy()
   })
 
+  it('AssistantMarkdown skips the root shell when only tool-call heads remain', () => {
+    // Tool heads are drawn by ChatView's tool groups; an empty root between
+    // groups is layout noise (no text, no pulse, no interrupted marker).
+    const empty = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'tool-call', callId: 'c', name: 'todo_write', argsRaw: '{}' }]}
+        streaming={false}
+      />,
+    )
+    expect(empty.container.firstChild).toBeNull()
+    const blank = render(<AssistantMarkdown blocks={[]} streaming={false} />)
+    expect(blank.container.firstChild).toBeNull()
+  })
+
   it('a settled others-variant row renders the sparkle icon in the leading slot', () => {
     const settled: ToolResultNode = {
-      kind: 'tool-result', seq: 2, callId: 'c5',
+      kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
       call: { name: 'todo_write', argsRaw: '{"note":"x"}' },
+      callTime: 1_000,
       content: [], isError: false, callView: null, resultView: null,
     }
-    const props: ToolViewProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled,
-      useSession: (() => { throw new Error('unused') }) as unknown as UseSession,
-      actions: { openDetails: vi.fn() },
-      t: ((k: string) => k) as Translate,
+    const props: ToolRowOwnerProps = {
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(),
     }
     const view = render(<GenericToolCard {...props} />)
     // Settled ok state keeps the variant icon (sparkle) instead of a StateDot.
@@ -79,49 +90,48 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows the failed pill on error results', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
+    const sid = 'root-1' as SessionId
+    const list = createSnapshotStore<SessionListState>({
+      ids: [sid],
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
+      current: undefined,
+      phase: 'ready',
+    })
+    const props = (block: RunningToolCall | ToolResultNode) => ({
+      callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+      sessionId: sid, useSessions: bindSnapshotSelector(list),
+    } as unknown as ToolRowProps)
+
+    const running: RunningToolCall = {
+      callId: 'c1', name: 'bash', argsRaw: '{"command":"ls","description":"List"}',
+      turn: 1, step: 1, time: 1_000, callView: null,
+    }
     const errorResult: ToolResultNode = {
-      kind: 'tool-result', seq: 1, callId: 'c1',
+      kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
       call: { name: 'bash', argsRaw: '{"command":"boom"}' },
+      callTime: 500,
       content: [], isError: true, callView: null, resultView: null,
     }
-    const props: ToolViewProps = {
-      callId: 'c1', toolName: 'bash', block: errorResult,
-      useSession: (() => { throw new Error('unused') }) as unknown as UseSession,
-      actions: { openDetails: vi.fn() },
-      t: ((k: string) => k) as Translate,
+    const stoppedResult: ToolResultNode = {
+      ...errorResult,
+      error: { name: 'E', code: 'interrupted' },
     }
-    const view = render(<BashRow {...props} />)
-    expect(view.getByText('failed')).toBeTruthy()
-  })
 
-  it('registry disposer re-entry is a no-op after the entry was already removed', () => {
-    const registry = new ToolViewRegistry()
-    const off = registry.register('bash', (() => null) as never)
-    const v1 = registry.getVersion()
-    off()
-    const v2 = registry.getVersion()
-    off()
-    expect(registry.getVersion()).toBe(v2)
-    expect(v2).toBeGreaterThan(v1)
-  })
+    const runningView = render(<BashRow {...props(running)} />)
+    expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(runningView.getByText('Bash')).toBeTruthy()
+    expect(runningView.getByText('List')).toBeTruthy()
+    runningView.unmount()
 
-  it('registerChat registers the chat view with the stats footer and disposes cleanly', () => {
-    const disposer = vi.fn()
-    const calls: unknown[] = []
-    const conversation = {
-      registerView: (entry: unknown) => {
-        calls.push(entry)
-        return disposer
-      },
-    } as unknown as ConversationService
-    const toolviews = new ToolViewRegistry()
-    const off = registerChat({ conversation, toolviews, t: ((k: string) => k) as Translate })
-    const entry = calls[0] as { id: string; chrome?: { footer?: unknown } }
-    expect(entry.id).toBe('chat')
-    // footer is a memo exotic component (object, not plain function).
-    expect(entry.chrome?.footer).toBeDefined()
-    off()
-    expect(disposer).toHaveBeenCalledTimes(1)
+    const errorView = render(<BashRow {...props(errorResult)} />)
+    expect(errorView.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(errorView.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(errorView.getByText('失败')).toBeTruthy()
+    errorView.unmount()
+
+    const stoppedView = render(<BashRow {...props(stoppedResult)} />)
+    expect(stoppedView.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    expect(stoppedView.getByText('已停止')).toBeTruthy()
   })
 })

@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
-// Client apply wiring: ctx.layout provided, the four layout-owned slots
-// defined, teardown cascades (service unprovided + slot specs removed + list
-// subscription dropped). Node half and the invariant companion ride along —
-// they are one-line surfaces the aggregate coverage gate still requires
-// exercised.
+// Client apply wiring under the terminal register form: ctx.layout provided,
+// ONE register() call declares the three child slots + seats the store factory
+// + wires the panel actions through the inject hook; teardown cascades
+// (service unprovided + declarations gone + registration cleared). Node half
+// and the invariant companion ride along — one-line surfaces the aggregate
+// coverage gate still requires exercised.
 
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as themeApply, inject as themeInject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { apply, inject, LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
@@ -17,39 +18,77 @@ import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
 async function bench() {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
+  // Theme now injects ['slots', 'locale'] (it registers its Appearance
+  // settings row); seat a real locale service so the theme fiber activates.
+  ctx.provide('locale', new LocaleService(ctx))
+  await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
-  const list = createSnapshotStore<SessionListState>({ ids: [], byId: {} })
-  ctx.provide('sessions', { list })
   return { ctx, slots: ctx.get('slots') as SlotsService }
 }
 
 describe('ui-layout client apply', () => {
   it('declares its service dependencies', () => {
-    expect(inject).toContain('slots')
+    expect(inject).toEqual(['slots', 'theme'])
   })
 
-  it('provides ctx.layout and defines the four layout-owned slots', async () => {
+  it('provides ctx.layout and registers AppFrame into root with the three child declarations', async () => {
     const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: ['slots'], apply })
+    const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.get('layout')).toBeInstanceOf(LayoutService)
+    // The one register() call occupied 'root'…
+    expect(slots.entries('root')).toHaveLength(1)
+    // …and declared the three children in the ledger.
     expect(slots.spec('sidebar')).toEqual({ kind: 'single', scope: 'root' })
-    expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session' })
+    expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
     expect(slots.spec('details')).toEqual({ kind: 'single', scope: 'session' })
-    expect(slots.spec('conversation.empty')).toEqual({ kind: 'single', scope: 'root' })
   })
 
-  it('teardown unwinds service, slot specs, and the prune subscription', async () => {
+  it('injects no business face and attaches the layout actions', async () => {
     const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: ['slots'], apply })
+    const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
+    const actions = {
+      setSidebar: vi.fn(), setDetails: vi.fn(), toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
+    }
+    const injected = (slots.entries('root')[0]!.inject as (actions: never) => object)(actions as never)
+    expect(injected).toEqual({})
     const layout = ctx.get('layout') as LayoutService
-    const disposeSpy = vi.spyOn(layout, 'dispose')
+    layout.toggleSidebar()
+    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {
+    const { ctx } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    // Initial getter application: jsdom has no matchMedia, system resolves light.
+    expect(document.documentElement.style.colorScheme).toBe('light')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    const theme = ctx.get('theme') as ThemeService
+    theme.setTheme('dark')
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+    await fiber.dispose()
+    expect(document.documentElement.style.colorScheme).toBe('')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    // Listener is off: further theme changes no longer reach the document.
+    theme.setTheme('light')
+    theme.setTheme('dark')
+    expect(document.documentElement.style.colorScheme).toBe('')
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+  })
+
+  it('teardown unwinds the service, the root registration, and the child declarations', async () => {
+    const { ctx, slots } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
     await fiber.dispose()
     expect(ctx.get('layout')).toBeUndefined()
+    expect(slots.entries('root')).toHaveLength(0)
     expect(slots.spec('sidebar')).toBeUndefined()
-    expect(slots.spec('conversation.empty')).toBeUndefined()
-    expect(disposeSpy).toHaveBeenCalledTimes(1)
+    // The built-in root declaration survives entry teardown (runtime-owned).
+    expect(slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
   })
 })
 

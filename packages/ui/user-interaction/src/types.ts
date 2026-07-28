@@ -33,7 +33,7 @@ export interface AskUserQuestionItem {
 export interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty when the answer is purely custom text. */
+  /** Selected option labels. Empty for custom or unanswered choices. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

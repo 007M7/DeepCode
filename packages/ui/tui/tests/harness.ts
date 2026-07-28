@@ -1,3 +1,4 @@
+import { createUserMessage, MessageId , createMessage } from '@deepseek-ai/dsh-llm'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
@@ -5,24 +6,40 @@ import AgentRegistry, {
   type AgentCancelCause,
   type AgentOptions,
   type AgentStatus,
+  type SendOptions,
 } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  LlmModelInfo,
+  LlmProviderInfo,
+  LlmResolvedModelInfo,
+} from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
+import { TestSessionQueryService } from './session-query.ts'
+import TuiPromptService from '../src/prompt.ts'
 
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
+  sentMessages: UserMessage[]
+  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
+  steeredIds: MessageId[]
+  steeredOptions: UserMessage[]
+  injected: ContentBlock[][]
+  injectedOptions: UserMessage[]
   cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
   status?: AgentStatus
+  /** Override the fake agent's next-step capability independently of status. */
+  acceptsNextStep?: boolean
   config?: Config
   /** Leave the session event log empty instead of seeding one turn and step. */
   omitInitialLifecycle?: boolean
@@ -33,6 +50,7 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  gitBranch?: TuiRuntime['gitBranch']
   /** Fake-agent creation options (`provider`/`model` seed the model selector's initial target). */
   agentOptions?: AgentOptions
   contextWindow?: number
@@ -42,10 +60,19 @@ export interface TuiHarnessOptions {
     providers: LlmProviderInfo[]
     models: LlmModelInfo[]
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
-    resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
+    resolveModelInfo?: (
+      provider: string,
+      model: string,
+    ) => Promise<Pick<LlmResolvedModelInfo, 'context' | 'reasoning'>>
   }
   /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
-  sessionPersistence?: { list(): Promise<SessionHeader[]> }
+  sessionPersistence?: {
+    list(): Promise<SessionHeader[]>
+    load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
+  }
+  handoffResume?: TuiRuntime['handoffResume']
+  /** Set false to exercise the optional session-query degradation path. */
+  mountSessionQuery?: boolean
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -74,6 +101,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
+  await ctx.plugin(TuiPromptService)
   const catalog = options.catalog ?? {
     providers: [{ id: 'deepseek', name: 'DeepSeek' }],
     models: [
@@ -87,12 +115,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     },
   } as never)
   if (options.configureContext === undefined) {
-    const tools = options.tools ?? {}
-    ctx.provide('tools', {
-      get(name: string) {
-        return tools[name]
-      },
-    } as never)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    for (const tool of Object.values(options.tools ?? {})) ctx.tools.register(tool)
   } else {
     await options.configureContext(ctx)
   }
@@ -107,15 +132,41 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
         return catalog.listModels?.(provider)
           ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
       },
-      resolveModelContext(provider: string, model: string) {
-        return catalog.resolveModelContext?.(provider, model)
-          ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      async resolveModelInfo(provider: string, model: string) {
+        const advertised = catalog.models.find(candidate =>
+          candidate.provider === provider && candidate.id === model)
+        const capabilities = await (catalog.resolveModelInfo?.(provider, model)
+          ?? Promise.resolve({
+            context: { contextWindow: options.contextWindow ?? 128_000 },
+          }))
+        return {
+          provider,
+          id: model,
+          name: advertised?.name ?? model,
+          ...advertised?.description === undefined ? {} : { description: advertised.description },
+          ...capabilities,
+        }
       },
     } as never)
   }
   if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
   if (options.sessionPersistence !== undefined) {
-    ctx.provide('sessionPersistence', options.sessionPersistence as never)
+    const persistence = options.sessionPersistence
+    ctx.provide('sessionPersistence', {
+      ...persistence,
+      locate: () => undefined,
+      create: () => Promise.resolve(),
+      append: () => Promise.resolve(),
+      load: persistence.load === undefined
+        ? (id: ReturnType<typeof SessionId>) => Promise.reject(new Error(`session "${id}" not found`))
+        : (id: ReturnType<typeof SessionId>) => persistence.load!(id),
+      inspect: persistence.load === undefined
+        ? (id: ReturnType<typeof SessionId>) => Promise.reject(new Error(`session "${id}" not found`))
+        : (id: ReturnType<typeof SessionId>) => persistence.load!(id),
+    } as never)
+  }
+  if (options.mountSessionQuery !== false && ctx.get('sessionQuery') === undefined) {
+    await ctx.plugin(TestSessionQueryService)
   }
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
@@ -131,25 +182,57 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
+  const sentMessages: UserMessage[] = []
   const steered: ContentBlock[][] = []
+  const steeredIds: MessageId[] = []
+  const sentOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: UserMessage[] = []
+  const injected: ContentBlock[][] = []
+  const injectedOptions: UserMessage[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
+    get acceptsNextStep() {
+      return options.acceptsNextStep ?? this.status === 'running'
+    },
     ctx,
     sent,
+    sentMessages,
+    sentOptions,
     steered,
+    steeredIds,
+    steeredOptions,
+    injected,
+    injectedOptions,
     cancelled,
-    send(content) {
-      sent.push(content)
+    send(input, options) {
+      sent.push(input.content)
+      sentMessages.push(input)
+      sentOptions.push(options)
+      return input.id
     },
-    steer(content) {
-      steered.push(content)
+    followup(input) {
+      sent.push(input.content)
+      sentMessages.push(input)
+      sentOptions.push(undefined)
+      return input.id
     },
-    inject() {},
-    cancel(cause = { kind: 'user' }) {
+    steer(input) {
+      steered.push(input.content)
+      steeredOptions.push(input)
+      const id = input.id
+      steeredIds.push(id)
+      return id
+    },
+    inject(input) {
+      injected.push(input.content)
+      injectedOptions.push(input)
+      return input.id
+    },
+    cancel(cause) {
       cancelled.push(cause)
     },
     whenIdle() {
@@ -160,7 +243,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const controller = createTuiChat(ctx, Object.assign({
     ...options.omitWelcome === true ? {} : { welcome: 'Coding agent ready.' },
     sessionId,
-    color: false,
+    theme: { color: false },
   }, options.config), {
     terminal,
     exit,
@@ -169,6 +252,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     // test pins the clock only by passing `now` explicitly.
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
+    ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
+    gitBranch: options.gitBranch ?? (() => 'tui-staging'),
   })
   return { ctx, session, agent, terminal, exit, controller }
 }
@@ -183,10 +268,10 @@ export async function disposeTuiTestHarness(
 
 /** Append a production-shaped user message to the active session surface. */
 export function appendUser(session: Session, text: string): void {
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 /** Append a production-shaped assistant message to the active session surface. */
@@ -198,8 +283,11 @@ export function appendAssistant(
 ): void {
   session.append('assistant/message', {
     ...position,
-    provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-    content,
+    message: createMessage({
+      role: 'assistant',
+      content,
+      source: { kind: 'model', provider: 'mock', model: 'deepseek-v4-flash' },
+    }),
     ...usage === undefined ? {} : { usage },
   }, { surfaceOp: 'append' })
 }

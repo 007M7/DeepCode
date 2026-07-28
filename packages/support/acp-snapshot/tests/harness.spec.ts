@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
@@ -95,8 +95,8 @@ describe('runScenario', () => {
     expect(clientClosed).toBe(true)
   })
 
-  it('centralizes ACP boot, captures, updates, fail-closed interactions, and shutdown', { timeout: 20_000 }, async () => {
-    const { dir, fixtureFile } = await scenario({ permissionProbe: true, elicitationProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
+  it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
     const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
     tempDirs.push(sessionsRoot)
     const launched = launchAcpTestAgent({
@@ -112,6 +112,8 @@ describe('runScenario', () => {
     await launched.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await launched.client.newSession({ cwd: dir, mcpServers: [] })
     const nextChunk = launched.waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk')
+    const laterChunk = launched.waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk'
+      && update.content.type === 'text' && update.content.text === 'never this one')
     const predicateFailure = new Error('predicate failed')
     const failedPredicate = launched.waitForUpdate(() => { throw predicateFailure })
       .catch((error: unknown): unknown => error)
@@ -120,8 +122,8 @@ describe('runScenario', () => {
     expect((await nextChunk).sessionUpdate).toBe('agent_message_chunk')
     expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
     expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
-    expect(launched.rawStdout()).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
     expect(launched.stderr()).toContain('launcher stderr')
+    void laterChunk.catch(() => undefined)
     const unmatched = expect(launched.waitForUpdate(() => false)).rejects.toThrow(/update stream closed/)
     await launched.close()
     await unmatched
@@ -374,11 +376,11 @@ describe('runScenario', () => {
     }
   })
 
-  it('drives a full turn: initialize (terminal caps), session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
+  it('drives a full turn: initialize, session, prompt, permission stub, harvest', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       permissionProbe: true,
       logs: [{
-        file: 'bucket/main.jsonl',
+        file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', id: '{{SID}}', createdAt: 42, cwd: '{{CWD}}' },
           { type: 'turn/start', seq: 1, time: 9, data: { turn: 1 } },
@@ -386,7 +388,7 @@ describe('runScenario', () => {
       }],
     })
     const result = await runScenario(
-      { steps: [{ op: 'initialize', terminalOutput: true }, { op: 'newSession' }, { op: 'prompt', text: 'go' }] },
+      { steps: [{ op: 'initialize' }, { op: 'newSession' }, { op: 'prompt', text: 'go' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )
     expect(result.sessionId).toBeDefined()
@@ -466,7 +468,23 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('workspace:seeded.txt')
   })
 
-  it('promptAndCancel waits for the streamed chunk, cancels, and settles the prompt', { timeout: 20_000 }, async () => {
+  it('creates the generated workspace under an explicit parent', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const workspaceParent = await mkdtemp(join(tmpdir(), 'acp-snap-parent-'))
+    tempDirs.push(workspaceParent)
+
+    const result = await runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceParent },
+    )
+
+    const child = relative(workspaceParent, result.cwd)
+    expect(child).not.toBe('')
+    expect(child).not.toBe('..')
+    expect(child.startsWith(`..${sep}`)).toBe(false)
+  })
+
+  it('promptAndCancel waits for the durable turn start, cancels, and settles the prompt', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ prompt: 'hang-until-cancel' })
     const result = await runScenario(
       { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }] },
@@ -475,6 +493,37 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('"stopReason":"cancelled"')
     // The streamed chunk deterministically precedes the cancelled response.
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
+  })
+
+  it('promptAndCancel can wait for cwd-relative readiness before cancelling', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ prompt: 'hang-until-cancel' })
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'started.txt'), 'started')
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndCancel',
+          text: 'hang',
+          waitForFile: { path: 'started.txt' },
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+    )
+    expect(result.rawStdout).toContain('"stopReason":"cancelled"')
+
+    const missing = await scenario({ prompt: 'hang-until-cancel' })
+    await expect(runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndCancel',
+          text: 'hang',
+          waitForFile: { path: 'never.txt', timeoutMs: 20 },
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/workspace file "never\.txt" did not appear within 20ms/)
   })
 
   it('promptAndWaitForAgentMessage keeps the app live through a matching later update', { timeout: 20_000 }, async () => {
@@ -487,31 +536,211 @@ describe('runScenario', () => {
           waitForText: 'thinking about it',
         }],
       },
-      { agent: AGENT, mode: 'replay', fixtureFile },
+      { agent: AGENT, mode: 'replay', fixtureFile, configPath: AGENT.configPath },
     )
     expect(result.rawStdout).toContain('thinking about it')
   })
 
-  it('promptAndCancel can bracket cancellation with tool-call updates', { timeout: 20_000 }, async () => {
+  it('waitForTurnEnd holds cancellation open through the persisted closing boundary', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       prompt: 'hang-until-cancel',
-      cancelAtToolCall: true,
-      cancelToolCallUpdate: true,
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForTurnEnd' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('"type":"turn/end"')
+  })
+
+  it('waitForTitleAfterTurnEnd holds the app through a standalone durable title', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'session/title', seq: 2, time: 3, data: { title: 'Late title' } },
+        ],
+      }],
     })
     const result = await runScenario(
       {
-        steps: [...boot, {
-          op: 'promptAndCancel',
-          text: 'hang',
-          afterUpdate: 'tool_call',
-          waitForToolCallUpdate: 'call_fake_1',
-        }],
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTitleAfterTurnEnd' },
+        ],
       },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )
-    expect(result.rawStdout).toContain('"sessionUpdate":"tool_call"')
-    expect(result.rawStdout.indexOf('"sessionUpdate":"tool_call"')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
-    expect(result.rawStdout.indexOf('cancelled')).toBeLessThan(result.rawStdout.indexOf('"sessionUpdate":"tool_call_update"'))
+    expect(result.sessionLogs[0]?.content).toMatch(/"turn\/end"[\s\S]*"session\/title"/)
+  })
+
+  it('waitForTurnStart can require a later durable turn before continuing', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 3 } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTurnStart', minimumTurn: 3 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('"turn":3')
+  })
+
+  it('waitForTurnStart rejects missing, earlier, and malformed durable turns', { timeout: 20_000 }, async () => {
+    const missing = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'waitForTurnStart', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/did not persist turn\/start within 20ms/)
+
+    const earlier = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTurnStart', minimumTurn: 3, timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: earlier.fixtureFile },
+    )).rejects.toThrow(/turn\/start at or beyond turn 3 within 20ms/)
+
+    const closed = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'stop' } } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTurnStart', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: closed.fixtureFile },
+    )).rejects.toThrow(/did not persist turn\/start within 20ms/)
+
+    for (const turn of [undefined, 0]) {
+      const malformed = await scenario({
+        prompt: 'hang-until-cancel',
+        persistLogsOnCancel: true,
+        logs: [{
+          file: 'project/main/session.jsonl',
+          lines: [
+            { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+            { type: 'turn/start', seq: 0, time: 1, data: turn === undefined ? {} : { turn } },
+          ],
+        }],
+      })
+      await expect(runScenario(
+        {
+          steps: [
+            ...boot,
+            { op: 'promptAndCancel', text: 'hang' },
+            { op: 'waitForTurnStart' },
+          ],
+        },
+        { agent: AGENT, mode: 'replay', fixtureFile: malformed.fixtureFile },
+      )).rejects.toThrow('invalid persisted turn/start record')
+    }
+  })
+
+  it('waitForTurnEnd times out for a missing log and an open logged turn', { timeout: 20_000 }, async () => {
+    const missing = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'waitForTurnEnd', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/did not persist turn\/end within 20ms/)
+
+    const open = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTurnEnd', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: open.fixtureFile },
+    )).rejects.toThrow(/did not persist turn\/end within 20ms/)
+  })
+
+  it('waitForTitleAfterTurnEnd times out when the title precedes the boundary', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'session/title', seq: 1, time: 1, data: { title: 'Early title' } },
+          { type: 'turn/end', seq: 2, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForTitleAfterTurnEnd', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/did not persist session\/title after turn\/end within 20ms/)
   })
 
   it('promptExpectError swallows a model-error response as the expected outcome', { timeout: 20_000 }, async () => {
@@ -599,67 +828,34 @@ describe('runScenario', () => {
     expect(result.sessionId).toBeDefined()
   })
 
+  it('a standalone cancel can wait for cwd-relative readiness', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({})
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'ready'), '')
+    const result = await runScenario(
+      { steps: [...boot, { op: 'cancel', waitForFile: { path: 'ready' } }] },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+    )
+    expect(result.sessionId).toBeDefined()
+  })
+
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
     [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
+    [{ op: 'waitForTurnStart' }, /waitForTurnStart before newSession/],
+    [{ op: 'waitForTurnEnd' }, /waitForTurnEnd before newSession/],
+    [{ op: 'waitForTitleAfterTurnEnd' }, /waitForTitleAfterTurnEnd before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
-    [{ op: 'setConfigOption', configId: 'sandbox-mode', value: 'read-only' }, /setConfigOption before newSession/],
-    [{ op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'yolo' }, /setConfigOptionExpectError before newSession/],
   ] as [InputStep, RegExp][])('rejects %j before newSession', { timeout: 20_000 }, async (step, message) => {
     const { fixtureFile } = await scenario({})
     await expect(runScenario(
       { steps: [{ op: 'initialize' }, step] },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(message)
-  })
-
-  it('setConfigOption switches a value and receives the complete refreshed option state', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({
-      configOptions: { 'sandbox-mode': ['read-only', 'workspace-write'], 'approval-policy': ['ask', 'never'] },
-    })
-    const result = await runScenario(
-      {
-        steps: [...boot,
-          { op: 'setConfigOption', configId: 'sandbox-mode', value: 'workspace-write' },
-          { op: 'setConfigOption', configId: 'approval-policy', value: 'never' }],
-      },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    // Every set answers with the FULL state: the second response carries the
-    // first switch's value too — the complete-refreshed-state contract.
-    const frames = result.rawStdout.trim().split('\n').map(line => JSON.parse(line) as { result?: { configOptions?: { id: string; currentValue: string }[] } })
-    const states = frames
-      .map(f => f.result?.configOptions)
-      .filter(options => options !== undefined)
-      .map(options => Object.fromEntries((options as { id: string; currentValue: string }[]).map(o => [o.id, o.currentValue])))
-    expect(states).toEqual([
-      { 'sandbox-mode': 'workspace-write', 'approval-policy': 'ask' },
-      { 'sandbox-mode': 'workspace-write', 'approval-policy': 'never' },
-    ])
-  })
-
-  it('setConfigOptionExpectError swallows the rejection for unknown ids and out-of-vocabulary values', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ configOptions: { 'sandbox-mode': ['read-only'] } })
-    const result = await runScenario(
-      {
-        steps: [...boot,
-          { op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'yolo' },
-          { op: 'setConfigOptionExpectError', configId: 'reasoning-effort', value: 'max' }],
-      },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    expect(result.rawStdout).toContain('unknown sandbox-mode value yolo')
-    expect(result.rawStdout).toContain('unknown config option reasoning-effort')
-  })
-
-  it('setConfigOptionExpectError throws when the set unexpectedly succeeds', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ configOptions: { 'sandbox-mode': ['read-only'] } })
-    await expect(runScenario(
-      { steps: [...boot, { op: 'setConfigOptionExpectError', configId: 'sandbox-mode', value: 'read-only' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )).rejects.toThrow(/expected set_config_option to be rejected/)
   })
 
   it('rejects an unknown input op', { timeout: 20_000 }, async () => {
@@ -679,11 +875,11 @@ describe('runScenario', () => {
         // File names chosen so readdir feeds the sort children-first AND
         // parent-in-the-middle: the comparator then sees a parent on both
         // sides of a pair, plus the same-createdAt (localeCompare) tiebreak.
-        { file: 'b1/aa-child-c.jsonl', lines: [{ type: 'session', id: 'cccccccc-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
-        { file: 'b1/bb-parent.jsonl', lines: [{ type: 'session', id: '{{SID}}', createdAt: 900 }] },
-        { file: 'b1/cc-child-a.jsonl', lines: [{ type: 'session', id: 'aaaaaaaa-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
+        { file: 'b1/aa-child-c/session.jsonl', lines: [{ type: 'session', id: 'cccccccc-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
+        { file: 'b1/bb-parent/session.jsonl', lines: [{ type: 'session', id: '{{SID}}', createdAt: 900 }] },
+        { file: 'b1/cc-child-a/session.jsonl', lines: [{ type: 'session', id: 'aaaaaaaa-0000-4000-8000-000000000000', createdAt: 500, parentSession: '{{SID}}' }] },
         // Missing id/createdAt fall back to ''/0; earliest child by createdAt.
-        { file: 'b2/orphan-fields.jsonl', lines: [{ type: 'session', parentSession: '{{SID}}' }] },
+        { file: 'b2/orphan/session.jsonl', lines: [{ type: 'session', parentSession: '{{SID}}' }] },
       ],
     })
     const result = await runScenario(
@@ -700,7 +896,7 @@ describe('runScenario', () => {
   })
 
   it('treats an empty log file as a header-less primary with default fields', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ logs: [{ file: 'b/empty.jsonl', lines: [] }] })
+    const { fixtureFile } = await scenario({ logs: [{ file: 'b/empty/session.jsonl', lines: [] }] })
     const result = await runScenario(
       { steps: boot },
       { agent: AGENT, mode: 'replay', fixtureFile },
@@ -715,69 +911,6 @@ describe('runScenario', () => {
       { agent: AGENT, mode: 'replay', fixtureFile },
     )
     expect(result.sessionLogs).toHaveLength(0)
-  })
-
-  it('drives session/set_mode and swallows the expected rejection of setModeExpectError', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({})
-    const result = await runScenario(
-      { steps: [...boot, { op: 'setMode', modeId: 'plan' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    expect(result.rawStdout).toContain('setMode:plan')
-
-    const rejecting = await scenario({ setMode: 'error' })
-    const rejected = await runScenario(
-      { steps: [...boot, { op: 'setModeExpectError', modeId: 'yolo' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile: rejecting.fixtureFile },
-    )
-    expect(rejected.rawStdout).toContain('unknown mode')
-  })
-
-  it('fails the run when setModeExpectError unexpectedly succeeds, and both mode ops require a session', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({})
-    await expect(runScenario(
-      { steps: [...boot, { op: 'setModeExpectError', modeId: 'plan' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )).rejects.toThrow(/expected session\/set_mode to be rejected/)
-    await expect(runScenario(
-      { steps: [{ op: 'initialize' }, { op: 'setMode', modeId: 'plan' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )).rejects.toThrow(/setMode before newSession/)
-    await expect(runScenario(
-      { steps: [{ op: 'initialize' }, { op: 'setModeExpectError', modeId: 'plan' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )).rejects.toThrow(/setModeExpectError before newSession/)
-  })
-
-  it('answers elicitations from the scripted queue, falling back to cancel on exhaustion', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ elicitationProbe: true })
-    // Three prompts → three elicitations: an accept-with-choice, an
-    // accept-with-custom (feedback), then the exhausted-queue cancel.
-    const result = await runScenario(
-      {
-        steps: [...boot, { op: 'prompt', text: 'one' }, { op: 'prompt', text: 'two' }, { op: 'prompt', text: 'three' }],
-        elicitationAnswers: [
-          { action: 'accept', choice: 'Approve' },
-          { action: 'accept', custom: 'add tests first' },
-        ],
-      },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    const first = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"choice\\":\\"Approve\\"}}')
-    const second = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"custom\\":\\"add tests first\\"}}')
-    const third = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"cancel\\"}')
-    expect(first).toBeGreaterThanOrEqual(0)
-    expect(second).toBeGreaterThan(first)
-    expect(third).toBeGreaterThan(second)
-  })
-
-  it('a scripted elicitation cancel answers cancel', { timeout: 20_000 }, async () => {
-    const { fixtureFile } = await scenario({ elicitationProbe: true })
-    const result = await runScenario(
-      { steps: [...boot, { op: 'prompt', text: 'one' }], elicitationAnswers: [{ action: 'cancel' }] },
-      { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    expect(result.rawStdout).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
   })
 
   it('answers permission requests from the scripted queue by option kind, falling back to cancelled', { timeout: 20_000 }, async () => {

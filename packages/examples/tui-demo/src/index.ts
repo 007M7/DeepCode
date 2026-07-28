@@ -10,6 +10,7 @@
 
 import type { Context } from 'cordis'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
@@ -21,13 +22,19 @@ import SessionPersistenceJsonl, {
   JsonlCompressionSchema,
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
+import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
 
 export const name = 'tui-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
+// Each front door keeps a complete Loader contract so its deployment config is
+// readable without a cross-package facade.
+/* jscpd:ignore-start */
 /** App config routed to the spine, TUI, configured agent, and JSONL backend. */
 export interface Config {
   /** Provider route for the `main` agent. */
@@ -46,17 +53,19 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
+  /** Cross-session reference discovery and snapshot byte budgets. */
+  sessionReferences?: SessionReferenceConfig
   /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
   /**
    * Shell command template the TUI prints on exit and lists under `/resume`,
    * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes via this app's env var, e.g.
-   * `RESUME_SESSION_ID={session} dsh`.
+   * door). Set it to a command that resumes the session, e.g.
+   * `dsh --resume {session}`.
    */
   resumeCommand?: string
   /** Full-screen TUI presentation settings. */
@@ -75,9 +84,6 @@ export interface Config {
   workspaceContext: agentCore.Config['workspaceContext']
 }
 
-// Each front door keeps a complete Loader schema so its deployment contract is
-// readable without a cross-package config facade.
-/* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
@@ -90,6 +96,7 @@ export const Config: z<Config> = z.object({
   sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persistenceCompression: JsonlCompressionSchema,
+  sessionReferences: SessionReferenceService.Config,
   welcome: z.string(),
   resumeCommand: z.string(),
   ui: uiTui.TuiConfigSchema,
@@ -113,13 +120,18 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
   const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
   const goals = config.goals ?? {}
+  const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
   ctx.plugin(CommandService)
   if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, {
-    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    root: persistenceRoot,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  ctx.plugin(sessionCheckpointPolicy)
+  ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') })
+  ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
+  ctx.plugin(uiTui.TuiPromptService)
   ctx.plugin(uiTui, {
     ...config.ui,
     ...config.welcome === undefined ? {} : { welcome: config.welcome },

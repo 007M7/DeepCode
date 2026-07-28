@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-ralph
 
+English | [中文](README.zh.md)
+
 The model-facing `ralph` tool runs a fixed foreground workflow that gives one immutable objective to a sequence of fresh child agents. It demonstrates a specialized orchestration policy as an ordinary plugin over [`ctx.workflows`](../workflow/README.md) and [`ctx.subagents`](../../subagent/subagent/README.md): no Ralph mode or fresh-agent loop is added to `agent-loop`, and the same-session [goal domain](../../goal/goal/README.md) remains independent. The [Ralph Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-fresh-agent-ralph-workflow-tool.md) owns the policy and deferred work.
 
 ## Contract
@@ -8,7 +10,7 @@ The model-facing `ralph` tool runs a fixed foreground workflow that gives one im
 
 Each child receives only the immutable objective, its current Ralph round and cap, a shared-workspace-as-authority instruction, and the previous structured handoff. The workspace is long-term memory; parent conversation and prior child sessions are not seeded. Reports have `status: continue | complete | blocked`, a non-empty summary, evidence, next steps, and blocker text. Status-specific semantics and the serialized `maxHandoffChars` ceiling are validated inside the fixed workflow and again at the consumer boundary. Invalid, missing, or oversized reports fail the workflow instead of being truncated or mistaken for cap exhaustion.
 
-The successful terminal tool result is `complete`, `blocked`, or `budget-limited`, with the last bounded report and number of rounds started. Completion and blocker labels explicitly say that a worker reported the outcome; they are not independent certification. `maxResultChars` bounds the complete successful text including its envelope and truncation marker, without altering the validated report used as a cross-round handoff.
+The successful terminal tool result is `complete`, `blocked`, or `budget-limited`, with the last bounded report and number of rounds started. The canonical envelope is `{ runId, agentsStarted, result }`; completion and blocker labels in its Native renderer explicitly say that a worker reported the outcome, not independent certification. `maxResultChars` bounds only that rendered text including its truncation marker, without altering the validated report in the canonical value or the cross-round handoff.
 
 An ordinary child failure produces an error naming the failed round and retaining the last successful handoff when one exists. Ralph does not retry that round. Fatal provider-start, transport, worker, or workflow failures remain workflow errors and may settle before the fixed script can return a handoff. Cancellation is also an error; partial output is never success.
 

@@ -1,10 +1,17 @@
 import type { Context } from 'cordis'
-import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelInfo,
+  LlmResolvedModelInfo,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const CONTROL_PROBE = '\u001b]2;MODEL_CONTROLLED\u0007\u001b[999CMODEL_CURSOR\u009b31mMODEL_C1'
 const INITIAL_TEXT = `I need one decision before I continue. ${CONTROL_PROBE}`
 const FINAL_TEXT = 'Decision received. Scripted TUI run complete.'
+const DEFAULT_MODE_PROBE = 'Confirm the scripted run left plan mode.'
+const DEFAULT_MODE_TEXT = 'Default mode confirmed.'
 // The `skill` scenario types `/skill:scripted-skill`; the manual-invocation front
 // door delivers the loaded skill as a user turn wrapped in `<skill name="…">`. The
 // body marker below lives in the fixture skill, so echoing it back proves the whole
@@ -33,8 +40,28 @@ class ScriptedTuiAdapter extends LlmAdapter {
     ])
   }
 
-  override resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext> {
-    return Promise.resolve({ contextWindow: 128_000 })
+  override resolveModel(
+    provider: string,
+    model: string,
+  ): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model === 'tui-scripted-model-pro' ? 'Scripted Pro' : 'Scripted Base',
+      context: { contextWindow: 128_000 },
+      ...model !== 'tui-scripted-model-pro'
+        ? {}
+        : {
+          reasoning: {
+            efforts: [
+              { id: ReasoningEffortId('off'), name: 'Off' },
+              { id: ReasoningEffortId('high'), name: 'High' },
+              { id: ReasoningEffortId('max'), name: 'Max' },
+            ],
+            defaultEffort: ReasoningEffortId('high'),
+          },
+        },
+    })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -45,14 +72,34 @@ class ScriptedTuiAdapter extends LlmAdapter {
       for (const chunk of textChunks(TITLE_TEXT)) yield chunk
       return
     }
-    if (options.model !== 'tui-scripted-model-pro' || !options.system?.includes('tui-scripted-model-pro')) {
-      throw new Error('the scripted TUI request did not apply the selected model to routing and prompt variables')
+    if (
+      options.model !== 'tui-scripted-model-pro'
+      || !options.system?.includes('tui-scripted-model-pro')
+      || options.reasoningEffort !== ReasoningEffortId('max')
+    ) {
+      throw new Error('the scripted TUI request did not apply the selected model and reasoning effort')
     }
     const lastMessage = options.messages.at(-1)
-    const lastText = (lastMessage?.content ?? [])
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
+    // The loop appends plugin-sourced context (the plan-mode notice, the
+    // tool-skill catalog) AFTER the admitted prompt, so the scripted trigger
+    // may sit one or more user messages back: scan the whole trailing run of
+    // user-role messages since the last assistant message.
+    const trailingUserTexts: string[] = []
+    for (let index = options.messages.length - 1; index >= 0; index--) {
+      const message = options.messages[index]
+      if (message?.role !== 'user') break
+      for (const block of message.content) {
+        if (block.type === 'text') trailingUserTexts.push(block.text)
+      }
+    }
+    const lastText = trailingUserTexts.join('\n')
+    if (lastText.includes(DEFAULT_MODE_PROBE)) {
+      if (options.system?.includes('Stay in plan mode for this scripted TUI test.')) {
+        throw new Error('the scripted TUI request retained plan guidance after /plan off')
+      }
+      for (const chunk of textChunks(DEFAULT_MODE_TEXT)) yield chunk
+      return
+    }
     if (lastText.includes(SKILL_BLOCK_OPEN)) {
       const ack = lastText.includes(SKILL_BODY_MARKER)
         ? SKILL_RECEIVED_TEXT

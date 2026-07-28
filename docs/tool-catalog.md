@@ -16,19 +16,21 @@ This table connects model-visible tool names to the plugin package and service s
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
-| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
+| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userInteraction (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.bash`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
-| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
+| `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `process-local temporary Plugin lifecycle` | - | Ships in examples/cordis-agent only (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
-| `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `context/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
+| `@deepseek-ai/dsh-tool-pty` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
+| `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `user/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflows`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
-| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
-| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
+| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
+| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
@@ -47,6 +49,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
       "description": "Questions to ask the user before continuing.",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string",
@@ -65,6 +68,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
             "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
             "items": {
               "type": "object",
+              "additionalProperties": true,
               "properties": {
                 "label": {
                   "type": "string",
@@ -115,17 +119,22 @@ Execute a TypeScript program against the available tools. Write the BODY of an a
     "code": {
       "type": "string",
       "description": "The program: the body of an async TypeScript function."
+    },
+    "description": {
+      "type": "string",
+      "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
     }
   },
   "required": [
-    "code"
+    "code",
+    "description"
   ]
 }
 ```
 
 Source: [`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
 
-Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
+Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -198,7 +207,7 @@ The bash tool is the model-facing consumer of the bash executor seam. A `run_in_
 
 ### `cordis_inspect`
 
-Inspect the live cordis runtime that is running THIS agent. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (a flat list of the loaded plugins with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` to narrow to one service/event and include its original source JSDoc.
+Inspect the live Cordis runtime in the current DSH process. Read-only. Sections: `services` (every provided ctx service and the plugin fiber that owns it), `plugins` (all live plugin fibers with their lifecycle states), `tools` (the model-facing tools currently registered, i.e. what you can call), `temporary` (only temporary Plugins created by cordis_mount: id, name, state, provided services, awaited services, and lifetime), `api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), `events` (every harness event with its dispatch mode and exact signature — pick listener targets here). Temporary Plugins exist only in memory, remain active across later turns, and disappear after cordis_unmount, toolset unload, or DSH restart; they are not restored automatically. The `temporary` section is a subset of `plugins`. Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` to narrow to one service/event and include its original source JSDoc.
 
 ```json
 {
@@ -211,7 +220,7 @@ Inspect the live cordis runtime that is running THIS agent. Read-only. Sections:
         "services",
         "plugins",
         "tools",
-        "dynamic",
+        "temporary",
         "api",
         "events"
       ]
@@ -228,7 +237,7 @@ Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cor
 
 ### `cordis_mount`
 
-Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, async execute(args) { … } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'boolean'|'object'|'array', required?: true, description?, enum?, items?, properties? }; a JSON-Schema-style { type: 'object', properties, required: […] } wrapper and type 'integer' are also accepted and normalized. A tool's `execute` MUST return an ARRAY of content blocks, e.g. `return [{ type: 'text', text: someString }]` — never a bare string. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
+Mount a temporary Cordis Plugin in the current DSH process. This creates an in-memory runtime Plugin, not an installed or configured Plugin. It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. To keep it, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow. It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. `code` runs now as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return the lossless JSON value declared by `output.schema`; `output.render(args, value)` separately returns Native/model content blocks. Temporary Plugins can COMPOSE: one Plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically by cordis_unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned when unmounted) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
 
 ```json
 {
@@ -236,7 +245,7 @@ Mount a NEW cordis plugin into the live runtime that is running THIS agent (self
   "properties": {
     "code": {
       "type": "string",
-      "description": "Body of an async JS function; must `return` the plugin to mount."
+      "description": "JavaScript body returning a temporary Plugin; evaluated now and saved nowhere."
     }
   },
   "required": [
@@ -249,7 +258,7 @@ Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cor
 
 ### `cordis_unmount`
 
-Dispose a plugin previously mounted with cordis_mount, by id. All its registrations (event listeners, tools, services) are cleaned up through the cordis effect lifecycle. Returns only after disposal has fully completed (quiescence, not just a request to stop).
+Unmount a current-process temporary Plugin created by cordis_mount. Waits for its tools, listeners, services, timers, and other owned effects to clean up completely. Only dyn-N temporary ids are accepted; this cannot remove Loader, configured, or installed Plugins.
 
 ```json
 {
@@ -257,7 +266,7 @@ Dispose a plugin previously mounted with cordis_mount, by id. All its registrati
   "properties": {
     "id": {
       "type": "string",
-      "description": "The dynamic mount id returned by cordis_mount (e.g. \"dyn-1\")."
+      "description": "The temporary Plugin id returned by cordis_mount (for example \"dyn-1\"); valid only in this process and invalid after unmount or restart."
     }
   },
   "required": [
@@ -268,7 +277,7 @@ Dispose a plugin previously mounted with cordis_mount, by id. All its registrati
 
 Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
 
-Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.
+Ships in examples/cordis-agent only (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -421,6 +430,169 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+## `@deepseek-ai/dsh-tool-pty`
+
+### `terminal_close`
+
+Close one persistent terminal and wait until its captured owned process tree is gone.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_list`
+
+List persistent terminal sessions owned by the current agent.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_open`
+
+Create a persistent, owner-isolated terminal session from a registered backend type. Use this for shell or REPL state that must survive across tool calls.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Registered terminal backend type, usually \"shell\"."
+    },
+    "name": {
+      "type": "string",
+      "description": "Optional owner-local display name such as \"main\" or \"gdb\"."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Initial working directory. Defaults to the deployment workspace root."
+    }
+  },
+  "required": [
+    "type"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_read`
+
+Read a bounded page of retained output from a persistent terminal without sending input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    },
+    "offset": {
+      "type": "number",
+      "description": "Newest-relative line offset (default 0)."
+    },
+    "count": {
+      "type": "number",
+      "description": "Requested line count (default 500; backend caps apply)."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_send`
+
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id returned by terminal_open or terminal_list."
+    },
+    "text": {
+      "type": "string",
+      "description": "UTF-8 text to write to the terminal."
+    },
+    "submit": {
+      "type": "boolean",
+      "description": "Submit Enter after text (default true). Set false for control characters or incomplete REPL input."
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Return a task id immediately; collect with task_output or stop with task_kill."
+    }
+  },
+  "required": [
+    "sessionId",
+    "text"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_signal`
+
+Send an allowed signal to the current foreground process group of a persistent terminal.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    },
+    "signal": {
+      "type": "string",
+      "description": "Signal to deliver. Shell-targeted SIGKILL is rejected; use terminal_close.",
+      "enum": [
+        "SIGINT",
+        "SIGTERM",
+        "SIGKILL",
+        "SIGTSTP",
+        "SIGHUP"
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "signal"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -612,6 +784,239 @@ Load the full instructions for an available skill. Call this with the exact skil
 
 Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-session-query`
+
+### `session_event_read`
+
+Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    },
+    "before": {
+      "type": "integer",
+      "description": "Number of preceding raw events to summarize. Omit for none."
+    },
+    "after": {
+      "type": "integer",
+      "description": "Number of following raw events to summarize. Omit for none."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_search`
+
+Search prior events in one authorized session; the current session excludes the step performing this call.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over the target session."
+    },
+    "seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_event_trace`
+
+Read every direct replacement and provenance relationship for one event in an authorized session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Target event sequence number."
+    }
+  },
+  "required": [
+    "seq"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_search`
+
+Search prior sessions in the caller workspace and return the strongest matching event from each session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Literal full-text query over prior session history."
+    },
+    "session_ids": {
+      "type": "array",
+      "description": "Optional session ids to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+    },
+    "created_at_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+    },
+    "parent_session_ids": {
+      "type": "array",
+      "description": "Optional direct parent session ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_root_sessions": {
+      "type": "boolean",
+      "description": "Include sessions with no parent in the parent filter."
+    },
+    "availability": {
+      "type": "array",
+      "description": "Require at least one selected source availability.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "live",
+          "persisted"
+        ]
+      }
+    },
+    "event_seq_from": {
+      "type": "integer",
+      "description": "Inclusive event sequence lower bound."
+    },
+    "event_seq_to": {
+      "type": "integer",
+      "description": "Inclusive event sequence upper bound."
+    },
+    "event_time_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
+    },
+    "event_time_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
+    },
+    "event_types": {
+      "type": "array",
+      "description": "Event types to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "event_surfaces": {
+      "type": "array",
+      "description": "Event surfaces to include.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "current",
+          "shadowed",
+          "log-only"
+        ]
+      }
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_trace`
+
+Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 ### `subagent`
@@ -715,7 +1120,7 @@ Read a background task. Stream tasks return only output since the previous read;
 
 Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
 
-The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`.
+The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`.
 
 ## `@deepseek-ai/dsh-tool-todo`
 
@@ -732,6 +1137,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       "description": "The COMPLETE task list, replacing any previous list.",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
           "content": {
             "type": "string",
@@ -762,7 +1168,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.
+todo_write is session-owned state; UIs render the latest todo/write event as a checklist.
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
@@ -773,7 +1179,7 @@ Run a JavaScript workflow script that orchestrates subagents at scale. Use this 
 The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
-- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
+- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
 - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.
 - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.
 - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.
@@ -793,6 +1199,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     "meta": {
       "type": "object",
       "description": "The workflow identity block (plain JSON — never code).",
+      "additionalProperties": true,
       "properties": {
         "name": {
           "type": "string",
@@ -811,6 +1218,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
           "description": "Optional phase declarations matched by phase() calls.",
           "items": {
             "type": "object",
+            "additionalProperties": true,
             "properties": {
               "title": {
                 "type": "string",
@@ -842,7 +1250,8 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     },
     "args": {
       "type": "object",
-      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]})."
+      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+      "additionalProperties": true
     }
   },
   "required": [

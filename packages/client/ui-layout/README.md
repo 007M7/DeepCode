@@ -1,8 +1,12 @@
 # @deepseek-ai/dsh-client-ui-layout
 
-Shell plugin: three-column AppFrame (drag handles, concession chain) + ctx.layout viewing-state service (nav, panel widths, persist); defines the sidebar/conversation/details/conversation.empty slots. Contract: api-contracts v3 §5.
+English | [中文](README.zh.md)
 
-Slot declarations use the composed-props entry form (`owner` share, no full `props`): the exported OwnerShare contracts are `SidebarOwnerProps` / `ConvOwnerProps` / `DetailsOwnerProps` / `EmptyOwnerProps` — registrants reference them via `OwnerOf<'sidebar' | ...>` and compose their own injected share locally. The `conversation` entry authorizes `conversation.empty` delegation through `children`.
+Shell plugin: three-column AppFrame (drag handles and concession chain) plus the `ctx.layout` panel-geometry service; it registers into the runtime-owned `root` slot and declares `sidebar`, `conversation`, `details`, and `conversation.empty`. The sidebar is fixed-width (only details shrinks, then auto-closes); a closed sidebar retains a 56px control rail while details closes to zero width. The package also seats the theme presenter: it consumes resolved `ctx.theme` snapshots and projects them onto the document (`html { color-scheme }` for native UA chrome, `body[data-ds-dark-theme]` from the active color scheme, plus the theme's alias tokens as inline variables on body).
+
+AppFrame reads the runtime Session projection: `baselinesReady` selects loading, a page-local `SessionListState.intent` selects the empty composer, and a connected Session renders through `SessionProvider`. The conversation and empty-state owner shares are empty; each registrant obtains business data from standard hooks and actions from its own inject face. The sidebar owner share contains only `collapsed` and `width`; navigation actions belong to sidebar's own injected service face.
+
+The `/client` export surface is the plugin body (`apply`/`inject`), `LayoutService`, and the four owner-share interfaces. AppFrame, the panel store, and the concession solver remain package-internal; tests import internals through `/src`.
 
 ## Model Experience
 

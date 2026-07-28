@@ -11,7 +11,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, TOOL_ABORTED, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-timeout-policy'
 
@@ -27,7 +27,7 @@ async function setup() {
 }
 
 /** A cooperative tool that settles ONLY when its exec.signal aborts (returns text). */
-const cooperativeTool = defineTool({
+const cooperativeTool = defineContentToolFixture({
   name: 'slow', description: 'stops when aborted', parameters: {}, timeoutMs: 100,
   execute(_args, exec): Promise<{ type: 'text'; text: string }[]> {
     const done = [{ type: 'text' as const, text: 'stopped cooperatively' }]
@@ -37,7 +37,7 @@ const cooperativeTool = defineTool({
 })
 
 /** A cooperative tool that THROWS its own upstream-abort error when aborted (web-provider shape). */
-const abortThrowingTool = defineTool({
+const abortThrowingTool = defineContentToolFixture({
   name: 'aborter', description: 'throws WEB_ABORTED when aborted', parameters: {}, timeoutMs: 100,
   execute(_args, exec): Promise<never> {
     if (exec.signal.aborted) return Promise.reject(new HarnessError('web fetch aborted', 'WEB_ABORTED'))
@@ -49,7 +49,7 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
   it('delegates a tool with NO declared budget unchanged and does not touch exec.signal', async () => {
     const ctx = await setup()
     let seenSignal: AbortSignal | undefined
-    ctx.tools.register(defineTool({ name: 'probe', description: 'd', parameters: {},
+    ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'd', parameters: {},
       async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] } }))
     const upstream = new AbortController().signal
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'probe', arguments: {}, signal: upstream })
@@ -59,16 +59,20 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
 
   it('a tool with a budget that returns fast keeps its own result (no timeout)', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 10_000,
+    ctx.tools.register(defineContentToolFixture({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] } }))
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'fast', arguments: {} })
-    expect(result).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      value: [{ type: 'text', text: 'ok' }],
+    })
   })
 
   it('a budgeted tool receives the DERIVED deadline signal (not the caller signal) during dispatch', async () => {
     const ctx = await setup()
     let seenSignal: AbortSignal | undefined
-    ctx.tools.register(defineTool({ name: 'probe', description: 'd', parameters: {}, timeoutMs: 10_000,
+    ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] } }))
     const upstream = new AbortController().signal
     await ctx.tools.execute({ callId: CallId('c1'), name: 'probe', arguments: {}, signal: upstream })
@@ -80,7 +84,7 @@ describe('timeout-policy delegation (unconfigured / fast)', () => {
 describe('timeout-policy signal restoration', () => {
   it('restores the caller signal for post-execute after wrapping', async () => {
     const ctx = await setup()
-    ctx.tools.register(defineTool({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 10_000,
+    ctx.tools.register(defineContentToolFixture({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] } }))
     let postSignal: AbortSignal | undefined | 'unset' = 'unset'
     ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => { postSignal = exec.signal; return next() })
@@ -103,7 +107,10 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: tool call timed out after 100ms' }],
       isError: true,
-      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+      error: {
+        message: 'tool call timed out after 100ms',
+        info: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+      },
     })
   })
 
@@ -114,14 +121,17 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     await vi.advanceTimersByTimeAsync(150)
     const result = await pending
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' })
+    expect(result.error).toEqual({
+      message: 'tool call timed out after 100ms',
+      info: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+    })
     expect(result.content[0]).toMatchObject({ text: 'Error: tool call timed out after 100ms' })
   })
 
   it('preserves registry ABORTED when the caller aborts first (upstream cancel, not our timeout)', async () => {
     const ctx = await setup()
     const entered = Promise.withResolvers<undefined>()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow', description: 'stops when aborted', parameters: {}, timeoutMs: 100,
       execute(_args, exec) {
         entered.resolve(undefined)
@@ -139,7 +149,10 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     await vi.advanceTimersByTimeAsync(0)
     const result = await pending
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(result.error).toEqual({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
     expect(result.content[0]).toMatchObject({ text: 'Error: tool call aborted' })
   })
 
@@ -147,7 +160,7 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
     const ctx = await setup()
     const sawAbort = Promise.withResolvers<undefined>()
     const releaseCleanup = Promise.withResolvers<undefined>()
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow-cleanup', description: 'settles after abort cleanup', parameters: {}, timeoutMs: 100,
       async execute(_args, exec) {
         if (!exec.signal.aborted) {
@@ -172,7 +185,10 @@ describe('timeout-policy TOOL_TIMEOUT replacement (deadline wins)', () => {
 
     await expect(pending).resolves.toMatchObject({
       isError: true,
-      error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+      error: {
+        message: 'tool call timed out after 100ms',
+        info: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' },
+      },
     })
   })
 })
@@ -189,7 +205,7 @@ describe('timeout-policy disposal (HMR safety)', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     let seenSignal: AbortSignal | undefined
-    ctx.tools.register(defineTool({ name: 'probe', description: 'd', parameters: {}, timeoutMs: 10_000,
+    ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'd', parameters: {}, timeoutMs: 10_000,
       async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] } }))
     const fiber = await ctx.plugin(timeoutPolicy)
     const upstream = new AbortController().signal
@@ -216,7 +232,7 @@ describe('dsh-timeout-policy real-load-path guard', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    ctx.tools.register(defineTool({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 5_000,
+    ctx.tools.register(defineContentToolFixture({ name: 'fast', description: 'd', parameters: {}, timeoutMs: 5_000,
       async execute() { return [{ type: 'text' as const, text: 'ok' }] } }))
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(timeoutPolicy) as Parameters<Context['plugin']>[0]

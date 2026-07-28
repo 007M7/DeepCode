@@ -43,12 +43,29 @@ const AGENT = {
 }
 
 const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
+
+function stabilize(
+  fresh: string,
+  existing: string,
+  replacements: Parameters<typeof stabilizeRefreshLog>[2] = [],
+  freshContext: Parameters<typeof stabilizeRefreshLog>[3] = fixtureContext(fresh),
+): string {
+  return stabilizeRefreshLog(fresh, existing, replacements, freshContext)
+}
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
+  {
+    name: 'plain-turn',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'main',
+    env: { DSH_PERMISSION_MODE: 'never' },
+    configPath: AGENT.configPath,
+    workspaceParent: tmpdir(),
+  },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
@@ -123,6 +140,8 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     expect(stdout).not.toContain('stale stdout')
     expect(stdout).toContain('env:{\\"mode\\":\\"replay\\"')
     expect(stdout).not.toContain('\\"mode\\":\\"refresh\\"')
+    // The scenario's own env layer reached the subprocess.
+    expect(stdout).toContain('\\"permissionMode\\":\\"never\\"')
 
     const blocked = readFileSync(join(refreshDir, 'blocked-log', 'session.jsonl'), 'utf8')
     expect(blocked).toContain('"decision":"block"')
@@ -413,8 +432,8 @@ describe('tool-schema snapshots', () => {
 describe('unknownToolCallIds', () => {
   it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
     const log = [
-      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
-      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"missing"}},"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"failed"}},"error":{"code":"EXECUTION_FAILED"}}}',
       '{"type":"tool/result","data":null}',
       '{"type":"tool/result","data":"invalid"}',
       '{"type":"tool/result","data":{"error":null}}',
@@ -427,7 +446,7 @@ describe('unknownToolCallIds', () => {
   })
 
   it('returns no failures for ordinary tool results', () => {
-    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"ok"}}}}\n')).toEqual([])
   })
 })
 
@@ -448,9 +467,101 @@ describe('refreshFixtureReplacements', () => {
       { from: '/new', to: '/old' },
     ])
   })
+
+  it('stabilizes moved snapshot spill paths by filename while skipping unchanged or unmatched names', () => {
+    const spill = (session: string, hash: string, name: string): string =>
+      `/tmp/dsh-acp-snapshot-spill/session-${session}/${hash}-${name}`
+    const record = (text: string): string =>
+      `${JSON.stringify({ type: 'session', id: 'same', cwd: '/same' })}\n`
+      + `${JSON.stringify({ type: 'tool/result', data: { content: [{ type: 'text', text: `stored at: ${text} ` }] } })}\n`
+    const freshBash = spill('aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'bash.txt')
+    const oldBash = spill('cccccccccccc', 'dddddddddddd', 'bash.txt')
+    const shared = spill('eeeeeeeeeeee', 'ffffffffffff', 'grep.txt')
+    const orphan = spill('111111111111', '222222222222', 'orphan.txt')
+    const logs: HarvestedLog[] = [{
+      id: 'diagnostic',
+      createdAt: 1,
+      content: record(`${freshBash} and ${shared}`),
+    }]
+    const fixtures = [record(`${oldBash} and ${shared} and ${orphan}`)]
+    // bash.txt moved → replaced; grep.txt is identical and orphan.txt has no
+    // fresh counterpart → both skipped.
+    expect(refreshFixtureReplacements(logs, fixtures)).toEqual([
+      { from: freshBash, to: oldBash },
+    ])
+  })
 })
 
 describe('stabilizeRefreshLog', () => {
+  it('preserves unpacked member times when refresh first packs a chunk run', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"reasoning-chunks","seq0":2,"time0":200,"data":{"turn":1,"step":1,"index":0,"dt":[5,7],"texts":["new",""," split"]}}',
+      '{"type":"assistant/message","seq":5,"time":220,"data":{}}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"assistant/chunk","seq":2,"time":100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"old"}}}',
+      '{"type":"assistant/chunk","seq":3,"time":101,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"chunk"}}}',
+      '{"type":"assistant/chunk","seq":4,"time":103,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"shape"}}}',
+      '{"type":"assistant/message","seq":5,"time":104,"data":{}}',
+      '',
+    ].join('\n')
+
+    expect(stabilize(fresh, existing)).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"reasoning-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
+      '{"type":"assistant/message","seq":5,"time":104,"data":{}}',
+      '',
+    ].join('\n'))
+  })
+
+  it('preserves packed member times without flattening fresh chunk boundaries', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"text-chunks","seq0":2,"time0":200,"data":{"turn":1,"step":1,"index":0,"dt":[5,7],"texts":["new",""," split"]}}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"text-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["old","chunk","shape"]}}',
+      '',
+    ].join('\n')
+
+    expect(stabilize(fresh, existing)).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"text-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
+      '',
+    ].join('\n'))
+  })
+
+  it.each([
+    ['the old run is absent', [], 200],
+    ['the old run is shorter', [100, 101], 100],
+    ['a later old time is invalid', [100, 'invalid', 103], 100],
+    ['an old gap is not exactly representable', [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER - 1], Number.MIN_SAFE_INTEGER],
+  ])('keeps fresh packed gaps when %s', (_case, existingTimes, expectedTime0) => {
+    const freshRow = {
+      type: 'reasoning-chunks',
+      seq0: 2,
+      time0: 200,
+      data: { turn: 1, step: 1, index: 0, dt: [5, 7], texts: ['new', '', ' split'] },
+    }
+    const existingRows = existingTimes.map((time, index) => ({
+      type: 'assistant/chunk',
+      seq: index + 2,
+      time,
+      data: {},
+    }))
+    const output = stabilize(
+      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 200 })}\n${JSON.stringify(freshRow)}\n`,
+      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 100 })}\n${existingRows.map(row => JSON.stringify(row)).join('\n')}\n`,
+    ).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+
+    expect(output[1]).toStrictEqual({ ...freshRow, time0: expectedTime0 })
+  })
+
   it('aligns volatile times across a newly inserted log event', () => {
     const fresh = [
       '{"type":"session","id":"same","createdAt":200}',
@@ -470,7 +581,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+    expect(stabilize(fresh, existing)).toBe([
       '{"type":"session","id":"same","createdAt":100}',
       '{"type":"turn/start","seq":0,"time":11}',
       '{"type":"user/message","seq":1,"time":12}',
@@ -499,7 +610,7 @@ describe('stabilizeRefreshLog', () => {
       '',
     ].join('\n')
 
-    expect(stabilizeRefreshLog(fresh, existing, [
+    expect(stabilize(fresh, existing, [
       { from: 'new-parent', to: 'old-parent' },
       { from: 'new-child', to: 'old-child' },
       { from: '/new', to: '/old' },
@@ -511,5 +622,234 @@ describe('stabilizeRefreshLog', () => {
       '{"type":"hook/result","seq":4,"time":13,"data":{"decision":"allow","durationMs":5}}',
       '',
     ].join('\n'))
+  })
+
+  it('preserves normalized volatile fields while accepting fresh semantic fields', () => {
+    const freshApprovalId = '11111111-1111-4111-8111-111111111111'
+    const existingApprovalId = '22222222-2222-4222-8222-222222222222'
+    const freshSpill = '/tmp/dsh-acp-snap-012345678/session-111111111111/222222222222-bash.txt'
+    const existingSpill = '/tmp/dsh-acp-snap-012345678/session-aaaaaaaaaaaa/bbbbbbbbbbbb-bash.txt'
+    const freshEventRead = [
+      'Session main — title',
+      'Target event seq 4:',
+      '```json',
+      '{',
+      '  "time": 1785000000000,',
+      '  "data": {}',
+      '}',
+      '```',
+      '',
+      `(Omitted 40000 bytes. Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.)`,
+    ].join('\n')
+    const existingEventRead = freshEventRead
+      .replace('1785000000000', '1784000000000')
+      .replace('40000 bytes', '30000 bytes')
+      .replace(freshSpill, existingSpill)
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({
+        type: 'approval/asked',
+        seq: 1,
+        time: 22,
+        data: {
+          id: freshApprovalId,
+          outcome: 'fresh',
+          aliases: [freshApprovalId, 'fresh'],
+          resized: [freshApprovalId, 'new'],
+          shape: { shared: freshApprovalId, added: true },
+        },
+      }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 2,
+        time: 23,
+        data: {
+          spill: `Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/private/old/result.txt',
+          eventRead: freshEventRead,
+        },
+      }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({
+        type: 'approval/asked',
+        seq: 1,
+        time: 11,
+        data: {
+          id: existingApprovalId,
+          outcome: 'stale',
+          aliases: [existingApprovalId, 'stale'],
+          resized: [existingApprovalId],
+          shape: { shared: existingApprovalId },
+        },
+      }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 2,
+        time: 12,
+        data: {
+          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/old/result.txt',
+          eventRead: existingEventRead,
+        },
+      }),
+      '',
+    ].join('\n')
+
+    const output = stabilize(fresh, existing).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(output).toEqual([
+      { type: 'session', id: 'same', createdAt: 100, cwd: '/old' },
+      {
+        type: 'approval/asked',
+        seq: 1,
+        time: 11,
+        data: {
+          id: existingApprovalId,
+          outcome: 'fresh',
+          aliases: [existingApprovalId, 'fresh'],
+          resized: [freshApprovalId, 'new'],
+          shape: { shared: existingApprovalId, added: true },
+        },
+      },
+      {
+        type: 'tool/result',
+        seq: 2,
+        time: 12,
+        data: {
+          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          path: '/old/result.txt',
+          eventRead: existingEventRead,
+        },
+      },
+    ])
+  })
+
+  it('normalizes fresh cwd aliases before reusing existing paths', () => {
+    const freshCwd = String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snap-cwd-new`
+    const freshAlias = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snap-cwd-new`
+    const existingCwd = String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snap-cwd-old`
+    const fresh = [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 200, cwd: freshCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${freshAlias}\\result.txt` } }),
+      '',
+    ].join('\n')
+    const existing = [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 100, cwd: existingCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${existingCwd}\\result.txt` } }),
+      '',
+    ].join('\n')
+    const freshContext = { ...fixtureContext(fresh), cwdAliases: [freshAlias] }
+
+    expect(stabilize(
+      fresh,
+      existing,
+      [{ from: freshCwd, to: existingCwd }],
+      freshContext,
+    )).toBe([
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 100, cwd: existingCwd }),
+      JSON.stringify({ type: 'tool/result', data: { path: `${existingCwd}\\result.txt` } }),
+      '',
+    ].join('\n'))
+  })
+
+  it('preserves one correlated volatile id through a consistent log-wide mapping', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: freshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: freshId, outcome: 'allowed-once' } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId, outcome: 'rejected' } }),
+      '',
+    ].join('\n')
+
+    expect(stabilize(fresh, existing)).toBe([
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId, outcome: 'allowed-once' } }),
+      '',
+    ].join('\n'))
+  })
+
+  it('keeps fresh correlated ids when record alignment is structurally ambiguous', () => {
+    const firstFreshId = '11111111-1111-4111-8111-111111111111'
+    const secondFreshId = '22222222-2222-4222-8222-222222222222'
+    const existingId = '33333333-3333-4333-8333-333333333333'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: firstFreshId } }),
+      JSON.stringify({ type: 'approval/asked', data: { id: secondFreshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: firstFreshId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: secondFreshId } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId } }),
+      '',
+    ].join('\n')
+
+    const ids = stabilize(fresh, existing).trim().split('\n').slice(1)
+      .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
+    expect(ids).toEqual([firstFreshId, secondFreshId, firstFreshId, secondFreshId])
+  })
+
+  it('keeps fresh ids when existing records remain unmatched', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: freshId } }),
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      JSON.stringify({ type: 'approval/asked', data: { id: existingId } }),
+      JSON.stringify({ type: 'approval/decided', data: { id: existingId } }),
+      '',
+    ].join('\n')
+
+    const output = stabilize(fresh, existing).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(output[1]).toEqual({ type: 'approval/asked', data: { id: freshId } })
+  })
+
+  it.each([
+    {
+      name: 'one fresh id would map to two existing ids',
+      fresh: ['a', 'b', 'b', 'a'],
+      existing: ['x', 'y', 'x', 'y'],
+    },
+    {
+      name: 'two fresh ids would map to one existing id',
+      fresh: ['a', 'b'],
+      existing: ['x', 'x'],
+    },
+  ])('keeps fresh ids when $name', ({ fresh: freshNames, existing: existingNames }) => {
+    const ids = {
+      a: '11111111-1111-4111-8111-111111111111',
+      b: '22222222-2222-4222-8222-222222222222',
+      x: '33333333-3333-4333-8333-333333333333',
+      y: '44444444-4444-4444-8444-444444444444',
+    } as const
+    const types = ['approval/asked', 'approval/asked', 'approval/decided', 'approval/decided']
+    const log = (names: string[]): string => [
+      '{"type":"session","id":"same","createdAt":100,"cwd":"/old"}',
+      ...names.map((name, index) => JSON.stringify({ type: types[index], data: { id: ids[name as keyof typeof ids] } })),
+      '',
+    ].join('\n')
+
+    const outputIds = stabilize(log(freshNames), log(existingNames)).trim().split('\n').slice(1)
+      .map(line => (JSON.parse(line) as { data: { id: string } }).data.id)
+    expect(outputIds).toEqual(freshNames.map(name => ids[name as keyof typeof ids]))
   })
 })

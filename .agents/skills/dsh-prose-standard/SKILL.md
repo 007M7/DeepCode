@@ -7,6 +7,8 @@ description: Use when writing, reviewing, restoring, trimming, or auditing prose
 
 Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
 
+Comments describe non-obvious contracts or rationale that code cannot express; they do not restate what code already implies.
+
 ## Inputs and exclusions
 
 Require an explicit `scope`. If it is missing, report the required input and stop; do not infer a repository-wide scope or begin an interview.
@@ -16,6 +18,8 @@ Accept `mode: automatic | interactive`; default to `automatic`. Enter interactiv
 `mode` controls questions, not write authority. Review and audit tasks report findings without editing; explicitly requested write, fix, or trim tasks apply clear changes.
 
 Always exclude `vendor/` from discovery, review, and edits, even when the requested scope is the whole repository. Do not follow a symlink into it. Put exclusions after inclusion globs so a later include cannot re-admit it: for example, end ripgrep commands with `--glob '!vendor/**'`, and give Git commands an explicit `:(exclude)vendor/**` pathspec. If the requested scope contains only `vendor/`, report that no eligible files remain.
+
+Also exclude `.agents/notes/archived/` from prose review and edits. Archived Agent Notes are frozen snapshots; inspect an exact target only to understand a historical inbound citation, never to modernize its prose or outbound links.
 
 Treat generated catalogs, snapshots, and fixtures as derivative. Edit the owning source or scenario first, then regenerate the artifact. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Bilingual pairs have no permanent owner: either language may be the authored side for an update. Update the counterpart minimally and re-record the pair.
 

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
@@ -49,6 +50,7 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(Lsp)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LspLocal, {
     servers: {
       inline: {
@@ -90,7 +92,7 @@ describe('tool-lsp integration', () => {
     const ctx = await mount(true, 300)
     const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 7 })
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('TOOL_TIMEOUT')
+    expect(result.error?.info?.code).toBe('TOOL_TIMEOUT')
     await ctx.fiber.dispose()
   }, 30_000)
 })

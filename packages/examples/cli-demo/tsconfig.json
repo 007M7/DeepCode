@@ -3,8 +3,7 @@
   "compilerOptions": {
     "composite": true,
     "rootDir": "src",
-    "outDir": "lib/types",
-    "tsBuildInfoFile": "../../../.typecheck/cli-demo.tsbuildinfo"
+    "outDir": "lib/types"
   },
   "include": ["src/**/*.ts"],
   "references": [
@@ -31,6 +30,9 @@
     },
     {
       "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../session-persistence/session-checkpoint-policy"
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"

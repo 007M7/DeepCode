@@ -80,11 +80,15 @@ const inferredTool = defineTool({
   name: 'signal-inference',
   description: 'Pins contextual signal inference.',
   parameters: {},
+  output: {
+    schema: { type: 'null' },
+    render: () => [],
+  },
   async execute(_args, exec) {
     expectTypeOf(exec.signal).toEqualTypeOf<AbortSignal>()
     // @ts-expect-error -- defineTool contextually exposes a readonly signal.
     exec.signal = new AbortController().signal
-    return []
+    return null
   },
 })
 void inferredTool

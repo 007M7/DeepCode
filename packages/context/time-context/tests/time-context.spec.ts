@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as timeContext from '@deepseek-ai/dsh-time-context'
@@ -41,15 +41,14 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     options: {},
     session,
     status: 'running',
+    acceptsNextStep: true,
     ctx: new Context(),
-    send() {},
-    steer() {},
-    inject(content, options) {
-      session.append('context/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-      }, { surfaceOp: 'append' })
+    followup: () => {},
+    steer: () => {},
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
     },
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -57,16 +56,16 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
 
 function openMessageTurn(session: Session, turn: number): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 function contextTexts(session: Session): string[] {
   const texts: string[] = []
   for (const event of session.events) {
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context') {
       texts.push(event.data.content.find(block => block.type === 'text')?.text ?? '')
@@ -82,7 +81,7 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/pre-step', turn, step, signal)
+  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
 }
 
 function textResponse(text: string): StreamChunk[] {
@@ -151,8 +150,8 @@ describe('durable step context', () => {
       + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
     ])
     const event = session.events.at(-1)
-    expect(event?.type).toBe('context/message')
-    if (event?.type !== 'context/message') throw new Error('missing time context')
+    expect(event?.type).toBe('user/message')
+    if (event?.type !== 'user/message') throw new Error('missing time context')
     expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
     expect(event.surfaceOp).toBe('append')
   })
@@ -230,13 +229,13 @@ describe('durable step context', () => {
     const original = new Session(SessionId('seed-source'))
     openMessageTurn(original, 1)
     await fire(ctx, sessionAgent(original), 1, 1)
-    const user = original.events.find(event => event.type === 'user/message')
-    const reading = original.events.find(event => event.type === 'context/message')
+    const user = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'user')
+    const reading = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     if (user === undefined || reading === undefined) throw new Error('missing source surface events')
-    original.append('context/message', {
+    original.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted history' }],
       source: { kind: 'plugin', plugin: 'compact-basic' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start: user.seq, end: reading.seq },
       sourceEventSeqs: [user.seq, reading.seq],
     })
@@ -291,8 +290,8 @@ describe('durable step context', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     let ordinarySawContext = false
-    ctx.on('agent/pre-step', (subject) => {
-      ordinarySawContext = subject.session.events.some(event => event.type === 'context/message')
+    ctx.on('agent/step', (subject) => {
+      ordinarySawContext = subject.session.events.some(event => event.type === 'user/message')
     })
 
     await fire(ctx, agent, 1, 1)
@@ -360,22 +359,22 @@ describe('real agent-loop request history', () => {
   it.each([
     ['throws', 'error'],
     ['cancels', 'aborted'],
-  ] as const)('retains the preparation reading when a later pre-step listener %s', async (mode, reasonKind) => {
+  ] as const)('discards the pending preparation reading when a later step listener %s', async (mode, reasonKind) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
     let laterSawReading = false
-    ctx.on('agent/pre-step', (subject) => {
+    ctx.on('agent/step', (subject) => {
       laterSawReading = contextTexts(subject.session).length === 1
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel({ kind: 'user' })
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
-    expect(laterSawReading).toBe(true)
-    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(laterSawReading).toBe(false)
+    expect(contextTexts(agent.session)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
@@ -386,7 +385,7 @@ describe('real agent-loop request history', () => {
   it('persists one ordered context per request, accumulates readings, and leaves system headers unchanged', async () => {
     const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done')])
     const ctx = await loopHarness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'tick',
       description: 'advance fake time',
       parameters: {},
@@ -397,11 +396,12 @@ describe('real agent-loop request history', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)
-    const contexts = agent.session.events.filter(event => event.type === 'context/message')
+    const contexts = agent.session.events.filter(
+      (event): event is SessionEvent<'user/message'> => event.type === 'user/message' && event.data.source.kind === 'plugin')
     const starts = agent.session.events.filter(event => event.type === 'step/start')
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)

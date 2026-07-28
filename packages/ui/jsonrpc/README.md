@@ -1,6 +1,8 @@
 # @deepseek-ai/dsh-jsonrpc
 
-The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-process SDK clients can drive harness agents. [`HarnessSdkServer`](src/server.ts) owns the protocol methods and notifications; [`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) supplies the surrounding `cordis.yml` application.
+English | [中文](README.zh.md)
+
+The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-process SDK clients can drive harness agents. [`HarnessSdkServer`](src/server.ts) owns the protocol methods and notifications; the transport and the named wire types live in [`dsh-sdk-protocol`](../../sdk/sdk-protocol/README.md), shared with the client SDKs; [`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) supplies the surrounding `cordis.yml` application.
 
 ## Wiring
 
@@ -20,7 +22,7 @@ The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to qu
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later injection or plugin-owned zero-step turns still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. An optional positive `initialize.maxTokens` becomes the request output cap of each SDK-created agent and its in-process descendants; invalid values reject initialization, while omission sends no cap and preserves provider defaults. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later between-turn records still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
 
 ## Model Experience
 

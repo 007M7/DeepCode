@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-adding-a-vendored-package.md: 1b82f2e582ca5cd040a7f3237505848dbb304fae
-adding-a-vendored-package.zh.md: 7245682ef8b7d85ace2c626f8d47aa36f739506b
+adding-a-vendored-package.md: 71ca9fccc9418348784dbb6668127242e4fb45d2
+adding-a-vendored-package.zh.md: c340630aebeda0ec293a835cdfc8d15d71cd7801

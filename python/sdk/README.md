@@ -19,7 +19,7 @@ with DeepSeekHarness() as harness:
 
 `DeepSeekHarness` keeps its lazily started runtime subprocess for reuse across calls. Use it as a context manager, as above, or call `close()` explicitly when finished.
 
-By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executable from the `deepseek-harness-runtime-bin` package and injects that package's default configuration (the stdio JSON-RPC server, agent core, preloaded DeepSeek adapter, JSONL session persistence, local bash) via `DSH_CORDIS_CONFIG`. To run a plugin composition of your own, keep the `@deepseek-ai/dsh-jsonrpc` entry in the config and pass the Cordis config path.
+By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executable from the `deepseek-harness-runtime-bin` package and injects that package's default configuration (the stdio JSON-RPC server, agent core, preloaded DeepSeek adapter, JSONL session persistence with an explicitly composed semantic checkpoint policy, local bash) via `DSH_CORDIS_CONFIG`. To run a plugin composition of your own, keep the `@deepseek-ai/dsh-jsonrpc` entry in the config and pass the Cordis config path.
 
 ```py
 from deepseek_harness import DeepSeekHarness
@@ -27,16 +27,15 @@ from deepseek_harness import DeepSeekHarness
 with DeepSeekHarness(
     provider="deepseek",
     model="deepseek-v4-flash",
+    max_tokens=49_152,
     cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
+`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. `max_tokens` is an optional positive per-request output-token cap for the root agent and its in-process descendants; omission leaves the provider default in control. Compaction summaries keep the separate limit configured by their compaction plugin. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
-`TurnResult.final_response` is the text content from the last
-`assistant/message` event in the turn. Use `TurnResult.events` for the complete
-event stream, including intermediate assistant messages and tool activity.
+`HarnessClient` retains discovered subagent ancestry for the lifetime of the runtime process. During each `Session.run()`, `TurnResult.notifications` and `on_notification` receive the root session and all known descendant notifications in wire order, including nested subagent lifecycle and session events. `TurnResult.events` remains the root session's complete event stream, and `TurnResult.final_response` is the text content from its last `assistant/message`; descendant messages therefore cannot replace the root response.
 
 The same behavior can be selected for the runtime subprocess with `DSH_CORDIS_CONFIG`. The injection lives in `HarnessClient.start()`, so the low-level client's default launch gets it too: when the launch resolves to the bundled runtime and neither `cordis` nor a non-empty `DSH_CORDIS_CONFIG` is set (the runtime treats an empty value as absent, and so does the injection check), the bundled default configuration is used; an explicit `runtime_bin`, `bridge_bin`, or `launch_args_override` disables the injection entirely. See the [sdk-runtime README](../sdk-runtime/README.md) for the runtime carriers (production exe vs dev-only node closure) and how to obtain them.
 

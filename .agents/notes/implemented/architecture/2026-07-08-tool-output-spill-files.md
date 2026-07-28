@@ -2,13 +2,15 @@
 
 Status: implemented
 
+English | [中文](2026-07-08-tool-output-spill-files.zh.md)
+
 ## Problem
 
 Tool outputs need bounded model-facing previews, but some oversized results are still useful later. A fetched page body or a verbose tool response should not consume the next model request in full, but the model should be able to inspect the complete formatted result later with existing file-reading tools.
 
 Before this change the behavior was uneven. `dsh-bash-local` already writes complete stdout/stderr streams to private temp spill files when its in-memory tail overflows, but ordinary text tool results were returned inline unless the tool hand-rolled its own cap. The [tool result retention library](2026-07-06-tool-result-retention-library.md) owns preview mechanics, but it does not own storage or an execution-pipeline policy that applies those mechanics to final tool results.
 
-The shape matches the timeout policy design: a tool author normally returns the text result, and a policy plugin enforces the deployment's default context budget. Tool-specific early spill remains possible later for outputs that do not survive to the final `ToolExecutionResult`; the first cut proves the default final-result path.
+The shape matches the timeout policy design: a tool author declares a canonical value plus Native renderer, and a policy plugin enforces the deployment's default context budget on rendered content. Tool-specific early spill remains possible for provider acquisition bounds; tool-owned surface spill may retain a complete acquired canonical value while replacing only presentation. The [canonical tool-output contract](2026-07-20-canonical-tool-output-contract.md) owns that split.
 
 ## Decision
 
@@ -97,9 +99,13 @@ The policy skips `read` to avoid a circular `read -> spill file -> read again` l
 ```ts ignore-check
 ctx.tools.register(defineTool({
   name: 'web_fetch',
+  output: {
+    schema: WEB_FETCH_RESULT_SCHEMA,
+    render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value) }],
+  },
   async execute(args, exec) {
     const result = await ctx.web.fetch({ url: args.url }, exec.signal ? { signal: exec.signal } : undefined)
-    return [{ type: 'text', text: formatFetchOutput(result) }]
+    return result
   },
 }))
 ```

@@ -1,15 +1,8 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types",
-    "jsx": "react-jsx",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": []
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -19,7 +12,13 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../ui-theme"
     },
     {
       "path": "../ui-primitives"

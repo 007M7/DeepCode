@@ -1,5 +1,7 @@
 # dsh-timeout-policy
 
+English | [中文](README.zh.md)
+
 Tool-call timeout enforcer: a single `tools/execute` around-dispatch listener that arms a per-call cooperative deadline on `exec.signal` for a tool declaring `timeoutMs` on its `ToolDefinition` and returns a structured `TOOL_TIMEOUT` result when that deadline wins. The budget is read from the tool's own declaration (`ToolDefinition.timeoutMs`, set by the owning tool plugin), so this plugin is **zero-config**. It is the reference `tools/execute` wrapper and the enforcement home for model-facing tool-call budgets (the timeout-library Agent Note's foreseen middleware).
 
 ## Plugin (namespace: `timeout-policy`)
@@ -19,7 +21,7 @@ For a tool that **declares a `timeoutMs`** the listener:
 
 1. Reads the budget from the tool's own declaration in the registry (`ctx.tools.get(exec.name)?.timeoutMs`) and arms `deadline(exec.signal, timeoutMs, 'TOOL_TIMEOUT')` — one signal fusing the caller's abort with this plugin's timer (`@deepseek-ai/dsh-timeout`).
 2. Swaps that derived signal onto `exec` for the downstream dispatch, then restores the caller's own signal afterward (cordis `next()` ignores passed arguments, so the wrapper mutates the shared `exec` in place; restoring keeps `tools/post-execute` seeing the caller's signal).
-3. After dispatch, if `timeoutOf(d.signal, 'TOOL_TIMEOUT')` matches — this plugin's own timer fired — replaces the result with a structured `TOOL_TIMEOUT` tool result: `{ isError: true, error: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' }, content: 'Error: tool call timed out after <ms>ms' }`.
+3. After dispatch, if `timeoutOf(d.signal, 'TOOL_TIMEOUT')` matches — this plugin's own timer fired — replaces the result with a structured `TOOL_TIMEOUT` tool result: `{ isError: true, error: { message, info: { name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' } }, content: 'Error: tool call timed out after <ms>ms' }`.
 
 A tool that **declares no budget** delegates untouched (no deadline).
 

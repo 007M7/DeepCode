@@ -15,6 +15,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -47,7 +48,7 @@ const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagent
 The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, provider?, model?}\`). The \`script\` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
-- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), and independent \`provider\`/\`model\` LLM target overrides (either may be provided alone). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
+- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), and independent \`provider\`/\`model\` LLM target overrides (either may be provided alone). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
 - \`pipeline(items, ...stages): Promise<any[]>\` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives \`(prev, item, index)\`. An ordinary stage throw drops that ITEM to \`null\` and skips its remaining stages.
 - \`parallel(thunks): Promise<any[]>\` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to \`null\`.
 - \`phase(title)\` — start a progress phase; \`log(message)\` — narrate progress; \`args\` — the tool call's \`args\` input, verbatim.
@@ -100,13 +101,13 @@ function stopReasonError(result: WorkflowResult): string | undefined {
 }
 
 /** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
-function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number): string {
+function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number): string {
   // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
-  const rendered = JSON.stringify(result.value, null, 2)
+  const rendered = JSON.stringify(value, null, 2)
   const clipped = rendered.length > maxChars
     ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]`
     : rendered
-  return `workflow "${run.meta.name}" completed (${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -131,6 +132,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       meta: {
         type: 'object',
+        additionalProperties: true,
         required: true,
         description: 'The workflow identity block (plain JSON — never code).',
         properties: {
@@ -142,6 +144,7 @@ export function apply(ctx: Context, config: Config): void {
             description: 'Optional phase declarations matched by phase() calls.',
             items: {
               type: 'object',
+              additionalProperties: true,
               properties: {
                 title: { type: 'string', required: true, description: 'The phase title phase() calls match by exact string.' },
                 detail: { type: 'string', description: 'Optional one-line description of the phase.' },
@@ -154,10 +157,26 @@ export function apply(ctx: Context, config: Config): void {
       },
       args: {
         type: 'object',
+        additionalProperties: true,
         description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
       },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          runId: { type: 'string', required: true },
+          agentsStarted: { type: 'integer', required: true },
+          result: { type: 'json', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars),
+      }],
+    },
+    async execute(args, exec) {
       const parent = exec.agent
       if (!parent) {
         // The loop sets `exec.agent` for every model-driven call; its absence
@@ -191,7 +210,11 @@ export function apply(ctx: Context, config: Config): void {
           // throw into an isError). Report the reason, not partial output.
           throw new Error(error)
         }
-        return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
+        return {
+          runId: run.id,
+          agentsStarted: result.agentsStarted,
+          result: result.value as JsonValue,
+        }
       } finally {
         exec.signal.removeEventListener('abort', onAbort)
         // Always reach run quiescence — never leak a live script or children.

@@ -1,42 +1,27 @@
 /**
- * Conversation domain plugin, browser half: skeleton (header/tabs/composer),
- * typed view registry, scope-addressed ConversationService, named toolview
- * registry, minimal details panel. Contract: api-contracts v3 section 7.
- * Thin shell: type surfaces live in contract/, assembly in apply.ts; the
- * three implementation domains (skeleton/chat/toolviews) never import each
- * other — contract/ is their only shared face.
+ * Browser conversation plugin. `contract/` is the shared type boundary
+ * between the independently implemented skeleton and chat domains; `apply.ts`
+ * owns their slot assembly.
  */
 import type { ConversationService } from './service.ts'
-import type { ToolViewRegistry } from './toolviews/registry.ts'
 
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
-export { ToolViewRegistry } from './toolviews/registry.ts'
 
 export type {
-  CallId, ChromeProps, ChromePropsOf, ConversationViewMap, ConvViewProps, ConvViewPropsOf,
-  SelectionTarget, Translate, ViewEntry, ViewEntryDef, ViewId,
+  CallId, ChatStoreState, SelectionTarget, ViewTab,
 } from './contract/views.ts'
+export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type {
-  ResolvedToolView, ToolCallBlock, ToolViewOptions, ToolViewProps, ToolViewResolver,
-} from './contract/toolview.ts'
-export type {
-  ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
-  EmptyStateInjected, EmptyStateSlotProps, GoalActionResult, GoalBarActions,
+  ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
+  ComposerChainProps, ConversationInjected,
+  ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
+  EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
 } from './contract/slots.ts'
-
-export { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-export type { ConversationRootProps } from './skeleton/ConversationRoot.tsx'
-export { InputBar } from './skeleton/InputBar.tsx'
-export type { InputBarError, InputBarProps } from './skeleton/InputBar.tsx'
-export { EmptyState } from './skeleton/EmptyState.tsx'
-export type { EmptyStateProps } from './skeleton/EmptyState.tsx'
-export { DetailsPanel } from './skeleton/DetailsPanel.tsx'
-export type { DetailsPanelProps } from './skeleton/DetailsPanel.tsx'
+// Export discipline: packages/client/AGENTS.md.
 
 declare module 'cordis' {
   interface Context {
     conversation: ConversationService
-    toolviews: ToolViewRegistry
   }
 }

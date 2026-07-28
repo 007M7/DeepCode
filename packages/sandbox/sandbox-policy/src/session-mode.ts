@@ -1,15 +1,15 @@
 /**
  * Per-session sandbox-mode override: the session log as the store. A runtime
- * switch (an ACP `session/set_config_option`, a test scenario) is recorded as
- * one `sandbox/mode` event on the session it applies to;
+ * switch (a UI policy control or test scenario) is recorded as one
+ * `sandbox/mode` event on the session it applies to;
  * `effective = fold(events) ?? the deployment default`, so an override
  * survives restart by replay, two sessions can never see each other's state,
  * and there is no external config store. The event is log-only (the
  * `approval/*` precedent): the model learns the mode from the boundary
  * markers in the enforcing tools, never from the event itself. EXECUTION
- * honors the fold in each tool layer — it stamps the effective mode onto the
- * per-call policy carrier (a bash request's `sandboxMode`, an fs mutation's
- * `sandboxMode`), weakest-precedence beneath an escalation grant.
+ * honors the fold through `ctx.sandboxPolicy.resolve()` — it stamps the mode
+ * together with the calling session's workspace root onto each capability
+ * call, weakest-precedence beneath an escalation grant.
  *
  * The override is policy state shared by every enforcing family (bash and
  * filesystem alike), so it lives here in the policy package rather than in any

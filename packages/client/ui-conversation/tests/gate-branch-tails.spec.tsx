@@ -1,23 +1,16 @@
 // @vitest-environment jsdom
-// Final branch tails for the coverage gate, post slot-phase-2: apply's need()
-// throw + cwd cache hit/empty-cwd skip, AssistantMarkdown non-final reasoning,
-// StatsLine usage-less node, ChatView tool-group selected passthrough +
-// running-empty guard, DetailsPanel titleless selection, registry disposer
-// after a foreign removal emptied the list.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import { Context } from 'cordis'
-import { createSnapshotStore, bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject, ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
 afterEach(cleanup)
 
@@ -25,58 +18,11 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null, goal: undefined,
-  } as ConversationSnapshot
+    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+  }
 }
-
-describe('apply need() and cwd cache', () => {
-  it('apply fails loud when a required service is absent', () => {
-    // Call apply directly (no fiber machinery): need('sessions') on a bare
-    // context throws synchronously — the loud-failure branch without the
-    // fiber runner's internal rejection surface. Mount semantics (inject
-    // gating) are covered by the full bench in apply-inject.spec.
-    void inject
-    const ctx = new Context()
-    expect(() => { (apply as (c: Context) => void)(ctx) }).toThrow(/sessions service unavailable/)
-  })
-
-  it('cwd derivation caches per list state and skips empty cwd values', async () => {
-    const ctx = new Context()
-    const slotsFiber = ctx.plugin(SlotsService)
-    await slotsFiber.await()
-    const listStore = createSnapshotStore<SessionListState>({
-      ids: [SID, 'x2' as SessionId, 'x3' as SessionId],
-      byId: {
-        [SID]: { id: SID, title: 'a', cwd: '/proj', running: false, updatedAt: 1 },
-        ['x2' as SessionId]: { id: 'x2' as SessionId, title: 'b', cwd: '', running: false, updatedAt: 1 },
-        ['x3' as SessionId]: { id: 'x3' as SessionId, title: 'c', running: false, updatedAt: 1 },
-      },
-    })
-    ctx.provide('sessions', { list: listStore, manager: { get: vi.fn() }, ancestry: () => [], scope: () => undefined, create: vi.fn() })
-    ctx.provide('layout', { current: createSnapshotStore<{ viewFor: Record<string, string> }>({ viewFor: {} }), open: vi.fn(), openView: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('i18n', { bind: () => (k: string) => k })
-    const slots = ctx.get('slots') as SlotsService
-    slots.define('conversation', { kind: 'single', scope: 'session' })
-    slots.define('details', { kind: 'single', scope: 'session' })
-    slots.define('conversation.empty', { kind: 'single', scope: 'root' })
-    const fiber = ctx.plugin({ inject: [...inject], apply })
-    await fiber.await()
-    const entry = slots.entries('conversation.empty')[0]! as unknown as {
-      options: { inject: (b: unknown) => { useCwds: (sel: (s: readonly string[]) => readonly string[]) => readonly string[] } }
-    }
-    const injected = entry.options.inject({ ctx })
-    const Probe = () => {
-      const cwds = injected.useCwds(s => s)
-      const again = injected.useCwds(s => s)
-      // Cache hit: same state object yields the same derived array reference.
-      return <i data-testid="cwds">{`${cwds.join(',')}|${String(cwds === again)}`}</i>
-    }
-    const view = render(<Probe />)
-    expect(view.getByTestId('cwds').textContent).toBe('/proj|true')
-  })
-})
 
 describe('render branch tails', () => {
   it('AssistantMarkdown reasoning row is ok-state when not the streaming tail', () => {
@@ -101,7 +47,7 @@ describe('render branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={bindSnapshotSelector(source) as unknown as UseSession} />,
+      <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
     expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
   })
@@ -114,27 +60,70 @@ describe('render branch tails', () => {
   })
 
   it('DetailsPanel title falls to 详情 when the selection has no toolName and no material', () => {
-    const SEL: SelectionTarget = { turnSeq: 1, callId: 'ghost' }
+    localStorage.clear()
+    const snap = snapshotBase()
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
+    const emptyList = createSnapshotStore<SessionListState>(
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snapshotBase(), subscribe: () => () => {} }) as unknown as UseSession}
-        useSelection={bindSnapshotSelector({ getSnapshot: () => SEL, subscribe: () => () => {} })}
-        actions={{ closeDetails: vi.fn() }}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
+        useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
+        useInput={(() => { throw new Error('unused') })}
+        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
       />,
     )
     expect(view.getByText('详情')).toBeTruthy()
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
   })
 
-  it('registry disposer tolerates the list already emptied by a sibling disposer', () => {
-    const registry = new ToolViewRegistry()
-    const offA = registry.register('bash', () => null)
-    const offB = registry.register('bash', () => null)
-    offA()
-    offB()
-    // Both entries gone; a re-register works from a fresh list.
-    registry.register('bash', () => null)
-    expect(registry.resolve('bash', SID)).toBeDefined()
+  it('DetailsPanel resolves a run_code sub-callId to its full logged args and output', () => {
+    localStorage.clear()
+    const snap = snapshotBase()
+    const longText = 'x'.repeat(1_000)
+    snap.codeDispatches = new Map([['p1', [{
+      kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
+      call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
+      callTime: 8_000,
+      content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
+    }]]])
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
+    const emptyList = createSnapshotStore<SessionListState>(
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
+    const view = render(
+      <DetailsPanel
+        sessionId={SID}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
+        useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
+        useInput={(() => { throw new Error('unused') })}
+        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
+      />,
+    )
+    // Sub-call material: the sub-tool name titles the panel, args pretty-print,
+    // and the COMPLETE logged output renders (no truncation anywhere).
+    expect(view.getByText('read')).toBeTruthy()
+    expect(view.getByText(/notes\/demo\.txt/)).toBeTruthy()
+    expect(view.getByText(longText)).toBeTruthy()
   })
 })

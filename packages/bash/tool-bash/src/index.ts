@@ -11,18 +11,19 @@
 import { Service, type Context } from 'cordis'
 import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
-import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
+import type { BashRunResult, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { processOutcome } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
@@ -206,7 +207,7 @@ export class BashEnvRegistry extends Service {
   }
 }
 
-/** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
+/** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
 interface BashToolArgs {
   command: string
   description: string
@@ -299,17 +300,56 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
 }
 
 /**
- * Resolve an explicit workdir first, making a relative one session-cwd-relative;
- * otherwise use the session cwd and leave executor defaulting as the fallback.
+ * Resolve an explicit workdir first, making a relative one session-workspace-relative;
+ * otherwise use the filesystem identity of the session cwd and leave executor
+ * defaulting as the fallback. A resolved sandbox-policy root wins so workdir
+ * and confinement use the exact same per-call identity.
  */
-function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
-  const sessionCwd = exec.agent?.session.header.cwd
+function resolveWorkdir(
+  modelWorkdir: string | undefined,
+  exec: { agent?: Agent },
+  policyWorkspaceRoot?: string,
+): string | undefined {
+  const headerCwd = exec.agent?.session.header.cwd
+  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
   if (modelWorkdir === undefined) return sessionCwd
   if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
     return resolvePath(sessionCwd, modelWorkdir)
   }
   return modelWorkdir
 }
+
+/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
+function canonicalBashResult(result: BashRunResult) {
+  const output = (stream: BashRunResult['stdout']) => ({
+    text: stream.text,
+    truncated: stream.truncated,
+    ...stream.spillPath !== undefined ? { spillPath: stream.spillPath } : {},
+  })
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    timedOut: result.timedOut,
+    aborted: result.aborted,
+    timeoutMs: result.timeoutMs,
+    stdout: output(result.stdout),
+    stderr: output(result.stderr),
+    ...result.sandbox !== undefined ? {
+      sandbox: {
+        mode: result.sandbox.mode,
+        denied: result.sandbox.denied,
+        ...result.sandbox.enforcement !== undefined ? { enforcement: result.sandbox.enforcement } : {},
+        ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
+      },
+    } : {},
+  }
+}
+
+/** Canonical background-handle properties shared by the bash output union. */
+const BACKGROUND_OUTPUT_PROPERTIES = {
+  kind: { type: 'string', required: true, const: 'background' },
+  taskId: { type: 'string', required: true },
+} as const
 
 export function apply(ctx: Context, config: Config = {}): void {
   const bashEnv = new BashEnvRegistry(ctx, config)
@@ -330,9 +370,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
+  const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
+  if (defaultMode !== undefined && sandboxPolicy === undefined) {
+    throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  }
 
-  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
-    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
+  /** Resolve the complete standing policy for this call when a confining executor is mounted. */
+  const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
+    sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
 
   /**
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
@@ -342,14 +387,19 @@ export function apply(ctx: Context, config: Config = {}): void {
    * guard (the fields are unadvertised without a sandboxing executor, yet
    * schema validation checks advertised keys only, so an unadvertised
    * `sandbox_permissions` still reaches execute) and the approval ingredients
-   * — the seam is consumed opportunistically (`ctx.get`) so a deployment
-   * without it degrades per call.
+   * The shared policy resolver is required whenever the executor advertises
+   * confinement, so a split composition fails at tool-plugin load.
    */
-  const approveBashEscalation = (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
+  const approveBashEscalation = (
+    mode: string,
+    justification: string,
+    exec: ToolExecution,
+    standingPolicy: SandboxExecutionPolicy | undefined,
+  ): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
+    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
       {
@@ -398,20 +448,83 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
       } : {},
     },
+    output: {
+      schema: {
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: BACKGROUND_OUTPUT_PROPERTIES,
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'foreground' },
+              exitCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+              signal: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+              timedOut: { type: 'boolean', required: true },
+              aborted: { type: 'boolean', required: true },
+              timeoutMs: { type: 'number', required: true },
+              stdout: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
+              stderr: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
+              sandbox: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  mode: { type: 'string', required: true },
+                  denied: { type: 'boolean', required: true },
+                  enforcement: { type: 'string' },
+                  runnerFailed: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        ],
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.kind === 'background'
+          ? `started background task ${value.taskId}`
+          : renderResult(value as { kind: 'foreground' } & BashRunResult, escalationModes),
+      }],
+    },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
-      const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec)
-        : sessionOverride(exec)
-      const workdir = resolveWorkdir(args.workdir, exec)
+      const standingPolicy = resolveSandboxPolicy(exec)
+      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
+        : undefined
+      const policy = approvedMode === undefined
+        ? standingPolicy
+        : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
+      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
       const dshEnv = bashEnv.collect(exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         dshEnv,
-        ...sandboxMode !== undefined ? { sandboxMode } : {},
+        ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.
@@ -422,8 +535,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
-        // The caller owns cancellation until TaskService commits detached ownership.
-        if (exec.signal.aborted) return []
+        // The caller owns cancellation until ctx.tasks commits detached ownership.
+        if (exec.signal.aborted) {
+          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+          error.name = 'AbortError'
+          throw error
+        }
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
@@ -438,14 +555,14 @@ export function apply(ctx: Context, config: Config = {}): void {
             }
           },
         })
-        return [{ type: 'text', text: `started background task ${id}` }]
+        return { kind: 'background' as const, taskId: id }
       }
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
         signal: exec.signal,
       }))
       if (result.aborted) throw new Error('command aborted')
-      return [{ type: 'text', text: renderResult(result, escalationModes) }]
+      return { kind: 'foreground' as const, ...canonicalBashResult(result) }
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,

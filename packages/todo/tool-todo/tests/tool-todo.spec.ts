@@ -73,6 +73,11 @@ describe('dsh-tool-todo', () => {
     ]
     const result = await callTodo(ctx, { todos }, { agent })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected todo_write success')
+    expect(result.value).toEqual({
+      todos,
+      counts: { pending: 1, inProgress: 1, completed: 0 },
+    })
     expect(text(result)).toContain('1 pending, 1 in progress, 0 completed')
 
     const event = agent.session.events.findLast(e => e.type === 'todo/write')!
@@ -121,6 +126,7 @@ describe('dsh-tool-todo', () => {
     { label: 'empty content', todos: [{ content: '   ', status: 'pending' }], fragment: 'non-empty' },
     { label: 'duplicate content', todos: [{ content: 'dup', status: 'pending' }, { content: 'dup', status: 'completed' }], fragment: 'duplicate' },
     { label: 'two in_progress', todos: [{ content: 'a', status: 'in_progress' }, { content: 'b', status: 'in_progress' }], fragment: 'in_progress' },
+    { label: 'unknown item keys', todos: [{ content: 'a', status: 'pending', children: [] }], fragment: 'not a declared property' },
   ])('rejects $label as an isError result', async ({ todos, fragment }) => {
     const ctx = await setup()
     const result = await callTodo(ctx, { todos })

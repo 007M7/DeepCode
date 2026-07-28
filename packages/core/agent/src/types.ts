@@ -7,8 +7,8 @@
 
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -23,65 +23,86 @@ export interface AgentOptions {
   provider?: string
   /** Model id interpreted by the selected provider adapter. */
   model?: string
+  /** Maximum output tokens for each conversation-model request. */
+  maxTokens?: number
 }
 
 /**
- * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
- * and may authorize policy consumers, so non-human producers must label their content.
+ * Which inbox queue a {@link Agent.send} item joins:
+ * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
+ * - `next-step` — during prompt admission or an open turn, the item stages for
+ *   the next safe step boundary; otherwise it is promoted per its `wakeup`
+ *   flag.
+ */
+export type SendTarget = 'next-turn' | 'next-step'
+
+/** Resolved inbox placement reported when an accepted message is enqueued. */
+export type InboxPlacement = 'queued' | 'steering'
+
+/**
+ * Options for the unified {@link Agent.send} primitive over the
+ * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
+ * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
+ * {@link Agent.inject} (`next-step`/no-wakeup).
+ *
+ * The object is complete so routing policy is explicit.
  */
 export interface SendOptions {
-  source?: MessageSource
+  /** Queue the item joins. */
+  target: SendTarget
+  /**
+   * Whether this item makes the model run: wake a parked driver (`next-turn`)
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
+   * `next-step` item attaches durable context without forcing another step
+   * (the injection preset).
+   */
+  wakeup: boolean
 }
 
-/** Options specific to durable synthetic context injection. */
-export interface InjectOptions extends SendOptions {
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
+/** Options for {@link Agent.cancel}. */
+export interface CancelOptions {
+  /**
+   * Preserve queued and steering inbox items instead of discarding them. The
+   * active turn is still aborted, but un-started and pending work survives for a
+   * later turn and no `agent/inbox/discard` fires.
+   */
+  keepInbox?: boolean
 }
 
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` (parked, waiting for queued work), `running` (the driver is draining
- * work and may be closing or checkpointing a turn), `disposed` (terminal — no
- * transition leaves it, and `send`/`steer`/`inject` throw).
+ * work and may be closing or checkpointing a turn). Disposal removes the
+ * agent from its registry; it is not a third observable status.
  */
-export type AgentStatus = 'idle' | 'running' | 'disposed'
-
-/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
-export interface HookContext {
-  content: ContentBlock[]
-  source: MessageSource
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
-}
+export type AgentStatus = 'idle' | 'running'
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected.
+ * Prompt interception result. `allow.content` replaces the prompt, while
+ * `additionalContexts` appends model-facing context before the turn starts.
+ * An `allow` returned by a listener is authoritative: a listener wrapping
+ * `next()` preserves both fields unless it intentionally replaces them.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
   | { kind: 'block'; reason: string }
-
-/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
-export type ContinuationDecision =
-  | { action: 'stop' }
-  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
-
-/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
-export type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
 
 /** Model-request failure with an optional machine-routable provider code. */
 export type RequestError = Error & { code?: string }
 
+/** Action returned by a listener that owns model-request recovery. */
+export type RequestErrorAction = { kind: 'retry' } | undefined
+
 /**
- * The terminal subset of {@link ContinuationDecision}. A listener on
- * `agent/turn-stop` returns this to make the already-composed continuation
- * outcome terminal; `undefined` abstains.
+ * Why a turn ended, reported live on `agent/settled` right after the turn's
+ * durable `turn/end`. `error` carries the thrown value verbatim for observers;
+ * model-request recovery runs earlier through `agent/request-error`.
  */
-export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
+export type SettleReason =
+  | { kind: 'completed' }
+  | { kind: 'aborted' }
+  | { kind: 'error'; error: unknown; failure?: LlmFailure }
 
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
@@ -94,57 +115,91 @@ export type AgentCancelCause =
 /** Runtime reason carried by the signal that controls one live turn. */
 export type AgentInterruptReason = AgentCancelCause | { readonly kind: 'disposed' }
 
-/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
+/** Public live-agent handle with aliases over the unified delivery primitive. */
 export interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
+  /** The provider route and model this agent's requests use. */
   readonly options: AgentOptions
+  /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
+  /**
+   * Whether a `next-step` send currently stages for prompt admission or the
+   * open turn. Unlike {@link status}, this excludes admission exit and turn
+   * settlement, when a waking `next-step` send becomes a queued follow-up.
+   */
+  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
-   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
-   * that turn's checkpoint.
-   * Invalid input throws synchronously before notification or enqueue.
+   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
+   * It routes the caller's typed content and source as follows:
+   *
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
+   *   parked driver, while `wakeup:false` queues without waking.
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
+   * - `next-step` with `wakeup:false` injects durable model-facing context
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn. If admission closes without a turn,
+   *   a context-only boundary appends immediately; context staged beside
+   *   steering remains pending with it.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
    */
-  send(content: ContentBlock[], options?: SendOptions): void
+  send(message: UserMessage, options: SendOptions): void
 
   /**
-   * Submit steering while the agent is `running`. An open turn records it at
-   * the next steering checkpoint before a request or continuation decision;
-   * policy may stop before another step. After turn close and its checkpoint,
-   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
-   * cancellation, or disposal may discard it. Uses the same synchronous
-   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
-   */
-  steer(content: ContentBlock[], options?: SendOptions): void
-
-  /**
-   * Append detached model-facing context without running the model. An open-turn
-   * injection joins at the current log position unless the current tool batch is
-   * executing; then it waits FIFO until that batch settles and drains before turn
-   * close even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
-   */
-  inject(content: ContentBlock[], options?: InjectOptions): void
-
-  /**
-   * Clear all queued and steering work, including items waiting to start, and
-   * abort the active turn. An effective call first emits
-   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
-   * for the active turn, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
-   * and does not arm later work. The active turn snapshots and freezes the cause.
+   * Clear queued and steering work — unless `keepInbox` — and abort the active
+   * turn. An effective call first emits `agent/cancel-requested` with the
+   * resolved typed cause. The first cause wins for the active turn, and
+   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
+   * cancellation is a no-op and does not arm later work.
    * @param cause - the stable caller intent carried by the current turn signal.
+   * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  cancel(cause?: AgentCancelCause): void
+  cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
 
+  /**
+   * Queue an ordinary follow-up turn and wake the driver — the
+   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
+   * ordinary message of its own turn.
+   * @param message - identified prompt content and its producer provenance.
+   */
+  followup(message: UserMessage): void
+
+  /**
+   * Submit steering during prompt admission or an open turn — the
+   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
+   * checkpoint before a request or stop decision. If the activity fails before
+   * that boundary, the remainder stays staged without waking the agent; retry
+   * or a later prompt takes it. Outside that window steering falls back to a
+   * woken follow-up turn, while cancellation or disposal may discard pending
+   * steering.
+   * @param message - identified steering content and its producer provenance.
+   */
+  steer(message: UserMessage): void
+
+  /**
+   * Append model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
+   * stages it at the next safe log position; outside that window it appends
+   * immediately without opening a turn. If admission closes without a turn,
+   * a context-only boundary appends immediately; context staged beside
+   * steering remains pending with it.
+   * @param message - identified injected context and its producer provenance.
+   */
+  inject(message: UserMessage): void
 }
 
 declare module 'cordis' {
@@ -163,7 +218,7 @@ declare module 'cordis' {
     'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
      * An agent left the registry; AgentLoop emits this after driver quiescence
-     * but before session detachment and scoped-registration unwind. Custom
+     * and scoped-registration unwind, but before session detachment. Custom
      * registry users own their driver-ordering contract.
      * @param agent - the exact agent removed from the registry.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -171,8 +226,8 @@ declare module 'cordis' {
      */
     'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
-     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does
-     * not enter `running` synchronously; drive lifecycle from this event.
+     * Agent status changed (`idle` ⇄ `running`). `send()` does not enter
+     * `running` synchronously; drive lifecycle from this event.
      * @param agent - the agent whose status flipped.
      * @param status - the status just entered (the transition's destination).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -180,21 +235,51 @@ declare module 'cordis' {
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
-     * Detached, frozen content entered the agent's inbox. Source defaults have
-     * already been applied, so these are the exact values retained for the log.
-     * @param agent - the agent whose inbox received the message.
-     * @param content - the accepted content blocks retained by the inbox.
-     * @param info - the accepted source plus whether it entered as steering.
+     * An item entered the queued or steering inbox. `placement` is the
+     * acceptance-time routing result; listeners must not reconstruct it from
+     * later agent or session state.
+     * @param agent - the owning agent.
+     * @param message - accepted content, source, and correlation identity.
+     * @param placement - resolved queued or steering placement.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
+    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement): void
     /**
-     * Effective broad cancellation was requested, before queued/steering work
+     * The driver claimed one item out of the inbox: a queued item at a turn
+     * boundary, or steering drained between steps. Fires after the item leaves
+     * its FIFO and before it becomes a durable message.
+     * @param agent - the agent whose inbox item was claimed.
+     * @param message - the claimed message.
+     * @param placement - the FIFO that claimed this occurrence; together with
+     *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/dequeue'(
+      this: Scoped<Agent>,
+      agent: Agent,
+      message: UserMessage,
+      placement: InboxPlacement,
+    ): void
+    /**
+     * Pending inbox items were dropped without delivering them, so every
+     * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
+     * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
+     * emits this after `agent/cancel-requested` when applicable and before
+     * aborting the active work. Fires once per drop with every dropped item.
+     * @param agent - the agent whose inbox items were dropped.
+     * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[]): void
+    /**
+     * Effective broad cancellation was requested, before queued/outbox work
      * is cleared or the active turn is aborted. This observe-only notification
      * cannot veto cancellation; listener failures are contained.
      * @param agent - the agent whose current work is being cancelled.
-     * @param cause - resolved typed cancellation cause, including the default.
+     * @param cause - the explicit typed cancellation cause.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
@@ -213,129 +298,98 @@ declare module 'cordis' {
      */
     'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 
-    // Turn and step boundaries are durable session events, not agent events.
-
-    // ---- step/request extension seams (serial + waterfall) ----
-    /**
-     * Awaited serial checkpoint before `step/start`; appends land outside the
-     * pending step and are included when the loop derives request history.
-     * `signal` cancels listener work.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @param agent - the agent opening the step.
-     * @param turn - the open turn number.
-     * @param step - the pending step number.
-     * @param signal - the turn abort signal.
-     * @mode serial
-     */
-    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+    // ---- the machine's extension seams ----
     /**
      * Allow, rewrite, or block one claimed prompt before it becomes a user
-     * message. Call `next()` for the unchanged default. The signal controls only
-     * this turn; listeners may cooperate with it but must not retain it to
-     * control another turn.
+     * message or opens a turn. Call `next()` for the unchanged default. The
+     * signal controls only this admission attempt; listeners may cooperate with
+     * it but must not retain it for a later attempt or turn.
      * @param agent - the agent whose turn claimed the message.
-     * @param content - the claimed message's blocks, as queued.
-     * @param source - the message's resolved source.
+     * @param message - the frozen claimed message, including identity and source.
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
-     * Replace the frozen call configuration. Model-visible content must use
-     * logged channels; this seam cannot mutate messages. Injection here joins
-     * the next request because the current step boundary is already fixed.
+     * Awaited serial checkpoint before EVERY request of a turn is built (the
+     * first as well as each post-tools continuation). The single "between
+     * steps" extension point: inject context, steer, or edit the session log
+     * here — the request's history derives from the log right after this settles.
+     * @param agent - the agent about to send a request.
+     * @param turn - the open turn number.
+     * @param step - the step number about to open.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode serial
+     */
+    'agent/step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+    /**
+     * Replace the frozen call configuration. `await next()` yields the config
+     * the machine would use (agent options on the first request, the logged
+     * header afterwards); return a replacement to switch. Model-visible
+     * content must use logged channels; this seam cannot mutate messages.
      * @param agent - the agent making the model call.
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
-     * @param config - the config the loop would use (frozen); return a replacement to switch.
-     * @param signal - the current turn's explicit abort signal; ambient
-     * initiator identity does not imply liveness or cancellation authority.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode waterfall
-     */
-    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
-    /**
-     * Compose request-only messages placed before derived history. The frozen
-     * result is computed once per loop instance, logged on its anchoring request
-     * header, and reused so the provider prefix remains stable. Interrupted
-     * composition is discarded. Composition precedes the first `agent/pre-step`
-     * and request boundary, so listener appends join the current request.
-     * Changing context belongs in history; contributors should prepend to
-     * `await next()` to preserve registration order.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @param agent - the agent whose session prefix is being composed.
-     * @param prefix - the frozen seed; return an extended replacement.
-     * @param signal - the current turn's explicit abort signal.
-     * @mode waterfall
-     */
-    'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
-    /**
-     * Waterfall: post-process the assembled assistant {@link Message} before
-     * tool dispatch (validation, content rewriting, …).
-     * @param agent - the agent that received the step's response.
-     * @param turn - the open turn number.
-     * @param step - the step that produced the message.
-     * @param message - the assistant message as assembled from the stream.
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
-     */
-    'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, signal: AbortSignal, next: () => Promise<Message>): Promise<Message>
+    */
+    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
-     * Awaited serial checkpoint after the response, real or synthetic tool
-     * results, injected context, and steering are durable but before `step/end`.
-     * A cancelled tool batch reaches this checkpoint with an aborted signal.
-     * @param agent - the agent whose step is settling.
-     * @param turn - the open turn number.
-     * @param step - the open step number.
-     * @param signal - the turn abort signal.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode serial
-     */
-    'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
-    /**
-     * Recover a model-request failure after its failed step has closed. `retry`
-     * opens a new numbered step; `fail` preserves the original request error.
-     * Call `next()` to delegate to the next recovery listener or the default.
+     * Handle a model-request failure after its failed step has closed but
+     * before the failed turn closes. A listener returns `{ kind: 'retry' }`
+     * without calling `next()` when it owns the error, or calls `next()` to
+     * delegate. The default `undefined` leaves the failure terminal.
      * @param agent - the agent whose request failed.
      * @param turn - the open turn number.
      * @param step - the failed step number.
      * @param error - the original model-request failure.
      * @param failure - serializable facts normalized at the final adapter boundary.
-     * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.
+     * @param priorFailures - immutable failures that already authorized another
+     * retry turn in this consecutive sequence.
+     * @param retryPolicy - immutable policy of the adapter registration that served
+     * the failed request, or `undefined` if no final adapter served it.
      * @param signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
     /**
-     * Override whether the turn continues. The default continues after tool
-     * calls or steering and stops otherwise; a continue reason becomes steering.
-     * @param agent - the agent deciding whether to run another step.
-     * @param turn - the turn being continued or stopped.
-     * @param defaultDecision - what the loop would do absent an override.
-     * @param signal - the current turn's explicit abort signal.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode waterfall
-     */
-    'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, signal: AbortSignal, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
-    /**
-     * Monotonic terminal-stop checkpoint after continuation and steering are
-     * folded; a stop remains authoritative through turn close and flush:
-     * steering queued in that window is discarded, while ordinary sends survive.
-     * @param agent - the agent whose composed continuation outcome may be stopped.
-     * @param turn - the turn at its terminal-stop checkpoint.
+     * The turn is about to close: the model owes no response (no live tool
+     * calls, no fresh steering). Awaited before the boundary commits — a
+     * listener that objects steers (`agent.steer(...)`) and the machine
+     * re-reads its inbox: fresh steering runs another step, none closes the
+     * turn. Data decides, so listener order cannot change the outcome. The
+     * inverse control (stop a tool loop early) is data too: a tool result
+     * carrying `concludesTurn` ends the turn at its step.
+     * @param agent - the agent whose turn is at its stop boundary.
+     * @param turn - the turn about to close.
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode serial
      */
-    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
+    'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
+    /**
+     * One drain chain reached its terminal turn: that turn's `turn/end` is
+     * already committed. Automatically recovered failed turns do not emit this
+     * notification, and neither does a run that aborts or fails before its
+     * `turn/start` commits — there is no durable turn to settle against.
+     * `reason` says why; model-request recovery is exhausted when an error
+     * reaches it.
+     * @param agent - the agent whose turn closed.
+     * @param turn - the terminal turn number.
+     * @param reason - why the terminal turn ended, with live error facts when it failed.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/settled'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void
 
     // ---- error notifications (emit) ----
     /**
-     * A step or turn errored. The loop reports a failure here (plus the logger)
-     * even when the error has no in-turn position for a session `error` event.
+     * A step or turn errored. The machine reports a failure here (plus the
+     * logger) even when the error has no in-turn position for a durable record.
      * @param agent - the agent whose turn errored.
      * @param turn - the turn in which the failure surfaced.
      * @param step - the step at which the failure surfaced.
@@ -343,6 +397,6 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void
+    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
   }
 }

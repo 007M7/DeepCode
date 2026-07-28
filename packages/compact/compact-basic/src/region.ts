@@ -6,10 +6,12 @@
 
 import { isDeepStrictEqual } from 'node:util'
 import {
+  COMPACT_CHECKPOINT_SOURCE,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -131,10 +133,11 @@ export async function compactSurfaceRegion(
       throw new Error('compaction: session surface changed during summarization')
     }
     const framedSummary = frameSummary(summary)
-    const framedSummaryTokenCount = dependencies.meter.estimateMessage({
-      role: 'user',
+    const checkpointMessage = createUserMessage({
       content: framedSummary,
+      source: COMPACT_CHECKPOINT_SOURCE,
     })
+    const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
     if (framedSummaryTokenCount >= shadowedTokenCount) {
       throw new Error(
         `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
@@ -150,10 +153,7 @@ export async function compactSurfaceRegion(
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
     })
-    session.append('user/message', {
-      content: framedSummary,
-      source: { kind: 'plugin', plugin: 'compact' },
-    }, {
+    session.append('user/message', checkpointMessage, {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
@@ -176,10 +176,10 @@ export async function compactSurfaceRegion(
 
 /**
  * Reconstruct the last routed request's cacheable prefix for the shadowed
- * region: its system prompt and tool schemas, then the request-only message
- * prefix followed by the region's own derived messages in surface order. The
- * summarizer appends only the compaction instruction after this, so the call
- * is a genuine prefix of the conversation and reuses the provider's KV cache.
+ * region: its system prompt and tool schemas, then the region's own derived
+ * messages in surface order. The summarizer appends only the compaction
+ * instruction after this, so the call is a genuine prefix of the conversation
+ * and reuses the provider's KV cache.
  * @param session - session supplying the request header and per-node projection.
  * @param shadowedSeqs - the surface-node seqs, in order, being compacted.
  * @returns the replayed conversation prefix to condense.
@@ -198,7 +198,7 @@ function buildSummarizationInput(
   return {
     ...header?.system === undefined ? {} : { system: header.system },
     ...header?.tools === undefined ? {} : { tools: header.tools },
-    messages: [...header?.messagePrefix ?? [], ...regionMessages],
+    messages: regionMessages,
   }
 }
 

@@ -2,12 +2,13 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
 import CommandService from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -17,8 +18,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { packChunkRuns, SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -26,7 +26,9 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
-import { createTuiChat } from '@deepseek-ai/dsh-tui'
+import { createTuiChat, FILE_REFERENCE_PROMPT, TuiPromptService } from '@deepseek-ai/dsh-tui'
+import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
+import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
@@ -47,6 +49,7 @@ interface Scenario {
   expectedEventCounts?: Record<string, number>
   childSessions?: number
   enterPlanMode?: boolean
+  leavePlanModeAfterFirstTurn?: boolean
   recorded: boolean
   seedWorkspace?: boolean
   /**
@@ -55,6 +58,13 @@ interface Scenario {
    * mounts it; the rest cover the default, todo-free composition.
    */
   enableTodo?: boolean
+  /**
+   * Mount the spill stack (local backend + policy) with this inline cap, as the
+   * shipped configs do. The dispatch-spill scenario proves the durable
+   * `tool/code-dispatch` copy of an oversized sub-result is bounded to a
+   * preview + locator while the program value stays whole.
+   */
+  spillMaxInlineBytes?: number
 }
 
 const SCENARIOS: Scenario[] = [
@@ -62,8 +72,9 @@ const SCENARIOS: Scenario[] = [
     name: 'multi-turn-conversation',
     composition: 'native',
     expectedTools: [],
-    expectedEventCounts: { 'plan/mode': 1 },
+    expectedEventCounts: { 'plan/mode': 2 },
     enterPlanMode: true,
+    leavePlanModeAfterFirstTurn: true,
     recorded: true,
   },
   {
@@ -93,6 +104,14 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['run_code'],
     expectedEventCounts: { 'tool/code-dispatch': 2 },
     recorded: true,
+  },
+  {
+    name: 'code-mode-dispatch-spill',
+    composition: 'code',
+    expectedTools: ['run_code'],
+    expectedEventCounts: { 'tool/code-dispatch-start': 1, 'tool/code-dispatch': 1 },
+    recorded: true,
+    spillMaxInlineBytes: 600,
   },
   {
     name: 'dynamic-workflow',
@@ -152,7 +171,7 @@ function userPrompts(rawLog: string): string[] {
 function rawSessionLog(session: Session): string {
   return [
     JSON.stringify({ type: 'session', ...session.header }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...packChunkRuns(session.events).map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }
@@ -202,11 +221,13 @@ async function mountScenarioContext(
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
   await ctx.plugin(TokenMeterService)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await ctx.plugin(SnapshotLocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
+  await ctx.plugin(TuiPromptService)
   // todo_write is opt-in: only the todo-plan scenario mounts it, matching the shipped
   // config that omits it. The other scenarios prove the default todo-free composition.
   if (scenario.enableTodo === true) await ctx.plugin(ToolTodo)
@@ -222,6 +243,10 @@ async function mountScenarioContext(
   }
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
+  }
+  if (scenario.spillMaxInlineBytes !== undefined) {
+    await ctx.plugin(LocalSpillStore, { root: join(cwd, '.spill') })
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: scenario.spillMaxInlineBytes })
   }
   if (scenario.composition === 'advanced') await ctx.plugin(ToolCordis, { vmTimeoutMs: 5_000 })
   if (MODE === 'record' && scenario.recorded) {
@@ -240,6 +265,7 @@ interface ScenarioResult {
 }
 
 async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 0, 0).getTime())
   const dir = scenarioDir(scenario)
   const fixtureFile = join(dir, 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
@@ -272,7 +298,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const agent: Agent = handle.agent
     controller = createTuiChat(ctx, {
       sessionId: 'main-session',
-      color: true,
+      theme: { color: true },
       showReasoning: true,
       title: 'DSH TUI snapshot',
       welcome: `Recorded replay: ${scenario.name}`,
@@ -294,6 +320,12 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       remainingPrompts = prompts.slice(1)
     }
 
+    if (scenario.leavePlanModeAfterFirstTurn === true) {
+      terminal.send('/plan off')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+    }
+
     for (const prompt of remainingPrompts) {
       terminal.send(prompt)
       terminal.send('\r')
@@ -302,14 +334,18 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     const events: SessionEvent[] = [...agent.session.events]
+    const firstHeader = events.find(event => event.type === 'request/header')
+    expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
+      .toContain(FILE_REFERENCE_PROMPT)
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
     }
     if (scenario.enterPlanMode === true) {
-      expect(ctx.planMode.get(agent)).toEqual({ active: true })
+      expect(ctx.planMode.get(agent)).toEqual({
+        active: scenario.leavePlanModeAfterFirstTurn !== true,
+      })
       const planMode = events.find(event => event.type === 'plan/mode')
-      const firstHeader = events.find(event => event.type === 'request/header')
       if (planMode === undefined || firstHeader === undefined) {
         throw new Error('plan-mode command snapshot needs plan/mode before its first request/header')
       }
@@ -318,7 +354,32 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       const firstMessage = events.find(event => event.type === 'user/message')
       expect(firstMessage?.data.content).toEqual([{ type: 'text', text: prompts[0] }])
     }
-    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
+    if (scenario.leavePlanModeAfterFirstTurn === true) {
+      const planModes = events.filter(event => event.type === 'plan/mode')
+      expect(planModes.map(event => event.data.active)).toEqual([true, false])
+      const headers = events.filter(event => event.type === 'request/header')
+      const exit = planModes[1]
+      const afterExit = headers[1]
+      if (exit === undefined || afterExit === undefined) {
+        throw new Error('active plan exit snapshot needs a committed exit and changed request header')
+      }
+      expect(exit.seq).toBeLessThan(afterExit.seq)
+      expect(afterExit.data.header.system).not.toContain('Snapshot plan mode instructions.')
+      expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin').map(event => (event.data as { content: unknown }).content))
+        .toContainEqual([{ type: 'text', text: 'The user switched this session back to the default mode.' }])
+    }
+    if (scenario.spillMaxInlineBytes !== undefined) {
+      // The REAL pipeline ran (tools execute on replay too): the durable
+      // dispatch copy is bounded to a preview + locator under the run cwd,
+      // while the outer result still carries the program's whole value.
+      const dispatch = events.find(event => (event.type as string) === 'tool/code-dispatch')
+      const content = (dispatch?.data as { content: { type: string; text?: string }[] }).content
+      const text = content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+      expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(scenario.spillMaxInlineBytes)
+      expect(text).toContain('Full formatted result stored at:')
+      expect(text).toContain('.spill')
+    }
+    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.message.content[0].isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)
     if (scenario.name === 'dynamic-workflow' || scenario.name === 'cordis-dynamic-toolchain') {
       expect(workflowEvents).toEqual([
@@ -347,6 +408,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     await ctx?.fiber.dispose()
     await terminal.dispose()
     await rm(cwd, { recursive: true, force: true })
+    clock.mockRestore()
   }
 }
 

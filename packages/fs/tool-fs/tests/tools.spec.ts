@@ -5,9 +5,12 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolResult } from '@deepseek-ai/dsh-tools'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -24,8 +27,10 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
+import { sessionCwd } from '../src/session-cwd.ts'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
 
@@ -107,6 +112,32 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
 
+describe('session cwd resolution', () => {
+  const execution = (cwd?: string) => cwd === undefined
+    ? {}
+    : { agent: { session: { header: { cwd } } } }
+
+  it('retains ordinary spelling but resolves the cwd before parent traversal', () => {
+    const cwd = process.cwd()
+    const throughParent = `${cwd}${sep}..`
+    expect(sessionCwd(execution() as never, 'file.txt')).toBeUndefined()
+    expect(sessionCwd(execution(cwd) as never, 'file.txt')).toBe(cwd)
+    expect(sessionCwd(execution(throughParent) as never, 'file.txt')).toBe(realpathSync.native(throughParent))
+
+    const root = mkdtempSync(join(tmpdir(), 'dsh-tool-fs-session-cwd-'))
+    const physical = join(root, 'physical')
+    const link = join(root, 'link')
+    try {
+      mkdirSync(physical)
+      symlinkSync(physical, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(sessionCwd(execution(link) as never, 'child.txt')).toBe(link)
+      expect(sessionCwd(execution(link) as never, `..${sep}parent.txt`)).toBe(realpathSync.native(link))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('registration', () => {
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
@@ -164,6 +195,13 @@ describe('read tool', () => {
     fs.files.set('key:a.txt', 'hello\nworld')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected read success')
+    expect(result.value).toEqual({
+      path: '/abs/a.txt',
+      offset: 1,
+      lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
+      totalLines: 2,
+    })
     expect(text(result)).toBe(`<path>/abs/a.txt</path>
 <type>file</type>
 <content>
@@ -172,6 +210,15 @@ describe('read tool', () => {
 
 (End of file - total 2 lines)
 </content>`)
+  })
+
+  it('returns an explicit empty canonical line window for an empty file', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:empty.txt', '')
+    const result = await call(ctx, 'read', { file_path: 'empty.txt' })
+    if (result.isError) throw new Error('expected empty read success')
+    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(text(result)).toContain('(End of file - total 0 lines)')
   })
 
   it('rejects a non-positive offset via arg validation', async () => {
@@ -229,7 +276,7 @@ describe('read tool', () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'read', { file_path: 'missing.txt' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_FOUND' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
   })
 
   it('rejects a non-regular target', async () => {
@@ -238,7 +285,7 @@ describe('read tool', () => {
     fs.stat = async () => ({ version: FsVersion('v1'), type: 'directory' })
     const result = await call(ctx, 'read', { file_path: 'd' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
   })
 
   it('streams a large file (size at/above the cap) instead of reading whole', async () => {
@@ -304,6 +351,8 @@ describe('write tool', () => {
     const { ctx, fs } = await setup()
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: { header: {} } })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected write success')
+    expect(result.value).toEqual({ path: '/abs/a.txt', operation: 'create', before: null, after: 'hi' })
     expect(text(result)).toContain('Created file')
     expect(fs.writeIntents).toEqual([{ kind: 'createIfAbsent' }])
   })
@@ -320,7 +369,7 @@ describe('write tool', () => {
     fs.rejectWith = new FsError('blocked', 'FS_STALE_VERSION')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'FsError', code: 'FS_STALE_VERSION' })
+    expect(result.error).toMatchObject({ info: { name: 'FsError', code: 'FS_STALE_VERSION' } })
   })
 })
 
@@ -331,6 +380,8 @@ describe('edit tool', () => {
     fs.files.set('key:a.txt', 'a')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session })
+    if (result.isError) throw new Error('expected edit success')
+    expect(result.value).toEqual({ path: '/abs/a.txt', before: 'a', after: 'b' })
     expect(text(result)).toBe('The file /abs/a.txt has been updated successfully.')
   })
 
@@ -369,16 +420,21 @@ describe('edit tool', () => {
     fs.files.set('key:a.txt', 'hello')
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: { header: {} } })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
   })
 })
 
 describe('tool-owned presentation (pure presentCall)', () => {
-  // presentCall is a pure display function of args (no I/O); it drives the ACP
-  // card's title/kind and the `locations` an editor follows along to.
+  // presentCall is a pure display function of args (no I/O); it drives the
+  // card's title/kind and the `locations` a UI follows along to.
   const presentCall = async (name: string, args: unknown) => {
     const { ctx } = await setup()
     return ctx.tools.get(name)?.presentCall?.(args)
+  }
+
+  const presentResult = async (name: string, args: unknown, result: ToolResult) => {
+    const { ctx } = await setup()
+    return ctx.tools.get(name)?.presentResult?.(args, result)
   }
 
   it('read: generic card titled by file with the read window, read kind, location with the offset line', async () => {
@@ -392,6 +448,36 @@ describe('tool-owned presentation (pure presentCall)', () => {
     expect(await presentCall('read', { file_path: 'a.txt' })).toEqual({
       card: 'generic', title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt', line: 1 }],
     })
+  })
+
+  it('read: completed presentation removes the model-facing XML envelope', async () => {
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>' }],
+      isError: false,
+    })).toEqual({
+      card: 'generic',
+      content: [{ type: 'text', text: '1: hello\n\n(End of file - total 1 lines)' }],
+    })
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: 'malformed replay' }],
+      isError: false,
+    })).toBeUndefined()
+  })
+
+  it('read: completed presentation declines errors and non-single-text content', async () => {
+    const envelope = '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nbody\n</content>'
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: envelope }],
+      isError: true,
+    })).toBeUndefined()
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'text', text: envelope }, { type: 'text', text: 'second' }],
+      isError: false,
+    })).toBeUndefined()
+    expect(await presentResult('read', { file_path: 'a.txt' }, {
+      content: [{ type: 'reasoning', text: envelope }],
+      isError: false,
+    })).toBeUndefined()
   })
 
   it('read: "from line N" window when only offset is set', async () => {
@@ -427,7 +513,7 @@ describe('tool-owned presentation (pure presentCall)', () => {
 
 describe('result-time contextual diff (meta + presentResult)', () => {
   // An edit records the applied contextual hunk on `tool/result` meta, and the tool's
-  // presentResult narrows it back into a `diff` result card the bridge renders.
+  // presentResult narrows it back into a replayable `diff` result card.
   const withContext = 'a\nb\nc\nOLD\nd\ne\nf\n'
 
   it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
@@ -467,27 +553,26 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }] })
   })
 
-  it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
-    // A create has no prior content (no `meta`), yet the completed card must be a `diff` — an
-    // ACP tool_call_update.content REPLACES the call's content, so a non-diff result would
-    // clobber the pending new-file diff.
+  it('write CREATE: an empty applied-diff projection still falls back to the whole-file diff card', async () => {
+    // A create has no prior content, yet the completed replacement view must
+    // remain a diff instead of clobbering the pending new-file diff with text.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
     expect(result.isError).toBe(false)
-    expect(result.meta).toBeUndefined()
+    expect(result.meta).toEqual({ diffs: [] })
     const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'new.txt', content: 'fresh\n' }, result)
     expect(view).toEqual({ card: 'diff', title: 'Write new.txt', diffs: [{ path: 'new.txt', oldText: null, newText: 'fresh\n' }] })
   })
 
-  it('write OVERWRITE with identical content: a before exists but yields no hunk → no meta, presentResult falls back to a whole-file diff', async () => {
+  it('write OVERWRITE with identical content: an empty applied-diff projection falls back to a whole-file diff', async () => {
     const { ctx, fs } = await setup()
     const session = { header: {} }
     fs.files.set('key:a.txt', 'same\n')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'same\n' }, { session })
     expect(result.isError).toBe(false)
-    expect(result.meta).toBeUndefined()
+    expect(result.meta).toEqual({ diffs: [] })
     const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'same\n' }, result)
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'same\n' }] })
   })
@@ -552,6 +637,9 @@ describe('read caps are plugin config', () => {
     const { ctx, fs } = await setupWith({ readMaxBytes: 9 })
     fs.files.set('key:a.txt', 'aaaa\nbbbb\ncccc')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected read success')
+    expect(result.value).toMatchObject({ totalLines: 3 })
     expect(text(result)).toContain('Output capped.')
     expect(text(result)).not.toContain('cccc')
   })
@@ -587,9 +675,9 @@ describe('read caps are plugin config', () => {
 })
 
 describe('sandbox escalation surface (write/edit)', () => {
-  /** A confining fake `ctx.fs`: reports a default mode, records the per-call mode stamped, and can arm a sandbox denial. */
+  /** A confining fake `ctx.fs`: reports a default mode, records each per-call policy, and can arm a sandbox denial. */
   class SandboxingFakeFs extends FakeFs {
-    stamped: (SandboxMode | undefined)[] = []
+    stamped: (SandboxExecutionPolicy | undefined)[] = []
     override get sandboxMode(): SandboxMode {
       return 'workspace-write'
     }
@@ -598,9 +686,9 @@ describe('sandbox escalation surface (write/edit)', () => {
       content: string,
       expected?: FsWriteIntent,
       _signal?: AbortSignal,
-      sandboxMode?: SandboxMode,
+      sandboxPolicy?: SandboxExecutionPolicy,
     ): Promise<FsWriteOutcome> {
-      this.stamped.push(sandboxMode)
+      this.stamped.push(sandboxPolicy)
       return super.writeText(target, content, expected)
     }
     override async editText(
@@ -608,9 +696,9 @@ describe('sandbox escalation surface (write/edit)', () => {
       edit: FsEditRequest,
       expected?: { version: FsVersion },
       _signal?: AbortSignal,
-      sandboxMode?: SandboxMode,
+      sandboxPolicy?: SandboxExecutionPolicy,
     ): Promise<FsEditOutcome> {
-      this.stamped.push(sandboxMode)
+      this.stamped.push(sandboxPolicy)
       return super.editText(target, edit, expected)
     }
   }
@@ -619,6 +707,7 @@ describe('sandbox escalation surface (write/edit)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
     await ctx.plugin(SandboxingFakeFs)
     await ctx.plugin(FsPolicy)
     if (opts.approval === true) await ctx.plugin(ApprovalService)
@@ -631,7 +720,7 @@ describe('sandbox escalation surface (write/edit)', () => {
     return {
       id: 'agent-fs-esc',
       session: {
-        header: { version: 0, id: 'sess-fs-esc', createdAt: 0 },
+        header: { version: 0, id: 'sess-fs-esc', createdAt: 0, cwd: '/session-project' },
         events: [{ type: 'turn/start' }, ...events],
         append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
       },
@@ -643,6 +732,14 @@ describe('sandbox escalation surface (write/edit)', () => {
     if (!schema) throw new Error(`${name} tool not registered`)
     return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
   }
+
+  it('fails load when a confining filesystem has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxingFakeFs)
+    await expect(ctx.plugin(ToolFs)).rejects.toThrow('tool-fs: the mounted filesystem confines but ctx.sandboxPolicy is missing')
+  })
 
   it('advertises no escalation fields under a non-confining backend', async () => {
     const { ctx } = await setup()
@@ -663,16 +760,16 @@ describe('sandbox escalation surface (write/edit)', () => {
     }
   })
 
-  it('a plain write stamps nothing (backend default) and no session override folds without one', async () => {
+  it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([undefined])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual(['read-only'])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -705,7 +802,7 @@ describe('sandbox escalation surface (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual(['danger-full-access'])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

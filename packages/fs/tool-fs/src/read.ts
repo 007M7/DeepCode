@@ -6,13 +6,11 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { GenericCallView, GenericResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { buildWindow, formatReadOutput } from './read-render.ts'
-import type { FileReadOutcome } from './read-render.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 
 /** Default and maximum number of lines returned by one `read` call (the `readLimit` config). */
@@ -84,11 +82,48 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
     },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          offset: { type: 'integer', required: true },
+          lines: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                number: { type: 'integer', required: true },
+                text: { type: 'string', required: true },
+              },
+            },
+          },
+          totalLines: { type: 'integer', required: true },
+        },
+      },
+      render: (args, value) => {
+        const input = parseReadArgs(args, caps.limit)
+        const endLine = value.lines.at(-1)?.number ?? Math.max(0, value.offset - 1)
+        const truncatedByBytes = value.lines.length < input.limit && endLine < value.totalLines
+        return [{
+          type: 'text',
+          text: formatReadOutput(value.path, {
+            offset: value.offset,
+            lines: value.lines,
+            totalLines: value.totalLines,
+            ...truncatedByBytes ? { truncatedByBytes: true } : {},
+          }),
+        }]
+      },
+    },
     // Observation races fail closed because guarded mutations re-check the version in-lock.
     isConcurrencySafe: () => true,
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec) {
       const input = parseReadArgs(args, caps.limit)
-      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec, input.filePath))
 
       // One stat: type check + size routing + the version recorded as observed.
       // A concurrent write can only make a later guarded mutation fail stale and require reread.
@@ -107,17 +142,27 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         target.displayPath,
       )
 
-      const outcome: FileReadOutcome = {
+      const outcome = {
+        path: target.displayPath,
         offset: input.offset,
         lines: window.lines,
         totalLines: window.totalLines,
-        ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
       }
       // Record the observed version (a no-op when no policy plugin listens). The
       // read already succeeded; an fs/observed listener is contractually a
       // synchronous, side-effect-only recorder.
       ctx.emit('fs/observed', target, info.version, exec)
-      return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
+      return outcome
+    },
+    presentResult(_args, result: ToolResult): GenericResultView | undefined {
+      if (result.isError) return undefined
+      const only = result.content.length === 1 ? result.content[0] : undefined
+      const text = only?.type === 'text' ? only.text : undefined
+      if (text === undefined) return undefined
+      // Group 1 always captures (possibly empty) when the envelope matches.
+      const body = /^<path>[^\n]*<\/path>\n<type>file<\/type>\n<content>\n([\s\S]*)\n<\/content>$/u.exec(text)?.[1]
+      if (body === undefined) return undefined
+      return { card: 'generic', content: [{ type: 'text', text: body }] }
     },
     // Pure display: a generic card titled by the file with the read window appended (`Read
     // foo.txt (5 - 8)`), `read` kind (icon), and a follow-along location whose line is the

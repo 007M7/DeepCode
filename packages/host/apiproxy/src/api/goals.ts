@@ -58,11 +58,8 @@ export interface EditGoalRequest {
   readonly maxGoalRounds?: number
 }
 
-/** Goal-domain unary methods. */
+/** Goal-domain unary methods (mutations only: the read side is the 'goal' session projection). */
 export interface GoalsApi {
-  /** Read the current goal for one session. Returns null when no goal is current. */
-  get(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ goal: GoalView | null }>>
-
   /** Create and arm a goal. */
   create(request: RpcRequest<{ sessionId: SessionId; objective: string; maxGoalRounds?: number }>):
   Promise<RpcResponse<{ goal: GoalView }>>

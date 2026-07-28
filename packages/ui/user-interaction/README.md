@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-user-interaction
 
+English | [中文](README.zh.md)
+
 Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
 
 ## Service: `UserInteractionService` (ctx key: `userInteraction`)
@@ -17,11 +19,11 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
 - `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
 
-When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices.
+When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the interactive `dsh-tui` and structured `dsh-acp` front doors provide the provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; `dsh-tui` and the host runtime provide interactive implementations. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

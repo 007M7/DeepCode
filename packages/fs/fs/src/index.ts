@@ -7,7 +7,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {
   FsDirEntry,
   FsEditOutcome,
@@ -170,9 +170,9 @@ export abstract class FileSystem extends Service {
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
    * @param signal - aborts before the atomic rename takes effect.
-   * @param sandboxMode - the per-call sandbox mode this write runs under; a
-   *   sandboxing backend fences the write by it, the bare backend ignores it.
-   *   Omit to leave the backend its own default.
+   * @param sandboxPolicy - the per-call mode and workspace root this write
+   *   runs under; a sandboxing backend fences the write by it, the bare backend
+   *   ignores it. Omit to leave the backend its own default.
    * @returns the outcome, including the version the write produced.
    */
   abstract writeText(
@@ -180,7 +180,7 @@ export abstract class FileSystem extends Service {
     content: string,
     expected?: FsWriteIntent,
     signal?: AbortSignal,
-    sandboxMode?: SandboxMode,
+    sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsWriteOutcome>
 
   /**
@@ -191,9 +191,9 @@ export abstract class FileSystem extends Service {
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
    * @param signal - aborts before the atomic rename takes effect.
-   * @param sandboxMode - the per-call sandbox mode this edit runs under; a
-   *   sandboxing backend fences the edit by it, the bare backend ignores it.
-   *   Omit to leave the backend its own default.
+   * @param sandboxPolicy - the per-call mode and workspace root this edit runs
+   *   under; a sandboxing backend fences the edit by it, the bare backend
+   *   ignores it. Omit to leave the backend its own default.
    * @returns the outcome, including the version the edit produced.
    */
   abstract editText(
@@ -201,7 +201,7 @@ export abstract class FileSystem extends Service {
     edit: FsEditRequest,
     expected?: { version: FsVersion },
     signal?: AbortSignal,
-    sandboxMode?: SandboxMode,
+    sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome>
 }
 

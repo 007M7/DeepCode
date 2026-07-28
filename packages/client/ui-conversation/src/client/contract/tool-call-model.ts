@@ -3,25 +3,29 @@
  * one-line summary and expanded-body text from the frozen call slice. No
  * inline output ever — full results live in the details panel.
  */
-import type { ToolCallBlock } from './toolview.ts'
+// The block union's defining home is runtime (fold-product types); this
+// contract only forwards it (type-definition authority stays with the layer
+// that produces the values).
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
-export type { ToolCallBlock } from './toolview.ts'
+export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** The frozen slice the chat view hands to toolview components as `block`
  *  (both members are cache-stable references off ConversationSnapshot). */
 
-/** The five figma row variants (think is fed by reasoning blocks, not tool calls). */
-export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'others'
+/** The eight row variants (think is fed by reasoning blocks, not tool calls). */
+export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'write' | 'edit' | 'code' | 'others'
 
 /** Row state semantic; colors self-supplied via StateDot (design gives none). */
 export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
 
 /** Figma row titles per variant (design literals, not translatable copy). */
 export const VARIANT_TITLES: Record<ToolRowVariant, string> = {
-  think: 'Think', search: 'Search', read: 'Read', bash: 'Bash', others: 'Tool call',
+  think: 'Think', search: 'Search', read: 'Read', bash: 'Bash',
+  write: 'Write', edit: 'Edit', code: 'Code', others: 'Tool call',
 }
 
-/** Known tool name -> variant; fs write/edit intentionally fall to others (no figma form). */
+/** Known tool name -> variant. */
 const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   bash: 'bash',
   read: 'read',
@@ -29,6 +33,19 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   web_search: 'search',
   grep: 'search',
   glob: 'search',
+  write: 'write',
+  edit: 'edit',
+  run_code: 'code',
+  cordis_inspect: 'read',
+  cordis_mount: 'code',
+  cordis_unmount: 'others',
+}
+
+/** Tool-owned titles that refine a generic row variant without replacing it. */
+const TOOL_TITLES: Record<string, string> = {
+  cordis_inspect: 'Inspect',
+  cordis_mount: 'Mount temporary Plugin',
+  cordis_unmount: 'Unmount temporary Plugin',
 }
 
 /**
@@ -45,6 +62,12 @@ export interface ToolRowModel {
   variant: ToolRowVariant
   title: string
   summary: string
+  /**
+   * Filesystem path from args (`path` / `file_path`) when the row is a file
+   * tool; absent for URL reads and non-file tools. The chat view resolves
+   * relative values against the session cwd before opening.
+   */
+  filePath: string | undefined
   /** Expanded-body text (pretty args); null = row not expandable. */
   body: string | null
   state: ToolRowState
@@ -78,7 +101,18 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   read: ['path', 'file_path', 'url'],
   search: ['query', 'pattern', 'url'],
   think: [],
+  write: ['path', 'file_path'],
+  edit: ['path', 'file_path'],
+  code: ['description'],
   others: [],
+}
+
+/** Strip the workspace root from workspace-rooted absolute paths (display only). */
+function relativizeToCwd(text: string, cwd: string | undefined): string {
+  if (cwd === undefined || cwd === '') return text
+  const root = cwd.replace(/[/\\]+$/, '')
+  if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`)) return text.slice(root.length + 1)
+  return text
 }
 
 function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
@@ -93,34 +127,75 @@ function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
   return firstLine(argsRaw)
 }
 
-function deriveBody(argsRaw: string): string | null {
+/** Path keys only — never `url` (web_fetch lands on the read variant). */
+const FILE_PATH_KEYS = ['path', 'file_path'] as const
+
+/** File-tool variants whose summary may be an openable workspace path. */
+const FILE_PATH_VARIANTS: ReadonlySet<ToolRowVariant> = new Set(['read', 'write', 'edit'])
+
+function deriveFilePath(variant: ToolRowVariant, argsRaw: string): string | undefined {
+  if (!FILE_PATH_VARIANTS.has(variant)) return undefined
+  const parsed = parseArgs(argsRaw)
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const picked = pickString(parsed as Record<string, unknown>, FILE_PATH_KEYS)
+  return picked === undefined ? undefined : firstLine(picked)
+}
+
+/**
+ * Resolve a tool-arg path against the session cwd for host.openPath.
+ * Absolute POSIX/Windows paths pass through; relative paths join under cwd.
+ * @param cwd - session working directory (may be absent for ungrouped sessions).
+ * @param path - path as carried in tool args.
+ * @returns a host-facing path string.
+ */
+export function resolveToolPath(cwd: string | undefined, path: string): string {
+  if (path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')) return path
+  if (cwd === undefined || cwd === '') return path
+  const base = cwd.replace(/[/\\]+$/, '')
+  const rel = path.replace(/^[/\\]+/, '')
+  return `${base}/${rel}`
+}
+
+function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
   if (argsRaw === '') return null
   const parsed = parseArgs(argsRaw)
-  return parsed === undefined ? argsRaw : JSON.stringify(parsed, null, 2)
+  if (parsed === undefined) return argsRaw
+  // The code row's expanded body IS the program (monospace via the row's
+  // variant styling), not the args JSON envelope around it.
+  if (variant === 'code' && typeof parsed === 'object' && parsed !== null) {
+    const code = (parsed as Record<string, unknown>).code
+    if (typeof code === 'string' && code !== '') return code
+  }
+  return JSON.stringify(parsed, null, 2)
 }
 
 /**
  * Derive the full row model from a frozen call slice.
  * @param toolName - wire tool name (dispatch-supplied; survives windowless results).
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
+ * @param cwd - session workspace root; workspace-rooted path summaries display relative to it.
  * @returns the row model.
  */
-export function toolRowModel(toolName: string, block: ToolCallBlock): ToolRowModel {
+export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: string): ToolRowModel {
   const variant = classifyTool(toolName)
   const done = 'kind' in block
   const argsRaw = (done ? block.call?.argsRaw : block.argsRaw) ?? ''
   const state: ToolRowState = !done ? 'running'
     : block.error?.code === 'interrupted' ? 'stopped'
       : block.isError ? 'error' : 'ok'
-  const base = argsRaw === '' ? block.callId : deriveSummary(variant, argsRaw)
+  const base = argsRaw === '' ? block.callId : relativizeToCwd(deriveSummary(variant, argsRaw), cwd)
+  const toolTitle = TOOL_TITLES[toolName]
   // Others keeps the static "Tool call" title (figma literal); the real tool
-  // name rides the mutable summary slot so no information is lost.
-  const summary = variant === 'others' && toolName !== '' ? `${toolName} · ${base}` : base
+  // name rides the mutable summary slot unless the tool owns a specific title.
+  const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
+    ? `${toolName} · ${base}`
+    : base
   return {
     variant,
-    title: VARIANT_TITLES[variant],
+    title: toolTitle ?? VARIANT_TITLES[variant],
     summary,
-    body: deriveBody(argsRaw),
+    filePath: deriveFilePath(variant, argsRaw),
+    body: deriveBody(variant, argsRaw),
     state,
   }
 }

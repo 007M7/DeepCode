@@ -12,6 +12,7 @@ export default tseslint.config(
       '**/.sessions/**',
       '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
+      '**/.node-next-types-*/**',
       'website/.generated/**',
       'vendor/**', // vendored source keeps upstream style and idioms
       'native/**', // imported landlock-run subtree: self-contained workspace with its own gates (native/README.md)
@@ -26,7 +27,13 @@ export default tseslint.config(
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/*/src/**/*.ts', 'apps/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: [
+      'packages/*/*/src/**/*.{ts,tsx}',
+      'apps/*/src/**/*.{ts,tsx}',
+      'examples/**/*.{ts,tsx}',
+      'scripts/**/*.{ts,tsx}',
+      'website/**/*.{ts,tsx}',
+    ],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -79,14 +86,20 @@ export default tseslint.config(
 
   // --- tests: same rules, minus the friction that fights test ergonomics --
   {
-    files: ['packages/*/*/tests/**/*.ts', 'apps/*/tests/**/*.ts', 'examples/*/tests/**/*.ts', 'scripts/**/*.spec.ts'],
+    files: [
+      'packages/*/*/tests/**/*.{ts,tsx}',
+      'apps/*/tests/**/*.{ts,tsx}',
+      'examples/*/tests/**/*.{ts,tsx}',
+      'scripts/**/*.spec.{ts,tsx}',
+    ],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
     languageOptions: {
       parserOptions: {
         // Same shared project service as the src block: test files resolve
-        // through the root tsconfig (its include covers every tests/ tree).
+        // through the root solution to tsconfig.host.json (its include covers
+        // every host tests/ tree).
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
@@ -115,7 +128,10 @@ export default tseslint.config(
   // Context merges collide), so the shared project service cannot resolve
   // them — parse these through the client aggregate explicitly.
   {
-    files: ['packages/client/*/tests/**/*.ts', 'scripts/client-bundle-purity.spec.ts'],
+    files: [
+      'packages/client/*/tests/**/*.{ts,tsx}',
+      'scripts/client-bundle-purity.spec.ts',
+    ],
     languageOptions: {
       parserOptions: {
         projectService: false,
@@ -127,7 +143,7 @@ export default tseslint.config(
 
   // --- file-local duplication (all owned TypeScript) ---------------------
   {
-    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}', 'examples/**/*.{ts,tsx}', 'scripts/**/*.{ts,tsx}', 'website/**/*.{ts,tsx}'],
     plugins: { sonarjs },
     rules: {
       // Cross-file clones are covered separately by jscpd.
@@ -144,7 +160,14 @@ export default tseslint.config(
 
   // --- formatting (everything we own) -------------------------------------
   {
-    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
+    files: [
+      'packages/**/*.{ts,tsx}',
+      'apps/**/*.{ts,tsx}',
+      'examples/**/*.{ts,tsx}',
+      'scripts/**/*.{ts,tsx}',
+      'website/**/*.{ts,tsx}',
+      'eslint.config.mjs',
+    ],
     plugins: { '@stylistic': stylistic },
     rules: {
       '@stylistic/indent': ['error', 2],

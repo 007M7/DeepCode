@@ -1,190 +1,216 @@
-/**
- * Client plugin body: provide the conversation service and toolview registry,
- * register the conversation/details slot occupants and the no-session empty
- * state, and mount the chat view with its samples. Assembly only — components
- * receive everything through inject factories; nothing here renders directly.
- */
-import { createElement, Fragment, type ReactNode } from 'react'
+/** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import type { SessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
-import { scopedSlots, shallowEqual } from '@deepseek-ai/dsh-client-web-react'
-import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ViewTab } from './contract/views.ts'
 import type {
-  SessionId, SessionListState, SessionsService, SlotsService,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { I18nService } from '@deepseek-ai/dsh-client-i18n/client'
-import type { ConvViewProps, SelectionTarget, ViewEntry, ViewId } from './contract/views.ts'
-import type { ConversationInjected, DetailsInjected, EmptyStateInjected, GoalBarActions } from './contract/slots.ts'
+  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+} from './contract/slots.ts'
+import { resolveToolPath } from './contract/tool-call-model.ts'
+import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
-import { ToolViewRegistry } from './toolviews/registry.ts'
-import { childSessionScope, registerChat } from './chat/register.ts'
-import { registerBashSamples } from './toolviews/bash-sample.tsx'
+import { InputHub } from './input/hub.ts'
+import { InputBar } from './skeleton/InputBar.tsx'
+import { ChatView } from './chat/ChatView.tsx'
+import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { todoToolview } from './toolviews/todo-row.tsx'
+import { todoDockEntry } from './skeleton/TodoPanel.tsx'
+import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
+import { ConversationSession } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
-import { EmptyState } from './skeleton/EmptyState.tsx'
 
-/** Required services (cordis fiber inject — the loader passes the whole export surface as an object plugin). */
-export const inject = ['slots', 'layout', 'sessions', 'i18n']
+/** Services required by the conversation plugin. */
+export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
-/** Resolve a service via ctx.get, failing loud. Property access is reserved
- *  for contexts whose fiber declares the inject (scope fibers do not). */
-// T is the caller-named cast target; inlining `as T` per call site would scatter the budgeted cast.
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
-function need<T>(ctx: Context, name: string): T {
-  const value = ctx.get(name) as T | undefined
-  if (value === undefined) throw new Error(`ui-conversation: ${name} service unavailable`)
-  return value
+/** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
+function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
+  const scoped = sessions.scope(id)
+  if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
+  const conversation = scoped.get('conversation')
+  if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  return conversation
 }
 
-/** Per-list-state cwd set (deduped, list order) for the empty-state picker. */
-const cwdsCache = new WeakMap<SessionListState, readonly string[]>()
-function cwdsOf(state: SessionListState): readonly string[] {
-  let cached = cwdsCache.get(state)
-  if (cached === undefined) {
-    const seen = new Set<string>()
-    for (const id of state.ids) {
-      const cwd = state.byId[id]?.cwd
-      if (cwd !== undefined && cwd !== '') seen.add(cwd)
-    }
-    cached = [...seen]
-    cwdsCache.set(state, cached)
-  }
-  return cached
-}
-
-/**
- * Client plugin body.
- * @param ctx - client root context.
+/** Mounts the conversation plugin.
+ * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
-  const sessions = need<SessionsService>(ctx, 'sessions')
-  const layout = need<LayoutService>(ctx, 'layout')
-  const i18n = need<I18nService>(ctx, 'i18n')
-  const slots = need<SlotsService>(ctx, 'slots')
+  const sessions = ctx.sessions
+  const workspaces = ctx.workspaces
+  const layout = ctx.layout
+  const slots = ctx.slots
 
-  const conversation = new ConversationService(ctx)
-  const toolviews = new ToolViewRegistry()
-  ctx.provide('toolviews', toolviews)
+  // Apply-time construction keeps store identity bound to this fiber.
+  const chatStore = createChatStore()
 
-  const t = i18n.bind('conversation')
-  // Chat view + StatsLine footer; bash samples assembled here (apply is the
-  // only cross-domain point — chat consumes the resolver face, samples come
-  // from the toolviews domain). registerView inside registerChat is already
-  // effect-scoped; the raw sample registrations need the effect wrapper to
-  // ride the fiber cascade.
-  ctx.effect(
-    () => registerChat({ conversation, toolviews, t }),
-    'ui-conversation: chat view')
-  ctx.effect(
-    () => registerBashSamples(toolviews, childSessionScope(sessions.list)),
-    'ui-conversation: bash toolview samples')
-
-  // ConvViewProps.slots is ScopedSlots<never>: a real outlet with an empty
-  // whitelist (uncallable by type, correct runtime shape for future grants).
-  const emptySlots = scopedSlots<never>(slots.core)
-
-  /** conversation slot: skeleton surface assembled once per (entry x session). */
-  const conversationInject = (b: SessionBinding): ConversationInjected => {
-    const bctx = b.ctx as Context
-    const scoped = need<ConversationService>(bctx, 'conversation')
-    const id = b.sessionId as SessionId
-    const useSession = b.session.useSelector as UseSession
-    const selectionStore = scoped.selection
-    const draftsStore = scoped.drafts
-    const session = sessions.manager.get(id)
-    // Watch-driven history pull: assembling the surface IS the watch signal
-    // (once per entry x session; open() is idempotent and self-recovers).
-    void session.open()
-
-    const viewProps: Omit<ConvViewProps, 'slots'> = {
-      sessionId: id,
-      useSession,
-      useSelection: selectionStore.useSelector,
-      actions: {
-        openDetails: (target: SelectionTarget) => { scoped.openDetails(target) },
-        loadOlder: () => { void session.loadOlder() },
-      },
+  const viewTabs = (): ViewTab[] => {
+    const tabs: ViewTab[] = []
+    for (const entry of slots.entries('conversation.view')) {
+      /* v8 ignore next -- unreachable: list registration validates id at load. */
+      if (entry.options.id === undefined) continue
+      tabs.push({ id: entry.options.id, label: entry.options.label ?? entry.options.id })
     }
+    return tabs
+  }
 
-    const injected: ConversationInjected = {
-      useAncestry: () => sessions.list.useSelector(
-        () => sessions.ancestry(id),
-        (a, b) => shallowEqual(a, b)),
-      views: {
-        list: () => conversation.views(),
-        subscribe: fn => conversation.subscribeViews(fn),
-        version: () => conversation.viewsVersion(),
+  // The per-session input machine registry (InputService face; published as
+  // ctx.conversation.input by the service below sharing this one instance).
+  const inputHub = new InputHub(ctx)
+
+  // Decision 19/20: the input machine feeds every session-scope slot
+  // component through the standard provide channel — the 'input' hook plus
+  // the two public actions. Materialization is the shell creation trigger
+  // (per-session lazy; scope disposer tears down).
+  ctx.effect(() => sessions.provide({
+    hooks: ['input'],
+    props: ['inputActions'],
+    resolve: (binding) => {
+      const shell = inputHub.shellFor(binding)
+      return {
+        hooks: { input: shell.state },
+        props: { inputActions: shell.actions },
+      }
+    },
+  }), 'ui-conversation: input standard-kit provider')
+
+  // Resident current-session-optional shell. It owns the stable Hero/composer
+  // frame while strict session slots fill only their session-bound regions.
+  slots.register({
+    name: 'conversation',
+    children: {
+      'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.composer': { kind: 'chain', scope: 'session' },
+      'conversation.composer.bar': { kind: 'single', scope: 'session' },
+      'conversation.input.overlay': { kind: 'list', scope: 'session' },
+      'conversation.input.dock': { kind: 'list', scope: 'session' },
+      'conversation.composer.dock': { kind: 'list', scope: 'session' },
+      'conversation.input.left': { kind: 'list', scope: 'session' },
+      'conversation.input.right': { kind: 'list', scope: 'session' },
+      'conversation.hero.workspace': { kind: 'single', scope: 'root' },
+    },
+    inject: (sessionId: SessionId | undefined): ConversationInjected => ({
+      selectWorkspace: async (workspaceId) => {
+        const nextId = await workspaces.connectWorkspace(workspaceId)
+        if (sessionId !== undefined && nextId !== sessionId) {
+          const from = inputHub.shell(sessionId)
+          const draft = from.snapshot.draft
+          if (draft !== '') {
+            inputHub.shell(nextId).setDraft(draft)
+            from.setDraft('')
+          }
+        }
+        sessions.open(nextId)
       },
-      // layout's viewFor value type is its own looser ViewId; the registry is
-      // the runtime validator (unknown ids fall back to the first view).
-      useActiveView: () => layout.current.useSelector(s => s.viewFor[id]) as ViewId | undefined,
-      composer: {
-        useDraft: () => draftsStore.useSelector(s => s),
-        setDraft: (text) => { draftsStore.set(text) },
-        send: (mode) => {
-          const text = draftsStore.getSnapshot().trim()
-          if (text === '') return
-          // Optimistic clear with failure restore (choreography lives with the
-          // sender; the business failure also lands in snapshot.promptError).
-          draftsStore.set('')
-          void scoped.send(text, mode).catch(() => {
-            if (draftsStore.getSnapshot() === '') draftsStore.set(text)
-          })
-        },
+    }),
+  }, ConversationRoot)
+
+  // The strict session subtree owns only per-session store and view content;
+  // the resident parent keeps Hero and composer layout identity stable.
+  slots.register({
+    name: 'conversation.session',
+    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    store: chatStore,
+    inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
+      views: {
+        list: viewTabs,
+        subscribe: fn => slots.subscribe('conversation.view', fn),
+        version: () => slots.getVersion('conversation.view'),
+      },
+      bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
+      open: (id) => { sessions.open(id) },
+    }),
+  }, ConversationSession)
+
+  // The default composer body: its own single slot inside the composer
+  // chain's fallback (decision 20). Public machine surface arrives via the
+  // provide channel above; the keyboard command face and the stop/retry
+  // verbs ride this inject (package-internal — hub and bar are one plugin).
+  slots.register({
+    name: 'conversation.composer.bar',
+    // The two named control seats in the bar's tool row (plan left, model
+    // right); empty until their owning plugins register (B ruling).
+    children: {
+      'conversation.input.plan': { kind: 'single', scope: 'session' },
+      'conversation.input.model': { kind: 'single', scope: 'session' },
+    },
+    inject: (sessionId: SessionId): ComposerBarInjected => {
+      const shell = inputHub.shell(sessionId)
+      return {
+        keyboard: shell,
         stop: () => {
-          scoped.cancel().catch(() => {
+          scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
-      },
-      actions: {
-        openView: (view: ViewId) => { layout.openView(id, view) },
-        open: (target: SessionId) => { layout.open(target) },
-      },
-      renderView: (entry: ViewEntry): ReactNode => {
-        const children: ReactNode[] = []
-        if (entry.chrome?.header !== undefined) {
-          children.push(createElement(entry.chrome.header, { key: 'header', sessionId: id, useSession }))
-        }
-        children.push(createElement(entry.component, { key: 'view', ...viewProps, slots: emptySlots }))
-        if (entry.chrome?.footer !== undefined) {
-          children.push(createElement(entry.chrome.footer, { key: 'footer', sessionId: id, useSession }))
-        }
-        return createElement(Fragment, null, ...children)
-      },
-      goalActions: {
-        onEdit: objective => session.editGoal(objective),
-        onResume: () => session.resumeGoal(),
-        onClear: () => session.clearGoal(),
-      } satisfies GoalBarActions,
-    }
-    return injected
-  }
+        hooks: { notices: shell.notices, lexicon: shell.lexicon },
+      }
+    },
+  }, InputBar)
 
-  /** details slot: minimal selection-driven panel. */
-  const detailsInject = (b: SessionBinding): DetailsInjected => {
-    const bctx = b.ctx as Context
-    const scoped = need<ConversationService>(bctx, 'conversation')
-    const injected: DetailsInjected = {
-      useSelection: scoped.selection.useSelector,
-      actions: { closeDetails: () => { layout.closeDetails() } },
-    }
-    return injected
-  }
+  // The chat view: first entry of the ring this package just declared.
+  // Declaring the keyed toolview hole here is claiming it: ChatView is the
+  // only component authorized to render per-tool rows. Shares the chat
+  // store, so its selection writes land in the same per-session instance the
+  // details panel reads.
+  slots.register({
+    name: 'conversation.view',
+    id: 'chat',
+    order: 0,
+    label: 'Chat',
+    children: {
+      'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
+    store: chatStore,
+    inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
+      const scoped = scopedConversation(sessions, sessionId)
+      return {
+        openDetails: (target) => {
+          actions.select(target)
+          layout.openDetails()
+        },
+        openFile: (path) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+            // Host/OS open failures stay silent in the chat row; the native
+            // app surfaces its own error dialog when the path is unusable.
+          })
+        },
+        loadOlder: () => { void scoped.loadOlder() },
+      }
+    },
+  }, ChatView)
 
-  /** conversation.empty root slot: the NEW SESSION hero. */
-  const emptyInject = (): EmptyStateInjected => {
-    const useCwds: SnapshotSelectorHook<readonly string[]> = (sel, eq) =>
-      sessions.list.useSelector(s => sel(cwdsOf(s)), eq)
-    const injected: EmptyStateInjected = {
-      useCwds,
-      actions: { startSession: opts => conversation.startSession(opts) },
-    }
-    return injected
-  }
+  // Class-plugin mount (packages/AGENTS.md service form): the service
+  // registers itself as `conversation` and lives on its own child fiber.
+  // Mounted AFTER the chat entry register above — construction guarantee for
+  // toolview registrants using `inject: ['conversation']` as their load-order
+  // seam: the service being present implies the chat entry (and with it the
+  // 'conversation.chat.toolview' declaration) is on the ledger.
+  ctx.plugin(ConversationService, { input: inputHub })
 
-  slots.register('conversation', ConversationRoot, { inject: conversationInject })
-  slots.register('details', DetailsPanel, { inject: detailsInject })
-  slots.register('conversation.empty', EmptyState, { inject: emptyInject })
+  // The bash sample rides that exact seam, in third-party posture
+  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
+  ctx.plugin(bashToolviewSample)
+
+  // The todo_write row rides the same seam (a product registration, not a sample).
+  ctx.plugin(todoToolview)
+
+  // The plan strip rides the input dock above the queue rows (same posture).
+  ctx.plugin(todoDockEntry)
+
+  // The read-only queue dock entry (T9 file territory) rides the same
+  // registration seam into the input dock declared above.
+  ctx.plugin(queueDockEntry)
+
+  slots.register({
+    name: 'details',
+    store: chatStore,
+    inject: (): DetailsInjected => ({
+      closeDetails: () => { layout.closeDetails() },
+    }),
+  }, DetailsPanel)
+
 }

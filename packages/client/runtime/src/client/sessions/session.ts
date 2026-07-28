@@ -1,29 +1,75 @@
-// Session: wraps every contract call that needs a sessionId + all conversation state for this
-// session (design §A.2/§A.9/§D.2/§D.3). Instances are resident (ruling 2): never destroyed once
-// created, they keep consuming mux frames in the background; React connects directly via
-// subscribe/getSnapshot.
+// Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
+import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { GoalView, HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
-import { transportError } from '@deepseek-ai/dsh-client-connection/client'
-import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {
-  ConversationNode, ConversationSnapshot, OpenState, PendingInteraction, PromptError, RunningToolCall,
+  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
+  SessionId, ToolEventView,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ObservableSnapshot } from '../contract/store.ts'
+import type {
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
+  PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
+import type { PendingInteraction } from './pending.ts'
+import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
+import { ProjectionValueStore } from './projection-store.ts'
+import type { ProjectionsBaseline } from './projection-store.ts'
 
-/** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
+/** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
-/** Per-session state owner: event window + fold + partial, snapshot out via uSES (see the web client architecture RFC). */
-export class Session implements ObservableSnapshot<ConversationSnapshot> {
-  /** Typed selector hook bound to this instance (the SessionBinding `useSession` source). */
-  readonly useSelector: SnapshotSelectorHook<ConversationSnapshot> = bindSnapshotSelector(this)
+/** Manager-owned observers of a Session object's local state edges. */
+export interface SessionOptions {
+  /**
+   * First ACCEPTED prompt on a blank session (fires at most once, on the
+   * prompt RPC's success response): the manager mirrors the blank→false flip
+   * into its list row so the session surfaces without waiting for a host
+   * frame. Acceptance is the flip point because it proves the user message
+   * is in the host log; a rejected first prompt keeps the session blank
+   * (hidden, still reusable by connectWorkspace).
+   */
+  onEngaged?(session: Session): void
+  /**
+   * Manager-owned projection value store to adopt (frames route through the
+   * manager and values outlive instantiation); omitted, the Session owns a
+   * private store (bare object-layer construction).
+   */
+  projections?: ProjectionValueStore
+}
 
+/** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
+const QUEUE_PREVIEW_CHARS = 200
+
+/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
+interface QueuedEntry {
+  row: QueuedMessage
+  steering: boolean
+  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
+  sourceJson: string
+}
+
+/** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
+function queuePreviewOf(content: readonly ContentBlock[]): string {
+  const flat = content
+    .map(block => (block.type === 'text' ? block.text : `[${block.type}]`))
+    .join(' ').replace(/\s+/g, ' ').trim()
+  const chars = Array.from(flat)
+  return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
+}
+
+/**
+ * Owns a session's event window, derived conversation state, and observable
+ * snapshot. React bindings remain outside this data layer.
+ */
+export class Session implements ObservableSnapshot<ConversationSnapshot> {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -46,8 +92,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
   private frozenNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
-  // Revision counters + caches backing the snapshot's reference-stability contract (§A.9.4/§C.2,
-  // audit S5): buildSnapshot reuses the previous array when the revision is unchanged, so
+  // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
   // tool card and pending card). Mutation sites bump the matching revision. partial needs no
   // counter — PartialAccumulator.toPartial already returns a cached reference when unchanged.
@@ -55,34 +100,93 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
+  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
+   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
+  private queued: QueuedEntry[] = []
+  private queueRev = 0
+  private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
+   *  copy-on-write the per-parent array so published snapshot references never mutate. */
+  private codeDispatches = new Map<string, readonly CodeSubCall[]>()
+  private dispatchesRev = 0
+  private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
+  /**
+   * Sticky send marker, private input of the composerPhase derivation: set
+   * synchronously before prompt()'s first await, never reset — the blank →
+   * engaging edge of the phase machine (see ComposerPhase).
+   */
+  private promptAttempted = false
+  /** Empty-log mirror (see ConversationSnapshot.blank); monotone false once flipped. */
+  private blankBit = false
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
-  /** Current goal projection; undefined = not yet fetched, null = no goal set. */
-  private goal: GoalView | null | undefined = undefined
-  /** Coalesced goal refetch; a trigger received in flight schedules one trailing read. */
-  private goalFetch: Promise<void> | null = null
-  private goalFetchPending = false
-  /** Bumped on every local goal write; a get result older than the latest write is stale and
-   *  dropped (a mutation response that landed mid-fetch is always newer than the get's read). */
-  private goalWriteRev = 0
-  /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
+  /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
-  /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
+  /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
+
+  /**
+   * Per-session projection value store (session-projection RFC, push model):
+   * finished whole values computed on the host, seeded by the tail page's
+   * projections block and updated by `session/projection` frames under the
+   * one higher-seq-wins rule. Keys are read via `projections.faceOf(key)`
+   * (the useProjection resolution face); the conversation snapshot never
+   * carries projection values, and no client-side domain folding exists.
+   * Manager-owned when constructed through SessionManager (frames route and
+   * the store outlives instantiation, the title-snapshot precedent); a bare
+   * construction gets a private store.
+   */
+  readonly projections: ProjectionValueStore
 
   private snapshotCache: ConversationSnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
   })
+  /**
+   * Agent-scoped cordis context, bound once by SessionsService when it
+   * mints the scope (the client mirror of the host Agent's loopCtx). The
+   * Session dispatches its own scoped events through it; undefined means
+   * unbound (bare object-layer construction) or already pruned — both skip
+   * dispatch-dependent behavior rather than fail.
+   */
+  private actx: Context | undefined
 
-  constructor(readonly sessionId: SessionId, private readonly api: IApiClient) {
+  /**
+   * @param sessionId - Host session identity (client sessions are always Host-born).
+   * @param api - shared wire client.
+   * @param options - optional manager-owned state observers.
+   */
+  constructor(
+    readonly sessionId: SessionId,
+    private readonly api: IApiClient,
+    private readonly options: SessionOptions = {},
+  ) {
+    this.projections = options.projections ?? new ProjectionValueStore()
     this.snapshotCache = this.buildSnapshot()
+  }
+
+  /**
+   * Bind the Agent-scoped context minted by SessionsService (single write;
+   * a second bind is a wiring error and throws). Direction stays one-way at
+   * the seam: consumers still reach the Session via `sessions.sessionOf`,
+   * while the Session holds its own dispatch point (host Agent.loopCtx
+   * mirror).
+   * @param actx - the agent's scoped context.
+   */
+  bindScope(actx: Context): void {
+    if (this.actx !== undefined) throw new Error(`session ${this.sessionId} already has a bound scope`)
+    this.actx = actx
+  }
+
+  /** Release the bound scope at prune time (a later rebind accompanies a freshly minted scope). */
+  unbindScope(): void {
+    this.actx = undefined
   }
 
   // ---- Operations ----
@@ -96,6 +200,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   async prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
+    // Synchronous, before the first await: the blank → engaging edge must be
+    // visible on the session area's very first frame when a caller sends
+    // ahead of navigation (first-send flow).
+    this.promptAttempted = true
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
@@ -105,6 +213,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
     if (!result.ok) {
       this.promptError = { op: 'send', error: result.error }
+      this.notifier.markDirty()
+      return result
+    }
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
+    // its user/message on the host (events.length > 0 is fact, not
+    // optimism), while a rejected first prompt must keep the session blank
+    // — the client-side blank mirror only ever lowers, so flipping early on
+    // a failure would surface the session forever and strip its
+    // connectWorkspace reuse eligibility against the host's authority.
+    if (this.blankBit) {
+      this.blankBit = false
+      this.options.onEngaged?.(this)
       this.notifier.markDirty()
     }
     return result
@@ -123,148 +243,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
     if (!result.ok) {
       this.promptError = { op: 'stop', error: result.error }
-      this.notifier.markDirty()
-    }
-    return result
-  }
-
-  /** Fetch the current goal, coalesced: concurrent triggers share the in-flight get. */
-  private fetchGoal(): Promise<void> {
-    if (this.goalFetch !== null) {
-      this.goalFetchPending = true
-      return this.goalFetch
-    }
-    const promise = this.drainGoalFetches().finally(() => { this.goalFetch = null })
-    this.goalFetch = promise
-    return promise
-  }
-
-  /** Drain the current read plus one coalesced trailing read for triggers received in flight. */
-  private async drainGoalFetches(): Promise<void> {
-    do {
-      this.goalFetchPending = false
-      await this.doFetchGoal()
-      // A goal-change callback can set the flag while doFetchGoal is suspended.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    } while (this.goalFetchPending)
-  }
-
-  /** The get behind fetchGoal: folds transport failures (fail-soft like loadOlder, logged) and
-   *  drops the result when a mutation response landed mid-flight (write revision moved on). */
-  private async doFetchGoal(): Promise<void> {
-    const writeRev = this.goalWriteRev
-    try {
-      const { result } = await this.api.goals.get({ sessionId: this.sessionId })
-      if (!result.ok) return
-      if (writeRev !== this.goalWriteRev) return
-      this.goal = result.value.goal
-      this.notifier.markDirty()
-    } catch (error) {
-      console.error('[web-runtime] goal fetch failed:', error)
-    }
-  }
-
-  /** Execute a goal mutation and publish its successful projection. */
-  private async updateGoal(
-    request: () => Promise<{ result: RpcResult<{ goal: GoalView }> }>,
-  ): Promise<RpcResult<{ goal: GoalView }>> {
-    let result: RpcResult<{ goal: GoalView }>
-    try {
-      result = (await request()).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    if (result.ok) {
-      this.goal = result.value.goal
-      this.goalWriteRev++
-      this.notifier.markDirty()
-    }
-    return result
-  }
-
-  /**
-   * Create a goal for this session.
-   * @param objective - the goal's objective text.
-   * @param maxGoalRounds - optional cap on admitted goal rounds (host default when absent).
-   * @returns the created goal view; transport failures fold into a failed result, never a rejection.
-   */
-  async createGoal(objective: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
-    return this.updateGoal(() => this.api.goals.create({
-      sessionId: this.sessionId, objective, ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-    }))
-  }
-
-  /**
-   * Edit this session's goal objective or round cap (CAS with the locally held revision).
-   * @param objective - replacement objective text; absent leaves it unchanged.
-   * @param maxGoalRounds - replacement round cap; absent leaves it unchanged.
-   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
-   */
-  async editGoal(objective?: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return { ok: false, error: { code: 'internal', message: 'No goal to edit', details: {} } }
-    }
-    const goal = this.goal
-    return this.updateGoal(() => this.api.goals.edit({
-      sessionId: this.sessionId,
-      ref: { id: goal.id, revision: goal.revision },
-      ...(objective !== undefined ? { objective } : {}),
-      ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-    }))
-  }
-
-  /** Apply a phase transition to the current goal. */
-  private transitionGoal(operation: 'pause' | 'resume' | 'complete'): Promise<RpcResult<{ goal: GoalView }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return Promise.resolve({ ok: false, error: { code: 'internal', message: `No goal to ${operation}`, details: {} } })
-    }
-    const ref = { id: this.goal.id, revision: this.goal.revision }
-    return this.updateGoal(() => this.api.goals[operation]({ sessionId: this.sessionId, ref }))
-  }
-
-  /**
-   * Pause the current goal (CAS with the locally held revision).
-   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
-   */
-  async pauseGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    return this.transitionGoal('pause')
-  }
-
-  /**
-   * Resume a paused/blocked goal (CAS with the locally held revision).
-   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
-   */
-  async resumeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    return this.transitionGoal('resume')
-  }
-
-  /**
-   * Complete the current goal (CAS with the locally held revision).
-   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
-   */
-  async completeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    return this.transitionGoal('complete')
-  }
-
-  /**
-   * Clear the current goal (tombstone; CAS with the locally held revision).
-   * @returns a cleared marker; fails without a current goal, and transport failures fold into a failed result.
-   */
-  async clearGoal(): Promise<RpcResult<{ cleared: true }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return { ok: false, error: { code: 'internal', message: 'No goal to clear', details: {} } }
-    }
-    let result: RpcResult<{ cleared: true }>
-    try {
-      result = (await this.api.goals.clear({
-        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
-      })).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    if (result.ok) {
-      this.goal = null
-      this.goalWriteRev++
       this.notifier.markDirty()
     }
     return result
@@ -324,6 +302,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
+    // The queue mirror is NOT cleared here: onConnected (which drives resync)
+    // races the mux frames — the fresh generation's baseline may have landed
+    // already, and the host never resends it. The mirror re-baselines on the
+    // session/subscribed frame instead (same stream as the queue snapshot
+    // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -332,7 +315,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    this.pending.clear() // the subscribed baseline replay re-sends still-pending requested frames verbatim
+    // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
+    // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
+    this.pending.clear()
     this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
@@ -370,41 +355,59 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
+        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
+        return
+      }
+      case 'session/queued': {
+        const message = frame.message
+        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
+        // provisional-echo reconciliation key); otherwise the frame envelope id.
+        const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
+        this.queued.push({
+          row: { key, preview: queuePreviewOf(message.content) },
+          steering: frame.steering,
+          sourceJson: JSON.stringify(message.source),
+        })
+        this.queueRev++
+        this.notifier.markDirty()
         return
       }
       case 'session/subscribed': {
         this.subscribedLastSeq = frame.lastSeq
-        return // pure baseline bookkeeping, no visible change
+        // New mux-generation baseline: the host pushes this session's queue
+        // snapshot AFTER the subscribed frame on the same stream, so the
+        // stale mirror clears here — race-free against onConnected/resync
+        // timing (clearing there could wipe a baseline that already landed).
+        if (this.queued.length > 0) {
+          this.queued = []
+          this.queueRev++
+          this.notifier.markDirty()
+        }
+        return
       }
       case 'approval/requested': {
-        this.pending.set(`a:${rpcId}`, {
-          kind: 'approval', rpcId, approvalId: frame.approvalId, toolName: frame.toolName,
-          ...(frame.callId !== undefined ? { callId: frame.callId } : {}),
-          ...(frame.reason !== undefined ? { reason: frame.reason } : {}),
-        })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('approval', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'approval/resolved': {
-        for (const [key, item] of this.pending) {
-          if (item.kind === 'approval' && item.approvalId === frame.approvalId) {
-            this.pending.delete(key)
-            this.pendingRev++
-          }
+        for (const item of this.pending.values()) {
+          if (item.kind === 'approval' && item.payload.approvalId === frame.approvalId) this.settle(item)
         }
         this.notifier.markDirty()
         return
       }
       case 'question/requested': {
-        this.pending.set(`q:${rpcId}`, { kind: 'question', rpcId, questions: frame.questions })
-        this.pendingRev++
+        const { type: _type, sessionId: _sid, ...payload } = frame
+        this.mint(new PendingWait('question', rpcId, this.sessionId, payload, m => this.api.respond(m)))
         this.notifier.markDirty()
         return
       }
       case 'question/resolved': {
-        if (this.pending.delete(`q:${frame.questionRpcId}`)) this.pendingRev++
+        const item = this.pending.get(`q:${frame.questionRpcId}`)
+        if (item !== undefined) this.settle(item)
         this.notifier.markDirty()
         return
       }
@@ -418,8 +421,37 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
+    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
+    // terminal steering drop) have no per-entry frame, so ANY not-running signal
+    // with a nonempty mirror clears it — checked before the equality return so a
+    // stale replay on an already-idle session still sweeps.
+    if (!running && this.queued.length > 0) {
+      this.queued = []
+      this.queueRev++
+      this.notifier.markDirty()
+    }
+    // Turn-start conversion: a blank session never runs, so the first
+    // running:true proves another端's first message landed (设计稿 2.2).
+    if (running && this.blankBit) {
+      this.blankBit = false
+      this.notifier.markDirty()
+    }
     if (this.running === running) return
     this.running = running
+    this.notifier.markDirty()
+  }
+
+  /**
+   * Blank-bit relay from the authoritative summary source (list baseline and
+   * the session-added frame). Monotone: once any signal (local first send,
+   * running flip, an earlier summary) cleared it, a stale true never
+   * re-blanks.
+   * @param blank - the summary's derived empty-log bit.
+   */
+  handleBlank(blank: boolean): void {
+    if (blank === this.blankBit) return
+    if (blank && (this.promptAttempted || this.running)) return
+    this.blankBit = blank
     this.notifier.markDirty()
   }
 
@@ -438,11 +470,23 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
-  /** Instance-eviction hook, reserved no-op (design §F.6): resident instances are never destroyed
-   *  in v1; an eviction policy lands here (unsubscribe, drop buffers) without touching call sites. */
+  /** No-op because session instances remain resident. */
   dispose(): void {}
 
   // ---- 私有 ----
+
+  /** Requested-frame arrival: the wait enters the pending map under its own key. */
+  private mint(wait: PendingInteraction): void {
+    this.pending.set(wait.key, wait)
+    this.pendingRev++
+  }
+
+  /** Authoritative resolved-frame settlement: mark, then drop from the pending map. */
+  private settle(wait: PendingInteraction): void {
+    wait.markSettled()
+    this.pending.delete(wait.key)
+    this.pendingRev++
+  }
 
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
    *  drops all writes (resync superseded this open — its outcome belongs to a dead connection). */
@@ -458,17 +502,15 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
       this.openState = 'open'
-      // Fetch the current goal eagerly after the window lands.
-      void this.fetchGoal()
     } catch (error) {
       if (generation !== this.openGeneration) return
       this.openState = 'error'
@@ -483,14 +525,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
-   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean): void {
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  A carried projections block seeds the value store (higher seq wins, so a stale
+   *  baseline cannot overwrite a newer push frame); the window events themselves are
+   *  never folded — the host is the only computation site. */
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    if (projections !== undefined) this.projections.seed(projections)
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -505,13 +551,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.views.push(view)
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
-    // Goal mutations surface as goal/change meta on a context/message (clear tombstones carry no
-    // goal key, so match the meta kind). LIVE events only: window rebuilds replay the same meta
-    // and would storm goal.get on open/resync/loadOlder; the refetch coalesces via goalFetch.
-    if (event.type === 'context/message'
-      && (event.data.meta as { kind?: unknown } | undefined)?.kind === 'goal/change') {
-      void this.fetchGoal()
-    }
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
@@ -546,7 +585,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore)
+        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -555,9 +594,89 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
+  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
+   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
+   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
+  private retireQueued(event: SessionEvent): void {
+    if (this.queued.length === 0) return
+    let index = -1
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind !== 'message') return
+      index = this.queued.findIndex(entry => !entry.steering)
+    } else if (event.type === 'steering/message') {
+      const source = JSON.stringify(event.data.message.source)
+      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
+    } else {
+      return
+    }
+    if (index < 0) return
+    this.queued.splice(index, 1)
+    this.queueRev++
+    this.notifier.markDirty()
+  }
+
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
+    // the host-side dsh-tools plugin whose types cannot enter the client
+    // program (its host Context merges collide with the client's), so this
+    // wire consumer narrows them structurally — the same posture as every
+    // other cross-wire event payload.
+    if ((event.type as string) === 'tool/code-dispatch-start') {
+      // A started sub-dispatch enters the index as a RunningToolCall — the
+      // exact shape a native in-flight call renders from — under its parent
+      // run_code callId; it never joins the surface flow.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+      }
+      const running: CodeSubCall = {
+        callId: data.subCallId, name: data.name,
+        argsRaw: JSON.stringify(data.arguments),
+        turn: 0, step: 0, time: event.time, callView: null,
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      this.codeDispatches.set(data.parentCallId, [...siblings, running])
+      this.dispatchesRev++
+      return
+    }
+    if ((event.type as string) === 'tool/code-dispatch') {
+      // Settlement replaces the running entry in place (same array position,
+      // so parallel sub-calls keep their start order) with the
+      // ToolResultNode form; a settle with no observed start (history window
+      // cut mid-pair, or a pre-start-event log) appends directly.
+      const data = event.data as unknown as {
+        parentCallId: string
+        subCallId: string
+        name: string
+        arguments: unknown
+        isError: boolean
+        content: ContentBlock[]
+      }
+      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
+      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
+      const started = at === -1 ? undefined : siblings[at]
+      const settled: CodeSubCall = {
+        kind: 'tool-result', seq: event.seq, time: event.time,
+        callId: data.subCallId,
+        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
+        // Duration source: the paired start's time when observed; null =
+        // unknown (settle-only window), matching the native tool-result
+        // contract so views never present a fabricated zero duration.
+        callTime: started === undefined ? null : started.time,
+        content: data.content, isError: data.isError,
+        callView: null, resultView: null,
+      }
+      this.codeDispatches.set(
+        data.parentCallId,
+        at === -1 ? [...siblings, settled] : siblings.map((sub, index) => (index === at ? settled : sub)),
+      )
+      this.dispatchesRev++
+      return
+    }
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -576,14 +695,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       case 'tool/call': {
         this.openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
-          turn: event.data.turn, step: event.data.step,
+          turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
         })
         this.callsRev++
         return
       }
       case 'tool/result': {
-        if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
+        if (this.openCalls.delete(String(event.data.message.source.callId))) this.callsRev++
         return
       }
       case 'turn/end': {
@@ -597,7 +716,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
             this.frozenNodes.push({
-              kind: 'assistant', seq: event.seq - 0.9, turn: this.partial.turn, step: this.partial.step,
+              kind: 'assistant', seq: event.seq - 0.9, time: event.time,
+              turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
             this.frozenRev++
@@ -611,8 +731,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
           this.frozenNodes.push({
-            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, callId,
+            kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
+            callId,
             call: { name: call.name, argsRaw: call.argsRaw },
+            callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
@@ -634,6 +756,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
+    this.codeDispatches = new Map()
+    this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -666,22 +790,50 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
+    if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
+      this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
+    }
+    if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
+      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+    }
+    const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
       nodes,
       foldDegraded: degraded,
-      partial: this.partial?.toPartial() ?? null,
+      partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
+      codeDispatches: this.dispatchesCache.value,
+      queue: this.queueCache.value,
       running: this.running,
+      composerPhase: derivePhase(
+        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        this.promptAttempted,
+      ),
       removed: this.removed,
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
+      blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      goal: this.goal,
     }
   }
+}
+
+/**
+ * The composerPhase judgment — the single site that knows the predicate
+ * (consumers switch on the result, never re-derive). Monotone per session
+ * object: `hasContent` only grows within a window and `promptAttempted` is
+ * sticky, so blank → engaging → active never steps back; a failed first
+ * prompt stays engaging (retry semantics — see ComposerPhase).
+ * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param promptAttempted - a prompt was initiated on this session object.
+ * @returns the derived phase.
+ */
+function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
+  if (hasContent) return 'active'
+  return promptAttempted ? 'engaging' : 'blank'
 }

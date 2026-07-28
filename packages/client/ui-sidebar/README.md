@@ -1,8 +1,16 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
-Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Contract: api-contracts v3 §6.
+English | [中文](README.zh.md)
 
-`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — tree hook, current-session hook, actions) and `SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected` (the owner share referenced from ui-layout's slot declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory binds layout/sessions off `RootBinding<ClientContext>`.
+Sidebar plugin: real Host Workspaces in stable Host order, each containing its `sessionIds` in Workspace order with `parentId` nesting; Sessions outside every Workspace appear in a trailing `Ungrouped` section. Search, state dots, and collapse into the layout-owned 56px rail are presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+
+New Session starts the runtime's page-local frontend Session Intent; a real Workspace's "+" starts one targeted to that Workspace. The Workspace header "+" opens ui-workspace's shared picker, whose selection also targets a frontend Session. A Workspace Intent does not appear in the sidebar.
+
+`SidebarRootComponentProps` composes the layout owner share, the global `useSessions` and `useWorkspaces` hooks, the declared `sidebar.workspace` and `sidebar.settings` child slots, and injected `startSession`, `open`, and sidebar-toggle callbacks. There is no plugin store: `deriveGroups` consumes object-layer snapshots and component-local expansion/search state.
+
+The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
+
+The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree derivation are internal (the slot registration closes over them; tests import src paths directly).
 
 ## Model Experience
 

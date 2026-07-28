@@ -16,13 +16,13 @@ export const PendingCard = memo(function PendingCard({ item }: PendingCardProps)
     <div className={css.card}>
       {item.kind === 'approval' ? (
         <>
-          <div className={css.title}>等待审批：<span className={css.mono}>{item.toolName}</span></div>
-          {item.reason !== undefined && <div className={css.reason}>{item.reason}</div>}
+          <div className={css.title}>等待审批：<span className={css.mono}>{item.payload.toolName}</span></div>
+          {item.payload.reason !== undefined && <div className={css.reason}>{item.payload.reason}</div>}
         </>
       ) : (
         <>
-          <div className={css.title}>等待回答（{item.questions.length} 题）</div>
-          <JsonBlock label="问题内容" payload={item.questions} />
+          <div className={css.title}>等待回答（{item.payload.questions.length} 题）</div>
+          <JsonBlock label="问题内容" payload={item.payload.questions} />
         </>
       )}
       <div className={css.hint}>请在原客户端处理（web 端作答后续里程碑提供）</div>

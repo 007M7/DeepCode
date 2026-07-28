@@ -1,195 +1,97 @@
 // @vitest-environment jsdom
-/**
- * SidebarRoot interaction spec on the real framework stack: real tree store
- * (web-react SnapshotStore) feeding the component through the same selector
- * hook the inject surface hands out. Covers expand/collapse, subtree unfold,
- * search filtering, row activation, and the creation entries.
- */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { act } from 'react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  createSidebarTreeStore, SidebarRoot,
-  type SidebarActions, type SidebarTreeStore,
-} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type { SidebarRootComponentProps, SidebarSectionOwnerProps, SidebarSettingsOwnerProps } from '../src/client/contract/slots.ts'
+import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 
-const sid = (s: string) => s as SessionId
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
-/** Bare-string init; brands ids and omits absent optional keys (exactOptionalPropertyTypes). */
-interface SummaryInit {
-  id: string
-  title?: string
-  cwd?: string
-  parentId?: string
-  running?: boolean
-  updatedAt?: number
-}
+// The shell never reads the global hooks itself, but they ride the standard
+// props share; stub them as never-called functions.
+const neverHook = (() => { throw new Error('shell must not read global hooks') }) as never
 
-function summary(init: SummaryInit): SessionSummary {
-  const s: SessionSummary = {
-    id: sid(init.id),
-    title: init.title ?? init.id,
-    running: init.running ?? false,
-    updatedAt: init.updatedAt ?? 0,
-  }
-  if (init.cwd !== undefined) s.cwd = init.cwd
-  if (init.parentId !== undefined) s.parentId = sid(init.parentId)
-  return s
-}
-
-function listStateOf(...summaries: SessionSummary[]): SessionListState {
-  const byId: Record<SessionId, SessionSummary> = {}
-  for (const s of summaries) byId[s.id] = s
-  return { ids: summaries.map((s) => s.id), byId }
-}
-
-afterEach(cleanup)
-
-function mount(...summaries: SessionSummary[]) {
-  const list = createSnapshotStore<SessionListState>(listStateOf(...summaries))
-  const tree: SidebarTreeStore = createSidebarTreeStore({ list })
-  const current = createSnapshotStore<{ id: SessionId | undefined }>({ id: undefined })
-  const actions: SidebarActions = {
-    open: vi.fn((id: SessionId) => { current.update((d) => { d.id = id }) }),
-    create: vi.fn(),
-    toggleSidebar: vi.fn(),
-  }
-  const utils = render(
+function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; width?: number } = {}) {
+  const startSession = vi.fn()
+  const toggleSidebar = vi.fn()
+  let regionOwner: SidebarSectionOwnerProps | undefined
+  let settingsOwner: SidebarSettingsOwnerProps | undefined
+  let current = { collapsed, width }
+  const root = () => (
     <SidebarRoot
-      useTree={tree.store.useSelector}
-      useCurrent={() => current.useSelector((s) => s.id)}
-      actions={actions}
-      tree={tree}
-    />,
+      collapsed={current.collapsed} width={current.width}
+      useSessions={neverHook} useWorkspaces={neverHook}
+      startSession={startSession} toggleSidebar={toggleSidebar}
+      renderSlot={((key: string, owner: SidebarSectionOwnerProps | SidebarSettingsOwnerProps) => {
+        if (key === 'sidebar.settings') {
+          settingsOwner = owner
+          return <div data-testid="settings-seat" data-wide={owner.wide} />
+        }
+        regionOwner = owner as SidebarSectionOwnerProps
+        return <div data-testid="region" data-wide={owner.wide} />
+      }) as SidebarRootComponentProps['renderSlot']}
+    />
   )
-  return { list, tree, current, actions, ...utils }
+  const view = render(root())
+  return {
+    startSession,
+    toggleSidebar,
+    regionOwner: () => {
+      if (regionOwner === undefined) throw new Error('region owner not rendered')
+      return regionOwner
+    },
+    settingsOwner: () => {
+      if (settingsOwner === undefined) throw new Error('settings owner not rendered')
+      return settingsOwner
+    },
+    rerender(next: Partial<typeof current>) {
+      current = { ...current, ...next }
+      view.rerender(root())
+    },
+  }
 }
 
-const projectData = () => [
-  summary({ id: 'root', title: 'root work', cwd: '/proj', updatedAt: 5 }),
-  summary({ id: 'kid', title: 'forked child', cwd: '/proj', parentId: sid('root'), updatedAt: 4 }),
-  summary({ id: 'lone', title: 'elsewhere', cwd: '/other', updatedAt: 3 }),
-]
-
-describe('SidebarRoot', () => {
-  it('renders chrome and collapsed project rows', () => {
-    mount(...projectData())
-    expect(screen.getByText('HARNESS')).toBeTruthy()
-    expect(screen.getByText('New Session')).toBeTruthy()
-    expect(screen.getByText('proj')).toBeTruthy()
-    expect(screen.getByText('2 sessions')).toBeTruthy()
-    expect(screen.getByText('1 session')).toBeTruthy()
-    expect(screen.queryByText('root work')).toBeNull()
+describe('SidebarRoot shell', () => {
+  it('routes New Session (capsule + wordmark) and the column toggle', () => {
+    const b = mountShell()
+    // Expanded, both the wordmark and the capsule start a session.
+    const starters = screen.getAllByRole('button', { name: 'New session' })
+    expect(starters).toHaveLength(2)
+    for (const button of starters) fireEvent.click(button)
+    expect(b.startSession).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(b.toggleSidebar).toHaveBeenCalledOnce()
   })
 
-  it('expands a project on click and unfolds a subtree via the twist', () => {
-    mount(...projectData())
-    act(() => { fireEvent.click(screen.getByText('proj')) })
-    expect(screen.getByText('root work')).toBeTruthy()
-    expect(screen.queryByText('forked child')).toBeNull()
-    act(() => { fireEvent.click(screen.getByLabelText('Expand')) })
-    expect(screen.getByText('forked child')).toBeTruthy()
-    act(() => { fireEvent.click(screen.getByLabelText('Collapse')) })
-    expect(screen.queryByText('forked child')).toBeNull()
+  it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {
+    const b = mountShell()
+    expect(b.regionOwner().wide).toBe(true)
+    // The settings seat rides the same wide flag (ui-settings renders the row).
+    expect(b.settingsOwner().wide).toBe(true)
+    // Expanded: the request is a no-op (no accidental collapse).
+    b.regionOwner().expandSidebar()
+    expect(b.toggleSidebar).not.toHaveBeenCalled()
   })
 
-  it('opens a session on row click and marks it selected', () => {
-    const { actions } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByText('proj')) })
-    act(() => { fireEvent.click(screen.getByText('root work')) })
-    expect(actions.open).toHaveBeenCalledWith('root')
-    expect(screen.getByText('root work').closest('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('true')
+  it('keeps the region mounted through collapse and expands on its request', () => {
+    vi.useFakeTimers()
+    const b = mountShell()
+    b.rerender({ collapsed: true })
+    // Wide content survives the crossfade window, then settles into the rail.
+    expect(b.regionOwner().wide).toBe(true)
+    vi.advanceTimersByTime(200)
+    b.rerender({})
+    expect(b.regionOwner().wide).toBe(false)
+    expect(screen.getByTestId('region')).toBeTruthy()
+    b.regionOwner().expandSidebar()
+    expect(b.toggleSidebar).toHaveBeenCalledOnce()
   })
 
-  it('search filters across groups and forces ancestor chains visible', () => {
-    mount(...projectData())
-    const input = screen.getByPlaceholderText('Search name, keywords...')
-    act(() => { fireEvent.change(input, { target: { value: 'forked' } }) })
-    expect(screen.getByText('forked child')).toBeTruthy()
-    expect(screen.getByText('root work')).toBeTruthy()
-    expect(screen.queryByText('elsewhere')).toBeNull()
-    expect(screen.queryByText(/^other$/)).toBeNull()
-    act(() => { fireEvent.click(screen.getByLabelText('Clear search')) })
-    expect(screen.queryByText('root work')).toBeNull()
-    expect(screen.getByText('proj')).toBeTruthy()
-  })
-
-  it('shows the blank-list empty state without a query', () => {
-    mount()
-    expect(screen.getByText('No sessions yet')).toBeTruthy()
-  })
-
-  it('shows the no-match empty state', () => {
-    mount(...projectData())
-    const input = screen.getByPlaceholderText('Search name, keywords...')
-    act(() => { fireEvent.change(input, { target: { value: 'zzz-none' } }) })
-    expect(screen.getByText('No matches')).toBeTruthy()
-  })
-
-  it('routes the three creation entries with the right cwd', () => {
-    const { actions } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByText('New Session')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
-    act(() => { fireEvent.click(screen.getByLabelText('New workspace')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
-    // Per-project "+" is hover-revealed by CSS; still clickable in jsdom.
-    act(() => { fireEvent.click(screen.getAllByLabelText('New session here')[0]!) })
-    expect(actions.create).toHaveBeenLastCalledWith('/proj')
-  })
-
-  it('collapse button and group-by menu behave', () => {
-    const { actions } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
-    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
-    expect(screen.queryByText('Update')).toBeNull()
-    act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
-    expect(screen.getByText('Update')).toBeTruthy()
-    expect(screen.getByText('Status')).toBeTruthy()
-    // Selecting the active strategy closes the list (only workspace is enabled).
-    act(() => { fireEvent.click(screen.getByText('WorkSpace', { selector: 'button *' })) })
-    expect(screen.queryByText('Update')).toBeNull()
-    // Reopen and dismiss via Escape (Menu onClose channel).
-    act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
-    act(() => { fireEvent.keyDown(document, { key: 'Escape' }) })
-    expect(screen.queryByText('Update')).toBeNull()
-  })
-
-  it('re-renders when the sessions list gains a session', async () => {
-    const { list } = mount(...projectData())
-    act(() => {
-      list.update((draft) => {
-        draft.ids.push(sid('fresh'))
-        draft.byId[sid('fresh')] = summary({ id: 'fresh', title: 'brand new', cwd: '/fresh', updatedAt: 99 })
-      })
-    })
-    // Store notifications are microtask-batched.
-    await act(async () => { await Promise.resolve() })
-    expect(screen.getByText('fresh')).toBeTruthy()
-  })
-
-  it('row "More" anchors swallow the click without opening or toggling', () => {
-    const { actions, tree } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByText('proj')) })
-    const before = tree.store.getSnapshot().expandedProjects.length
-    // Project-row anchor: must not collapse the project.
-    act(() => { fireEvent.click(screen.getAllByLabelText('More')[0]!) })
-    expect(tree.store.getSnapshot().expandedProjects).toHaveLength(before)
-    // Session-row anchor: must not open the session.
-    act(() => { fireEvent.click(screen.getAllByLabelText('More')[1]!) })
-    expect(actions.open).not.toHaveBeenCalled()
-  })
-
-  it('shows the running state dot only for running sessions', () => {
-    mount(
-      summary({ id: 'busy', title: 'busy one', cwd: '/p', running: true, updatedAt: 2 }),
-      summary({ id: 'idle', title: 'idle one', cwd: '/p', updatedAt: 1 }),
-    )
-    act(() => { fireEvent.click(screen.getByText('p')) })
-    const busyRow = screen.getByText('busy one').closest('[role="treeitem"]')!
-    const idleRow = screen.getByText('idle one').closest('[role="treeitem"]')!
-    expect(busyRow.querySelector('[data-state="ongoing"]')).toBeTruthy()
-    expect(idleRow.querySelector('[data-state="ongoing"]')).toBeNull()
+  it('renders statically collapsed on a cold start (no crossfade classes)', () => {
+    const b = mountShell({ collapsed: true })
+    expect(b.regionOwner().wide).toBe(false)
+    expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
   })
 })

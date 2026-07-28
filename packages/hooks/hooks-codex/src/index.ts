@@ -15,8 +15,10 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
@@ -102,6 +104,12 @@ export function apply(ctx: Context, config: Config): void {
   const detached = createDetachedRuns()
   ctx.effect(() => () => detached.drain(), 'hooks-codex: drain detached hook runs')
 
+  /**
+   * Run and fold one configured Codex hook point.
+   *
+   * A supplied turn records the hook provenance pair inside that open turn.
+   * Pre-turn `UserPromptSubmit` and detached lifecycle points omit it.
+   */
   async function runPoint(
     point: string,
     matchQuery: string,
@@ -163,14 +171,14 @@ export function apply(ctx: Context, config: Config): void {
 
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
-  function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
+  function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
-    return { content, source: PLUGIN_SOURCE }
+    return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
   /** Prepend one context without flattening downstream provenance or metadata. */
-  function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }
 
@@ -181,16 +189,20 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SessionStart', source, { ...base(ctx, agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context) agent.inject(context.content, { source: context.source })
+        if (context) agent.inject(context)
       })
       .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) }))
     /* jscpd:ignore-end */
   })
 
   // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
-  ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
-    const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(ctx, agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true, signal })
+  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
+    const payload = {
+      ...base(ctx, agent, 'UserPromptSubmit', model),
+      turn_id: String(lastTurn(agent) + 1),
+      prompt: blocksToText(message.content),
+    }
+    const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
     /* jscpd:ignore-start */
     if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     // Context alone is not a veto: DELEGATE so a later prompt-submit listener can
@@ -231,17 +243,17 @@ export function apply(ctx: Context, config: Config): void {
       return { ...downstream, additionalContexts: prependContext(context, downstream.additionalContexts) }
     }
     return {
-      kind: 'accept',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      ...downstream,
       additionalContexts: prependContext(context, downstream.additionalContexts),
     }
   })
 
-  // Stop → ContinuationDecision. A blocking Stop hook forces continuation.
+  // A blocking Stop hook steers at the stopping boundary, which makes the
+  // machine observe pending input and run another step.
   // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
   // avoid continuing the same turn indefinitely. It is always false here, so an
   // unconditionally blocking hook force-continues every step until it self-limits.
-  ctx.on('agent/turn-continuation', async (agent, turn, _default, signal, next): Promise<ContinuationDecision> => {
+  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
     const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') {
@@ -249,9 +261,8 @@ export function apply(ctx: Context, config: Config): void {
       // empty stderr) still forces it — fall back to a generic steering line
       // rather than letting the turn stop.
       const text = merged.reason ?? 'continue: blocked by Stop hook'
-      return { action: 'continue', reason: { content: [{ type: 'text', text }], source: PLUGIN_SOURCE } }
+      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE }))
     }
-    return next()
   })
 }
 
@@ -264,9 +275,7 @@ export function apply(ctx: Context, config: Config): void {
 function lastTurn(agent: Agent | undefined): number {
   if (!agent) return 0
   const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
-  /* v8 ignore next -- the `: 0` arm is a defensive fallback: when an agent is
-     present, lastTurn is only called from the mid-turn seams, which always run
-     inside an open turn, so `last` is always a turn/start here. */
+  /* v8 ignore next -- agent-present turnBase callers are tool/stop seams inside an open turn. */
   return last?.type === 'turn/start' ? last.data.turn : 0
 }
 

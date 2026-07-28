@@ -1,5 +1,7 @@
 # Background Task Runtime
 
+English | [中文](tasks.zh.md)
+
 Types shared by long-running producers, `ctx.tasks`, and task control surfaces. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the literal shapes from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
 
 ## Ids and status
@@ -34,6 +36,11 @@ interface TaskStart {
   kind: TaskKind
   /** One-line model-facing label (the command; the delegation description). */
   label: string
+  /**
+   * Optional UTF-8 byte cap for each complete model-facing completion notice or
+   * output read, including control-surface status metadata.
+   */
+  outputLimitBytes?: number
   /**
    * Owning live agent. Access is fenced by its session id, and agent disposal
    * cancels and awaits the task. The instance must be the one currently
@@ -104,6 +111,8 @@ interface TaskSnapshot {
   kind: TaskKind
   /** The producer-supplied one-line label. */
   label: string
+  /** Producer-owned cap for complete model-facing notices and output reads. */
+  outputLimitBytes?: number
   /**
    * Owner session id used for authorization and correlation; absent for
    * unowned tasks. Completion listeners receive the exact {@link Agent}
@@ -142,4 +151,4 @@ interface TaskRead {
 
 ## Service behavior
 
-[`TaskService`](../../packages/tasks/tasks/src/index.ts) provides atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the package contract and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing surface.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam defines atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local implementation. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the seam contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing surface.

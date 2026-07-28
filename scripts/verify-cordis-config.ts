@@ -12,6 +12,7 @@ import { globSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import ts from 'typescript'
+import { cordisConfigFiles } from './cordis-config-files.ts'
 
 interface JsExpr {
   __jsExpr: string
@@ -39,10 +40,7 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
 })
 const schema = yaml.JSON_SCHEMA.extend(jsExprType)
 
-const files = globSync(['**/*cordis*.yml', '**/*cordis*.yaml'], {
-  cwd: root,
-  exclude: ['.claude/**', 'node_modules/**', 'vendor/**'],
-}).sort()
+const files = cordisConfigFiles(root)
 const errors: string[] = []
 const examplePluginReferences: PluginReference[] = []
 
@@ -152,12 +150,13 @@ function localPackageDirectories(): Map<string, string> {
 }
 
 function rootProjectReferences(): Set<string> {
-  // Typecheck runs two sibling aggregates (root = host program,
-  // tsconfig.client.json = client program; the two sides merge cordis Context
-  // under the same keys, so one program cannot see both). Seed both and follow
-  // any nested aggregate references to collect the covered leaf project set.
+  // The root solution references the host and client aggregates (the two
+  // sides merge cordis Context under the same keys, so one program cannot see
+  // both — but this BFS only collects reference paths, it never forms a
+  // program). Seed the solution and follow nested aggregate references to
+  // collect the covered leaf project set.
   const collected = new Set<string>()
-  const queue = [resolve(root, 'tsconfig.json'), resolve(root, 'tsconfig.client.json')]
+  const queue = [resolve(root, 'tsconfig.json')]
   const seen = new Set<string>()
   for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
     if (seen.has(file)) continue

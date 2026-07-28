@@ -3,7 +3,7 @@
 
 # Cordis Agent App Composition
 
-The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its own runtime and mount/unmount plugins into it.
+The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.
 
 ```mermaid
 flowchart LR
@@ -12,6 +12,8 @@ flowchart LR
   cfg --> plugin_cordis_hmr
   plugin_cordis_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_cordis_llm_deepseek
+  plugin_cordis_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
+  cfg --> plugin_cordis_subprocess
   plugin_cordis_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_cordis_bash
   plugin_cordis_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
@@ -39,6 +41,7 @@ flowchart LR
 | --- | --- |
 | `hmr` | `@cordisjs/plugin-hmr` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
+| `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `web` | `@deepseek-ai/dsh-web` |

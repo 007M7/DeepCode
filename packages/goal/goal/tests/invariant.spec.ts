@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
@@ -30,6 +31,7 @@ const changeSource = {
   goalId: change.goal.id,
   revision: change.goal.revision,
   round: 0,
+  change,
 } as const
 
 async function setup(): Promise<Context> {
@@ -45,11 +47,10 @@ describe('goal stream invariants', () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-valid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-    session.append('context/message', {
+    session.append('user/message', createUserMessage({
       content: renderGoalChange(change),
       source: changeSource,
-      meta: change as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     session.append('turn/start', {
       turn: 2,
@@ -59,10 +60,10 @@ describe('goal stream invariants', () => {
       },
     })
     expect(() => {
-      session.append('user/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue' }],
         source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 1 },
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }).not.toThrow()
   })
 
@@ -71,22 +72,20 @@ describe('goal stream invariants', () => {
     const session = ctx.sessions.create(SessionId('goal-invariant-invalid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
     expect(() => {
-      session.append('context/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'counterfeit' }],
         source: changeSource,
-        meta: change as never,
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }).toThrow(expect.objectContaining<Partial<InvariantError>>({
       code: 'INVARIANT',
       packageName: '@deepseek-ai/dsh-goal',
     }))
     expect(session.seq).toBe(1)
     expect(() => {
-      session.append('context/message', {
+      session.append('user/message', createUserMessage({
         content: renderGoalChange(change),
         source: changeSource,
-        meta: change as never,
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }).not.toThrow()
   })
 
@@ -95,11 +94,10 @@ describe('goal stream invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('goal-invariant-late-load'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
-    session.append('context/message', {
+    session.append('user/message', createUserMessage({
       content: renderGoalChange(change),
       source: changeSource,
-      meta: change as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     await ctx.plugin(InvariantService, { enabled: true })
@@ -112,10 +110,10 @@ describe('goal stream invariants', () => {
       },
     })
     expect(() => {
-      session.append('user/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue after load' }],
         source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 1 },
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }).not.toThrow()
   })
 })

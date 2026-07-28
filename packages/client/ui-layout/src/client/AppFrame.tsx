@@ -1,54 +1,49 @@
 /**
- * Three-column shell frame. Owns the grid tracks (sidebar | center | details),
- * the two drag handles (pointer capture + rAF throttle), and the concession
- * chain (columns.ts). Column content arrives via props: `sidebar` is the
- * sidebar slot render, `children` is the session area (the shell mounts
- * SessionProvider there; its body renders {@link CenterColumn} and
- * {@link DetailsColumn}, which land as grid items because neither the provider
- * nor fragments emit DOM). Zero cordis imports — stores and actions are
- * injected as props.
+ * Three-column shell frame, registered into the built-in 'root' slot (the web
+ * shell renders only 'root'). Owns the grid tracks (sidebar | center |
+ * details), the drag handles (pointer capture + rAF throttle), the concession
+ * chain (columns.ts), and the child-slot render decisions: the sidebar slot
+ * renders HERE with live parameters from the concession solve, and the
+ * session-aware occupants render in fixed column positions; strict entries
+ * gate themselves on current-session availability while session-maybe
+ * entries retain identity. Pure component: everything arrives
+ * through the three framework shares — zero cordis or framework imports,
+ * zero self-made hooks.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { computeColumns } from './columns.ts'
-import type { PanelState } from './service.ts'
+import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** AppFrame props: injected viewing-state hooks, stable width actions, column content. */
-export interface AppFrameProps {
-  /** Selector hook over the sidebar panel store. */
-  useSidebar: SnapshotSelectorHook<PanelState>
-  /** Selector hook over the details panel store. */
-  useDetails: SnapshotSelectorHook<PanelState>
-  /** Persist a sidebar width preference (service clamps). */
-  setSidebarWidth: (px: number) => void
-  /** Persist a details width preference (service clamps). */
-  setDetailsWidth: (px: number) => void
-  /** Sidebar column content (shell: renderSlot('sidebar')). */
-  sidebar: ReactNode
-  /** Session area (shell: SessionProvider whose body renders CenterColumn + DetailsColumn). */
-  children?: ReactNode
-}
+/** Full composed props: runtime share + child-slot render share + store share. */
+export type AppFrameProps =
+  & PropsRuntime<'root'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'details'>
+  & PropsStore<ReturnType<typeof createLayoutStore>>
 
-/** Center column grid item; rendered inside the session provider's body. */
-export function CenterColumn(props: { children?: ReactNode }) {
+/** Center column grid item (session-body building block). */
+function CenterColumn(props: { children?: ReactNode }) {
   return <div className={css.centerCol}>{props.children}</div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
-export function DetailsColumn(props: { children?: ReactNode }) {
+function DetailsColumn(props: { children?: ReactNode }) {
   return <div className={css.detailsCol}>{props.children}</div>
 }
 
-/** One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin. */
-function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: number) => void }) {
+/**
+ * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
+ * `side` keys the hover-reveal CSS to the owning column.
+ */
+function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
   const latest = useRef(0)
   const frame = useRef<number | null>(null)
-  const callbacks = useRef({ onStart: props.onStart, onDrag: props.onDrag })
-  callbacks.current = { onStart: props.onStart, onDrag: props.onDrag }
+  const callbacks = useRef({ onStart: props.onStart, onDrag: props.onDrag, onEnd: props.onEnd })
+  callbacks.current = { onStart: props.onStart, onDrag: props.onDrag, onEnd: props.onEnd }
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -72,12 +67,14 @@ function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: num
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null }
     callbacks.current.onDrag(latest.current - origin.current)
     setDragging(false)
+    callbacks.current.onEnd()
   }, [])
 
   return (
     <div
       className={css.handle}
       style={{ left: props.left }}
+      data-side={props.side}
       data-dragging={dragging || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -87,9 +84,12 @@ function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: num
 }
 
 /** The three-column frame (see module doc). */
-export function AppFrame(props: AppFrameProps) {
-  const sidebar = props.useSidebar((s) => s)
-  const details = props.useDetails((s) => s)
+export function AppFrame({
+  useStore,
+  actions,
+  renderSlot,
+}: AppFrameProps) {
+  const panels = useStore(s => s)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
@@ -113,7 +113,7 @@ export function AppFrame(props: AppFrameProps) {
     }
   }, [])
 
-  const cols = computeColumns(viewport, sidebar, details)
+  const cols = computeColumns(viewport, panels.sidebar, panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -122,28 +122,50 @@ export function AppFrame(props: AppFrameProps) {
   // it stays frozen for the whole gesture so dx deltas do not compound.
   const sidebarBase = useRef(0)
   const detailsBase = useRef(0)
-  const { setSidebarWidth, setDetailsWidth } = props
-  const onSidebarStart = useCallback(() => { sidebarBase.current = colsRef.current.sidebar }, [])
-  const onDetailsStart = useCallback(() => { detailsBase.current = colsRef.current.details }, [])
+  // Track-level transitions pause for the whole gesture: eased tracks would
+  // detach the column edge from the pointer (AppFrame.module.css).
+  const [dragging, setDragging] = useState(false)
+  const onDragEnd = useCallback(() => { setDragging(false) }, [])
+  const onSidebarStart = useCallback(() => { sidebarBase.current = colsRef.current.sidebar; setDragging(true) }, [])
+  const onDetailsStart = useCallback(() => { detailsBase.current = colsRef.current.details; setDragging(true) }, [])
   const onSidebarDrag = useCallback((dx: number) => {
-    setSidebarWidth(sidebarBase.current + dx)
-  }, [setSidebarWidth])
+    actions.setSidebar(sidebarBase.current + dx)
+  }, [actions])
   const onDetailsDrag = useCallback((dx: number) => {
-    setDetailsWidth(detailsBase.current - dx)
-  }, [setDetailsWidth])
+    actions.setDetails(detailsBase.current - dx)
+  }, [actions])
 
   return (
     <div
       ref={frameRef}
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
-      data-sidebar-collapsed={cols.sidebar === 0 || undefined}
+      data-sidebar-collapsed={panels.sidebar === 0 || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
+      data-dragging={dragging || undefined}
     >
-      <div className={css.sidebarCol}>{props.sidebar}</div>
-      {props.children}
-      {cols.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />}
-      {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} />}
+      <div className={css.sidebarCol}>
+        {/* Render-site slot call with live concession output: a closed
+            sidebar keeps the mounted slot at the compact-rail width, and the
+            component sees its rendered state as owner params decided here
+            (collapsed follows the preference, not the resolved width). */}
+        {renderSlot('sidebar', {
+          collapsed: panels.sidebar === 0,
+          width: cols.sidebar,
+        })}
+      </div>
+      <>
+        {/* Both column occupants stay at fixed tree positions from first
+            paint — no loading gate (user ruling: the bare status line looked
+            worse than the shell's own pending rendering). The conversation
+            is session-maybe; the strict details entry naturally renders
+            empty while no session is current. */}
+        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+      </>
+      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
+      {panels.sidebar > 0 && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

@@ -3,21 +3,26 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 /**
  * With-key Code Mode proof: a real model receives only `run_code`, composes two
@@ -51,6 +56,7 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(AgentRegistry)
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
+  await harness.plugin(LocalSubprocessService)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   await harness.plugin(WorkerCodeRuntime, {})
@@ -73,6 +79,224 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   return harness
 }
 
+let keylessCall = 0
+const testToolSignal = new AbortController().signal
+
+/** Execute one outer Code Mode call through the real registry and worker. */
+function runCode(harness: Context, code: string, signal: AbortSignal = testToolSignal): Promise<ToolExecutionResult> {
+  return harness.tools.execute({
+    callId: CallId(`keyless-code-${++keylessCall}`),
+    name: RUN_CODE_NAME,
+    arguments: { code, description: 'Run the e2e program' },
+    signal,
+  })
+}
+
+/** Read the optional completion from a successful canonical `run_code` value. */
+function completion(result: ToolExecutionResult): unknown {
+  if (result.isError) {
+    throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+  }
+  const value = result.value
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid run_code result')
+  return value.result
+}
+
+/** Keyless real-worker harness for direct typed-binding acceptance tests. */
+async function typedCodeModeHarness(): Promise<Context> {
+  const harness = new Context()
+  await harness.plugin(SystemPrompt)
+  await harness.plugin(ToolRegistry, { mode: 'code' })
+  await harness.plugin(WorkerCodeRuntime, {})
+  return harness
+}
+
+/** Keyless real-worker harness with the task-owned bash lifecycle. */
+async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
+  const harness = await typedCodeModeHarness()
+  await harness.plugin(LocalTaskService)
+  await harness.plugin(ToolTasks, {})
+  await harness.plugin(LocalSubprocessService)
+  await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
+  await harness.plugin(ToolBash)
+  return harness
+}
+
+describe('Code Mode typed values: keyless real-worker contracts', () => {
+  it('crosses a large intermediate value intact and exposes only typed tool failure fields', async () => {
+    ctx = await typedCodeModeHarness()
+    ctx.tools.register(defineTool({
+      name: 'large_value',
+      description: 'Return a large canonical string.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: () => Promise.resolve('x'.repeat(100_000)),
+    }))
+    ctx.tools.register(defineTool({
+      name: 'always_fail',
+      description: 'Fail for ToolCallError coverage.',
+      parameters: {},
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: () => Promise.reject(new HarnessError('expected failure', 'EXPECTED_INTERNAL_CODE')),
+    }))
+
+    const value = completion(await runCode(ctx, `
+      const large = await tools.large_value({});
+      let failure;
+      try {
+        await tools.always_fail({});
+      } catch (error) {
+        failure = {
+          typed: error instanceof ToolCallError,
+          name: error.name,
+          toolName: error.toolName,
+          message: error.message,
+          exposesCode: 'code' in error,
+          exposesContent: 'content' in error,
+          exposesInfo: 'info' in error,
+        };
+      }
+      return { length: large.length, failure };
+    `))
+
+    expect(value).toEqual({
+      length: 100_000,
+      failure: {
+        typed: true,
+        name: 'ToolCallError',
+        toolName: 'always_fail',
+        message: 'expected failure',
+        exposesCode: false,
+        exposesContent: false,
+        exposesInfo: false,
+      },
+    })
+  })
+
+  it('returns a background task id, settles the outer run, and polls that id to completion', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-background-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+
+    const taskId = completion(await runCode(ctx, `
+      const started = await tools.bash({
+        command: "sleep 0.2; printf 'background-complete\\n'",
+        description: 'Run completion marker in background',
+        run_in_background: true,
+      });
+      return started.taskId;
+    `))
+    expect(taskId).toBe('bash-1')
+
+    const polled = completion(await runCode(ctx, `
+      return await tools.task_output({ task_id: ${JSON.stringify(taskId)}, wait: true, timeout_ms: 5000 });
+    `))
+    if (typeof polled !== 'object' || polled === null || Array.isArray(polled)) throw new Error('invalid task_output completion')
+    const taskOutput = polled as Record<string, unknown>
+    expect(taskOutput.text).toContain('background-complete')
+    expect(taskOutput.task).toMatchObject({ id: taskId, kind: 'bash', status: 'completed' })
+  }, 15_000)
+
+  it('pre-abort spawns nothing; post-publication abort leaves task_kill as the cancellation owner', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-task-cancel-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+
+    const pre = new AbortController()
+    pre.abort('pre-aborted')
+    const preResult = await runCode(ctx, `
+      return await tools.bash({ command: 'sleep 10', description: 'Must never start', run_in_background: true });
+    `, pre.signal)
+    expect(preResult.isError).toBe(true)
+    expect(ctx.tasks.list()).toEqual([])
+
+    const afterPublication = new AbortController()
+    const running = runCode(ctx, `
+      const started = await tools.bash({ command: 'sleep 10', description: 'Wait for explicit task kill', run_in_background: true });
+      console.log(started.taskId);
+      await new Promise(() => {});
+    `, afterPublication.signal)
+    for (let attempt = 0; attempt < 100 && ctx.tasks.list().length === 0; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    const task = ctx.tasks.list()[0]
+    expect(task).toMatchObject({ id: 'bash-1', status: 'running' })
+    afterPublication.abort('outer-call-cancelled')
+    expect((await running).isError).toBe(true)
+    expect(ctx.tasks.list()[0]).toMatchObject({ id: task!.id, status: 'running' })
+
+    const killed = completion(await runCode(ctx, `
+      return await tools.task_kill({ task_id: ${JSON.stringify(task!.id)}, reason: 'test owns cancellation' });
+    `))
+    expect(killed).toMatchObject({ outcome: 'cancellation-requested', task: { id: task!.id } })
+    const settled = completion(await runCode(ctx, `
+      return await tools.task_output({ task_id: ${JSON.stringify(task!.id)}, wait: true, timeout_ms: 5000 });
+    `))
+    expect(settled).toMatchObject({ task: { id: task!.id, status: 'killed' } })
+  }, 15_000)
+
+  it('keeps foreground bash coupled to the outer signal', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-foreground-cancel-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    const pending = runCode(ctx, `
+      return await tools.bash({ command: 'sleep 10', description: 'Run cancellable foreground command' });
+    `, controller.signal)
+    setTimeout(() => { controller.abort('stop-foreground') }, 200)
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(Date.now() - startedAt).toBeLessThan(5_000)
+    expect(ctx.tasks.list()).toEqual([])
+  }, 15_000)
+
+  it('uses cordis_mount DTO ids directly for running and pending temporary Plugins, then confirms removal', async () => {
+    ctx = await typedCodeModeHarness()
+    await ctx.plugin(ToolCordis)
+
+    const value = completion(await runCode(ctx, `
+      const active = await tools.cordis_mount({
+        code: "return { name: 'active-code-mode-plugin', apply(ctx) {} }",
+      });
+      const pending = await tools.cordis_mount({
+        code: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }",
+      });
+      const before = await tools.cordis_inspect({ what: 'temporary' });
+      const stopped = await tools.cordis_unmount({ id: active.id });
+      const after = await tools.cordis_inspect({ what: 'temporary' });
+      await tools.cordis_unmount({ id: pending.id });
+      return {
+        active,
+        pending,
+        stopped,
+        beforeContainsId: before.includes(active.id),
+        afterContainsId: after.includes(active.id),
+      };
+    `))
+
+    expect(value).toEqual({
+      active: {
+        id: 'dyn-1',
+        pluginName: 'active-code-mode-plugin',
+        state: 'active',
+        provides: [],
+        waitingFor: [],
+      },
+      pending: {
+        id: 'dyn-2',
+        pluginName: 'pending-code-mode-plugin',
+        state: 'pending',
+        provides: [],
+        waitingFor: ['missing-code-mode-service'],
+      },
+      stopped: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
+      beforeContainsId: true,
+      afterContainsId: false,
+    })
+  })
+})
+
 function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = harness.on('agent/status', (subject, status) => {
@@ -90,12 +314,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     ctx = await codeModeHarness(workdir)
     const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.send([{
-      type: 'text',
-      text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
         + 'then write both outputs joined by a plus sign into combined.txt (bash heredoc or redirect), '
         + 'and return only the joined string.',
-    }])
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     const events: SessionEvent[] = [...agent.session.events]
 
@@ -123,7 +348,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     expect(combined).toContain('beta-9')
     const finalMessage = events.findLast(event => event.type === 'assistant/message')
     const finalText = finalMessage !== undefined
-      ? finalMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      ? finalMessage.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(finalText).toContain('alpha-7')
     expect(finalText).toContain('beta-9')
@@ -142,27 +367,25 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
-    handle.agent.send([{
-      type: 'text',
-      text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
-    }])
+    handle.agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
-    const workspaceContext = events.find(event => event.type === 'context/message'
-      && typeof event.data.meta === 'object'
-      && event.data.meta !== null
-      && !Array.isArray(event.data.meta)
-      && event.data.meta.kind === 'workspace-instructions')
+    const workspaceContext = events.find(event => event.type === 'user/message'
+      && event.data.source.kind === 'workspace-instructions')
     expect(dispatch).toBeDefined()
     expect(outerResult).toBeDefined()
     expect(workspaceContext).toBeDefined()
     expect(workspaceContext!.seq).toBeGreaterThan(outerResult!.seq)
     const finalMessage = events.findLast(event => event.type === 'assistant/message')
     const answer = finalMessage?.type === 'assistant/message'
-      ? finalMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      ? finalMessage.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(answer).toContain(WORKSPACE_PROBE)
   }, 180_000)

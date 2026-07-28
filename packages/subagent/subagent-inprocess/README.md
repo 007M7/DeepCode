@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-subagent-inprocess
 
+English | [中文](README.zh.md)
+
 This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation, optional child customization, result reading, cancellation, and disposal—has one implementation here.
 
 ## Start contract
@@ -11,10 +13,10 @@ The driver follows this sequence:
 1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one and persist it in the child session header.
 2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
 3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
-4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.send(prompt)` followed by `child.whenIdle()`.
-5. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later plugin-owned zero-step turns.
+4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
+5. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later between-turn records.
 
-The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
+The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
 ## Cancellation and ownership
 
@@ -36,7 +38,7 @@ Depth enforcement is internal to `startInProcessRun`: it reads the parent depth 
 - An order-190 system-prompt section tells the child that the tool call is the terminal answer.
 - Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
-- A monotonic tool guard blocks later calls after capture, and `agent/turn-stop` ends the turn after the structured result commits.
+- A monotonic tool guard blocks later calls after capture, and the structured-output execution's `concludeTurn()` marker ends the turn after the result commits.
 
 A clean turn that never commits the required structured value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.
 
@@ -60,7 +62,7 @@ Independent of the parent request cache. The child's later history is append-onl
 
 #### What the model sees
 
-A structured run adds the structured-output instruction below. It also adds a child-scoped `structured_output` definition with exact description `Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.` and the requested schema. This runtime-only definition is outside the generated shipped [tool package map](../../../docs/tool-catalog.md#tool-package-map). Success returns `Structured output recorded.`; a later call becomes ``Error: structured output already recorded: the run is complete, so `<tool>` is not executed``.
+A structured run adds the structured-output instruction below. It also adds a child-scoped `structured_output` definition with exact description `Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.` and the requested schema. This runtime-only definition is outside the generated shipped [tool package map](../../../docs/tool-catalog.md#tool-package-map). Its canonical acknowledgement is `{ recorded: true }`, rendered as `Structured output recorded.`; a later call becomes ``Error: structured output already recorded: the run is complete, so `<tool>` is not executed``.
 
 ##### Structured-output instruction
 

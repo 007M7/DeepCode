@@ -1,12 +1,12 @@
-/** Regression tests for the bilingual cutoff and structural signature. */
+/** Regression tests for the bilingual corpus scope and structural signature. */
 
 import { describe, expect, it } from 'vitest'
 import {
-  datedDocumentDate,
-  isIsoDate,
+  isTranslationScopeFile,
+  pairAnchorOfArgument,
   parseTranslationMarkdown,
+  parseTranslationPairingCliArgs,
   parseTranslationPairingManifest,
-  requiresPairByDate,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -16,49 +16,60 @@ function signature(markdown: string) {
 }
 
 describe('translation pairing manifest', () => {
-  it('accepts a real ISO cutoff and string-array fields', () => {
+  it('accepts an exclusions-only manifest', () => {
     expect(parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: '2026-07-14',
-      required: ['README.md'],
       excluded: ['docs/generated/'],
     }))).toEqual({
-      requiredSince: '2026-07-14',
-      required: ['README.md'],
       excluded: ['docs/generated/'],
     })
   })
 
-  it.each(['2026-7-14', '2026-02-29', '2026-13-01', 'not-a-date'])('rejects invalid cutoff %s', (cutoff) => {
-    expect(isIsoDate(cutoff)).toBe(false)
+  it.each([
+    ['required', ['packages/README.md']],
+    ['requiredClasses', ['readme']],
+    ['requiredSince', '2026-07-14'],
+  ] as const)('rejects obsolete policy field %s instead of accepting an inert requirement', (field, value) => {
     expect(() => parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: cutoff,
-      required: [],
       excluded: [],
-    }))).toThrow('requiredSince must be a valid YYYY-MM-DD date')
+      [field]: value,
+    }))).toThrow(`unsupported field(s): ${field}; every in-scope document is required`)
   })
 
-  it('rejects non-string manifest arrays', () => {
+  it('rejects a missing or non-string exclusion list', () => {
+    expect(() => parseTranslationPairingManifest('{}')).toThrow('excluded must be an array of strings')
     expect(() => parseTranslationPairingManifest(JSON.stringify({
-      requiredSince: '2026-07-14',
-      required: [42],
-      excluded: [],
-    }))).toThrow('required must be an array of strings')
+      excluded: [42],
+    }))).toThrow('excluded must be an array of strings')
   })
 })
 
-describe('date-based pairing frontier', () => {
-  const cutoff = '2026-07-14'
-
-  it('enforces the cutoff day and every later day, but not the preceding day', () => {
-    expect(requiresPairByDate('.agents/notes/2026-07-13-before.md', cutoff)).toBe(false)
-    expect(requiresPairByDate('.agents/notes/2026-07-14-at-cutoff.md', cutoff)).toBe(true)
-    expect(requiresPairByDate('.agents/notes/2026-07-15-after.md', cutoff)).toBe(true)
+describe('translation scope discovery', () => {
+  it.each([
+    'README.md',
+    'apps/cli/README.md',
+    'future/subtree/readme.md',
+    'packages/example/README.zh.md',
+    'native/example/README.i18n.yaml',
+    '.agents/notes/proposed/feature.md',
+    'docs/guide.md',
+    'python/guide.md',
+  ])('includes %s', (file) => {
+    expect(isTranslationScopeFile(file)).toBe(true)
   })
 
-  it('matches only a date at the start of the basename', () => {
-    expect(datedDocumentDate('.agents/notes/2026-07-14-proposal.md')).toBe('2026-07-14')
-    expect(datedDocumentDate('docs/release-notes-2026-07-14-alpha.md')).toBeUndefined()
-    expect(requiresPairByDate('docs/release-notes-2026-07-14-alpha.md', cutoff)).toBe(false)
+  it.each([
+    'packages/example/guide.md',
+    'examples/tutorial.md',
+    'website/reference.md',
+    'packages/example/README.txt',
+    'vendor/example/README.md',
+    'packages/example/node_modules/dependency/README.md',
+    'packages/example/lib/README.md',
+    'coverage/report/README.md',
+    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-macos-arm64/README.md',
+    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/README.md',
+  ])('excludes non-source or non-README path %s', (file) => {
+    expect(isTranslationScopeFile(file)).toBe(false)
   })
 })
 
@@ -91,5 +102,42 @@ describe('translation structural signature', () => {
     expect(translationStructureDiff(source, counterpart)).toEqual([
       'table (row x column count) #1 diverges between the pair: "3x2" vs "2x2"',
     ])
+  })
+})
+
+describe('pair CLI arguments', () => {
+  it('normalizes any pair file or bare stem to the English anchor', () => {
+    expect(pairAnchorOfArgument('docs/foo.md')).toBe('docs/foo.md')
+    expect(pairAnchorOfArgument('docs/foo.zh.md')).toBe('docs/foo.md')
+    expect(pairAnchorOfArgument('docs/foo.i18n.yaml')).toBe('docs/foo.md')
+    expect(pairAnchorOfArgument('docs/foo')).toBe('docs/foo.md')
+    expect(pairAnchorOfArgument('.\\docs\\foo.zh.md')).toBe('docs/foo.md')
+  })
+
+  it('scopes a check to named pairs and dedupes the three spellings', () => {
+    expect(parseTranslationPairingCliArgs(['docs/foo.zh.md', 'docs/foo.i18n.yaml', 'docs/bar.md'])).toEqual({
+      mode: 'check',
+      scope: 'pairs',
+      anchors: ['docs/bar.md', 'docs/foo.md'],
+    })
+    expect(parseTranslationPairingCliArgs([])).toEqual({ mode: 'check', scope: 'corpus', anchors: [] })
+  })
+
+  it('requires --write to name confirmed pairs or opt into --all', () => {
+    expect(() => parseTranslationPairingCliArgs(['--write'])).toThrow('requires the pair(s) you confirmed')
+    expect(parseTranslationPairingCliArgs(['--write', 'docs/foo.md'])).toEqual({
+      mode: 'write',
+      scope: 'pairs',
+      anchors: ['docs/foo.md'],
+    })
+    expect(parseTranslationPairingCliArgs(['--write', '--all'])).toEqual({ mode: 'write', scope: 'corpus', anchors: [] })
+    expect(() => parseTranslationPairingCliArgs(['--write', '--all', 'docs/foo.md'])).toThrow('not both')
+  })
+
+  it('keeps --list corpus-only and rejects unknown flags', () => {
+    expect(parseTranslationPairingCliArgs(['--list'])).toEqual({ mode: 'list', scope: 'corpus', anchors: [] })
+    expect(() => parseTranslationPairingCliArgs(['--list', 'docs/foo.md'])).toThrow('takes no other flags or paths')
+    expect(() => parseTranslationPairingCliArgs(['--all'])).toThrow('--all only applies to --write')
+    expect(() => parseTranslationPairingCliArgs(['--frobnicate'])).toThrow('unknown flag(s): --frobnicate')
   })
 })

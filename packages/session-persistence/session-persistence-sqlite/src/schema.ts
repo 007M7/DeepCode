@@ -1,12 +1,14 @@
 /**
  * Schema + load-time helpers for the SQLite session-persistence backend: the
- * DDL (a `sessions` metadata table and a 1:1 `events` row per `SessionEvent`),
- * the database open/configure step, and the last-`turn/end` cut that gives the
- * SQLite backend the SAME crash-tail-on-load semantics as the JSONL backend.
+ * DDL (a store-identity row, `sessions` metadata, and a 1:1 `events` row per
+ * `SessionEvent`), the database open/configure step, and the last-`turn/end`
+ * cut that gives the SQLite backend the SAME crash-tail-on-load semantics as
+ * the JSONL backend.
  *
  * @module dsh-session-persistence-sqlite/schema
  */
 
+import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepseek-ai/dsh-session'
 
@@ -15,7 +17,10 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 10
+
+/** SQLite application id protecting unrelated databases from persistence writes. */
+export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -31,6 +36,10 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  /** Stable identity assigned when this log is materialized. */
+  incarnation: string
+  /** Monotonic log-change token incremented in each mutating transaction. */
+  revision: number
   delegation_depth: number | null
 }
 
@@ -57,52 +66,102 @@ export interface EventRow {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
- * Open the database and apply its schema and pragmas. A zero `user_version` is
- * stamped with {@link SCHEMA_VERSION}; every other non-current version rejects
- * rather than being migrated in place.
+ * Open the database and apply its schema and pragmas. An empty database with a
+ * zero `user_version` is initialized at {@link SCHEMA_VERSION}; a nonempty
+ * unversioned database and every other non-current version reject rather than
+ * being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
- * @returns the open handle with pragmas applied and both tables ensured.
+ * @returns the open handle with pragmas applied and all three tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
-  db.exec('PRAGMA foreign_keys = ON')
-  // The validated union is safe to interpolate into a non-bindable PRAGMA.
-  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
-  // `PRAGMA user_version` always returns exactly one row { user_version }.
-  const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-  if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
+  try {
+    configureDatabase(db, path, journalMode)
+    return db
+  } catch (error: unknown) {
     db.close()
-    throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
+    throw error
   }
-  if (onDisk === 0) {
-    // Stamp fresh or pre-versioning databases.
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+}
+
+function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
+  db.exec('PRAGMA foreign_keys = ON')
+  let began = false
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    began = true
+    // Validate while holding the write lock so no other connection can change
+    // schema ownership between inspection and initialization.
+    const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+    const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
+    const { count: userObjectCount } = db.prepare(
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
+    ).get() as { count: number }
+    if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
+      throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
+    }
+    if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
+      throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
+    }
+    if (onDisk === SCHEMA_VERSION && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
+      throw new Error(
+        `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
+      )
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS persistence_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        store_id  TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id               TEXT PRIMARY KEY,
+        version          INTEGER NOT NULL,
+        created_at       INTEGER NOT NULL,
+        cwd              TEXT,
+        parent_session   TEXT,
+        seed_length      INTEGER,
+        delegation_depth INTEGER,
+        incarnation      TEXT NOT NULL,
+        revision         INTEGER NOT NULL
+      ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS events (
+        session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        seq               INTEGER NOT NULL,
+        type              TEXT NOT NULL,
+        time              INTEGER NOT NULL,
+        data              TEXT NOT NULL,
+        source_event_seqs TEXT,
+        surface_op        TEXT,
+        PRIMARY KEY (session_id, seq)
+      ) STRICT
+    `)
+    db.prepare(
+      'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
+    ).run(randomUUID())
+    if (onDisk === 0) {
+      db.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    }
+    db.exec('COMMIT')
+    began = false
+  } catch (error: unknown) {
+    /* v8 ignore next -- a BEGIN failure leaves no transaction to roll back. */
+    if (began) {
+      /* v8 ignore next 5 -- preserve the original schema failure if SQLite also refuses rollback. */
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // The original SQLite failure remains the actionable cause.
+      }
+    }
+    throw error
   }
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id             TEXT PRIMARY KEY,
-      version        INTEGER NOT NULL,
-      created_at     INTEGER NOT NULL,
-      cwd              TEXT,
-      parent_session   TEXT,
-      seed_length      INTEGER,
-      delegation_depth INTEGER
-    ) STRICT
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq               INTEGER NOT NULL,
-      type              TEXT NOT NULL,
-      time              INTEGER NOT NULL,
-      data              TEXT NOT NULL,
-      source_event_seqs TEXT,
-      surface_op        TEXT,
-      PRIMARY KEY (session_id, seq)
-    ) STRICT
-  `)
-  return db
+  // The validated union is safe to interpolate into a non-bindable PRAGMA.
+  // Apply it only after ownership validation and initialization commit.
+  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
 }
 
 /**
@@ -111,6 +170,9 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
  * @returns the header, `NULL` columns mapped to omitted optional fields.
  */
 export function rowToMeta(row: SessionRow): SessionHeader {
+  if (!Number.isSafeInteger(row.created_at) || row.created_at < 0) {
+    throw new Error('stored session createdAt must be a non-negative safe integer')
+  }
   return {
     version: row.version,
     id: row.id as SessionId,
@@ -166,8 +228,8 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
     }
   })
 
-  // The last index that is a valid `turn/end` — the last fully-committed
-  // boundary (the loop flushes only at turn/end).
+  // The last index that is a valid `turn/end` — holes through a closed turn
+  // are always committed corruption.
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }

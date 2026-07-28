@@ -15,11 +15,10 @@ export const name = 'client-ui-conversation-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the conversation service emits no cordis events — its
- * view and toolview registries notify through package-local subscribe faces
- * whose ordering (synchronous version bump before notification) is exercised
- * directly by the behavior specs, and the per-scope store accounts are owned
- * mutable state with no cross-plugin observer to contradict.
+ * No runtime invariant: the conversation service emits no cordis events, and
+ * both rings this package owns (the 'conversation.view' tab ring and the
+ * 'conversation.chat.toolview' row hole) ride the slot system, whose ledger
+ * invariants live with the runtime slots package.
  */
 const install: InvariantInstaller = () => {}
 

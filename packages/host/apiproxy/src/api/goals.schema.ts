@@ -32,16 +32,6 @@ export const goalViewSchema = z.object({
   activation: z.union([z.literal('armed'), z.literal('disarmed')]),
 }) as unknown as z.ZodType<Wire<GoalView>>
 
-/** goal.get request payload. */
-export const goalGetRequestSchema = z.object({
-  sessionId: z.string(),
-}) as unknown as z.ZodType<Wire<RequestPayload<'goal.get'>>>
-
-/** goal.get response value. */
-export const goalGetValueSchema = z.object({
-  goal: goalViewSchema.nullable(),
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.get'>>>
-
 /** goal.create request payload. */
 export const goalCreateRequestSchema = z.object({
   sessionId: z.string(),

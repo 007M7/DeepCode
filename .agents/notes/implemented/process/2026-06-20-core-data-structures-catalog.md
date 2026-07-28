@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-core-data-structures-catalog.zh.md)
+
 ## Problem
 
 A reader trying to understand the harness could find its *behavior* in [architecture.md](../../../../docs/architecture.md) (the service map, the session/turn/step lifecycle, the event taxonomy) but had no single place describing its *vocabulary* — the data structures that behavior moves around. The type shapes lived only in source, scattered across `packages/*/src/types.ts`, so understanding "what is a `Message`, a `SessionEvent`, a `StreamChunk`" meant reading the declarations directly. A prose catalog would help, but a catalog that paraphrases or paste-copies type definitions rots the instant a field changes — and an out-of-sync type doc is worse than none, because a reader trusts it.
@@ -19,7 +21,7 @@ The scoping line was not picked top-down; it was discovered by testing candidate
 The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a sub-page detail.*** Worked through:
 
 - A data structure is **core** if it flows through the agent-loop spine — the loop holds, derives, streams, or logs it on every turn regardless of which plugins load (`Message`, `StreamChunk`, `SessionEvent`, the `Agent` handle) — **or** it is the single headline type a plugin author writes against a pipeline (`ToolDefinition`).
-- `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — the `SchemaSpec`/`InferArgs` DSL — is a sub-page detail (you write a `ToolDefinition`; the type-level machinery that types it you do not). That is the spine-vs-seam line made sharp.
+- `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — `ValueSchemaSpec`, `ParameterSchemaSpec`, `InferValue`, and `InferArgs` — is a sub-page detail. That is the spine-vs-seam line made sharp.
 - `ToolSchema` is core (it is a field of `GenerateOptions`, the model request that flows through every step) even though it is conceptually part of the tool pipeline — *flows through the spine* wins over *conceptual home* when they conflict.
 - The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
 
@@ -31,7 +33,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 - Complete type declarations and their JSDoc are pasted verbatim into a dedicated ` ```ts type-equiv ` fence. A concise ` ```ts public-api ` fence carries the source-equivalent ambient projection for a class whose implementation bodies do not belong in the catalog. `doc-typecheck` recognizes both and skips them (the bare declarations are not standalone-compilable), and **excludes them from the opt-out ratio** — they are a separately-checked category, not unchecked sketches.
 - A new `scripts/verify-type-equiv.ts` extracts each block via the TypeScript parser and asserts that its declaration structure and every JSDoc comment match the declared symbol, ignoring only formatting whitespace and non-JSDoc comments. Ordinary blocks retain the complete declaration. A `public-api` projection retains a class's public fields, constructor, accessors, and methods with their original JSDoc while removing implementation bodies and private or protected members. This is chosen over a compiled `_Check` assertion because source names and documentation identity, not assignability, are the properties the catalog preserves.
-- Provenance lives in a central `scripts/type-equiv.manifest.json` (`{ doc, symbol, source }` entries), **not** in directive comments in the prose. The script enforces a **1:1 correspondence**: every type-equiv block has exactly one manifest entry and vice versa, so a block can never be silently unchecked and an entry can never rot.
+- Provenance lives in a central `scripts/type-equiv.manifest.json` (`{ doc, symbol, source }` entries), **not** in directive comments in the prose. The script enforces a **1:1 correspondence** between each primary type-equiv block and one manifest entry, so a block can never be silently unchecked and an entry can never rot. A paired `.zh.md` block reuses the unsuffixed sibling's entry only when the complete tracked fence sequence matches in order, kind, and byte-exact body; otherwise the gate checks it independently, finds no manifest entry, and fails.
 - Wired into `doc-sync`, so relevant documentation changes run it locally and CI runs it with the other documentation checks.
 
 ### Maintenance is the author's job, with a gate backstop

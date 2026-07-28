@@ -1,15 +1,8 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types",
-    "jsx": "react-jsx",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": []
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -31,10 +24,19 @@
       "path": "../runtime"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../ui-slash"
+    },
+    {
       "path": "../ui-layout"
     },
     {
-      "path": "../i18n"
+      "path": "../locale"
     },
     {
       "path": "../../support/invariants"

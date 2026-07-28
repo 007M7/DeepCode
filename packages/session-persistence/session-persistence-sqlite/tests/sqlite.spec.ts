@@ -1,13 +1,22 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
+import {
+  openDatabase,
+  rowToEvent,
+  rowToMeta,
+  scanRows,
+  SESSION_PERSISTENCE_SQLITE_APPLICATION_ID,
+  type EventRow,
+} from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -150,13 +159,29 @@ describe('scanRows', () => {
   })
 })
 
+describe('rowToMeta', () => {
+  it('rejects fractional stored creation metadata', () => {
+    expect(() => rowToMeta({
+      id: 'fractional',
+      version: 0,
+      created_at: 1.5,
+      cwd: null,
+      parent_session: null,
+      seed_length: null,
+      incarnation: 'fractional',
+      revision: 1,
+      delegation_depth: null,
+    })).toThrow('stored session createdAt must be a non-negative safe integer')
+  })
+})
+
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
     const path = await freshDbPath()
     const m = meta('legacy-header-delta', '/legacy')
     const db = openDatabase(path, 'wal')
-    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
-      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 1)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null, 'legacy-header-delta')
     const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
     insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
     insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
@@ -172,8 +197,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     const m = meta('legacy-header-fallback', '/legacy')
     const db = openDatabase(path, 'wal')
-    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
-      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 1)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null, 'legacy-header-fallback')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
       .run(m.id, 0, 'request/header', 1, JSON.stringify({
         header: { config: { model: 'legacy' } },
@@ -270,7 +295,9 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // A first turn that NEVER completed: turn/start + user/message, no turn/end.
     await b1.ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+      { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
+        content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+      }) },
     ])
     await b1.dispose()
 
@@ -294,22 +321,135 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     dbNewer.close()
     expect(() => openDatabase(path, 'wal')).toThrow(/incompatible with this build/)
 
-    // A stale OLDER version (e.g. a pre-summary-drop v1 DB) is also rejected —
-    // we do not migrate (unreleased software, no backward-compat).
+    // The immediately preceding layout lacks the required store identity and is
+    // rejected rather than migrated (unreleased software, no backward-compat).
     const olderPath = await freshDbPath()
     openDatabase(olderPath, 'wal').close()
     const dbOlder = openDatabase(olderPath, 'wal')
-    dbOlder.exec('PRAGMA user_version = 1')
+    dbOlder.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`)
     dbOlder.close()
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
 
-  it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
-    // Two unmerged branches each shipped a DISTINCT layout under user_version 3 (one added only
-    // `seed_length`, the other only the surface columns). The merged v4 cannot interpret that
-    // ambiguous, incomplete layout and must reject it.
+  it('rejects a table-backed unversioned database before stamping or changing journal mode', async () => {
     const path = await freshDbPath()
-    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
+    const legacy = new DatabaseSync(path)
+    legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY)')
+    legacy.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/unversioned schema or application identity/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(unchanged.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'",
+    ).get()).toEqual({ name: 'sessions' })
+    unchanged.close()
+  })
+
+  it('counts a sqliteX table as user-owned instead of mistaking it for SQLite metadata', async () => {
+    const path = await freshDbPath()
+    const unrelated = new DatabaseSync(path)
+    unrelated.exec('CREATE TABLE sqliteX (value TEXT)')
+    unrelated.exec("INSERT INTO sqliteX VALUES ('safe')")
+    unrelated.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/unversioned schema or application identity/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('SELECT value FROM sqliteX').get()).toEqual({ value: 'safe' })
+    expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('rejects view-only and foreign-application unversioned databases without mutation', async () => {
+    const viewPath = await freshDbPath()
+    const viewOnly = new DatabaseSync(viewPath)
+    viewOnly.exec('CREATE VIEW foreign_view AS SELECT 1 AS value')
+    viewOnly.close()
+
+    expect(() => openDatabase(viewPath, 'wal')).toThrow(/unversioned schema or application identity/)
+    const unchangedView = new DatabaseSync(viewPath)
+    expect(unchangedView.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(unchangedView.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'foreign_view'",
+    ).get()).toEqual({ type: 'view' })
+    unchangedView.close()
+
+    const applicationPath = await freshDbPath()
+    const foreignApplication = new DatabaseSync(applicationPath)
+    foreignApplication.exec('PRAGMA application_id = 12345')
+    foreignApplication.close()
+
+    expect(() => openDatabase(applicationPath, 'wal')).toThrow(/unversioned schema or application identity/)
+    const unchangedApplication = new DatabaseSync(applicationPath)
+    expect(unchangedApplication.prepare('PRAGMA application_id').get()).toEqual({ application_id: 12345 })
+    expect(unchangedApplication.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchangedApplication.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchangedApplication.close()
+  })
+
+  it('rejects a current-version database with a foreign application identity', async () => {
+    const path = await freshDbPath()
+    const foreign = new DatabaseSync(path)
+    foreign.exec('PRAGMA application_id = 12345')
+    foreign.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    foreign.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/has application id 12345/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 12345 })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('rolls back schema objects and identity stamps when initialization fails', async () => {
+    const path = await freshDbPath()
+    const conflicting = new DatabaseSync(path)
+    conflicting.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
+    conflicting.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    conflicting.exec("CREATE VIEW persistence_state AS SELECT 1 AS singleton, 'foreign' AS store_id")
+    conflicting.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow()
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'persistence_state'",
+    ).get()).toEqual({ type: 'view' })
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'sessions'",
+    ).get()).toBeUndefined()
+    expect(unchanged.prepare(
+      "SELECT type FROM sqlite_schema WHERE name = 'events'",
+    ).get()).toBeUndefined()
+    expect(unchanged.prepare('PRAGMA application_id').get())
+      .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
+  it('stamps the persistence application identity with the schema version', async () => {
+    const path = await freshDbPath()
+    openDatabase(path, 'wal').close()
+
+    const db = new DatabaseSync(path)
+    expect(db.prepare('PRAGMA application_id').get())
+      .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
+    db.close()
+  })
+
+  it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
+    // Version 3 identified two incompatible sibling layouts, so it is always rejected.
+    const path = await freshDbPath()
+    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION
     const db = openDatabase(path, 'wal')
     db.exec('PRAGMA user_version = 3')
     db.close()
@@ -382,12 +522,120 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await fiber2.dispose()
   })
 
+  it('source-qualifies revisions across stores while preserving same-file reopen identity', async () => {
+    const pathA = await freshDbPath()
+    const pathB = await freshDbPath()
+    const m = meta('revision-source')
+    const a = await backend(pathA)
+    await a.ctx.sessionPersistence.create(m)
+    await a.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionA = (await a.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await a.dispose()
+
+    const probeA = openDatabase(pathA, 'wal')
+    const storeIdA = (probeA.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeA.close()
+
+    const aliasA = `${pathA}.alias`
+    await symlink(pathA, aliasA)
+    const reopenedA = await backend(aliasA)
+    expect((await reopenedA.ctx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revisionA)
+    await reopenedA.dispose()
+
+    const b = await backend(pathB)
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionB = (await b.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    const probeB = openDatabase(pathB, 'wal')
+    const storeIdB = (probeB.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeB.close()
+    expect(storeIdB).not.toBe(storeIdA)
+    expect(revisionB).not.toBe(revisionA)
+    expect(String(revisionA)).toMatch(/:revision:1$/)
+    expect(String(revisionB)).toMatch(/:revision:1$/)
+    await b.dispose()
+  })
+
+  it('changes revisions when a deleted session id is materialized again in the same database', async () => {
+    const path = await freshDbPath()
+    const m = meta('recreated-revision')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(m)
+    await first.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = (await first.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await first.dispose()
+
+    const cleanup = openDatabase(path, 'wal')
+    cleanup.prepare('DELETE FROM sessions WHERE id = ?').run(m.id)
+    cleanup.close()
+
+    const second = await backend(path)
+    await second.ctx.sessionPersistence.create(m)
+    await second.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const after = (await second.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    expect(after).not.toBe(before)
+    expect(String(before)).toMatch(/:revision:1$/)
+    expect(String(after)).toMatch(/:revision:1$/)
+    await second.dispose()
+  })
+
+  it('awaits in-flight readiness before surfacing snapshot-list cancellation', async () => {
+    const b = await backend()
+    const internals = b.ctx.sessionPersistence as unknown as { ready: Promise<void> }
+    const originalReady = internals.ready
+    const readiness = Promise.withResolvers<undefined>()
+    internals.ready = readiness.promise
+    const reason = new Error('SQLite snapshot readiness cancelled')
+    const controller = new AbortController()
+    const pending = b.ctx.sessionPersistence.listSnapshots(controller.signal)
+    let settled = false
+    void pending.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+
+    controller.abort(reason)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    readiness.resolve(undefined)
+    await expect(pending).rejects.toBe(reason)
+    internals.ready = originalReady
+    await b.dispose()
+  })
+
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(5)
+    expect(SCHEMA_VERSION).toBe(10)
+  })
+
+  it('keeps the revision stable for an empty repair hook', async () => {
+    const b = await backend()
+    const m = meta('empty-repair')
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = await b.ctx.sessionPersistence.listSnapshots()
+    await (b.ctx.sessionPersistence as SessionPersistenceSqlite).commitRepair(m, undefined, [])
+    expect(await b.ctx.sessionPersistence.listSnapshots()).toEqual(before)
+    await b.dispose()
   })
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('rejects and closes a current-schema database with an invalid store identity', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    db.exec("UPDATE persistence_state SET store_id = '' WHERE singleton = 1")
+    db.close()
+
+    const b = await backend(path)
+    await expect(b.ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/no valid store identity/)
+    await expect(b.dispose()).resolves.toBeUndefined()
+  })
+
   it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()
@@ -568,8 +816,20 @@ describe('surface field round-trip', () => {
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('assistant/message', {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [2] })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
@@ -590,7 +850,13 @@ describe('surface field round-trip', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('surface-noseq'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('steering/message', { turn: 1, content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('steering/message', {
+      turn: 1,
+      message: createUserMessage({
+        content: [],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))

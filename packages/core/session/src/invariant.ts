@@ -10,6 +10,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { TOOL_NOT_STARTED } from './repair.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-session'
 
@@ -65,8 +66,8 @@ function validateEvent(
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
 
-  // SessionEventMap is merge-extensible, so the default enforces turn
-  // enclosure for package-added events as well as the built-in variants.
+  // Context and plugin-owned log-only events may be appended between model
+  // executions. Core execution events retain their explicit turn relations.
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -133,19 +134,27 @@ function validateEvent(
         break
       }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step, fail)
-      const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
-      if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
-        fail(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
+      const callId = event.data.message.source.callId
+      const syntheticNotStarted = event.data.message.content[0].isError === true && event.data.error?.code === TOOL_NOT_STARTED
+      if (!trace.pendingCalls.has(callId) && !syntheticNotStarted) {
+        fail(`tool/result for ${callId} with no prior tool/call in this step`)
       }
-      pendingCalls = { kind: 'delete', callId: event.data.callId }
+      pendingCalls = { kind: 'delete', callId }
       break
     }
-    default: {
+    case 'user/message':
+      break
+    case 'steering/message':
+    case 'todo/write':
+    case 'request/header': {
       if (trace.openTurn === null) {
-        fail(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)
+        fail(`${event.type} appended outside any open turn (core execution events must be turn-enclosed)`)
       }
       break
     }
+    default:
+      // Merge-extensible event relations belong to their owning plugin.
+      break
   }
   return {
     scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },

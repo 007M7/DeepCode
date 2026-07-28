@@ -1,49 +1,74 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
- * layout-owned `sidebar` slot. The own injected share is declared here (a
- * share's type lives with whoever wires it); the owner share is referenced
- * off ui-layout's slot declaration through OwnerOf, never re-stated. Single
- * domain — this is the package's whole contract surface.
+ * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
+ * owns column geometry (fold state machine, brand row, New Session);
+ * everything between the section header and the list bottom is the
+ * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
+ * `sidebar.settings` registrant's (ui-settings).
  */
-import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
-// program that sees this contract, so OwnerOf<'sidebar'> resolves.
+// program that sees this contract, so PropsRuntime<'sidebar'> resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SidebarTreeState } from '../store.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 
-/** Cross-plugin actions bound in apply (layout / sessions services). */
-export interface SidebarActions {
-  open(id: SessionId): void
-  create(cwd?: string): void
-  toggleSidebar(): void
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /**
+     * The workspace/session browsing region: section header, search, the
+     * grouped/flat session list, and every workspace dialog. Declared by this
+     * package's 'sidebar' entry (declaring is claiming); ui-workspace
+     * registers the browser.
+     */
+    'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
+    /**
+     * The settings seat at the sidebar foot. Declared by this package's
+     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
+     * The sidebar passes only its column state — it holds no settings state.
+     */
+    'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
+  }
 }
 
-/** Plugin-owned tree viewing-state actions (tree store mutators). */
-export interface SidebarTreeActions {
-  toggleProject(key: string): void
-  toggleSession(id: SessionId): void
-  setQuery(query: string): void
+/**
+ * Owner share of the browser hole — the only facts crossing the shell/region
+ * seam. Business data and actions arrive through the region's own inject.
+ */
+export interface SidebarSectionOwnerProps {
+  /** Shell fold-state output: wide renders the full browser, rail the icon column. */
+  wide: boolean
+  /** Rail icons request expansion; the browser rides the wide flip for focus. */
+  expandSidebar: () => void
+}
+
+/**
+ * Owner share of the sidebar settings seat: the column display state the
+ * occupant's trigger row must render against (wide row vs rail icon).
+ */
+export interface SidebarSettingsOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
 }
 
 /**
  * Registrant-private injected share (arrives via the register inject
- * factory). A type alias, not an interface: the alias carries an implicit
- * index signature, so the factory's return crosses the registry's
- * `Record<string, unknown>` boundary uncast.
+ * factory). The shell keeps only its own controls: starting a Session from
+ * the New Session button and toggling the column.
  */
 export type SidebarRootInjected = {
-  useTree: SnapshotSelectorHook<SidebarTreeState>
-  /** Current session selector (row highlight); undefined selects nothing. */
-  useCurrent: () => SessionId | undefined
-  actions: SidebarActions
-  tree: SidebarTreeActions
+  /**
+   * Start a New Session: with a workspace, reuse-or-create its blank session
+   * and open it; without one, clear the selection into the New Session pure
+   * view state (the conversation.empty seat).
+   */
+  startSession: (workspaceId?: WorkspaceId) => void
+  /** Toggle the sidebar column through the layout service. */
+  toggleSidebar: () => void
 }
 
 /**
- * Full component props: owner share referenced from ui-layout's declaration
- * plus the own injected share. Root scope has no standard injection
- * (useSession is session-scope only), so no standard term appears.
+ * Full component props: layout owner state/actions plus the declared holes'
+ * render shares and this package's injected callbacks. No store is registered.
  */
-export type SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected
+export type SidebarRootComponentProps =
+  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'> & SidebarRootInjected

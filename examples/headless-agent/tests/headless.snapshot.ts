@@ -18,12 +18,19 @@ const advancedScenarioDir = join(snapshotsDir, 'advanced-toolchain')
 const advancedSessionFixture = join(advancedScenarioDir, 'session.jsonl')
 const advancedStreamExpected = join(advancedScenarioDir, 'stream-json.expected.jsonl')
 const advancedConfigPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
+const ptyScenarioDir = join(snapshotsDir, 'pty-tools')
+const ptySessionFixture = join(ptyScenarioDir, 'session.jsonl')
+const ptyStreamExpected = join(ptyScenarioDir, 'stream-json.expected.jsonl')
+const ptyConfigPath = fileURLToPath(new URL('../pty.cordis.snapshot.yml', import.meta.url))
 const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
+const retryScenarioDir = join(snapshotsDir, 'provider-retry')
+const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -120,6 +127,86 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 }
 
 describe('headless stream-json snapshots', () => {
+  it('retries a transient provider failure through the one-shot app', async () => {
+    const prompt = await scenarioPrompt(retryScenarioDir, 'provider-retry')
+    const streamExpected = join(retryScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'provider retry headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-provider-retry-',
+      binScript,
+      configPath: retryConfigPath,
+      binArgs: ['--config', retryConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const records = parseJsonl(logs[0]?.content ?? '')
+        const retries = records.filter(record => record.type === 'llm/retry')
+        expect(retries).toHaveLength(1)
+        expect(retries[0]?.data).toMatchObject({
+          provider: 'deepseek',
+          mode: 'normal',
+          policyKey: '["normal",1,["RATE_LIMIT"],1,1,0]',
+          retry: 1,
+          maxRetries: 1,
+          delayMs: 1,
+          failure: { message: 'snapshot transient failure', code: 'RATE_LIMIT', status: 429 },
+        })
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs the model default and a dynamic next-step reasoning effort', async () => {
+    const result = await runLoaderSmoke({
+      label: 'reasoning effort headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-reasoning-effort-',
+      binScript,
+      configPath: reasoningConfigPath,
+      binArgs: ['--config', reasoningConfigPath, '--output-format', 'stream-json', 'prove dynamic reasoning effort'],
+      tsconfigPath,
+    })
+
+    expect(result.stderr).toBe('')
+    const headers = parseJsonl(result.stdout)
+      .map(record => record.event)
+      .filter((event): event is JsonObject => (
+        event !== null
+        && typeof event === 'object'
+        && !Array.isArray(event)
+        && 'type' in event
+        && event.type === 'request/header'
+      ))
+      .map((event) => {
+        const data = event.data as JsonObject
+        return (data.header as JsonObject).config
+      })
+    expect(headers).toMatchInlineSnapshot(`
+      [
+        {
+          "model": "cli-mock",
+          "provider": "cli-mock",
+          "reasoningEffort": "high",
+        },
+        {
+          "model": "cli-mock",
+          "provider": "cli-mock",
+          "reasoningEffort": "off",
+        },
+      ]
+    `)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('replays the advanced toolchain through the one-shot app', async () => {
     const prompt = await scenarioPrompt(advancedScenarioDir, 'advanced-toolchain')
     const fixtureFiles = [
@@ -156,6 +243,7 @@ describe('headless stream-json snapshots', () => {
         const children = logs.filter(log => typeof log.header.parentSession === 'string')
           .sort((left, right) => Number(left.header.createdAt) - Number(right.header.createdAt))
         const actualSessions = [parent, ...children]
+        const actualContext = contextFromLogs(actualSessions.map(log => log.content))
         if (refreshing) {
           const harvested = actualSessions.map((log): HarvestedLog => ({
             id: String(log.header.id),
@@ -172,12 +260,11 @@ describe('headless stream-json snapshots', () => {
             if (existing === undefined || file === undefined) {
               throw new Error(`headless snapshot has no fixture for persisted log ${index}`)
             }
-            const stable = stabilizeRefreshLog(actual.content, existing, replacements)
+            const stable = stabilizeRefreshLog(actual.content, existing, replacements, actualContext)
             await writeFile(file, stable)
             return stable
           }))
         }
-        const actualContext = contextFromLogs(actualSessions.map(log => log.content))
         const expectedContext = contextFromLogs(expectedSessions)
         for (const [index, actual] of actualSessions.entries()) {
           const expected = expectedSessions[index]
@@ -218,18 +305,32 @@ describe('headless stream-json snapshots', () => {
         const records = parseJsonl(logs[0]?.content ?? '')
         const calls = records.filter(record => record.type === 'tool/call')
           .map(record => (record.data as JsonObject | undefined)?.name)
-        expect(calls).toEqual(['create_goal', 'get_goal'])
-        const goalChanges = records.filter((record) => {
-          if (record.type !== 'context/message') return false
+        expect(calls).toEqual(['update_goal', 'create_goal', 'get_goal'])
+        const probeResult = records.find((record) => {
+          if (record.type !== 'tool/result') return false
           const data = record.data as JsonObject | undefined
-          const meta = data?.meta as JsonObject | undefined
-          return meta?.kind === 'goal/change'
+          const message = data?.message as JsonObject | undefined
+          const source = message?.source as JsonObject | undefined
+          return source?.callId === 'call_goal_probe'
+        })
+        const probeData = probeResult?.data as JsonObject | undefined
+        const probeMessage = probeData?.message as JsonObject | undefined
+        const probeContent = probeMessage?.content as JsonObject[] | undefined
+        expect(probeContent?.[0]?.isError).toBe(true)
+        expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
+        const goalChanges = records.filter((record) => {
+          if (record.type !== 'user/message') return false
+          const data = record.data as JsonObject | undefined
+          const source = data?.source as JsonObject | undefined
+          const change = source?.change as JsonObject | undefined
+          return source?.kind === 'goal' && change?.kind === 'goal/change'
         })
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const meta = data?.meta as JsonObject | undefined
-        const goal = meta?.goal as JsonObject | undefined
-        expect(meta?.operation).toBe('create')
+        const source = data?.source as JsonObject | undefined
+        const change = source?.change as JsonObject | undefined
+        const goal = change?.goal as JsonObject | undefined
+        expect(change?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',
@@ -288,8 +389,10 @@ describe('headless stream-json snapshots', () => {
         expect(parentCalls.map(record => (record.data as JsonObject | undefined)?.name)).toEqual(['ralph'])
         const parentResult = parentRecords.find(record => record.type === 'tool/result')
         const parentResultData = parentResult?.data as JsonObject | undefined
-        expect(parentResultData?.isError).toBe(false)
-        expect(JSON.stringify(parentResultData?.content)).toContain('reported completion after 2 rounds')
+        const parentMessage = parentResultData?.message as JsonObject | undefined
+        const parentContent = parentMessage?.content as JsonObject[] | undefined
+        expect(parentContent?.[0]?.isError).toBe(false)
+        expect(JSON.stringify(parentContent?.[0]?.content)).toContain('reported completion after 2 rounds')
 
         const childRecords = children.map(child => parseJsonl(child.content))
         const childPrompts = childRecords.map((records) => {
@@ -317,5 +420,54 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('replays persistent PTY tools through the one-shot app', async () => {
+    const input = JSON.parse(await readFile(join(ptyScenarioDir, 'input.json'), 'utf8')) as {
+      steps?: { op?: unknown; text?: unknown }[]
+    }
+    const prompt = input.steps?.find(step => step.op === 'prompt')?.text
+    if (typeof prompt !== 'string') throw new Error('pty-tools input has no prompt step')
+    let expectedSession = await readFile(ptySessionFixture, 'utf8')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'headless persistent PTY snapshot',
+      tempDirPrefix: 'headless-snapshot-pty-',
+      binScript,
+      configPath: ptyConfigPath,
+      binArgs: ['--config', ptyConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: ptySessionFixture,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('headless PTY snapshot did not persist its session')
+        const actualContext = contextFromLogs([actual.content])
+        if (refreshing) {
+          const harvested: HarvestedLog = {
+            id: String(actual.header.id),
+            createdAt: Number(actual.header.createdAt),
+            content: actual.content,
+          }
+          const replacements = refreshFixtureReplacements([harvested], [expectedSession])
+          expectedSession = stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext)
+          await writeFile(ptySessionFixture, expectedSession)
+        }
+        const expectedContext = contextFromLogs([expectedSession])
+        expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
+          .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(ptyStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(ptyStreamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

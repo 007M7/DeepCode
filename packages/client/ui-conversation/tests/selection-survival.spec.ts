@@ -1,121 +1,149 @@
 // @vitest-environment jsdom
 /**
- * M1a regression pin: the per-scope selection must survive list refreshes.
- * Drives the REAL SessionsService + ConversationService chain over the
- * programmable wire fake — a late list refresh that upgrades the display
- * title (bare id → cwd basename) and a reconnect-driven refreshList+resync
- * must neither recreate the session scope nor clear the selection account.
+ * Exercises selection persistence through the real SlotsService store axis;
+ * component stubs cannot prove per-session identity or disposal.
  */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
-
-// The runtime package's programmable fake lives in its tests; import through
-// the src path (same pattern the runtime specs use — test-support material).
-import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import { createChatStore } from '../src/client/stores.ts'
 
 const sid = (s: string): SessionId => s as SessionId
 
+/** Identity-stable no-session bundle (uSES getSnapshot contract). */
+const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
+
 interface Bench {
-  ctx: Context
-  api: FakeApiClient
-  sessions: SessionsService
-  conversation: ConversationService
+  slots: SlotsService
+  chat: ReturnType<typeof createChatStore>
 }
 
 function bench(): Bench {
   const ctx = new Context()
-  const api = new FakeApiClient()
-  const sessions = new SessionsService(ctx, api)
-  const conversation = new ConversationService(ctx)
-  return { ctx, api, sessions, conversation }
+  ctx.provide('sessions', {
+    list: createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, phase: 'ready',
+    }),
+    provideInfo: () => undefined,
+    currentProvideInfo: {
+      getSnapshot: () => ABSENT_INFO,
+      subscribe: () => () => {},
+    },
+    provide: () => () => {},
+  })
+  ctx.provide('workspaces', {
+    list: createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    }),
+  })
+  // Service self-registers as ctx 'slots' (cordis Service constructor).
+  const slots = new SlotsService(ctx)
+  const chat = createChatStore()
+  // The apply.ts shape: one shared handle across both session-slot
+  // registrations. 'conversation'/'details' must first exist in the ledger —
+  // register a root occupant declaring them (the AppFrame role; the stand-in
+  // consumes renderSlot to satisfy the declare-means-render check).
+  slots.register({
+    name: 'root',
+    children: {
+      'conversation': { kind: 'single', scope: 'session-maybe' },
+      'conversation.session': { kind: 'single', scope: 'session' },
+      'details': { kind: 'single', scope: 'session' },
+    },
+  }, (_p: { renderSlot?: unknown }) => null)
+  // apply.ts mounts the shared chat handle only under session-scope slots
+  // (the session-maybe 'conversation' shell carries no store).
+  slots.register({ name: 'conversation.session', store: chat }, () => null)
+  slots.register({ name: 'details', store: chat }, () => null)
+  return { slots, chat }
 }
 
-async function flush(): Promise<void> {
-  // Manager notifier + store batching are microtask-based.
-  await Promise.resolve()
-  await Promise.resolve()
+/** Resolve the store instance the renderer would hand a slot's component for a session. */
+function storeFor(b: Bench, slot: 'conversation.session' | 'details', sessionId: SessionId) {
+  const host = renderHost(b)
+  const entry = host.entriesOf(slot)[0]!
+  return host.storeOf(entry, sessionId)! as ReturnType<ReturnType<typeof createChatStore>['create']>
 }
 
-function feed(b: Bench, rows: { id: string; cwd?: string; running?: boolean }[]): void {
-  b.api.onList = () => Promise.resolve(ok({
-    items: rows.map(r => ({
-      sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false,
-      ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
-    })),
-  }) as never)
+/** The host face is only built at renderSlot time; install a stub renderer once to reach it. */
+function renderHost(b: Bench): import('@deepseek-ai/dsh-client-ui-slots').SlotRendererHost {
+  const captured = (b as unknown as { _host?: import('@deepseek-ai/dsh-client-ui-slots').SlotRendererHost })
+  if (captured._host === undefined) {
+    b.slots.install({
+      renderRoot: (host) => {
+        captured._host = host
+        return null
+      },
+    })
+    b.slots.renderSlot('root', {})
+  }
+  return captured._host!
 }
 
-describe('selection survives list refreshes (M1a)', () => {
-  it('create → select → title-upgrading refresh keeps scope, binding, store and value', async () => {
+beforeEach(() => {
+  localStorage.clear()
+})
+
+describe('selection survives on the store seat', () => {
+  it('one session, two slots: conversation writes, details reads the SAME instance', () => {
     const b = bench()
-    // First-send shape: client-side create inserts the row without cwd (title = bare id).
-    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s1') }))
-    const id = await b.sessions.create({})
-    await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('s1')
 
-    const binding = b.sessions.binding(id)
-    expect(binding).toBeDefined()
-    const scoped = b.sessions.scope(id)!
-    const store = (scoped.get('conversation') as ConversationService).selection
-    store.set({ turnSeq: 3, callId: 'c1' })
-
-    // The late list refresh lands (host knows the cwd → formal title).
-    feed(b, [{ id: 's1', cwd: '/w/proj-a' }])
-    await b.sessions.manager.refreshList()
-    await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('proj-a')
-
-    // Scope, binding and the selection account must all be identity-stable.
-    expect(b.sessions.scope(id)).toBe(scoped)
-    expect(b.sessions.binding(id)).toBe(binding)
-    const after = (b.sessions.scope(id)!.get('conversation') as ConversationService).selection
-    expect(after).toBe(store)
-    expect(after.getSnapshot()).toEqual({ turnSeq: 3, callId: 'c1' })
+    const conv = storeFor(b, 'conversation.session', sid('s1'))
+    const details = storeFor(b, 'details', sid('s1'))
+    conv.actions.select({ turnSeq: 3, callId: 'c1' })
+    expect(details.store.getSnapshot().selection).toEqual({ turnSeq: 3, callId: 'c1' })
+    // Identity, not just value: the shared handle resolves one instance per scope key.
+    expect(details).toBe(conv)
   })
 
-  it('reconnect (handleConnected: refreshList + resync) keeps the selection account', async () => {
+  it('sessions are isolated: s2 selection never bleeds into s1', () => {
     const b = bench()
-    feed(b, [{ id: 's1' }])
-    await b.sessions.manager.refreshList()
-    await flush()
 
-    const scoped = b.sessions.scope(sid('s1'))!
-    const store = (scoped.get('conversation') as ConversationService).selection
-    store.set({ turnSeq: 1, callId: 'c9' })
-
-    // Reconnect generation: title upgrade arrives with the re-pull.
-    feed(b, [{ id: 's1', cwd: '/w/proj-a', running: true }])
-    b.sessions.manager.handleConnected()
-    await flush()
-    await flush()
-
-    expect(b.sessions.scope(sid('s1'))).toBe(scoped)
-    const after = (b.sessions.scope(sid('s1'))!.get('conversation') as ConversationService).selection
-    expect(after).toBe(store)
-    expect(after.getSnapshot()).toEqual({ turnSeq: 1, callId: 'c9' })
+    const one = storeFor(b, 'conversation.session', sid('s1'))
+    const two = storeFor(b, 'conversation.session', sid('s2'))
+    expect(two).not.toBe(one)
+    one.actions.select({ turnSeq: 1, callId: 'a' })
+    two.actions.select({ turnSeq: 9, callId: 'z' })
+    expect(one.store.getSnapshot().selection).toEqual({ turnSeq: 1, callId: 'a' })
+    expect(two.store.getSnapshot().selection).toEqual({ turnSeq: 9, callId: 'z' })
   })
 
-  it('a transiently failing list refresh does not prune live scopes', async () => {
+  it('a list-projection update keeps instance identity and the selection value', () => {
     const b = bench()
-    feed(b, [{ id: 's1' }])
-    await b.sessions.manager.refreshList()
-    await flush()
-    const scoped = b.sessions.scope(sid('s1'))!
-    const store = (scoped.get('conversation') as ConversationService).selection
-    store.set({ turnSeq: 2, callId: 'c2' })
+    const id = sid('s1')
+    const projection = createSnapshotStore({ displayTitle: 's1' })
 
-    // Wire hiccup: the reconnect-time list RPC throws (transport error).
-    b.api.onList = () => Promise.reject(new Error('boom'))
-    b.sessions.manager.handleConnected()
-    await flush()
-    await flush()
+    const store = storeFor(b, 'conversation.session', id)
+    store.actions.select({ turnSeq: 3, callId: 'c1' })
+    store.actions.setDraft('half-typed')
 
-    expect(b.sessions.scope(sid('s1'))).toBe(scoped)
-    expect((b.sessions.scope(sid('s1'))!.get('conversation') as ConversationService).selection.getSnapshot())
-      .toEqual({ turnSeq: 2, callId: 'c2' })
+    projection.set({ displayTitle: 'proj-a' })
+    expect(projection.getSnapshot().displayTitle).toBe('proj-a')
+
+    const after = storeFor(b, 'conversation.session', id)
+    expect(after).toBe(store)
+    expect(after.store.getSnapshot().selection).toEqual({ turnSeq: 3, callId: 'c1' })
+    expect(after.store.getSnapshot().draft).toBe('half-typed')
+  })
+
+  it('session death buries the instance and its persisted draft', () => {
+    const b = bench()
+
+    const doomed = storeFor(b, 'conversation.session', sid('s1'))
+    doomed.actions.setDraft('to be buried')
+    doomed.actions.select({ turnSeq: 1 })
+    expect(localStorage.getItem('dsh.conversation.chat.s1')).not.toBeNull()
+
+    // SessionsService calls this public slot lifecycle seam when the scope dies.
+    b.slots.pruneStoreScope(sid('s1'))
+
+    // Persisted residue is gone with the session...
+    expect(localStorage.getItem('dsh.conversation.chat.s1')).toBeNull()
+    // ...and a re-created same-id session starts from a FRESH instance.
+    const reborn = storeFor(b, 'conversation.session', sid('s1'))
+    expect(reborn).not.toBe(doomed)
+    expect(reborn.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null })
   })
 })

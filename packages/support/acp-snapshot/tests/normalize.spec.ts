@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type NormalizeContext,
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,
@@ -42,6 +43,24 @@ describe('normalizeStdout', () => {
     expect(out).toContain('{{cwd}}')
     expect(out).not.toContain(ctx.cwd)
     expect(out).not.toContain(ctx.sessionIds[0] as string)
+  })
+
+  it('scrubs every filesystem spelling of the cwd longest-first', () => {
+    const longCwd = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snapshot`
+    const aliasedCtx: NormalizeContext = {
+      sessionIds: [],
+      cwd: String.raw`C:\Users\RUNNER~1\AppData\Local\Temp\acp-snapshot`,
+      cwdAliases: [
+        longCwd,
+        String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp`,
+      ],
+    }
+    const raw = JSON.stringify({
+      cwd: longCwd,
+      path: `${longCwd}\\nested\\proof.txt`,
+    })
+    const frame = JSON.parse(normalizeStdout(raw, aliasedCtx)) as { cwd: string; path: string }
+    expect(frame).toEqual({ cwd: '{{cwd}}', path: '{{cwd}}/nested/proof.txt' })
   })
 
   it('canonicalizes only cwd-rooted path separators', () => {
@@ -105,22 +124,54 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('"id"')
   })
 
-  it('stabilizes the timestamp carried by session title updates', () => {
+  it('stabilizes only the top-level event timestamp and spill byte count in event-read text', () => {
     const raw = JSON.stringify({
       jsonrpc: '2.0',
       method: 'session/update',
       params: {
-        sessionId: ctx.sessionIds[0],
         update: {
-          sessionUpdate: 'session_info_update',
-          title: 'Stable title',
-          updatedAt: '2026-07-20T17:03:13.689Z',
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {\n    "time": 31337,\n    "note": "model-visible"\n  }\n}\n```\n\nAfter:\n  "time": 424242,\n  neighbor semantic text\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+            },
+          }],
         },
       },
     })
     const out = normalizeStdout(raw, ctx)
-    expect(out).toContain('"updatedAt":"{{updatedAt}}"')
-    expect(out).not.toContain('2026-07-20T17:03:13.689Z')
+    expect(out).toContain('\\"time\\": {{eventTime}}')
+    expect(out).toContain('\\"time\\": 31337')
+    expect(out).toContain('\\"time\\": 424242')
+    expect(out).toContain('Omitted {{eventOmittedBytes}} bytes')
+    expect(out).not.toContain('1784876275593')
+    expect(out).not.toContain('39387')
+  })
+
+  it('preserves event-like timestamps in unrelated output text', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'tool_call_update',
+          content: [{
+            type: 'content',
+            content: {
+              type: 'text',
+              text: 'bash output:\n```json\n{\n  "time": 1784876275593,\n  "data": {}\n}\n```\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+            },
+          }],
+        },
+      },
+    })
+    const out = normalizeStdout(raw, ctx)
+    expect(out).toContain('1784876275593')
+    expect(out).toContain('39387')
+    expect(out).not.toContain('{{eventTime}}')
+    expect(out).not.toContain('{{eventOmittedBytes}}')
   })
 
   it('throws on a non-JSON stdout line (the purity check)', () => {
@@ -190,6 +241,21 @@ describe('normalizeSessionLog', () => {
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
     expect(out).toContain('{{spillLocator:bash.txt}}')
     expect(out).not.toContain('/private{{spillLocator')
+  })
+
+  it('scrubs macOS /private prefix on cwd-rooted fs tool result paths', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: {
+        content: [{
+          type: 'text',
+          text: `The file /private${ctx.cwd}/config.txt has been updated successfully.`,
+        }],
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('{{cwd}}/config.txt')
+    expect(out).not.toContain('/private{{cwd}}')
   })
 
   it('scrubs fixed snapshot spill paths', () => {
@@ -265,6 +331,27 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"decision":"block"') // the decision is the behavior — kept
   })
 
+  it('zeroes a packed chunk row\'s time0 and dt gaps but keeps seq0 and payload', () => {
+    const row = JSON.stringify({
+      type: 'text-chunks', seq0: 7, time0: 999,
+      data: { turn: 1, step: 1, index: 0, dt: [212, 27, 0], texts: ['a', 'b', 'c', 'd'] },
+    })
+    const out = normalizeSessionLog(`${header({})}\n${row}\n`, ctx)
+    expect(out).toContain('"time0":0')
+    expect(out).toContain('"dt":[0,0,0]')
+    expect(out).toContain('"seq0":7') // seq0 is deterministic, like seq — NOT scrubbed
+    expect(out).toContain('"texts":["a","b","c","d"]')
+    expect(out).not.toContain('999')
+    expect(out).not.toContain('212')
+  })
+
+  it('zeroes time0 even when a malformed row carries no dt array', () => {
+    const row = JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 999, data: 'not-an-object' })
+    const out = normalizeSessionLog(`${header({})}\n${row}\n`, ctx)
+    expect(out).toContain('"time0":0')
+    expect(out).not.toContain('999')
+  })
+
   it('leaves a non-hook event durationMs untouched (only hook/result is scrubbed)', () => {
     const ev = JSON.stringify({ type: 'tool/result', seq: 2, time: 5, data: { durationMs: 88 } })
     const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
@@ -280,6 +367,24 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"type":"note","seq":1')
     expect(out).toContain('"decision":"allow"')
     expect(out).not.toContain('durationMs')
+  })
+})
+
+describe('extractSnapshotSpillPaths', () => {
+  it('maps each spill filename to its full matched path, last match wins per name', () => {
+    const log = [
+      'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+      'stale copy at /tmp/dsh-acp-snap-012345678/session-aaaaaaaaaaaa/bbbbbbbbbbbb-grep.txt then',
+      'fresh copy at /tmp/dsh-acp-snap-012345678/session-cccccccccccc/dddddddddddd-grep.txt then',
+    ].join('\n')
+    expect(extractSnapshotSpillPaths(log)).toEqual(new Map([
+      ['bash.txt', '/tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt'],
+      ['grep.txt', '/tmp/dsh-acp-snap-012345678/session-cccccccccccc/dddddddddddd-grep.txt'],
+    ]))
+  })
+
+  it('returns an empty map when the log carries no snapshot spill paths', () => {
+    expect(extractSnapshotSpillPaths('no spill paths here, only /tmp/other.txt\n')).toEqual(new Map())
   })
 })
 
@@ -318,25 +423,6 @@ describe('scrubRequestHeaders', () => {
     expect(toolsOnly).not.toContain('{{system}}')
   })
 
-  it('scrubs the header session prefix to one token per message, keeping the count', () => {
-    const ev = headerEvent({
-      config: { model: 'm' },
-      messagePrefix: [
-        { role: 'user', content: [{ type: 'text', text: 'workspace AGENTS digest' }] },
-        { role: 'user', content: [{ type: 'text', text: 'skills catalog' }] },
-      ],
-    })
-    const out = scrubRequestHeaders(`${headerLine}\n${ev}\n`)
-    expect(out).toContain('"messagePrefix":["{{messagePrefix}}","{{messagePrefix}}"]')
-    expect(out).not.toContain('AGENTS digest')
-    expect(out).not.toContain('skills catalog')
-    // Absence stays absent — a prefix-less header gains no token…
-    expect(scrubRequestHeaders(`${headerLine}\n${headerEvent({ system: 's' })}\n`)).not.toContain('{{messagePrefix}}')
-    // …and a non-array shape passes through untouched.
-    const odd = JSON.stringify({ type: 'request/header', seq: 4, time: 9, data: { header: { config: { model: 'm' }, messagePrefix: 'weird' }, reason: 'initial' } })
-    expect(scrubRequestHeaders(`${headerLine}\n${odd}\n`)).toContain('"messagePrefix":"weird"')
-  })
-
   it('leaves malformed headers with no scrubbable payload byte-identical', () => {
     const headerless = JSON.stringify({ type: 'request/header', seq: 10, time: 9, data: { reason: 'initial' } })
     const nullData = JSON.stringify({ type: 'request/header', seq: 11, time: 9, data: null })
@@ -355,14 +441,13 @@ describe('scrubRequestHeaders', () => {
 })
 
 describe('scrubSystemPrompts', () => {
-  it('scrubs only system prompt payloads while keeping tools and prefixes verbatim', () => {
+  it('scrubs only system prompt payloads while keeping tools verbatim', () => {
     const header = JSON.stringify({
       type: 'request/header', seq: 1, time: 2,
       data: {
         header: {
           system: 'full prompt',
           tools: [{ name: 'read', description: 'full schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
         },
         reason: 'initial',
       },
@@ -373,7 +458,6 @@ describe('scrubSystemPrompts', () => {
         header: {
           system: 'new prompt',
           tools: [{ name: 'read', description: 'changed schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
         },
         reason: 'change',
       },
@@ -388,23 +472,20 @@ describe('scrubSystemPrompts', () => {
     expect(out).not.toContain('full prompt')
     expect(out).not.toContain('new prompt')
     expect(out).toContain('full schema')
-    expect(out).toContain('full prefix')
     expect(out).toContain('changed schema')
-    expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(toolsOnly)
     expect(scrubSystemPrompts(out)).toBe(out)
   })
 })
 
 describe('scrubToolSchemas', () => {
-  it('scrubs only tool-schema payloads while keeping prompts and prefixes verbatim', () => {
+  it('scrubs only tool-schema payloads while keeping prompts verbatim', () => {
     const header = JSON.stringify({
       type: 'request/header', seq: 1, time: 2,
       data: {
         header: {
           system: 'full prompt',
           tools: [{ name: 'read', description: 'full schema', parameters: { type: 'object' } }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'full prefix' }] }],
         },
         reason: 'initial',
       },
@@ -415,7 +496,6 @@ describe('scrubToolSchemas', () => {
         header: {
           system: 'new prompt',
           tools: [{ name: 'grep', description: 'new schema' }],
-          messagePrefix: [{ role: 'user', content: [{ type: 'text', text: 'changed prefix' }] }],
         },
         reason: 'change',
       },
@@ -431,8 +511,6 @@ describe('scrubToolSchemas', () => {
     expect(out).not.toContain('new schema')
     expect(out).toContain('full prompt')
     expect(out).toContain('new prompt')
-    expect(out).toContain('full prefix')
-    expect(out).toContain('changed prefix')
     expect(out.split('\n')[2]).toBe(systemOnly)
     expect(scrubToolSchemas(out)).toBe(out)
   })

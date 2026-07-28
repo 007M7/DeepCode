@@ -8,16 +8,18 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, link, rm, stat as fsStat, truncate } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type SessionLocation, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLine, logPath, logSuffix, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
@@ -25,6 +27,7 @@ import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
 
+const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
 
 /** Loader schema for the JSONL artifact's physical encoding. */
@@ -33,14 +36,24 @@ export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
   z.const('none'),
 ]).default(DEFAULT_COMPRESSION)
 
-/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
+/** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
+   * (bash calls, subprocesses). Sessions group under human-readable project
+   * directories, then per-session directories. An existing root must be a
+   * readable directory; an absent root is created on first materialization.
    */
   root: string
+  /**
+   * Write runs of consecutive `assistant/chunk` delta events as packed
+   * `text-chunks`/`reasoning-chunks`/`tool-call-chunks` rows (lossless,
+   * ~60% smaller logs measured on a real session). Defaults to true; false
+   * keeps one `SessionEvent` per line for diagnostics. Reading packed rows is
+   * unconditional: a log's layout never depends on this switch.
+   */
+  packChunks?: boolean
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
 }
@@ -67,6 +80,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   static Config: z<Config> = z.object({
     root: z.string().required(),
+    packChunks: z.boolean().default(DEFAULT_PACK_CHUNKS),
     compression: JsonlCompressionSchema,
   })
 
@@ -78,6 +92,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   override readonly name = 'session-persistence-jsonl'
 
   private root: string
+  private packChunks: boolean
   private compression: JsonlCompression
   private coordinator: PersistenceCoordinator<JsonlTornMarker>
   private rootEncodingCheck: Promise<void> | undefined
@@ -86,7 +101,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
+    // Programmatic wrappers may construct the backend without Schemastery normalization.
+    this.packChunks = config.packChunks ?? DEFAULT_PACK_CHUNKS
     this.compression = config.compression ?? DEFAULT_COMPRESSION
+    this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this)
   }
 
@@ -112,71 +130,92 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
   /* jscpd:ignore-end */
   // --- PersistenceBackend hooks (the file-bytes storage primitives) ---
 
-  /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
-  async loadStored(id: SessionId): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
+  /** Read a stored prefix by id across all project directories when cwd is unknown. */
+  async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
+    signal?.throwIfAborted()
     await this.ensureRootEncoding()
-    const file = await this.findLog(id)
-    if (file === undefined) return undefined
-    return this.readPrefix(file.path)
-  }
-
-  /**
-   * Read a stored prefix within one cwd for HMR adoption. `undefined` names the
-   * no-cwd bucket rather than an unknown cwd, so this never scans other buckets.
-   */
-  async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
-    await this.ensureRootEncoding()
-    const path = logPath(this.root, cwd, id, this.compression)
-    if (!await this.exists(path)) {
-      await this.rejectOppositeArtifact(cwd, id)
-      return undefined
-    }
-    return this.readPrefix(path)
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
+    if (path === undefined) return undefined
+    return this.readPrefix(path, id, signal)
   }
 
   /**
    * Read a stored prefix and convert torn-tail state to the opaque marker the
    * coordinator can round-trip without knowing the physical encoding.
    */
-  private async readPrefix(path: string): Promise<StoredPrefix<JsonlTornMarker>> {
-    const buffer = await readFile(path)
-    if (this.compression === 'zstd') return this.readZstdPrefix(buffer)
-    const { meta, events, committedBytes } = scanLog(buffer)
-    return {
-      meta,
-      events,
-      ...committedBytes < buffer.byteLength
-        ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
-        : {},
+  private async readPrefix(
+    path: string,
+    expectedId?: SessionId,
+    signal?: AbortSignal,
+  ): Promise<StoredPrefix<JsonlTornMarker>> {
+    const buffer = await readFile(path, { signal })
+    signal?.throwIfAborted()
+    let prefix: StoredPrefix<JsonlTornMarker>
+    if (this.compression === 'zstd') {
+      prefix = await this.readZstdPrefix(buffer, signal)
+    } else {
+      signal?.throwIfAborted()
+      const { meta, events, committedBytes } = scanLog(buffer)
+      signal?.throwIfAborted()
+      prefix = {
+        meta,
+        events,
+        ...committedBytes < buffer.byteLength
+          ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
+          : {},
+      }
     }
+    signal?.throwIfAborted()
+    await this.assertStoredIdentity(path, prefix.meta, expectedId, signal)
+    signal?.throwIfAborted()
+    return prefix
   }
 
   /** Decode complete frames and retain complete JSONL records from a torn final frame. */
-  private async readZstdPrefix(buffer: Buffer): Promise<StoredPrefix<JsonlTornMarker>> {
+  private async readZstdPrefix(
+    buffer: Buffer,
+    signal?: AbortSignal,
+  ): Promise<StoredPrefix<JsonlTornMarker>> {
+    signal?.throwIfAborted()
     const { frames, tornStart } = scanZstdFrames(buffer)
+    signal?.throwIfAborted()
     if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
 
     const plaintextFrames: Buffer[] = []
     for (const frame of frames) {
+      let plaintext: Buffer
       try {
-        plaintextFrames.push(await decompressZstdFrame(buffer.subarray(frame.start, frame.end)))
+        signal?.throwIfAborted()
+        plaintext = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
       } catch (error) {
+        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+        if (signal?.aborted) signal.throwIfAborted()
         throw new Error(`corrupt Zstandard session log: frame at byte ${frame.start} failed validation`, { cause: error })
       }
+      signal?.throwIfAborted()
+      plaintextFrames.push(plaintext)
     }
 
     const headerFrame = plaintextFrames[0]
     if (headerFrame === undefined || headerFrame.length === 0 || headerFrame.indexOf(0x0A) !== headerFrame.length - 1) {
       throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
     }
+    signal?.throwIfAborted()
     const completePlaintext = Buffer.concat(plaintextFrames)
+    signal?.throwIfAborted()
     const completePrefix = scanLog(completePlaintext)
+    signal?.throwIfAborted()
     if (completePrefix.committedBytes !== completePlaintext.length) {
       throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
     }
@@ -186,12 +225,17 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
     let recoveredPlaintext: Buffer = Buffer.alloc(0)
     try {
+      signal?.throwIfAborted()
       recoveredPlaintext = await decompressZstdFrame(buffer.subarray(tornStart))
     } catch {
+      /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+      if (signal?.aborted) signal.throwIfAborted()
       // A structurally incomplete final frame may end before Node's decoder can
       // emit any plaintext; the complete prior frames remain recoverable.
     }
+    signal?.throwIfAborted()
     const recoveredPrefix = scanLog(Buffer.concat([completePlaintext, recoveredPlaintext]))
+    signal?.throwIfAborted()
     /* v8 ignore next 3 -- appending plaintext cannot shorten the already-scanned complete prefix */
     if (recoveredPrefix.events.length < completePrefix.events.length) {
       throw new Error('corrupt Zstandard session log: recovered prefix does not extend complete frames')
@@ -231,43 +275,97 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
   }
 
-  /** List all stored sessions' metadata (header line only — no full-log parse). */
-  async list(): Promise<SessionHeader[]> {
+  /** List valid unique stored sessions' metadata (header line only — no full-log parse). */
+  async list(signal?: AbortSignal): Promise<SessionHeader[]> {
+    return (await this.listArtifacts(signal)).map(artifact => artifact.header)
+  }
+
+  /** List metadata plus a stat-derived identity for each append-only log. */
+  async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
+    const snapshots: SessionPersistenceSnapshot[] = []
+    for (const artifact of await this.listArtifacts(signal)) {
+      signal?.throwIfAborted()
+      try {
+        const identity = await stat(artifact.path, { bigint: true })
+        signal?.throwIfAborted()
+        snapshots.push({
+          header: artifact.header,
+          revision: SessionPersistenceRevision([
+            identity.dev,
+            identity.ino,
+            identity.size,
+            identity.mtimeNs,
+            identity.ctimeNs,
+          ].join(':')),
+        })
+      } catch (error: unknown) {
+        signal?.throwIfAborted()
+        if (!isENOENT(error)) throw error
+      }
+    }
+    signal?.throwIfAborted()
+    return snapshots
+  }
+
+  private async listArtifacts(signal?: AbortSignal): Promise<Array<{ header: SessionHeader; path: string }>> {
+    signal?.throwIfAborted()
     await this.ensureRootEncoding()
-    const metas: SessionHeader[] = []
-    for (const dir of await this.listCwdDirs()) {
-      for (const name of await this.listArtifacts(dir)) {
+    signal?.throwIfAborted()
+    const artifacts: Array<{ header: SessionHeader; path: string }> = []
+    const ids = new Set<SessionId>()
+    for (const project of await this.listProjectDirs(signal)) {
+      signal?.throwIfAborted()
+      for (const dir of await this.listSessionDirs(project, signal)) {
+        signal?.throwIfAborted()
+        const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+        const oppositeExists = await this.exists(opposite)
+        signal?.throwIfAborted()
+        if (oppositeExists) throw this.encodingMismatch(opposite)
+        const path = join(dir, `session${logSuffix(this.compression)}`)
+        const pathExists = await this.exists(path)
+        signal?.throwIfAborted()
+        if (!pathExists) continue
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
-          ? await this.readFirstZstdLine(`${dir}/${name}`)
-          : await this.readFirstLine(`${dir}/${name}`)
+          ? await this.readFirstZstdLine(path, signal)
+          : await this.readFirstLine(path, signal)
+        signal?.throwIfAborted()
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        metas.push(meta)
+        await this.assertStoredIdentity(path, meta, undefined, signal)
+        signal?.throwIfAborted()
+        if (ids.has(meta.id)) {
+          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
+        }
+        ids.add(meta.id)
+        artifacts.push({ header: meta, path })
       }
     }
-    return metas
+    signal?.throwIfAborted()
+    return artifacts
   }
 
   // --- materialization / append / repair (file mechanics) ---
 
   /** Atomically write the header line + first batch (temp-write, fsync, publish). */
   private async materialize(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
-    const dir = sessionDir(this.root, meta.cwd)
+    const project = projectDir(this.root, meta.cwd)
+    const dir = sessionDir(this.root, meta.cwd, meta.id)
     const finalPath = logPath(this.root, meta.cwd, meta.id, this.compression)
     await this.rejectOppositeArtifact(meta.cwd, meta.id)
     const content = await this.encodeMaterialization(meta, events)
     /* v8 ignore next -- native Windows coverage exercises this platform dispatch; Linux covers the POSIX peer */
     if (process.platform === 'win32') {
-      await this.materializeWin32(dir, finalPath, meta.id, content)
+      await this.materializeWin32(project, dir, finalPath, meta.id, content)
     } else {
-      await this.materializePosix(dir, finalPath, meta.id, content)
+      await this.materializePosix(project, dir, finalPath, meta.id, content)
     }
   }
 
   /* v8 ignore start -- Windows uses the Win32 durable-publish path; POSIX coverage exercises this peer. */
   private async materializePosix(
+    project: string,
     dir: string,
     finalPath: string,
     id: SessionId,
@@ -275,8 +373,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   ): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 })
     await this.syncDirPosix(dirname(this.root))
-    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await mkdir(project, { recursive: true, mode: 0o700 })
     await this.syncDirPosix(this.root)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(project)
     await this.rejectExistingLog(finalPath, id)
     const tmp = await this.writeSyncedTempFile(finalPath, content)
     // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
@@ -309,12 +409,14 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /* v8 ignore start -- native Windows coverage exercises this integration path */
   private async materializeWin32(
+    project: string,
     dir: string,
     finalPath: string,
     id: SessionId,
     content: Buffer | string,
   ): Promise<void> {
     await ensureDurableDirectoryWin32(this.root)
+    await ensureDurableDirectoryWin32(project)
     await ensureDurableDirectoryWin32(dir)
     await this.rejectExistingLog(finalPath, id)
     const tmp = await this.writeSyncedTempFile(finalPath, content)
@@ -354,7 +456,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   /** Encode the header and first batch without combining their frame boundaries. */
   private async encodeMaterialization(meta: SessionHeader, events: readonly SessionEvent[]): Promise<Buffer | string> {
     const header = JSON.stringify(toHeaderLine(meta)) + '\n'
-    const body = events.map(eventLine).join('\n') + '\n'
+    const body = eventLines(events, this.packChunks) + '\n'
     if (this.compression === 'none') return header + body
     const headerFrame = await compressZstdFrame(header)
     const eventFrame = await compressZstdFrame(body)
@@ -363,7 +465,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Encode one durable append batch in the configured physical representation. */
   private async encodeEventBatch(events: readonly SessionEvent[]): Promise<Buffer | string> {
-    const body = events.map(eventLine).join('\n') + '\n'
+    const body = eventLines(events, this.packChunks) + '\n'
     return this.compression === 'zstd' ? compressZstdFrame(body) : body
   }
 
@@ -443,18 +545,23 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
    * file. Returns undefined if the file is empty or has no complete first line.
    * Reads in bounded chunks so a huge log costs only the header read.
    */
-  private async readFirstLine(path: string): Promise<string | undefined> {
+  private async readFirstLine(path: string, signal?: AbortSignal): Promise<string | undefined> {
+    signal?.throwIfAborted()
     const handle = await open(path, 'r')
     try {
+      signal?.throwIfAborted()
       const chunks: Buffer[] = []
       const buf = Buffer.alloc(8192)
       for (;;) {
+        signal?.throwIfAborted()
         const { bytesRead } = await handle.read(buf, 0, buf.length, null)
+        signal?.throwIfAborted()
         if (bytesRead === 0) return undefined // EOF with no newline → no complete line
         const slice = buf.subarray(0, bytesRead)
         const nl = slice.indexOf(0x0a)
         if (nl !== -1) {
           chunks.push(slice.subarray(0, nl))
+          signal?.throwIfAborted()
           return Buffer.concat(chunks).toString('utf8')
         }
         chunks.push(Buffer.from(slice))
@@ -465,23 +572,34 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /** Read and validate only the independently compressed header frame. */
-  private async readFirstZstdLine(path: string): Promise<string | undefined> {
+  private async readFirstZstdLine(path: string, signal?: AbortSignal): Promise<string | undefined> {
+    signal?.throwIfAborted()
     const handle = await open(path, 'r')
     try {
+      signal?.throwIfAborted()
       let content = Buffer.alloc(0)
       const chunk = Buffer.alloc(8192)
       for (;;) {
+        signal?.throwIfAborted()
         const { bytesRead } = await handle.read(chunk, 0, chunk.length, null)
+        signal?.throwIfAborted()
         if (bytesRead === 0) return undefined
+        signal?.throwIfAborted()
         content = Buffer.concat([content, chunk.subarray(0, bytesRead)])
+        signal?.throwIfAborted()
         const first = scanZstdFrames(content, 1).frames[0]
+        signal?.throwIfAborted()
         if (first === undefined) continue
         let plaintext: Buffer
         try {
+          signal?.throwIfAborted()
           plaintext = await decompressZstdFrame(content.subarray(first.start, first.end))
         } catch (error) {
+          /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+          if (signal?.aborted) signal.throwIfAborted()
           throw new Error('corrupt Zstandard session log: header frame failed validation', { cause: error })
         }
+        signal?.throwIfAborted()
         if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
           throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
         }
@@ -492,30 +610,90 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /**
-   * Find a session by id across cwd buckets for resume. Cwd-scoped HMR adoption
-   * bypasses this scan so a no-cwd session cannot claim another bucket.
-   */
-  private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
-    const target = encodeSegment(id) + logSuffix(this.compression)
-    for (const dir of await this.listCwdDirs()) {
-      const path = `${dir}/${target}`
-      const opposite = `${dir}/${encodeSegment(id)}${logSuffix(this.oppositeCompression())}`
-      if (await this.exists(opposite)) throw this.encodingMismatch(opposite)
-      if (await this.exists(path)) {
-        // Recover the cwd from the header so the caller has the session's bucket.
-        const { meta } = await this.readPrefix(path)
-        return { path, cwd: meta.cwd }
-      }
+  /** Find the unique physical log for an id across every project directory. */
+  private async findLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined> {
+    const matches: string[] = []
+    for (const project of await this.listProjectDirs(signal)) {
+      signal?.throwIfAborted()
+      await this.rejectLegacyFlatArtifact(project, id, signal)
+      signal?.throwIfAborted()
+      const dir = join(project, encodeSegment(id))
+      const path = join(dir, `session${logSuffix(this.compression)}`)
+      const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+      const oppositeExists = await this.exists(opposite)
+      signal?.throwIfAborted()
+      if (oppositeExists) throw this.encodingMismatch(opposite)
+      const pathExists = await this.exists(path)
+      signal?.throwIfAborted()
+      if (pathExists) matches.push(path)
     }
-    return undefined
+    if (matches.length > 1) {
+      throw new Error(`duplicate JSONL session id "${id}" appears in multiple project directories`)
+    }
+    signal?.throwIfAborted()
+    return matches[0]
   }
 
-  /** The cwd-bucket directories under the root (absolute paths). */
-  private async listCwdDirs(): Promise<string[]> {
+  /** Require an existing configured root to be a readable directory. */
+  private assertUsableRoot(): void {
     try {
+      readdirSync(this.root)
+    } catch (error) {
+      if (isENOENT(error)) return
+      throw error
+    }
+  }
+
+  /** Reject metadata that does not identify the selected physical log. */
+  private async assertStoredIdentity(
+    path: string,
+    meta: SessionHeader,
+    expectedId?: SessionId,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    if (expectedId !== undefined && meta.id !== expectedId) {
+      throw new Error(`corrupt session log "${path}": requested id "${expectedId}" does not match header id "${meta.id}"`)
+    }
+    let expectedPath: string
+    try {
+      expectedPath = logPath(this.root, meta.cwd, meta.id, this.compression)
+    } catch (error) {
+      throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
+    }
+    if (path !== expectedPath && !await this.sameFile(path, expectedPath, signal)) {
+      throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd identify "${expectedPath}"`)
+    }
+    signal?.throwIfAborted()
+  }
+
+  /**
+   * Whether two path spellings resolve to the same physical file. This admits
+   * case aliases on case-insensitive filesystems without weakening identity
+   * checks on case-sensitive stores.
+   */
+  private async sameFile(path: string, expectedPath: string, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted()
+    try {
+      const [actual, expected] = await Promise.all([realpath(path), realpath(expectedPath)])
+      signal?.throwIfAborted()
+      return actual === expected
+    } catch (error) {
+      signal?.throwIfAborted()
+      /* v8 ignore else -- non-ENOENT realpath failures require an external permission or I/O fault */
+      if (isENOENT(error)) return false
+      /* v8 ignore next -- non-ENOENT realpath failures are external I/O faults, propagated unchanged */
+      throw error
+    }
+  }
+
+  /** The human-readable project directories under the configured root. */
+  private async listProjectDirs(signal?: AbortSignal): Promise<string[]> {
+    try {
+      signal?.throwIfAborted()
       const entries = await readdir(this.root, { withFileTypes: true })
-      return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
+      signal?.throwIfAborted()
+      return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []
@@ -523,13 +701,15 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  private async listArtifacts(dir: string): Promise<string[]> {
-    const entries = await readdir(dir)
-    const oppositeSuffix = logSuffix(this.oppositeCompression())
-    const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
-    if (incompatible !== undefined) throw this.encodingMismatch(`${dir}/${incompatible}`)
-    const suffix = logSuffix(this.compression)
-    return entries.filter(name => name.endsWith(suffix))
+  /** List session-owned directories and reject the obsolete flat-file layout. */
+  private async listSessionDirs(project: string, signal?: AbortSignal): Promise<string[]> {
+    signal?.throwIfAborted()
+    const entries = await readdir(project, { withFileTypes: true })
+    signal?.throwIfAborted()
+    const legacy = entries.find(entry =>
+      entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zstd')))
+    if (legacy !== undefined) throw this.legacyLayout(join(project, legacy.name))
+    return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
   /** Reject a root that already belongs to the other physical encoding. */
@@ -539,11 +719,26 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   private async checkRootEncoding(): Promise<void> {
-    const oppositeSuffix = logSuffix(this.oppositeCompression())
-    for (const dir of await this.listCwdDirs()) {
-      const entries = await readdir(dir)
-      const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
-      if (incompatible !== undefined) throw this.encodingMismatch(`${dir}/${incompatible}`)
+    for (const project of await this.listProjectDirs()) {
+      for (const dir of await this.listSessionDirs(project)) {
+        const incompatible = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+        if (await this.exists(incompatible)) throw this.encodingMismatch(incompatible)
+      }
+    }
+  }
+
+  private async rejectLegacyFlatArtifact(
+    project: string,
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    const encoded = encodeSegment(id)
+    for (const compression of ['zstd', 'none'] as const) {
+      const path = join(project, encoded + logSuffix(compression))
+      const artifactExists = await this.exists(path)
+      signal?.throwIfAborted()
+      if (artifactExists) throw this.legacyLayout(path)
     }
   }
 
@@ -564,6 +759,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     )
   }
 
+  private legacyLayout(path: string): Error {
+    return new Error(
+      `session artifact ${JSON.stringify(path)} uses the unsupported flat-file layout; `
+      + 'use a separate root or move it into a project/session directory before loading',
+    )
+  }
+
   private async exists(path: string): Promise<boolean> {
     try {
       const handle = await open(path, 'r')
@@ -573,7 +775,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       // Only ENOENT means absent. A permission/I/O error must surface rather
       // than letting load or collision checks proceed under false absence.
       // Windows reports ENOENT, not ENOTDIR, for `regular-file/child`; verify
-      // the immediate parent so a blocked cwd bucket remains a storage fault.
+      // the immediate parent so a blocked session directory remains a storage fault.
       /* v8 ignore else -- Windows reports file-valued parents as ENOENT; POSIX covers direct ENOTDIR. */
       if (isENOENT(error)) {
         await this.assertLogParentAllowsAbsence(path)
@@ -588,7 +790,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private async assertLogParentAllowsAbsence(path: string): Promise<void> {
     try {
       const parent = dirname(path)
-      const info = await fsStat(parent)
+      const info = await stat(parent)
       if (info.isDirectory()) return
       const error = new Error(`ENOTDIR: parent path exists but is not a directory: ${parent}`) as NodeJS.ErrnoException
       error.code = 'ENOTDIR'

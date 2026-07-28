@@ -1,10 +1,7 @@
 /**
- * Browser half of the wire consumer layer (contract: api-contracts v3
- * section 3; export inventory = v3 §3.2). The wire is this package's client
- * half in its entirety — apply mounts ctx.connection: the shared api client
- * plus the connection controller handle. Mode selection (?fixture) happens
- * here so the rest of the client tree is mode-blind; the controller's sinks
- * are wired by the runtime plugin (object layer), which injects this service.
+ * Browser wire client. The plugin selects fixture or HTTP transport, provides
+ * the shared API client, and lets the runtime object layer start the stream
+ * controller with its sinks.
  */
 import type { Context } from 'cordis'
 import type { IApiClient } from './api.ts'
@@ -16,21 +13,20 @@ import { WebApiClient } from './web-api-client.ts'
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
-  ToolCallView, ToolResultView,
+  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
+  CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
+  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionModels,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
-  GoalsApi, GoalView, GoalRef, GoalPhase, GoalBlockReason,
+  GoalsApi, GoalRef,
 } from './api.ts'
-export { RpcId, AbstractApiClient, resultOf, transportError } from './api.ts'
+export { RpcId, AbstractApiClient, transportError } from './api.ts'
 
-// ---- Connection loop ----
-export { ConnectionController } from './connection.ts'
+// Connection loop types are public through ConnectionHandle.start; the
+// controller remains package-internal.
 export type { ConnectionConfig, ConnectionSinks, ConnectionState }
-
-// ---- Platform client subclasses ----
-export { WebApiClient } from './web-api-client.ts'
-export { FixtureApiClient, createFixtureApi } from './fixture.ts'
 
 
 /** Required services (none — this is the wire root). */

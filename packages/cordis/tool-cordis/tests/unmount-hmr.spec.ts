@@ -26,13 +26,15 @@ describe('cordis_unmount', () => {
 
     const result = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('unmounted dyn-1')
+    if (result.isError) throw new Error('expected cordis_unmount success')
+    expect(result.value).toEqual({ id: 'dyn-1', pluginName: 'change-logger' })
+    expect(text(result)).toBe('Temporary Plugin dyn-1 was unmounted and removed.')
 
     // Immediately after the awaited unmount, the listener must be gone — no
     // grace period, no eventual consistency.
     ctx.tools.register(dummyTool('trigger_after'))
     expect(log).toHaveBeenCalledTimes(1)
-    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'temporary' }))).toContain('No temporary Plugins are running.')
   })
 
   it('unregisters a self-made tool on unmount', async () => {
@@ -48,7 +50,7 @@ describe('cordis_unmount', () => {
     const ctx = await setup()
     const unknown = await call(ctx, 'cordis_unmount', { id: 'dyn-99' })
     expect(unknown.isError).toBe(true)
-    expect(text(unknown)).toContain('no dynamic plugin with id "dyn-99"')
+    expect(text(unknown)).toContain('no temporary Plugin with id "dyn-99"')
 
     await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     await call(ctx, 'cordis_unmount', { id: 'dyn-1' })

@@ -8,11 +8,24 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
+
+/** Canonical source for the replacement user message produced by every compaction backend. */
+export const COMPACT_CHECKPOINT_SOURCE = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
+
+/**
+ * Test whether a persisted message source identifies a compaction checkpoint.
+ * @param source - source restored from a surface user message.
+ * @returns whether the source carries the backend-independent checkpoint marker.
+ */
+export function isCompactCheckpointSource(source: MessageSource): boolean {
+  return source.kind === 'plugin' && source.plugin === COMPACT_CHECKPOINT_SOURCE.plugin
+}
 
 /** Why automatic policy is asking a backend to consider compaction. */
 export type CompactionTrigger = 'pressure' | 'context-overflow'
@@ -33,8 +46,10 @@ declare module 'cordis' {
  * Abstract compaction service. Implementations own trigger policy, retention,
  * and summarization, and may consume a separate measurement service. A
  * successful run replaces the selected surface span with one summary node and
- * prevents concurrent compaction of the same session. Load one implementation
- * per context as `ctx.compact`.
+ * prevents concurrent compaction of the same session. The replacement user
+ * message uses {@link COMPACT_CHECKPOINT_SOURCE} so consumers recognize it
+ * independently of the backend. Load one implementation per context as
+ * `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {
@@ -66,6 +81,7 @@ export abstract class CompactService extends Service {
    * balanced so assistant tool calls remain paired with their results. A model-
    * backed implementation forwards cancellation and rejects active, missing,
    * reversed, or unbalanced ranges. The target session is `agent.session`.
+   * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
    * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
    * for the edge checks.
    *

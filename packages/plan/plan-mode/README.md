@@ -1,20 +1,22 @@
 # @deepseek-ai/dsh-plan-mode
 
-Logged, per-agent plan collaboration state with deployment-owned guidance, a direct `/plan [message]` entry command, and the reviewed `exit_plan_mode` exit. Plan mode is soft guidance; sandbox mode and approval policy remain independent enforcement axes.
+English | [中文](README.zh.md)
+
+Logged, per-agent plan collaboration state with deployment-owned guidance, direct `/plan [message]` entry and `/plan off` exit commands, and the reviewed `exit_plan_mode` exit. Plan mode is soft guidance; sandbox mode and approval policy remain independent enforcement axes.
 
 ## Durable state
 
 `plan/mode` (`{ active: boolean }`) is a log-only, whole-value-replace `SessionEventMap` member. `foldPlanMode(events)` returns the last logged value or `false`, so resume, fork, and compaction recover plan state directly from the session log. UIs observe committed flips through `session/event`.
 
-`ctx.planMode.set(agent, active)` records a pending selection and flushes it inside the next turn boundary. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's optimistic selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one `context/message` notice when the last logged request header described the other state.
+`ctx.planMode.set(agent, active)` records a pending selection and flushes it inside the next turn boundary. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's optimistic selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one plugin-sourced `user/message` notice when the last logged request header described the other state.
 
 ## Model and human surfaces
 
 While active, `plan:policy` renders the configured `section`. The plugin always registers `exit_plan_mode`, keeping tool schemas stable across the transition; its execute path accepts only active plan mode and leaves it only after an exact user approval through `ctx.userInteraction`.
 
-When `ctx.commands` is composed, the package registers `/plan [message]`. The command selects plan mode first. A non-empty argument is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance; bare `/plan` only changes state.
+When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
-ACP is an adapter, not the owner of this vocabulary: it advertises the fixed wire ids `default` and `plan`, maps `session/set_mode` to the boolean service, and translates committed `plan/mode` events back to `current_mode_update`.
+The TUI consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
 
 ## Configuration
 
@@ -29,7 +31,7 @@ ACP is an adapter, not the owner of this vocabulary: it advertises the fixed wir
 
 `section` is required and non-empty. Unknown keys fail at load. The package does not accept arbitrary named modes, tool filters, sandbox settings, or approval policy.
 
-Design: [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) and [plan-specific state simplification](../../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).
+Design: [plan-specific collaboration state](../../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).
 
 ## Model Experience
 
@@ -53,25 +55,25 @@ Inactive mode adds no tokens; active mode adds the configured section to every r
 
 The section is stable within plan mode, but entering or leaving changes the system prompt from order 50 onward.
 
-### Optional command message
+### Human command
 
 #### What the model sees
 
-`/plan` and its terminal result stay outside model history; a non-empty suffix becomes one trimmed user text block through `agent.steer()` after plan mode is selected.
+`/plan`, `/plan off`, and their terminal results stay outside model history. A non-empty suffix other than the exact `off` argument becomes one trimmed user text block through `agent.steer()` after plan mode is selected. An active `/plan off` selection contributes the standard logged user-switch notice only when the last request header described plan mode; cancelling a pending entry contributes none because no request observed it.
 
 #### Token effect
 
-The suffix costs the same history tokens as submitting that text separately; a bare command adds none.
+The optional message costs the same history tokens as submitting that text separately; bare `/plan` and `/plan off` add none. A narrated active exit adds the small retained switch notice.
 
 #### KV Cache effect
 
-The user block is append-only conversation growth, while entering plan mode also changes the earlier policy section.
+The user block is append-only conversation growth. Entering or leaving plan mode changes the earlier policy section; a narrated exit notice is appended after the reusable request prefix.
 
 ### Exit tool schema and review exchange
 
 #### What the model sees
 
-The [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-plan-mode) remains available in both states; execution outside plan mode fails, while an approved in-mode review returns the exit result and rejection returns feedback.
+The [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-plan-mode) remains available in both states; execution outside plan mode fails, while an approved in-mode review returns the canonical `{ approved: true }` value and renders the existing confirmation text. Rejection remains a failed call carrying review feedback.
 
 #### Token effect
 
@@ -86,3 +88,4 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
+- The `exit_plan_mode` review arc (submit → human review → approved flip or rejected feedback) is covered by package tests only; its assembled-application snapshot left with the retired ACP UI scenarios ([automation-only ACP](../../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md)) and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.

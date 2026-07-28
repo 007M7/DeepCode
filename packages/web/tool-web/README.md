@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-web
 
+English | [中文](README.zh.md)
+
 The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and `presentCall`. All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — each tool's cooperative tool-call budget is declared here via config (`fetchTimeoutMs`/`searchTimeoutMs`, attached as `ToolDefinition.timeoutMs`) and enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) (a `tools/execute` wrapper); each tool just forwards `exec.signal` to the seam.
 
 Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`).
@@ -9,9 +11,11 @@ Each tool is registered independently; a product that wants only one disables th
 | Tool | Args | Behavior |
 |---|---|---|
 | `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (the `searchMaxResults` config, default 8) and passes it to the seam. |
-| `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown-ish text; text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-timeout-policy`), not a model argument. |
+| `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown (turndown with GFM tables/strikethrough); text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-timeout-policy`), not a model argument. |
 
 Both tools opt into concurrent scheduling because provider reads return content without mutating parent-agent state.
+
+The normalized seam results are also the canonical tool values: `WebSearchResult` and `WebFetchResult`. Native renderers preserve the answer/source and fetched-body text below; provider search/body caps remain acquisition limits rather than presentation-only truncation.
 
 ## Config
 
@@ -22,8 +26,9 @@ Both tools opt into concurrent scheduling because provider reads return content 
 | `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
 | `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch`. |
 | `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search`. |
+| `fetchMaxOutputChars` | `200000` | Cap on source characters converted synchronously and on one complete `web_fetch` output (header, rendered body, and footer); a cut body gets the truncation notice when it fits. |
 
-`fetchTimeoutMs`/`searchTimeoutMs` declare each tool's cooperative timeout budget (attached as `ToolDefinition.timeoutMs`), enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md); the model-facing schema exposes no timeout argument.
+`fetchTimeoutMs`/`searchTimeoutMs` declare each tool's cooperative timeout budget (attached as `ToolDefinition.timeoutMs`), enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md); the model-facing schema exposes no timeout argument. `fetchMaxOutputChars` bounds both synchronous conversion work and the complete rendered result: only that many source characters are converted, and the header, converted prefix, and truncation notice are then capped together. The default leaves headroom above the local provider's 100,000-character body cap, but rendered expansion can still make the final bound truncate the result.
 
 ```yaml
 - id: tool-web
@@ -122,6 +127,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **`htmlToMarkdown` is a minimal regex converter, not an HTML parser** — it strips script/style/noscript, keeps headings/bullets/links, and decodes about a dozen named entities; tables, images, and nested formatting are lost.
+- **HTML→markdown conversion degrades on inputs GFM cannot safely represent** — [turndown](https://github.com/mixmark-io/turndown) (with GFM tables/strikethrough) converts at most `fetchMaxOutputChars` source characters through a real DOM. A conservative 512-level lexical guard passes deeply or ambiguously nested bodies through as raw HTML, conversion exceptions do the same, and table `colspan` is ignored because GFM has no spanning-cell representation; these bounds avoid blocking the event loop or expanding output from an untrusted numeric attribute ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)).
 - **The model-facing surface is minimal by design, with promotions deferred** — `max_results` stays a config bound (not a model argument), and `web_fetch` takes only `url` (no `format`/`prompt`/LLM-summarization mode); both are named later steps in [the seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md).
 - **No web-specific permission policy** — both tools execute without requesting `ctx.approval`; a deployment that needs confirmation must add a `tools/pre-execute` policy, and the package does not define persistent URL/domain grants.

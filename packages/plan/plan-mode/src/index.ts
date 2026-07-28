@@ -1,21 +1,21 @@
 /**
  * Plan mode is logged per-agent collaboration state: while active, a
  * deployment-owned guidance section shapes each model request, and
- * `exit_plan_mode` presents the completed plan for user review. It is
- * independent of sandbox mode and approval policy; those enforcement axes do
- * not read or write plan state.
+ * `exit_plan_mode` presents the completed plan for user review, while the
+ * `/plan off` command lets a user leave directly. Plan mode is independent of
+ * sandbox mode and approval policy; those enforcement axes do not read or
+ * write plan state.
  *
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
- * are held as pending intent until a turn boundary because every session event
- * is turn-enclosed. The service flushes before the affected request assembly
- * on prompt submission, ordinary continuation, and request-recovery retry.
+ * are held as pending intent until an in-turn request boundary because every
+ * session event is turn-enclosed. The service flushes at `agent/step` before
+ * the affected request assembly, including retry turns.
  *
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
  *
- * Agent Notes:
- * - .agents/notes/implemented/feature/2026-07-07-plan-mode.md
+ * Agent Note:
  * - .agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md
  *
  * @module @deepseek-ai/dsh-plan-mode
@@ -23,6 +23,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -145,9 +146,9 @@ export class PlanModeService extends Service {
   private readonly section: string
 
   /**
-   * Latest selection per session awaiting a turn-boundary flush. `narrate` is
-   * true for user selections and false for the exit tool, whose result already
-   * narrates the transition.
+   * Latest selection per session awaiting an in-turn request-boundary flush.
+   * `narrate` is true for user selections and false for the exit tool, whose
+   * result already narrates the transition.
    */
   private readonly pendingIntents = new WeakMap<Session, { active: boolean; narrate: boolean }>()
 
@@ -156,45 +157,20 @@ export class PlanModeService extends Service {
     this.section = resolveConfig(config).section
     let disposed = false
 
-    // Boundary flushes use loop interception seams, not post-commit
-    // `session/event` observation. Flush after next(): a selection arriving
-    // while a downstream async listener awaits must still shape the request
-    // this boundary precedes. Failures are contained so policy cannot block a
-    // prompt or turn; a failed append remains pending for a later boundary.
-    const flushAfter = async <T>(agent: Agent, next: () => Promise<T>): Promise<T> => {
-      const decision = await next()
-      if (!disposed) {
-        try {
-          this.onBoundary(agent)
-        } catch (error) {
-          ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
-        }
-      }
-      return decision
-    }
-    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) =>
-      flushAfter(agent, next), { prepend: true })
-    ctx.on('agent/request-error', async (
-      agent,
-      _turn,
-      _step,
-      _error,
-      _failure,
-      _priorFailures,
-      _signal,
-      next,
-    ) => {
-      const decision = await next()
-      // A waterfall can retain this wrapper after Cordis unregisters it.
-      if (disposed || decision.action !== 'retry') return decision
+    // The boundary flush uses the loop's `agent/step` interception seam, not
+    // post-commit `session/event` observation. `agent/step` runs inside the
+    // open turn before every request derivation (including turn 1 step 1), so
+    // it is the sole flush point: prompt admission happens pre-turn, where a
+    // `plan/mode` append would land outside any open turn. Failures are
+    // contained so policy cannot block a turn; a failed append remains
+    // pending for a later boundary.
+    ctx.on('agent/step', (agent) => {
+      if (disposed) return
       try {
         this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
       }
-      return decision
     }, { prepend: true })
     ctx.effect(() => () => { disposed = true }, 'dsh-plan-mode: close boundary lifetime')
 
@@ -210,13 +186,27 @@ export class PlanModeService extends Service {
     ctx.inject(['commands'], (commandCtx) => {
       commandCtx.commands.register({
         name: 'plan',
-        description: 'Enter plan mode',
-        input: { hint: '[message]' },
+        description: 'Enter or leave plan mode',
+        input: { hint: '[off|message]' },
         handler: ({ agent, rawInput }) => {
           const message = rawInput.trim()
+          if (message === 'off') {
+            const state = this.get(agent)
+            this.set(agent, false)
+            if (state.active) {
+              return { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+            }
+            if (state.pending === true) {
+              return { kind: 'success', text: 'Plan mode entry cancelled.' }
+            }
+            return { kind: 'success', text: 'Plan mode is already inactive.' }
+          }
           this.set(agent, true)
-          if (message !== '') agent.steer([{ type: 'text', text: message }])
-          return { kind: 'success', text: 'Entering plan mode (applies from the next step).' }
+          if (message !== '') agent.steer(createUserMessage({ content: [{ type: 'text', text: message }], source: { kind: 'user' } }))
+          return {
+            kind: 'success',
+            text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+          }
         },
       })
     })
@@ -226,6 +216,16 @@ export class PlanModeService extends Service {
       description: EXIT_DESCRIPTION,
       parameters: {
         plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            approved: { type: 'boolean', const: true, required: true },
+          },
+        },
+        render: () => [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
       },
       execute: async (args, exec) => {
         const agent = exec.agent
@@ -270,7 +270,7 @@ export class PlanModeService extends Service {
         // Keep plan guidance for the rest of this assistant tool batch. The
         // silent intent flushes after the step, before the next assembly.
         this.pendingIntents.set(agent.session, { active: false, narrate: false })
-        return [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }]
+        return { approved: true }
       },
       presentCall: args => ({
         card: 'generic',
@@ -299,7 +299,7 @@ export class PlanModeService extends Service {
   }
 
   /**
-   * Select whether plan mode should be active from the next turn boundary.
+   * Select whether plan mode should be active from the next request boundary.
    * Repeated selection of the current or already-pending state is a no-op.
    *
    * @param agent The agent to switch.
@@ -332,10 +332,10 @@ export class PlanModeService extends Service {
     const text = target
       ? 'The user switched this session to plan mode.'
       : 'The user switched this session back to the default mode.'
-    session.append('context/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'plan-mode' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
   }
 }
 

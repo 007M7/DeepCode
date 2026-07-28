@@ -2,11 +2,13 @@
 
 Status: implemented
 
+English | [中文](2026-06-30-session-store-fork-api.zh.md)
+
 ## Problem
 
 The event-sourced session log already has the primitive a fork needs: create a new session with a seed event prefix, then derive model history from that seeded log exactly as replay does. That primitive is intentionally low-level: `ctx.sessions.create(id, { seed, meta })` accepts any valid seed, but ordinary live-session branching needs policy around which prefix can be copied, which metadata is stamped on the child, and how errors are classified.
 
-The semantic hazard is the fork boundary. A valid user-visible fork seed must be contiguous and turn-enclosed. Forking inside an active turn would copy an open `turn/start`, possibly an open `step/start`, and possibly dangling tool calls. That violates turn-enclosure and provider-transcript invariants, and it creates a misleading child history that appears to have participated in an unfinished parent turn. The existing [subagent seam](2026-06-21-subagent-capability-seam.md) deliberately solves a different problem: tool-triggered subagent forks usually happen while the parent turn is open, so `dsh-subagent-fork` clips the seed to the parent's last completed-turn prefix. A general session fork should not silently clip; it should either fork the requested boundary or reject it.
+The semantic hazard is the fork boundary. A valid user-visible fork seed must be contiguous and end outside an active turn. Forking inside execution would copy an open `turn/start`, possibly an open `step/start`, and possibly dangling tool calls. That violates execution and provider-transcript invariants, and it creates a misleading child history that appears to have participated in an unfinished parent turn. Standalone context and plugin-owned log-only events are stable forkable history after a closed turn. The existing [subagent seam](2026-06-21-subagent-capability-seam.md) deliberately solves a different problem: tool-triggered subagent forks usually happen while the parent turn is open, so `dsh-subagent-fork` clips the seed to the parent's last completed-turn prefix. A general session fork should not silently clip; it should either fork the requested boundary or reject it.
 
 ## Decision
 
@@ -22,9 +24,9 @@ class SessionStore extends Service {
 }
 ```
 
-`boundary` is the inclusive source event `seq` to copy through. When omitted, it defaults to the source session's current last event; on an empty source, omitted `boundary` creates an empty child. Fork-specific validation only checks that the requested boundary exists and is a `turn/end`. The selected prefix is then deep-cloned into the child seed. The child inherits the source session's `cwd`, stamps `parentSession` to the source id, and sets `seedLength` to the copied prefix length. When `childSessionId` is omitted, `SessionStore` generates one using its existing id policy.
+`boundary` is the inclusive source event `seq` to copy through. When omitted, it defaults to the source session's current last event; on an empty source, omitted `boundary` creates an empty child. Fork-specific validation checks that the requested boundary exists and that the selected prefix's latest turn boundary is not an unmatched `turn/start`. The selected prefix may therefore end at `turn/end` or at a later standalone event, then is deep-cloned into the child seed. The child inherits the source session's `cwd`, stamps `parentSession` to the source id, and sets `seedLength` to the copied prefix length. When `childSessionId` is omitted, `SessionStore` generates one using its existing id policy.
 
-An empty prefix is forkable; any non-empty boundary must be a safe existing sequence at `turn/end`, regardless of reason. Typed errors distinguish missing sources, stale objects, duplicate child ids, and invalid boundaries. Broader log validation and crash repair remain with their existing owners.
+An empty prefix is forkable; any non-empty boundary must be a safe existing sequence outside an open turn. Typed errors distinguish missing sources, stale objects, duplicate child ids, invalid boundaries, and prefixes ending during execution. Broader log validation and crash repair remain with their existing owners.
 
 ## Alternatives considered
 
@@ -38,4 +40,4 @@ An empty prefix is forkable; any non-empty boundary must be a safe existing sequ
 
 The public surface stays small and discoverable: live session branching is part of `ctx.sessions`, next to `create({ seed })`, rather than a standalone service or a two-step helper pair. Persistence continues to work through existing `session/created` and `session/flush` behavior: a forked child starts life with seeded events, so existing backends persist that seed once and preserve `parentSession` / `seedLength` in the header.
 
-The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has transcript/snapshot coverage; this Agent Note adds no editor-facing updates, so no ACP snapshot is required now. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md), while this API gets focused `dsh-session` unit tests plus JSONL persistence coverage.
+The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has protocol and snapshot coverage; this Agent Note adds no ACP wire behavior, so no ACP snapshot is required. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md), while this API gets focused `dsh-session` unit tests plus JSONL persistence coverage.

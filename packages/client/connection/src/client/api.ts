@@ -8,14 +8,21 @@
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
-  GoalsApi, GoalView, GoalRef, GoalPhase, GoalBlockReason,
+  WorkspaceApi, WorkspaceId, WorkspaceView,
+  CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
+  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionModels,
+  GoalsApi, GoalRef,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-export { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+// transportError moved down to the apiproxy api layer (it belongs beside
+// RpcResult, its subject); re-exported here so connection consumers keep one
+// contract entry point.
+export { RpcId, transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 export { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -31,17 +38,4 @@ import type { RpcResponse, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
  */
 export function resultOf<T>(response: RpcResponse<T>): RpcResult<T> {
   return response.result
-}
-
-/**
- * Fold a transport exception into the RpcResult error branch (unified error
- * surface; 'internal' as the catch-all code).
- * @param error - the thrown value from the carrier.
- * @returns the error branch of an RpcResult.
- */
-export function transportError<T>(error: unknown): RpcResult<T> {
-  return {
-    ok: false,
-    error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
-  }
 }

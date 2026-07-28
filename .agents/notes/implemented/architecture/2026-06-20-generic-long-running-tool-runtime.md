@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-generic-long-running-tool-runtime.zh.md)
+
 ## Problem
 
 Background bash originally combined two responsibilities: the bash executor ran processes and also managed task ids, ownership, incremental reads, cancellation, completion listeners, and model-facing control tools. Adding background subagents required the same lifecycle and interaction contract. Implementing that contract independently for every long-running capability would duplicate isolation, cleanup, notification, and prompt behavior while teaching the model a different collect-and-stop protocol for each producer.
@@ -17,11 +19,15 @@ The `tasks/` package group owns background-task semantics:
 
 Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
 
-`TaskService` is a concrete, process-local service. TODO(task-service-backend): separate its public contract from the implementation when a second backend defines the required lifecycle; a systemd-backed runtime is one plausible driver, but this PR does not speculate about its durability, reconnect, ownership, or observation semantics.
+`TaskService` is the abstract seam in `@deepseek-ai/dsh-tasks`; the process-local registry is `LocalTaskService` in `@deepseek-ai/dsh-tasks-local` (the [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) records that split).
 
 ## Runtime contract
 
-The literal types live in the [task data-structure catalog](../../../../docs/core-data-structures/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
+The literal types live in the [task data-structure catalog](../../../../docs/core-data-structures/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, optional positive `outputLimitBytes`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
+
+`outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control surfaces apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing surface behavior, so the runtime does not impose a hidden default on unrelated producer families.
+
+A model-facing producer exposes that committed id in its canonical success value, normally `{ kind: 'background', taskId }`; Native rendering may keep human-readable prose. A pre-aborted background call fails rather than returning a no-op because no task exists to satisfy the promised handle. Once registration publishes the id, cancellation belongs to the task's own controller and the task runtime: later cancellation of the producing tool call must not kill the published task. `task_kill`, owner disposal, and service teardown request cancellation; foreground execution remains coupled to the call's `exec.signal`.
 
 The producer hooks define three responsibilities:
 
@@ -63,7 +69,7 @@ A producer loaded without any control surface would let callers start work they 
 
 ## Model-facing control surface
 
-`dsh-tool-tasks` registers three kind-independent tools with generic ACP cards:
+`dsh-tool-tasks` registers three kind-independent tools with generic UI cards:
 
 - `task_output(task_id, wait?, timeout_ms?)` reads output and always appends `[status: ...]`. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Reads are non-blocking unless `wait: true`, whose timeout is defaulted and capped by plugin config. A wait timeout reports the still-running status and does not stop the task.
 - `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`, or `(no background tasks)`.
@@ -73,11 +79,11 @@ Stream reads share one task-scoped consuming cursor because the owning model is 
 
 The system prompt tells the model to retain task ids, continue independent work instead of busy-polling or duplicating a running task, collect relevant tasks before its final answer, and kill work that no longer matters. Completion injects a logged `context/message` into the exact owner's session; it becomes durable context for the next request but does not wake an idle agent.
 
-The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown.
+The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown. When a snapshot carries `outputLimitBytes`, `dsh-tool-tasks` preserves UTF-8 boundaries and reuses an existing producer truncation marker rather than duplicating it. Reads reserve status suffixes and retain the output tail; completion notices reserve the stable `background task <id>` prefix and `task_output` instruction before truncating variable kind, label, status, detail, or the truncation marker itself, so the minimum PTY cap still identifies the task to collect. The task surface resolves the caller-visible producer cap in a prepended pre-execute listener before policy can deny or short-circuit dispatch, then applies it through the task definitions' last-mile `finalizeContent` callback so normalized tool errors, outer pipeline failures, and single-text policy results cannot escape the bound; deliberately structured multi-block policy results retain policy ownership of their shape and size.
 
 ## Producer opt-in
 
-Each producer owns whether its schema exposes `run_in_background` through defaulted config. `dsh-tool-bash` and each `dsh-tool-subagent` instance use `enableRunInBackground`, defaulting to true. A disabled instance omits the parameter and also rejects a forced background argument at execution because the generic argument validator permits undeclared keys. Schema omission advertises the capability; the execution check enforces it.
+Each producer owns whether its schema exposes `run_in_background` through defaulted config. `dsh-tool-bash`, `dsh-tool-pty`, and each `dsh-tool-subagent` instance use `enableRunInBackground`, defaulting to true. A disabled instance omits the parameter and also rejects a forced background argument at execution because the generic argument validator permits undeclared keys. Schema omission advertises the capability; the execution check enforces it.
 
 `ctx.tasks` does not rewrite producer schemas. A bundle forwards configuration only for producers it owns. If a background call reaches `start()` without an attached surface, the runtime fence fails before execution.
 
@@ -97,7 +103,7 @@ Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, 
 
 ### An immediate abstract task-runtime backend
 
-The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so extracting an interface before a second implementation exists would freeze the wrong boundary.
+The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so at introduction time the registry stayed one concrete service rather than freezing the wrong boundary. The [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) later separated the contract from the process-local implementation without changing these in-process semantics.
 
 ### Consumer-owned authorization or cleanup events
 
@@ -119,7 +125,7 @@ Authorization, not unguessability, is the access boundary, and ids do not derive
 
 ## Testing
 
-Unit coverage pins preflight atomicity, per-kind ids, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-surface fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
+Unit coverage pins preflight atomicity, per-kind ids, output-limit validation and projection, complete UTF-8 result bounds, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-surface fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
 
 ## Consequences
 

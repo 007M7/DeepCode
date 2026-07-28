@@ -9,6 +9,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { seatbeltProfileArgs } from '@deepseek-ai/dsh-sandbox-local/src/profiles.ts'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 
 /**
  * Keyless macOS integration of the real provider and executor through public run/start paths.
@@ -41,6 +42,7 @@ async function sandboxedBash(workspace: string, mode: 'read-only' | 'workspace-w
   await ctx.plugin(LocalSandboxProvider, {})
   ;(ctx.sandbox as LocalSandboxProvider).internals = { probeBwrap: () => false, probeLandlock: () => 'unusable' }
   await ctx.plugin(SandboxPolicyService, { mode, workspaceRoot: workspace })
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(SandboxBashExecutor, { cwd: workspace, timeoutMs: 30_000 })
   return ctx.bash as SandboxBashExecutor
 }
@@ -91,7 +93,7 @@ describe.skipIf(!seatbeltUsable)('bash-sandbox: real Seatbelt confinement throug
     expect(strict.exitCode).not.toBe(0)
     expect(strict.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
     expect(existsSync(join(workdir, 'escalated.txt'))).toBe(false)
-    const retried = await bash.run(bash.resolve({ command, sandboxMode: 'workspace-write' }))
+    const retried = await bash.run(bash.resolve({ command, sandboxPolicy: { mode: 'workspace-write', workspaceRoot: workdir } }))
     expect(retried.exitCode).toBe(0)
     expect(retried.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
     expect(readFileSync(join(workdir, 'escalated.txt'), 'utf8')).toBe('escalated')

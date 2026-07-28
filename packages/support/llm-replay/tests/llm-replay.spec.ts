@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -89,6 +89,19 @@ describe('parseSessionLog', () => {
     const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
     const ev = chunkEvent(1, 1, 1, TEXT_CHUNKS[0] as StreamChunk)
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
+  })
+
+  it('expands a packed chunk row into its events (a fixture recorded with packChunks on)', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const row = JSON.stringify({
+      type: 'text-chunks', seq0: 1, time0: 0,
+      data: { turn: 1, step: 1, index: 0, dt: [0, 0], texts: ['a', 'b', 'c'] },
+    })
+    expect(parseSessionLog(`${header}\n${row}\n`)).toEqual([
+      chunkEvent(1, 1, 1, { type: 'text-delta', index: 0, text: 'a' }),
+      chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'b' }),
+      chunkEvent(3, 1, 1, { type: 'text-delta', index: 0, text: 'c' }),
+    ])
   })
 })
 
@@ -190,11 +203,91 @@ describe('loadReplayScript', () => {
     expect(() => loadReplayScript({ file: join(dir, 'absent.jsonl') })).toThrow(/fixture not found/)
   })
 
-  it('throws when the override is not a JSON array', () => {
+  it('rejects an override document that is neither supported form', () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     writeFileSync(overrideFile, '{"not":"array"}', 'utf8')
-    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/not a JSON array/)
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/document must be a ReplayEntry\[\] or \{ patches/)
+  })
+
+  it('patches form: swaps the named call index and keeps derived siblings', () => {
+    const callB: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'two' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    let seq = 1
+    writeFileSync(file, sessionJsonl([
+      ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
+      ...callB.map(c => chunkEvent(seq++, 1, 2, c)),
+    ]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' } }],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: 'transient', code: 'SERVER' },
+      { kind: 'chunks', chunks: callB },
+    ])
+  })
+
+  it('patches form: at == derived length appends (the retry-attempt slot)', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [
+        { at: 0, entry: { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' } },
+        { at: 1, entry: { kind: 'chunks', chunks: TEXT_CHUNKS } },
+      ],
+    }), 'utf8')
+    expect(loadReplayScript({ file, overrideFile })).toEqual([
+      { kind: 'throw', chunks: [], message: '429', code: 'RATE_LIMIT' },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
+  })
+
+  it('patches form: an out-of-range index fails loud with the derived length', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({ patches: [{ at: 2, entry: { kind: 'hang' } }] }), 'utf8')
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/patch index 2 out of range.*1 call/s)
+  })
+
+  it('validates patch and entry shapes at the file boundary', () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const invalid: Array<{ doc: unknown; message: RegExp }> = [
+      { doc: null, message: /document must be/ },
+      { doc: { patches: [null] }, message: /patch 0 must contain exactly at and entry/ },
+      { doc: { patches: [{ at: -1, entry: { kind: 'hang' } }] }, message: /at must be a non-negative safe integer/ },
+      { doc: { patches: [{ at: 1.5, entry: { kind: 'hang' } }] }, message: /at must be a non-negative safe integer/ },
+      { doc: [42], message: /entry 0 must be an object/ },
+      { doc: [{ kind: 'chunks', chunks: 'nope' }], message: /chunks must be an array/ },
+      { doc: [{ kind: 'chunks', chunks: [], extra: true }], message: /invalid chunks-entry fields/ },
+      { doc: [{ kind: 'chunks', chunks: [{ type: 'bogus' }] }], message: /known StreamChunk type/ },
+      { doc: [{ kind: 'throw', chunks: [], message: 'nope', code: 'AUTH', extra: true }], message: /invalid throw-entry fields/ },
+      { doc: [{ kind: 'throw', chunks: [], message: '', code: 'AUTH' }], message: /message must be a non-empty string/ },
+      { doc: [{ kind: 'throw', chunks: [], message: 'nope', code: '' }], message: /code must be a non-empty string/ },
+      { doc: [{ kind: 'hang', extra: true }], message: /invalid hang-entry fields/ },
+      { doc: [{ kind: 'hang', readyFile: 1 }], message: /readyFile must be a non-empty string/ },
+      { doc: [{ kind: 'bogus' }], message: /unknown kind/ },
+    ]
+    for (const { doc, message } of invalid) {
+      writeFileSync(overrideFile, JSON.stringify(doc), 'utf8')
+      expect(() => loadReplayScript({ file, overrideFile })).toThrow(message)
+    }
+  })
+
+  it('rejects duplicate patch indexes instead of silently taking the last one', () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify({
+      patches: [
+        { at: 0, entry: { kind: 'hang' } },
+        { at: 0, entry: { kind: 'throw', chunks: [], message: 'busy', code: 'SERVER' } },
+      ],
+    }), 'utf8')
+    expect(() => loadReplayScript({ file, overrideFile })).toThrow(/duplicate override patch index 0/)
   })
 })
 
@@ -221,12 +314,17 @@ describe('installLlmReplay (through the real LlmService)', () => {
     writeLog(TEXT_CHUNKS)
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    const dispose = installLlmReplay(ctx, {
+    const { dispose } = installLlmReplay(ctx, {
       file,
       providers: [
         {
           id: 'deepseek',
           name: 'DeepSeek',
+          retryPolicy: {
+            mode: 'normal',
+            maxRetries: 2,
+            backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+          },
           models: [
             { id: 'flash', contextWindow: 128_000 },
             { id: 'pro', name: 'Pro', description: 'Larger model' },
@@ -245,14 +343,43 @@ describe('installLlmReplay (through the real LlmService)', () => {
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
-    await expect(ctx.llm.resolveModelContext('deepseek', 'flash')).resolves.toEqual({ contextWindow: 128_000 })
-    await expect(ctx.llm.resolveModelContext('deepseek', 'pro')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted')).resolves.toBeUndefined()
-    await expect(ctx.llm.resolveModelContext('empty', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
+      context: { contextWindow: 128_000 },
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted')).resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('empty', 'unlisted')).resolves.not.toHaveProperty('context')
+    expect(ctx.llm.providerRetryPolicy('deepseek')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      jitterRatio: 0,
+    })
+    expect(ctx.llm.providerRetryPolicy('empty')).toMatchObject({
+      mode: 'normal',
+      maxRetries: 2,
+      initialDelayMs: 500,
+      maxDelayMs: 10_000,
+      jitterRatio: 0.1,
+    })
     expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
 
     dispose()
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('rejects an invalid replay-provider retry policy during registration', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    expect(() => {
+      installLlmReplay(ctx, {
+        file,
+        providers: [{ id: 'deepseek', retryPolicy: { mode: 'normal', maxRetries: -1 } }],
+      })
+    }).toThrow(/llm-replay: provider "deepseek" retryPolicy\.maxRetries/)
   })
 
   it('serves the Nth call the Nth derived entry (positional)', async () => {
@@ -351,22 +478,21 @@ describe('installLlmReplay (through the real LlmService)', () => {
       .toEqual([{ type: 'finish', reason: { kind: 'stop' } }])
   })
 
-  it('throws on a malformed sidecar entry kind (the assertNever guard)', async () => {
+  it('rejects a malformed sidecar entry kind before installing replay', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     // A kind the union does not know — hand-edited/drifted sidecar data.
     writeFileSync(overrideFile, JSON.stringify([{ kind: 'bogus' }]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    installLlmReplay(ctx, { file, overrideFile })
-    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] })))
-      .rejects.toThrow(/llm-replay replay entry/)
+    expect(() => installLlmReplay(ctx, { file, overrideFile })).toThrow(/unknown kind/)
   })
 
   it('rejects a hang entry when the signal fires DURING the wait (abort listener path)', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
-    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang' }]), 'utf8')
+    const readyFile = join(dir, 'stream-ready')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang', readyFile }]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file, overrideFile })
@@ -379,6 +505,7 @@ describe('installLlmReplay (through the real LlmService)', () => {
     expect((await iterator.next()).value).toMatchObject({ type: 'text-delta' })
     const pending = iterator.next()
     await new Promise(r => setImmediate(r))
+    expect(existsSync(readyFile)).toBe(true)
     controller.abort()
     await expect(pending).rejects.toThrow('aborted')
   })
@@ -415,6 +542,92 @@ describe('installLlmReplay (through the real LlmService)', () => {
     await iterator.next()
     await iterator.next()
     await expect(iterator.next()).rejects.toThrow('aborted')
+  })
+
+  it('rejects a paceMs that is not a non-negative integer', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    expect(() => installLlmReplay(ctx, { file, paceMs: -1 })).toThrow(/paceMs/)
+    expect(() => installLlmReplay(ctx, { file, paceMs: 1.5 })).toThrow(/paceMs/)
+  })
+
+  it('paces chunk yields when paceMs is set (each chunk waits at least the pace)', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, paceMs: 10 })
+    const started = performance.now()
+    const chunks = await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    expect(chunks).toEqual(TEXT_CHUNKS)
+    // N chunks × 10ms; allow generous scheduling slack, assert the floor only.
+    expect(performance.now() - started).toBeGreaterThanOrEqual(TEXT_CHUNKS.length * 10 - 5)
+  })
+
+  it('aborting DURING a pace wait cancels the stream promptly', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, paceMs: 60_000 })
+    const controller = new AbortController()
+    const pending = drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal }))
+    // Let the generator park inside the pace timer, then abort — the reject
+    // must come from the abort listener, not the (distant) timer.
+    await new Promise(r => setImmediate(r))
+    controller.abort()
+    await expect(pending).rejects.toThrow('aborted')
+  })
+
+  it('assertConsumed passes only after every recorded call replayed', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file })
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    // One of two recorded calls consumed — the underrun must name the gap.
+    expect(() => { handle.assertConsumed() }).toThrow(/consumed 1\/2 recorded call/)
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    expect(() => { handle.assertConsumed() }).not.toThrow()
+  })
+
+  it('paces a throw-entry prefix too (the recorded partial streams at the same cadence)', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: partial, message: 'boom', code: 'STREAM_CLOSED' },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile, paceMs: 10 })
+    const started = performance.now()
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).rejects.toThrow('boom')
+    expect(performance.now() - started).toBeGreaterThanOrEqual(5)
+  })
+
+  it('assertConsumed names an underrunning identified session by its id', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file })
+    const sessionId = 'live-underrun' as NonNullable<GenerateOptions['sessionId']>
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId }))
+    expect(() => { handle.assertConsumed() }).toThrow(/session live-underrun consumed 1\/2/)
+  })
+
+  it('assertConsumed reports recorded scripts no live session ever bound', async () => {
+    writeLog(TEXT_CHUNKS)
+    const childFile = join(dir, 'session.1.jsonl')
+    writeFileSync(childFile, sessionJsonl(
+      TEXT_CHUNKS.map((chunk, i) => chunkEvent(i + 1, 1, 1, chunk)),
+      { id: 'child', createdAt: 10 },
+    ), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const handle = installLlmReplay(ctx, { file, childFiles: [childFile] })
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], sessionId: 'live-parent' as NonNullable<GenerateOptions['sessionId']> }))
+    // The child script never bound: the scenario drove fewer sessions than recorded.
+    expect(() => { handle.assertConsumed() }).toThrow(/1 recorded script\(s\) never bound/)
   })
 })
 
@@ -616,7 +829,7 @@ describe('apply (the plugin entry)', () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }] })
+    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }], paceMs: 1 })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })

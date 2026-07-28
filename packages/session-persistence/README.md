@@ -1,10 +1,13 @@
 # session-persistence/ — persistence capability family
 
+English | [中文](README.zh.md)
+
 The durable session-persistence seam and its storage backends. The interface package owns the abstract `SessionPersistence` service and the shared write coordinator; the backends are concrete implementations that register on `ctx.sessionPersistence`. All **product** packages.
 
 | Package | Role | ctx key |
 |---|---|---|
 | `session-persistence/` | Persistence seam + shared write coordinator | `ctx.sessionPersistence` |
+| `session-checkpoint-policy/` | Semantic durability barriers for agent requests and tool execution | (wraps `ctx.llm` / `ctx.tools`, listens on agent events) |
 | `session-persistence-jsonl/` | JSONL-sidecar persistence backend | (registers `ctx.sessionPersistence`) |
 | `session-persistence-sqlite/` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
 

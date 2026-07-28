@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage,
+  CallId,
+  LlmAdapter,
+  resolveRetryPolicy,
+  type GenerateOptions,
+  type ResolvedRetryPolicy,
+  type StreamChunk,
+  type TokenUsage,
+} from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as cliDemo from '../src/index.ts'
@@ -20,9 +28,17 @@ type ScriptEntry = readonly StreamChunk[] | 'hang'
 class ScriptedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   private cursor = 0
+  private readonly retryPolicy = resolveRetryPolicy({
+    mode: 'normal',
+    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+  }, 'cli test provider retryPolicy')
 
   constructor(private readonly script: readonly ScriptEntry[]) {
     super()
+  }
+
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return this.retryPolicy
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -107,7 +123,6 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     persistenceRoot: root,
     skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
     workspaceContext: false,
-    llmRetry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
   })
   await new Promise(resolve => setTimeout(resolve, 80))
   ctx.llm.registerAdapter(['mock'], new ScriptedAdapter(script))
@@ -115,7 +130,11 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     name: 'echo',
     description: 'Echo text.',
     parameters: { text: { type: 'string', required: true } },
-    execute: async args => [{ type: 'text', text: `ECHO: ${(args as { text: string }).text}` }],
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value as string }],
+    },
+    execute: async args => `ECHO: ${(args as { text: string }).text}`,
   })
   const [agent] = ctx.agents.roots()
   if (agent === undefined) throw new Error('test main agent missing')
@@ -315,7 +334,7 @@ describe('runOneShot and executeCli', () => {
     const { ctx, agent, persistenceRoot } = await harness([textResponse('final answer')])
     const output = await invoke(ctx, ['task'])
     expect(output).toEqual({ code: 0, stdout: 'final answer\n', stderr: '' })
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
     const files = await readdir(persistenceRoot, { recursive: true })
     expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
@@ -365,21 +384,23 @@ describe('runOneShot and executeCli', () => {
     const { ctx, agent } = await harness([textResponse('streamed')])
     const other = ctx.sessions.create(SessionId('unrelated'))
     let injected = false
-    ctx.on('agent/queued', (subject) => {
+    ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || injected) return
       injected = true
-      agent.inject([{ type: 'text', text: 'startup injection' }], { source: { kind: 'plugin', plugin: 'test' } })
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } }))
       other.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
     const lines = output.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     const events = lines.slice(0, -1).map(line => line['event'] as SessionEvent)
-    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 2, result: 'streamed' })
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } })
-    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 2 } })
+    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 1, result: 'streamed' })
+    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } })
+    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 1 } })
     expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
-    expect(events.some(event => event.type === 'context/message')).toBe(false)
+    expect(events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'test')).toBe(false)
   })
 
   it('emits partial data and a diagnostic for non-completed turns', async () => {
@@ -405,7 +426,7 @@ describe('runOneShot and executeCli', () => {
     expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
     expect(output.code).toBe(1)
     expect(output.stderr).toContain('turn 1 was aborted')
-    expect(agent.status).toBe('disposed')
+    expect(agent.status).toBe('idle')
   })
 
   it('contains stream-writer failures, cancels, flushes, and returns the output error', async () => {
@@ -440,7 +461,7 @@ describe('runOneShot and executeCli', () => {
     expect(output.code).toBe(1)
     expect(output.stdout).toBe('')
     expect(output.stderr).toContain('stdout closed')
-    expect(final.agent.status).toBe('disposed')
+    expect(final.agent.status).toBe('idle')
 
     const disposal = await harness([textResponse('answer')])
     const disposalOutput = await invoke(disposal.ctx, ['task'], { failDispose: true })
@@ -467,7 +488,7 @@ describe('runOneShot and executeCli', () => {
     startup.ctx.on('session/event', (session, event) => {
       if (session === startup.agent.session && event.type === 'assistant/chunk') started()
     })
-    startup.agent.send([{ type: 'text', text: 'first' }])
+    startup.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
     await running
     const startupAbort = new AbortController()
     const waiting = runOneShot(startup.ctx, { task: 'second', signal: startupAbort.signal })
@@ -477,7 +498,7 @@ describe('runOneShot and executeCli', () => {
 
     const queued = await harness([textResponse('unused')])
     const queuedAbort = new AbortController()
-    queued.ctx.on('agent/queued', (agent) => {
+    queued.ctx.on('agent/inbox/enqueue', (agent) => {
       if (agent === queued.agent) queuedAbort.abort('cancel queued')
     })
     await expect(runOneShot(queued.ctx, { task: 'task', signal: queuedAbort.signal })).rejects.toThrow('cancel queued')
@@ -495,7 +516,6 @@ describe('formatTurnFailure', () => {
       [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],
       [{ kind: 'max-tokens' }, 'output-token limit'],
-      [{ kind: 'rejected', reason: 'policy' }, 'was rejected: policy'],
       [{ kind: 'interrupted' }, 'persistence recovery'],
     ]
     for (const [reason, expected] of cases) expect(formatTurnFailure(reason)).toContain(expected)

@@ -1,14 +1,9 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": []
+    "types": ["node"]
   },
   "include": [
     "src"
@@ -21,10 +16,16 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
       "path": "../../util/brand"
     },
     {
       "path": "../../host/apiproxy"
+    },
+    {
+      "path": "../../host/webserver"
     },
     {
       "path": "../../ui/user-approval"

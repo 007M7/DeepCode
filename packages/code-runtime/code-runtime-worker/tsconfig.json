@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../core/session"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {
@@ -22,6 +25,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/timeout"
     }
   ]
 }

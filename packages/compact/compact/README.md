@@ -1,12 +1,14 @@
 # @deepseek-ai/dsh-compact
 
+English | [中文](README.zh.md)
+
 The **compaction seam**: an abstract `CompactService` (`ctx.compact`) defining WHAT compaction does — decide when history is too large and summarize an older range into a single surface node — without saying HOW.
 
 This package is the interface tier of the compaction capability, split so each concern evolves (and swaps) independently:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + canonical checkpoint source + tool-pairing boundary helpers |
 | `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
@@ -19,7 +21,7 @@ Both methods are **abstract** — the backend owns trigger policy, retention, ev
 | Member | Semantics |
 |---|---|
 | `compactIfNeeded(agent, trigger, signal)` | Consider automatic compaction for `trigger: 'pressure' \| 'context-overflow'`. A pressure trigger may apply the backend's threshold and retained-tail policy; a confirmed overflow may force a useful balanced reduction. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
-| `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
+| `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node whose source is `COMPACT_CHECKPOINT_SOURCE`. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
 `CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
 
@@ -33,12 +35,12 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 ## Surface contract
 
-`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
+`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
 3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
-4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
+4. appends a single `user/message` with `source: COMPACT_CHECKPOINT_SOURCE` and `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
 5. appends `compact/end` (log-only) — releases the lock.
 
 The surface mutation (step 4) sits **inside** the lock bracket: `compact/end` is the last event, so the lock is never released before the mutation lands. A crash between `compact/start` and `compact/end` therefore leaves a detectable orphaned lock (a `compact/start` with no matching `compact/end`) rather than a `compact/end` that falsely claims compaction finished while the surface was never shadowed.
@@ -55,7 +57,7 @@ The `compact/*` events extend `SessionEventMap` (merge-extensible) via declarati
 
 ## Implementing a backend
 
-Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
+Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compact`. Every successful backend uses `COMPACT_CHECKPOINT_SOURCE` on its replacement user message; `isCompactCheckpointSource()` recognizes the marker after persistence or cloning without depending on backend identity. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
 
 ## Model Experience
 
