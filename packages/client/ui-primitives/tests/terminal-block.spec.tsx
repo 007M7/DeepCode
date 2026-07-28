@@ -174,7 +174,7 @@ describe('TerminalBlock status pill', () => {
 })
 
 describe('TerminalBlock run-state dot', () => {
-  it('shows the spinning ring and its running label while the command runs', () => {
+  it('shows the running chase and its running label while the command runs', () => {
     const view = render(<TerminalBlock command="sleep 5" running />)
     expect(runStateOf(view.container)).toEqual({ state: 'ongoing', label: '运行中' })
   })

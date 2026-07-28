@@ -10,7 +10,7 @@
 
 ## 终端输出
 
-`TerminalBlock` 将一条 shell 命令渲染为终端表层：提示行（缩短后的 `cwd` 标签之前是一枚运行状态 `StateDot`，其后是命令）、命令输出、非零退出码或终止信号对应的状态胶囊，以及写入原始 `output` prop 的复制控件。该状态点用到 `StateDot` 的三种状态——`running` 期间为旋转圆环，与渲染状态胶囊相同的退出状态为红色，其余为绿色——因此卡片直接陈述其命令是否仍在运行，而不是让人从有无输出中推断；由于 `StateDot` 是 `aria-hidden`，它同时携带一处视觉隐藏的文本标签。ANSI 转义序列通过运行时依赖 `anser` 解析为 React span；基础 16 色前景色映射到 `--dsw-*` token，而 256 色板与真彩色值按字面 rgb 透传。输出保持 `white-space: pre` 并支持横向滚动，因此按列对齐的输出保留其对齐而不会软换行；超过 `maxLines`（默认 16，与 TUI 转录相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。原理：[Web 终端卡片笔记](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)。
+`TerminalBlock` 将一条 shell 命令渲染为终端表层：提示行（缩短后的 `cwd` 标签之前是一枚运行状态 `StateDot`，其后是命令）、命令输出、非零退出码或终止信号对应的状态胶囊，以及写入原始 `output` prop 的复制控件。该状态点用到 `StateDot` 的三种状态——`running` 期间为追逐动画，与渲染状态胶囊相同的退出状态为红色，其余为绿色——因此卡片直接陈述其命令是否仍在运行，而不是让人从有无输出中推断；由于 `StateDot` 是 `aria-hidden`，它同时携带一处视觉隐藏的文本标签。ANSI 转义序列通过运行时依赖 `anser` 解析为 React span；基础 16 色前景色映射到 `--dsw-*` token，而 256 色板与真彩色值按字面 rgb 透传。输出保持 `white-space: pre` 并支持横向滚动，因此按列对齐的输出保留其对齐而不会软换行；超过 `maxLines`（默认 16，与 TUI 转录相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。原理：[Web 终端卡片笔记](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)。
 
 ## 模型体验
 
