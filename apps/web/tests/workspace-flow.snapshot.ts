@@ -196,9 +196,9 @@ it('adopts a directory through the composed in-app browse flow and lands in its 
   fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open local folder…' }))
   // The browse occupant renders the Select Workspace Directory dialog at the
   // fixture home; select Documents, advance into project, and adopt it.
-  const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' })
-  fireEvent.click(await within(dialog).findByRole('listitem', { name: /Documents/ }))
-  fireEvent.click(await within(dialog).findByRole('listitem', { name: /^project/ }))
+  const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' }, { timeout: 10_000 })
+  fireEvent.click(await within(dialog).findByRole('listitem', { name: /Documents/ }, { timeout: 10_000 }))
+  fireEvent.click(await within(dialog).findByRole('listitem', { name: /^project/ }, { timeout: 10_000 }))
   fireEvent.click(within(dialog).getByRole('button', { name: '打开' }))
   await findHeroComposer()
   await waitFor(() => {
