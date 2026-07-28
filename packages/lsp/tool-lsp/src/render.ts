@@ -6,8 +6,6 @@
  * @module @deepseek-ai/dsh-tool-lsp/render
  */
 
-import { fileURLToPath } from 'node:url'
-import { isAbsolute, relative, sep } from 'node:path'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { LspHover, LspLocation, LspOperation, LspPosition } from '@deepseek-ai/dsh-lsp'
 
@@ -74,17 +72,17 @@ function oneBased(value: number, name: string): number {
 /**
  * Render a locations result grouped by file, converting each zero-based location back to a one-based
  * `path:line:character` entry. A `file:` URI inside the workspace becomes a workspace-relative path;
- * outside it, an absolute path; a non-`file:` URI is kept verbatim. Applies `maxLocations` and
+ * outside it, a URI-derived absolute path; a non-`file:` URI is kept verbatim. Applies `maxLocations` and
  * appends an omission marker when it truncates by count, then applies the complete result cap.
  * @param locations - the seam's locations (possibly empty).
- * @param workspaceRoot - the canonical workspace root for relativizing `file:` paths.
+ * @param workspaceUri - the provider's canonical workspace `file:` URI.
  * @param maxLocations - the cap before truncation.
  * @param maxResultChars - the complete rendered-text cap, including truncation metadata.
  * @returns the rendered text; a distinct no-result line when there are none.
  */
 export function formatLocations(
   locations: readonly LspLocation[],
-  workspaceRoot: string,
+  workspaceUri: string,
   maxLocations: number,
   maxResultChars: number,
 ): string {
@@ -93,7 +91,7 @@ export function formatLocations(
   const omitted = locations.length - shown.length
   const grouped = new Map<string, string[]>()
   for (const location of shown) {
-    const path = renderUri(location.uri, workspaceRoot)
+    const path = renderUri(location.uri, workspaceUri)
     const line = location.range.start.line + 1
     const character = location.range.start.character + 1
     const entries = grouped.get(path) ?? []
@@ -128,27 +126,63 @@ function boundResult(text: string, maxChars: number, label: string): string {
 }
 
 /**
- * Resolve a location URI to a display path. A `file:` URI accepted by Node becomes workspace-relative
- * (inside) or absolute (outside); any other URI is returned verbatim.
+ * Resolve a location URI without applying the harness host's path rules. A valid `file:` URI becomes
+ * workspace-relative when it is under the provider's canonical workspace URI, or a URI-derived
+ * absolute path otherwise; malformed and non-`file:` URIs remain verbatim.
  * @param uri - the target URI from the seam.
- * @param workspaceRoot - the canonical workspace root.
+ * @param workspaceUri - the provider's canonical workspace `file:` URI.
  * @returns the display path or the verbatim URI.
  */
-export function renderUri(uri: string, workspaceRoot: string): string {
+export function renderUri(uri: string, workspaceUri: string): string {
   if (!uri.startsWith('file:')) return uri
-  let absolute: string
+  let target: URL
+  let workspace: URL
   try {
-    absolute = fileURLToPath(uri)
+    target = new URL(uri)
+    workspace = new URL(workspaceUri)
   } catch {
-    // A malformed file: URI is not a path we can resolve; show it verbatim.
     return uri
   }
-  const rel = relative(workspaceRoot, absolute)
-  if (rel === '') return '.'
-  // A leading `..` SEGMENT (or an absolute rel) means outside the workspace; guard against a false
-  // positive on an in-workspace path whose first component merely starts with dots (e.g. `..gen/x`).
-  const outside = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
-  return outside ? absolute : rel.split(sep).join('/')
+  if (workspace.protocol !== 'file:') return uri
+  const targetSegments = decodeFileSegments(target)
+  const workspaceSegments = decodeFileSegments(workspace)
+  if (targetSegments === undefined || workspaceSegments === undefined) return uri
+  const sameAuthority = target.hostname === workspace.hostname
+  const windowsWorld = /^[A-Za-z]:$/.test(workspaceSegments[0] ?? '')
+  const inside = sameAuthority
+    && targetSegments.length >= workspaceSegments.length
+    && workspaceSegments.every((segment, index) => samePathSegment(segment, targetSegments[index] as string, windowsWorld))
+  if (inside) {
+    const relative = targetSegments.slice(workspaceSegments.length)
+    return relative.length === 0 ? '.' : relative.join('/')
+  }
+  return absoluteUriPath(target, targetSegments, workspaceSegments)
+}
+
+/** Decode URI path segments while rejecting encoded separators that would change path structure. */
+function decodeFileSegments(url: URL): string[] | undefined {
+  try {
+    const decoded = url.pathname.split('/').map(segment => decodeURIComponent(segment))
+    if (decoded.some(segment => /[/\\\0]/u.test(segment))) return undefined
+    while (decoded.at(-1) === '') decoded.pop()
+    decoded.shift()
+    return decoded
+  } catch {
+    return undefined
+  }
+}
+
+/** Windows execution-world path segments are case-insensitive even on a non-Windows harness host. */
+function samePathSegment(left: string, right: string, windowsWorld: boolean): boolean {
+  return windowsWorld ? left.toUpperCase() === right.toUpperCase() : left === right
+}
+
+/** Render an external file URL according to the execution-world style implied by its workspace URI. */
+function absoluteUriPath(target: URL, segments: readonly string[], workspaceSegments: readonly string[]): string {
+  if (target.hostname.length > 0) return `//${target.hostname}/${segments.join('/')}`
+  const windowsWorld = /^[A-Za-z]:$/.test(workspaceSegments[0] ?? '')
+  if (windowsWorld && /^[A-Za-z]:$/.test(segments[0] ?? '')) return segments.join('/')
+  return `/${segments.join('/')}`
 }
 
 /**

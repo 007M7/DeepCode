@@ -244,10 +244,9 @@ export class LspInstance {
     if (operation === 'hover') {
       return { kind: 'hover', hover: normalizeHover(payload) }
     }
-    // `spec.cwd` is the canonical workspace realpath (the provider canonicalizes before spawning),
-    // and every `file:` location URI is relative to it — so it is the root a caller must relativize
-    // display paths against, not the request's possibly-symlinked workspaceRoot.
-    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceRoot: this.spec.cwd }
+    // The filesystem provider owns URI syntax for the execution platform, which may differ from the
+    // harness host. Preserve that coordinate through rendering instead of reparsing `spec.cwd` there.
+    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
   }
 
   private answerServerRequest(method: string, params: unknown): Promise<unknown> {

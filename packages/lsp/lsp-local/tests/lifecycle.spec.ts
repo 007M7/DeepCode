@@ -102,7 +102,7 @@ describe('lsp-local end to end over a fake server', () => {
     expect(result).toEqual<LspQueryResult>({
       kind: 'locations',
       locations: [{ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } }],
-      resolvedWorkspaceRoot: ws,
+      resolvedWorkspaceUri: pathToFileURL(ws).href,
     })
     await ctx.fiber.dispose()
   })
@@ -133,7 +133,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('returns an empty locations result for a null definition', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
     await ctx.fiber.dispose()
   })
 
@@ -173,7 +173,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('accepts openClose options sync', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: JSON.stringify({ openClose: true, change: 2 }), LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
     await ctx.fiber.dispose()
   })
 
@@ -297,7 +297,7 @@ describe('lsp-local end to end over a fake server', () => {
     controller.abort(new Error('mid-read cancel'))
     await expect(pending).rejects.toThrow(/mid-read cancel/)
     // A subsequent live query still works, proving no half-created instance poisoned the pool.
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
     await ctx.fiber.dispose()
   })
 

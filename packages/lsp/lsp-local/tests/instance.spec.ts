@@ -117,17 +117,17 @@ describe('LspInstance server-request handling', () => {
 
   it('accepts a lifecycle client/registerCapability request', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'lifecycle', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 
   it('rejects a workspace/applyEdit request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'applyEdit', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 
   it('rejects an unknown server request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'unknown', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 })
 
@@ -263,7 +263,7 @@ describe('LspInstance query and abort', () => {
     await expect(run(instance, 'goToDefinition')).resolves.toEqual({
       kind: 'locations',
       locations: [],
-      resolvedWorkspaceRoot: ws,
+      resolvedWorkspaceUri: pathToFileURL(ws).href,
     })
     expect(instance.dead).toBe(true)
   })
