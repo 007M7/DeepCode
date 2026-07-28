@@ -300,6 +300,20 @@ describe('WorkspacePicker', () => {
     expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
   })
 
+  it('clears the advertised kind on close so a reopen cannot paint the previous host entry', async () => {
+    const directoryPickerKind = vi.fn<() => Promise<string>>()
+      .mockImplementationOnce(async () => 'dialog')
+      // The reopened read never settles: the assertion below sees the paint
+      // that precedes any fresh answer.
+      .mockImplementation(() => new Promise<string>(() => {}))
+    const t = togglable(directoryPickerKind)
+    await screen.findByRole('menuitem', { name: 'Open local folder…' })
+    t.setOpen(false)
+    t.setOpen(true)
+    await screen.findByRole('menuitem', { name: 'Create a new workspace' })
+    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+  })
+
   it('discards a stale describe failure after a newer open already answered', async () => {
     let rejectFirst!: (reason: Error) => void
     const first = new Promise<string>((_settle, reject) => { rejectFirst = reject })

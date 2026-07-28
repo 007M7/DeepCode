@@ -11,7 +11,7 @@
 
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
 import {
   DirectoryPicker, DirectoryPickerError,
 } from '@deepseek-ai/dsh-host-directory-picker'
@@ -33,6 +33,22 @@ function ancestryCrumbs(target: string): DirectoryEntry[] {
     if (parent === current) return crumbs
     current = parent
   }
+}
+
+/**
+ * True when the path names one fixed filesystem location regardless of
+ * process state: POSIX-absolute on POSIX; on Windows only drive-qualified
+ * (`C:\…`) or UNC (`\\server\…`) forms — rooted drive-less forms (`\foo`,
+ * `/foo`) pass `isAbsolute` yet still resolve against the process's current
+ * drive.
+ * @param path - candidate path.
+ * @param platform - replaces `process.platform` for deterministic tests.
+ * @returns whether the path is fully qualified on the platform.
+ */
+export function fullyQualified(path: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32'
+    ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(path)
+    : posix.isAbsolute(path)
 }
 
 /** Message text of an unknown thrown value. */
@@ -81,10 +97,11 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
 
   private async list(path?: string): Promise<DirectoryListing> {
     const home = homedir()
-    // The seam contract takes absolute paths only; resolve() would silently
-    // rebase a relative or empty wire value under the host process cwd.
-    if (path !== undefined && !isAbsolute(path)) {
-      throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not an absolute path`)
+    // The seam contract takes fully qualified paths only; resolve() would
+    // silently rebase a relative or empty wire value under the host process
+    // cwd (or, for rooted drive-less Windows forms, its current drive).
+    if (path !== undefined && !fullyQualified(path)) {
+      throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not a fully qualified path`)
     }
     const target = resolve(path ?? home)
     let names: { name: string; isDirectory: boolean; isSymbolicLink: boolean }[]
@@ -105,9 +122,10 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
   }
 
   private async createDirectory(path: string, name: string): Promise<string> {
-    // Same absolute-path fence as list: never rebase a parent under the cwd.
-    if (!isAbsolute(path)) {
-      throw new DirectoryPickerError('directory-create-failed', path, `cannot create under "${path}": not an absolute parent path`)
+    // Same fully-qualified fence as list: never rebase a parent under the
+    // cwd or the current drive.
+    if (!fullyQualified(path)) {
+      throw new DirectoryPickerError('directory-create-failed', path, `cannot create under "${path}": not a fully qualified parent path`)
     }
     const parent = resolve(path)
     // The backend owns segment validation (the wire schema also refuses these,

@@ -60,8 +60,9 @@ export interface DirectoryPickerBrowseCapability {
    * List one directory level.
    * @param path - absolute directory to list; absent lists the home directory.
    * @returns the level's listing with ancestry.
-   * @throws {DirectoryPickerError} `directory-unreadable` when the target is not absolute
-   * (a wire value must never rebase under the host cwd) or cannot be listed.
+   * @throws {DirectoryPickerError} `directory-unreadable` when the target is not fully
+   * qualified (a wire value must never resolve against the host cwd or, on
+   * Windows, its current drive) or cannot be listed.
    */
   list(path?: string): Promise<DirectoryListing>
   /**
@@ -70,7 +71,7 @@ export interface DirectoryPickerBrowseCapability {
    * @param name - single non-blank path segment (no separators, not `.`/`..`).
    * @returns the created directory's absolute path.
    * @throws {DirectoryPickerError} `directory-exists` for an existing child,
-   * `directory-create-failed` for a non-absolute parent or any other failure.
+   * `directory-create-failed` for a parent that is not fully qualified or any other failure.
    */
   createDirectory(path: string, name: string): Promise<string>
 }

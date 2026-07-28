@@ -79,11 +79,17 @@ export function WorkspaceCreateFlow({
   // flow open — no cache to go stale across reconnects.
   const [dialogPicker, setDialogPicker] = useState(false)
   useEffect(() => {
-    if (!open) return
-    // Reset before each read: a reconnect can change the composed backend, so
-    // a previous open's answer must not leak into this one; and a settlement
-    // from a superseded open (flow closed, or a newer read started) is
-    // discarded via the cleanup-toggled flag.
+    if (!open) {
+      // Close discards the answer: a reconnect or HMR can swap the composed
+      // backend while the menu is closed, and the reopened menu must never
+      // paint the previous host's entry before the fresh read lands.
+      setDialogPicker(false)
+      return
+    }
+    // Reset before each read: the injected reader can also change identity
+    // while the flow stays open, and that prior answer must not leak either;
+    // a settlement from a superseded read is discarded via the
+    // cleanup-toggled flag.
     setDialogPicker(false)
     let stale = false
     void directoryPickerKind()
