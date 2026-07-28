@@ -866,9 +866,12 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active. An idle agent commits the
- * change immediately (no boundary would arrive until the next prompt); a
- * running agent holds it as pending intent for the next in-turn request
+ * Select whether plan mode should be active. Between turns the change
+ * commits immediately — no request boundary would arrive until the next
+ * prompt, so a queued intent would hang (the open-turn fold is the idle
+ * signal: agent status stays `running` through post-turn checkpointing,
+ * where a boundary equally never comes). During an open turn the
+ * selection is held as pending intent for the next in-turn request
  * boundary. Repeated selection of the current or already-pending state is
  * a no-op.
  *
@@ -883,7 +886,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:169`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
