@@ -1,3 +1,4 @@
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ResponseValue } from '../src/api/rpc-map.ts'
@@ -37,10 +38,10 @@ function fakeApi(overrides: Partial<{
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
-        if (request.payload.sessionId === ('with-todos' as never)) {
+        if (request.payload.sessionId === ('with-projections' as never)) {
           return {
             rpcId: request.rpcId,
-            result: { ok: true, value: { events: [], hasMore: false, todos: [{ content: 'current', status: 'in_progress' as const }] } },
+            result: { ok: true, value: { events: [], hasMore: false, projections: { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' as const }] } } } },
           }
         }
         return {
@@ -104,6 +105,9 @@ function fakeApi(overrides: Partial<{
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
       },
+      async openPath(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+      },
     },
     workspace: {
       async list(request) {
@@ -145,7 +149,7 @@ function fakeApi(overrides: Partial<{
           return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
         }
         if (request.payload.line.startsWith('/plan')) {
-          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, result: { kind: 'success' as const, text: 'plan set' } } } }
+          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, commandId: CommandId('cmd-x') } } }
         }
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
@@ -182,10 +186,14 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
   })
 
-  it('carries the tail-page todos projection through the wire schema (Zod must not strip it)', async () => {
-    const response = await client().sessions.history({ sessionId: 'with-todos' as never })
+  it('carries the tail-page projections block through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-projections' as never })
     expect(response.result.ok).toBe(true)
-    if (response.result.ok) expect(response.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
+    if (response.result.ok) {
+      expect(response.result.value.projections).toEqual(
+        { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' }] } },
+      )
+    }
   })
 
   it('carries a business error as 200 + error result', async () => {
@@ -264,12 +272,24 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
   })
 
+  it('round-trips host.openPath through the wire form', async () => {
+    const api = fakeApi()
+    let opened: string | undefined
+    api.host.openPath = async (request) => {
+      opened = request.payload.path
+      return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+    }
+    const response = await client(api).host.openPath({ path: '/tmp/a.txt' })
+    expect(opened).toBe('/tmp/a.txt')
+    expect(response.result).toEqual({ ok: true, value: { opened: true } })
+  })
+
   it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
     const c = client()
     const list = await c.commands.list({ sessionId: 's' as never })
     expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
     const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
-    expect(hit.result).toEqual({ ok: true, value: { matched: true, result: { kind: 'success', text: 'plan set' } } })
+    expect(hit.result).toEqual({ ok: true, value: { matched: true, commandId: 'cmd-x' } })
     const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })

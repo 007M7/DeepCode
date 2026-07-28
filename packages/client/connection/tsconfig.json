@@ -19,6 +19,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
       "path": "../../util/brand"
     },
     {

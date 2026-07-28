@@ -1104,12 +1104,12 @@ export function createTuiChat(
     const controller = new AbortController()
     commandControllers.add(controller)
     void ctx.commands.execute(agent, text, controller.signal).then(
-      (result) => {
+      (execution) => {
         if (disposed) return
-        if (result === undefined) {
+        if (execution === undefined) {
           appendNotice(`Unknown command: ${text}`, 'warning')
-        } else if (result.text !== undefined && result.text !== '') {
-          appendNotice(result.text, result.kind === 'error' ? 'error' : 'info')
+        } else if (execution.result.text !== undefined && execution.result.text !== '') {
+          appendNotice(execution.result.text, execution.result.kind === 'error' ? 'error' : 'info')
         }
       },
       (error: unknown) => {

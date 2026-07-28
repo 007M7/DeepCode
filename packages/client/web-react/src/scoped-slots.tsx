@@ -10,7 +10,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionMaybeProvider, SessionProvider, SlotAssemblyError, maybeObservableHook,
-  observableHook, useHost, useSessionMaybeProvideInfo,
+  observableHook, projectionHook, useHost, useSessionMaybeProvideInfo,
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
@@ -238,6 +238,9 @@ function standardKit(
     }
     Object.assign(kit, info.props)
     kit['sessionId'] = info.sessionId
+    // The useProjection seat (fifth framework hook): key-addressed cell
+    // reader, bound per provide bundle (cached by info identity).
+    kit['useProjection'] = projectionHook(info)
   }
   const store = scope === 'session-maybe' && info?.sessionId === undefined
     ? undefined
