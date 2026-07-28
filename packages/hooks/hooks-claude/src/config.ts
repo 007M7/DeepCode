@@ -8,6 +8,16 @@
 
 import { matcherDiagnostic, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
+const CLAUDE_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
+  'SubagentStart',
+  'SubagentStop',
+] as const
+
 /** A parsed CC config: event name → its matcher groups (command hooks only). */
 export type ClaudeHookConfig = Record<string, MatcherGroup[]>
 
@@ -53,9 +63,10 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 
 /**
  * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
- * ignored rather than failing boot; non-command hooks are returned in `skipped`, and substitutions
- * are applied to every surviving command. A runnable group with an invalid regex matcher throws a
- * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
+ * ignored rather than failing boot; unsupported events are ignored before their groups are parsed,
+ * non-command hooks are returned in `skipped`, and substitutions are applied to every surviving
+ * command. A supported runnable group with an invalid regex matcher throws a `SyntaxError`, allowing
+ * the bridge to reject the complete config before listener registration.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.
@@ -71,7 +82,8 @@ export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): Pa
   const hooksMap = root ? asObject(root.hooks) ?? root : undefined
   if (!hooksMap) return { config, skipped }
 
-  for (const [event, rawGroups] of Object.entries(hooksMap)) {
+  for (const event of CLAUDE_EVENTS) {
+    const rawGroups = hooksMap[event]
     if (!Array.isArray(rawGroups)) continue
     const groups: MatcherGroup[] = []
     for (const rawGroup of rawGroups) {

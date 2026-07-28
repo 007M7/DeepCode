@@ -384,6 +384,23 @@ describe('hooks-claude bridge — load resilience', () => {
     ))
   })
 
+  it('an invalid matcher on an unsupported event does not disable supported hooks', async () => {
+    const dir = writeConfig({
+      Setup: [{ matcher: '(', hooks: [{ type: 'command', command: 'exit 0' }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+    })
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = ctx.agentLoop.create(SessionId('unsupported-claude-matcher'), { provider: 'mock', model: 'mock' })
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('invalid claude regex matcher'))
+  })
+
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
     // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it
     // would veto the prompt (0 model requests) and log a hook/invoked. Build the

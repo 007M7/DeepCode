@@ -69,4 +69,15 @@ describe('parseClaudeConfig', () => {
       PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'x.sh' }] }],
     })).toThrow('invalid claude regex matcher "(" on event "PreToolUse"')
   })
+
+  it('ignores invalid matchers on unsupported events without dropping supported hooks', () => {
+    const { config } = parseClaudeConfig({
+      Setup: [{ matcher: '(', hooks: [{ type: 'command', command: 'ignored.sh' }] }],
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'kept.sh' }] }],
+    })
+
+    expect(config).toEqual({
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ command: 'kept.sh' }] }],
+    })
+  })
 })
