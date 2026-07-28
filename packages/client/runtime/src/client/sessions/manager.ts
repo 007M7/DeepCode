@@ -57,6 +57,12 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
+  /**
+   * Latest model capacity observed for an uninstantiated session on the
+   * current mux generation. Unlike durable history, this transient frame
+   * cannot be backfilled when get() lazily creates the Session.
+   */
+  private readonly modelRequestContextWindows = new Map<SessionId, number>()
   /** Per-session projection value stores, retained independently of instance arrival (the
    *  title-snapshot precedent, generalized): push frames land here whether or not the Session
    *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
@@ -160,6 +166,7 @@ export class SessionManager {
   }
 
   private createSession(sessionId: SessionId): Session {
+    const modelRequestContextWindow = this.modelRequestContextWindows.get(sessionId)
     return new Session(sessionId, this.api, {
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
@@ -167,6 +174,7 @@ export class SessionManager {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
       projections: this.projectionStore(sessionId),
+      ...(modelRequestContextWindow === undefined ? {} : { modelRequestContextWindow }),
     })
   }
 
@@ -328,7 +336,14 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
+    if (frame.type === 'session/model-request') {
+      // Transient and non-replayable: retain the latest capacity until lazy
+      // instantiation. An absent value explicitly clears an earlier one.
+      if (frame.contextWindow === undefined) this.modelRequestContextWindows.delete(frame.sessionId)
+      else this.modelRequestContextWindows.set(frame.sessionId, frame.contextWindow)
+    }
     if (frame.type === 'session/subscribed') {
+      this.modelRequestContextWindows.delete(frame.sessionId)
       // Rows past the host's durable baseline rode state a restart lost; drop
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
@@ -391,6 +406,7 @@ export class SessionManager {
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
+        this.modelRequestContextWindows.delete(frame.sessionId) // connection-local request capacity dies with the Host session
         this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
       }

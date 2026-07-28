@@ -41,6 +41,127 @@ describe('instances', () => {
     expect(manager.get(S2).getSnapshot().pending).toEqual([])
   })
 
+  it('retains the latest transient model capacity until lazy instantiation', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    manager.handleMuxEnvelope({
+      rpcId: 'request-1' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'alpha',
+        contextWindow: 128_000,
+      },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'request-2' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 2,
+        provider: 'test',
+        model: 'beta',
+        contextWindow: 256_000,
+      },
+    })
+
+    expect(manager.get(S1).getSnapshot().modelRequestContextWindow).toBe(256_000)
+  })
+
+  it('retains explicit capacity clearing before lazy instantiation', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    manager.handleMuxEnvelope({
+      rpcId: 'request-with-capacity' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'alpha',
+        contextWindow: 128_000,
+      },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'request-without-capacity' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 2,
+        provider: 'test',
+        model: 'unknown-capacity',
+      },
+    })
+
+    expect(manager.get(S1).getSnapshot().modelRequestContextWindow).toBeUndefined()
+  })
+
+  it('clears retained capacity on subscribed and resident capacity on removal', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    manager.handleMuxEnvelope({
+      rpcId: 'request-before-subscribe' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'alpha',
+        contextWindow: 128_000,
+      },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'subscribed' as never,
+      payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 0 },
+    })
+    const session = manager.get(S1)
+    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+
+    manager.handleMuxEnvelope({
+      rpcId: 'request-after-subscribe' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 2,
+        provider: 'test',
+        model: 'beta',
+        contextWindow: 256_000,
+      },
+    })
+    expect(session.getSnapshot().modelRequestContextWindow).toBe(256_000)
+    manager.handleHostEnvelope({
+      rpcId: 'removed' as never,
+      payload: { type: 'host/session-removed', sessionId: S1 },
+    })
+    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+
+    manager.handleMuxEnvelope({
+      rpcId: 'request-before-lazy-removal' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S2,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'gamma',
+        contextWindow: 64_000,
+      },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'lazy-removed' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+    expect(manager.get(S2).getSnapshot().modelRequestContextWindow).toBeUndefined()
+  })
+
   it('caps the pending buffer at 32 keeping the newest, and drops it on session-removed', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)

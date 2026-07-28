@@ -43,6 +43,8 @@ export interface SessionOptions {
    * private store (bare object-layer construction).
    */
   projections?: ProjectionValueStore
+  /** Model capacity already observed on this mux generation before lazy construction. */
+  modelRequestContextWindow?: number
 }
 
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
@@ -172,6 +174,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
+    this.contextWindow = options.modelRequestContextWindow
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -479,10 +482,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.notifier.markDirty()
   }
 
-  /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
+  /** host/session-removed relay: flag the resident snapshot and clear connection-local capacity. */
   handleRemoved(): void {
+    const changed = !this.removed || this.contextWindow !== undefined
     this.removed = true
-    this.notifier.markDirty()
+    this.contextWindow = undefined
+    if (changed) this.notifier.markDirty()
   }
 
   /**
