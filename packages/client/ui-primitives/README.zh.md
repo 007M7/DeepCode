@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input，以及 markdown 家族（MessageText/MarkdownText/JsonBlock）。契约：api-contracts v3 §8。
+纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock），以及只读 JsonTree 检查器。契约：api-contracts v3 §8。
 
 ## Markdown 渲染
 

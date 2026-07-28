@@ -6,7 +6,6 @@ settings:
 
 patchedDependencies:
   '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
-  react-json-view-lite@2.5.0: 472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113
 
 importers:
 
@@ -1094,9 +1093,6 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
-      react-json-view-lite:
-        specifier: ^2.5.0
-        version: 2.5.0(patch_hash=472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113)(react@18.3.1)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@18.3.31)(react@18.3.1)
@@ -9732,12 +9728,6 @@ packages:
   react-is@17.0.2:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
 
-  react-json-view-lite@2.5.0:
-    resolution: {integrity: sha512-tk7o7QG9oYyELWHL8xiMQ8x4WzjCzbWNyig3uexmkLb54r8jO0yH3WCWx8UZS0c49eSA4QUmG5caiRJ8fAn58g==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-
   react-markdown@10.1.0:
     resolution: {integrity: sha512-qKxVopLT/TyA6BX3Ue5NwabOsAzm0Q7kAPwq6L+wWDwisYs7R8vZ0nRXqq6rkueboxpkjvLGU9fWifiX/ZZFxQ==}
     peerDependencies:
@@ -15039,10 +15029,6 @@ snapshots:
       scheduler: 0.23.2
 
   react-is@17.0.2: {}
-
-  react-json-view-lite@2.5.0(patch_hash=472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113)(react@18.3.1):
-    dependencies:
-      react: 18.3.1
 
   react-markdown@10.1.0(@types/react@18.3.31)(react@18.3.1):
     dependencies:

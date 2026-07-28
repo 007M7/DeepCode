@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, markdown family (MessageText/MarkdownText/JsonBlock). Contract: api-contracts v3 §8.
+Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the markdown family (MessageText/MarkdownText/JsonBlock), and the read-only JsonTree inspector. Contract: api-contracts v3 §8.
 
 ## Markdown rendering
 
