@@ -32,12 +32,13 @@ async function bench() {
     current: undefined,
     phase: 'ready',
   })
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const sessionsFake = {
     list: listStore,
     binding: vi.fn(),
     scope: () => undefined,
     provideInfo: () => undefined,
-    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),

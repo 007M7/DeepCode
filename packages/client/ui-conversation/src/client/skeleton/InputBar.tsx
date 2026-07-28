@@ -1,11 +1,12 @@
 /** The default composer body: the 'conversation.composer.bar' slot entry
  * (decision 20). Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
- * through this entry's own inject; layout-phase inputs (variant, placeholder,
+ * through this entry's own inject, whose hooks compartment binds
+ * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -27,15 +28,12 @@ const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
 ]
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, renderSlot,
+  useSession, useInput, inputActions, keyboard, stop, renderSlot, useNotices, useLexicon,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
-  const noticeStore = keyboard.notices
-  const notice = useSyncExternalStore(
-    (fn: () => void) => noticeStore.subscribe(fn),
-    () => noticeStore.getSnapshot(),
-  )
+  const notice = useNotices(s => s)
+  const lexicon = useLexicon(s => s)
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
@@ -244,7 +242,7 @@ export function InputBar({
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, keyboard.lexicon())
+  const deco = deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every

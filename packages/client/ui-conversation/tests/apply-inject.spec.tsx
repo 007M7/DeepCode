@@ -87,12 +87,13 @@ async function bench() {
     }
   }
   const providers: TestProvider[] = []
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const sessionsFake = {
     list: listStore,
     binding: (id: SessionId) => ({ sessionId: id, session: sessionFake, ctx: mint(id) }),
     scope: (id: SessionId) => mint(id),
     provideInfo: () => undefined,
-    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     provide: (descriptor: TestProvider) => { providers.push(descriptor); return () => {} },
     scopeOf,
     sessionOf: (actx: Context) => (scopeOf(actx) === undefined ? undefined : sessionFake),
