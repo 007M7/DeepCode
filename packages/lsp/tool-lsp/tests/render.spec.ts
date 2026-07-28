@@ -75,8 +75,10 @@ describe('renderUri', () => {
 
   it('renders remote file authorities without host path conversion', () => {
     expect(renderUri('file://server/share/workspace/a.ts', 'file://server/share/workspace')).toBe('a.ts')
+    expect(renderUri('file://SERVER/share/workspace/src/A.ts', 'file://server/Share/Workspace')).toBe('src/A.ts')
     expect(renderUri('file://other/share/b.ts', 'file://server/share/workspace')).toBe('//other/share/b.ts')
     expect(renderUri('file:///a.ts', 'file://server/')).toBe('/a.ts')
+    expect(renderUri('file:///a.ts', 'file:///')).toBe('a.ts')
   })
 
   it('keeps malformed or mismatched URI coordinates verbatim', () => {

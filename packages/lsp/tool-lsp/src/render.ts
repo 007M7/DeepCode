@@ -148,7 +148,7 @@ export function renderUri(uri: string, workspaceUri: string): string {
   const workspaceSegments = decodeFileSegments(workspace)
   if (targetSegments === undefined || workspaceSegments === undefined) return uri
   const sameAuthority = target.hostname === workspace.hostname
-  const windowsWorld = /^[A-Za-z]:$/.test(workspaceSegments[0] ?? '')
+  const windowsWorld = isWindowsFileWorld(workspace, workspaceSegments)
   const inside = sameAuthority
     && targetSegments.length >= workspaceSegments.length
     && workspaceSegments.every((segment, index) => samePathSegment(segment, targetSegments[index] as string, windowsWorld))
@@ -157,6 +157,11 @@ export function renderUri(uri: string, workspaceUri: string): string {
     return relative.length === 0 ? '.' : relative.join('/')
   }
   return absoluteUriPath(target, targetSegments, workspaceSegments)
+}
+
+/** Whether a canonical file URI names a drive path or UNC path in a Windows execution world. */
+function isWindowsFileWorld(url: URL, segments: readonly string[]): boolean {
+  return url.hostname.length > 0 || /^[A-Za-z]:$/.test(segments[0] ?? '')
 }
 
 /** Decode URI path segments while rejecting encoded separators that would change path structure. */
