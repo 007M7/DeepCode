@@ -2643,6 +2643,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A foreign agent's discard leaves the wrapper armed.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
     result.ctx.emit('agent/inbox/discard', foreign, [result.agent.sentMessages.at(-1)!])
+    // An unrelated discard for this agent also leaves the wrapper armed.
+    result.ctx.emit('agent/inbox/discard', result.agent, [createUserMessage({
+      content: [{ type: 'text', text: 'unrelated discard' }],
+      source: { kind: 'user' },
+    })])
     result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages.at(-1)!])
     await tick()
     // Idempotent: a repeat discard after cleanup is a no-op.

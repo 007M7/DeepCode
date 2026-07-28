@@ -9,8 +9,8 @@ import {
   createAssistantMessage,
   createToolResultMessage,
   createUserMessage,
-  CallId,
-} from '@deepseek-ai/dsh-llm'
+} from '@deepseek-ai/dsh-llm/message'
+import { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type {
   AssistantMessage,
   ContentBlock,

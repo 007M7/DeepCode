@@ -102,6 +102,24 @@ describe('toPiContext', () => {
     expect((context.messages[0] as AssistantMessage).stopReason).toBe('stop')
   })
 
+  it('preserves model provenance for foreign assistant messages without replay state', () => {
+    const context = toPiContext({
+      provider: 'openai',
+      model: 'new-model',
+      messages: [createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: { kind: 'model', provider: 'deepseek', model: 'old-model' },
+      })],
+    })
+    expect(context.messages[0]).toMatchObject({
+      role: 'assistant',
+      api: 'dsh-foreign',
+      provider: 'deepseek',
+      model: 'old-model',
+    })
+  })
+
   it('parses malformed tool-call arguments to {}', () => {
     const context = toPiContext({
       provider: 'deepseek',

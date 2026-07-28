@@ -9,7 +9,7 @@
  */
 
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import type { Message, ModelMessageSource } from '@deepseek-ai/dsh-llm'
 import type { Api, AssistantMessage, Usage as PiUsage } from '@earendil-works/pi-ai'
 
 type PiAiReplayBlock =
@@ -155,10 +155,8 @@ function foreignAssistant(message: Message): AssistantMessage {
 }
 
 /** Recombine durable Harness content with validated pi-ai replay metadata. */
-function replayedAssistant(message: Message, rawState: unknown): AssistantMessage {
+function replayedAssistant(message: Message, source: ModelMessageSource, rawState: unknown): AssistantMessage {
   const state = readReplayState(rawState)
-  const source = message.source
-  if (source.kind !== 'model') return invalidReplay('assistant message lacks model source')
   if (state.provider !== source.provider) return invalidReplay('provider does not match assistant source')
   if (state.model !== source.model) return invalidReplay('model does not match assistant source')
   if (state.blocks.length !== message.content.length) return invalidReplay('block count does not match assistant content')
@@ -208,6 +206,8 @@ function replayedAssistant(message: Message, rawState: unknown): AssistantMessag
  * @returns a native pi-ai assistant message reconstructed from durable content.
  */
 export function toPiAssistant(message: Message): AssistantMessage {
-  const replayState = message.source.kind === 'model' ? message.source.replayState : undefined
-  return replayState === undefined ? foreignAssistant(message) : replayedAssistant(message, replayState)
+  const source = message.source
+  return source.kind !== 'model' || source.replayState === undefined
+    ? foreignAssistant(message)
+    : replayedAssistant(message, source, source.replayState)
 }
