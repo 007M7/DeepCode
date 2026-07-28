@@ -408,8 +408,15 @@ interface FxGoalProjection {
 /** One durable goal change riding a round-zero goal-sourced user message. */
 type FxGoalChange =
   | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
-  | { kind: 'goal/change'; version: 1; operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
-      goal: FxGoalProjection['goal']; roundsStarted: number; createdAt: number; updatedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
 
 /**
  * Current goal projection over the full log (host parallel: the GoalService
@@ -417,11 +424,15 @@ type FxGoalChange =
  */
 function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
   for (let i = log.length - 1; i >= 0; i--) {
-    const event = log[i] as unknown as { type: string; data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } } }
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
     if (event === undefined || event.type !== 'user/message') continue
     const source = event.data?.source
     if (source?.kind !== 'goal' || source.round !== 0) continue
     const change = source.change
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (change === undefined || change.kind !== 'goal/change') continue
     if (change.operation === 'clear') return null
     return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
@@ -643,7 +654,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
   ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
     const missing = requireSession(request)
-    if (missing !== undefined) return missing as Promise<RpcResponse<{ ref: { id: never; revision: number } }>>
+    if (missing !== undefined) return missing
     const id = request.payload.sessionId
     const current = backscanGoal(logOf(id))
     if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
