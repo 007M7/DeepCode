@@ -168,6 +168,38 @@ Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-st
 
 Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
 
+### `command/*`
+
+#### `command/done` — log-only
+
+```ts persistence-catalog
+/**
+ * The paired command settled. `kind`/`text` carry the handler's verbatim
+ * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+ * rendered failure); presentation stays client-computed at render time.
+ */
+'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+```
+
+Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+
+#### `command/run` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved slash command entered its handler. Log-only (never model
+ * surface); paired with `command/done` by `commandId`, mirroring the
+ * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+ * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+ * separator whitespace included), so a consumer (a projection unit
+ * folding its own command records, a rich command card) never re-parses
+ * a line.
+ */
+'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+```
+
+Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
+
 ### `compact/*`
 
 #### `compact/end` — log-only
@@ -373,7 +405,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:88`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 

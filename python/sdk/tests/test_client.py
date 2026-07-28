@@ -15,6 +15,7 @@ from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Noti
 def test_high_level_sdk_runs_turn_and_collects_final_response(tmp_path: Path) -> None:
     script = tmp_path / "fake_runtime.py"
     env_dump = tmp_path / "env.json"
+    init_dump = tmp_path / "init.json"
     script.write_text(
         """
 import json
@@ -34,6 +35,7 @@ for line in sys.stdin:
     msg = json.loads(line)
     method = msg.get("method")
     if method == "initialize":
+        json.dump(msg.get("params"), open(os.environ["INIT_DUMP"], "w"))
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
         params = msg.get("params") or {}
@@ -62,12 +64,14 @@ for line in sys.stdin:
 
     with DeepSeekHarness(
         model="deepseek-v4-flash",
+        max_tokens=4096,
         cwd=str(tmp_path),
         cordis=str(tmp_path / "cordis.yml"),
         session_root=str(tmp_path / "sessions"),
         launch_args_override=(sys.executable, str(script)),
         env={
             "ENV_DUMP": str(env_dump),
+            "INIT_DUMP": str(init_dump),
             "DEEPSEEK_API_KEY": "env-key",
             "DEEPSEEK_BASE_URL": "http://127.0.0.1:4321",
         },
@@ -83,6 +87,12 @@ for line in sys.stdin:
     assert dumped_env["DSH_CWD"] == str(tmp_path)
     assert dumped_env["DSH_SESSION_ROOT"] == str(tmp_path / "sessions")
     assert dumped_env["DSH_CORDIS_CONFIG"] == str(tmp_path / "cordis.yml")
+    assert json.loads(init_dump.read_text()) == {
+        "cwd": str(tmp_path),
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "maxTokens": 4096,
+    }
 
 
 def test_session_run_invokes_notification_callback_before_returning(tmp_path: Path) -> None:
@@ -731,6 +741,8 @@ def test_public_signatures_omit_unsupported_wire_parameters() -> None:
     assert "profile" not in inspect.signature(DeepSeekHarness.run).parameters
     assert "profile" not in inspect.signature(Session.run).parameters
     assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "max_tokens" in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "max_tokens" in inspect.signature(HarnessClient.initialize).parameters
     assert "client_name" not in HarnessConfig.__dataclass_fields__
     assert "client_version" not in HarnessConfig.__dataclass_fields__
 

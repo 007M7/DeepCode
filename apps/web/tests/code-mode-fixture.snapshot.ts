@@ -5,7 +5,7 @@
 // the code-variant parent row titled by the model-authored description, its
 // three always-visible nested sub-rows (bash through the sample registration,
 // read through GenericToolCard, the failing read wearing the error state),
-// the expanded program body, details-panel resolution of a sub-callId, and
+// the expanded program body, inert bash / file-link sub-row gestures, and
 // the trajectory/waterfall tabs' sub-call cells and timing lanes.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -152,7 +152,7 @@ it('renders the fixture run_code turn: code parent row, nested sub-rows, error s
   `)
 })
 
-it('expands the code row into the program body and resolves a sub-row through the details panel', async () => {
+it('expands the code row into the program body; sub-row clicks do not open details', async () => {
   boot()
   await openFixtureSession()
 
@@ -171,26 +171,28 @@ it('expands the code row into the program body and resolves a sub-row through th
     }
   })
 
-  // Sub-row click → details panel resolves the sub-callId with FULL output.
+  // Tool rows no longer drive the details panel: bash is inert, file paths
+  // are host-open links (fixture openPath is a no-op success).
   const nest = document.querySelector('[data-subcalls]')
   if (nest === null) throw new Error('sub-call nest missing')
   const bashRow = nest.querySelector('[data-sample="bash-global"]')
   if (bashRow === null) throw new Error('bash sample sub-row missing')
+  const fileLink = nest.querySelector('button')
+  if (fileLink === null) throw new Error('file-path summary link missing on a read sub-row')
+  const frame = document.querySelector('[data-details-collapsed]')
+  if (frame === null) throw new Error('app frame missing')
+  expect(frame.getAttribute('data-details-collapsed')).toBe('true')
   fireEvent.click(bashRow)
-  const details = await screen.findByText('Input')
-  const panel = details.closest('[class*="root"]')
-  if (panel === null) throw new Error('details panel missing')
+  expect(frame.getAttribute('data-details-collapsed')).toBe('true')
+  fireEvent.click(fileLink)
+  expect(frame.getAttribute('data-details-collapsed')).toBe('true')
   expect({
-    title: visibleText(within(panel as HTMLElement).getByText('bash')),
-    inputEchoesArgs: visibleText(panel).includes('ls notes'),
-    outputComplete: visibleText(panel).includes('demo.txt new-demo.txt')
-      || visibleText(panel).includes('demo.txt\nnew-demo.txt')
-      || (panel.textContent ?? '').includes('demo.txt\nnew-demo.txt'),
+    fileLink: visibleText(fileLink),
+    detailsCollapsed: frame.getAttribute('data-details-collapsed'),
   }).toMatchInlineSnapshot(`
     {
-      "inputEchoesArgs": true,
-      "outputComplete": true,
-      "title": "bash",
+      "detailsCollapsed": "true",
+      "fileLink": "notes/demo.txt",
     }
   `)
 })

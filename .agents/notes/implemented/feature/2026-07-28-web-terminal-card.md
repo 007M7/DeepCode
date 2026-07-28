@@ -31,7 +31,9 @@ Geometry, radius, and fonts mirror `CodeBlock`, so a terminal card and a fenced 
 
 The reason the reversal holds: for a shell command the output *is* the result the user is reading, so routing it exclusively to a panel makes the common case a two-step interaction. A bounded, height-capped, non-wrapping terminal block in the row is what makes a bash-heavy transcript readable in one pass. The old rule's actual concern was a row whose height was unbounded by the length of the output, and the height cap plus expand control is what keeps that from returning.
 
-The remaining bound: the row caps at `CHAT_TERMINAL_MAX_LINES` (8), half the primitive's default, which the panel keeps — the message flow is a summary surface read across many calls, the panel is the single-call reading surface, so the panel stays the place for the full output. Only the terminal intent renders inline; a generic tool's content is still panel-only.
+The remaining bound: the row caps at `CHAT_TERMINAL_MAX_LINES` (8), half the primitive's default, which the panel keeps — the message flow is a summary surface read across many calls, the panel is the single-call reading surface. Only the terminal intent renders inline; a generic tool's content is still panel-only.
+
+One premise of that split has since weakened: [tool rows stopped being details-panel click targets](2026-07-28-tool-call-file-open-in-os.md) and nothing replaced the gesture, so the panel is currently unreachable in the assembled application. The in-row cap is therefore the only surface a reader actually has for a long output, which the expand control covers. Restoring a panel entry point is that change's follow-up, not this one's — but until it lands, "the panel stays the place for the full output" is not true, and the row's expand control carries that load alone.
 
 ## Alternatives considered
 

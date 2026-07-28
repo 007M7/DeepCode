@@ -39,11 +39,11 @@ function stateStatus(state: ToolRowState): string | null {
 
 /**
  * Bash row: icon + Bash · {description} in the shared ToolRow chrome, with the
- * command's terminal card below it. The summary row keeps its own click target
- * (the details handoff); the terminal card sits outside that row, so its copy
- * and expand controls do not open the details panel.
+ * command's terminal card resident below it. The summary row is not a
+ * details-panel control (tool rows stopped being one), so the card's copy and
+ * expand controls are the row's only interactions.
  */
-export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const terminal = terminalCardModel(block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
@@ -55,8 +55,6 @@ export function BashRow({ toolName, block, openDetails, sessionId, useSessions }
         data-sample={isChild ? 'bash-scoped' : 'bash-global'}
         data-variant="bash"
         data-state={model.state}
-        data-clickable
-        onClick={openDetails}
       >
         <span className={css.leading}>{leadingFor(model.state)}</span>
         {status !== null && <span className={css.visuallyHidden}>{status}</span>}

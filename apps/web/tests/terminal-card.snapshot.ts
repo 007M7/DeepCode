@@ -4,10 +4,17 @@
 // Opens the fixture history session and pins the `card: 'terminal'` render
 // intent at both of its conversation render sites, for both chat-row shapes:
 // turn 60's `fx-bash` on the render-site fallback row (expand-gated body) and
-// turn 66's `bash` on the keyed BashRow registration (resident body), plus the
-// details panel's Output section. Turn 66 carries what turn 60's three plain
-// lines cannot — SGR runs resolved to --dsw-* tokens, output past the chat
-// cap, a nested cwd, and a non-zero exit pill.
+// turn 66's `bash` on the keyed BashRow registration (resident body). Turn 66
+// carries what turn 60's two clean prompt rows cannot — SGR runs resolved to
+// --dsw-* tokens, output past the chat cap, a nested cwd, and a non-zero exit
+// pill; turn 60 carries the multi-line command's per-line prompt rows.
+//
+// The details panel's Output section is NOT covered here: tool rows stopped
+// being details-panel click targets, and nothing else in the assembled
+// application opens that panel, so the surface cannot be driven end to end.
+// Its terminal rendering stays pinned in ui-conversation's
+// tests/terminal-card.spec.tsx, which mounts DetailsPanel with a selection
+// directly.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -289,71 +296,6 @@ it('the chat card expands the collapsed middle in place, without opening the det
       "detailsOpen": false,
       "expandedLines": 22,
       "expanderLabel": "收起输出",
-    }
-  `)
-})
-
-it('the details panel Output section renders the same call at full height', async () => {
-  boot()
-  await openFixtureSession()
-
-  fireEvent.click(keyedBashRow())
-  const label = await screen.findByText('Output')
-  const section = label.closest('section')
-  if (section === null) throw new Error('Output section missing')
-  const card = section.querySelector('[data-terminal]')
-  if (card === null) throw new Error('details panel Output is not a terminal card')
-
-  const chatLines = keyedBashRow().parentElement?.querySelectorAll('[class*="_line_"]').length ?? 0
-  expect({
-    ...readCard(card),
-    // The panel keeps the primitive's own allowance (16) against the chat
-    // row's 8, so it shows strictly more of the same output.
-    panelLines: card.querySelectorAll('[class*="_line_"]').length,
-    chatLines,
-  }).toMatchInlineSnapshot(`
-    {
-      "chatLines": 8,
-      "colors": [
-        "font-weight: 700;",
-        "color: var(--dsw-alias-state-success-primary);",
-        "color: var(--dsw-alias-state-error-primary);",
-        "color: var(--dsw-alias-label-tertiary);",
-      ],
-      "copy": "复制",
-      "dotsPerPromptRow": [
-        1,
-      ],
-      "expander": {
-        "expanded": "false",
-        "label": "展开其余 6 行输出",
-        "text": "… 其余 6 行",
-      },
-      "lines": [
-        "Running 4 checks",
-        "✓ typecheck                                          1.82s",
-        "✓ lint                                               0.94s",
-        "✓ duplication                                        2.10s",
-        "✗ unit                                               8.41s",
-        "",
-        "packages/client/ui-primitives/tests/terminal-block.spec.tsx",
-        "  FAIL caps output at the configured line budget",
-        "CodeBlock.tsx               98.4%    96.2%       100%         41-43",
-        "highlight.ts                100%     100%        100%         -",
-        "Pill.tsx                    100%     100%        100%         -",
-        "StateDot.tsx                100%     100%        100%         -",
-        "markdown/Markdown.tsx       100%     100%        100%         -",
-        "",
-        "1 of 4 checks failed",
-        "[exit code: 1]",
-      ],
-      "panelLines": 16,
-      "prompt": [
-        "nested pnpm run check",
-      ],
-      "runState": "error",
-      "runStateLabel": "失败",
-      "status": "退出码 1",
     }
   `)
 })

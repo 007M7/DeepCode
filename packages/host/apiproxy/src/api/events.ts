@@ -35,9 +35,9 @@ export type ToolEventView =
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every
-   * attached session followed by its optional latest title snapshot, then replays each
-   * session's still-pending approval/question requested frames (rpcId reused verbatim — the
-   * refresh-recovery baseline).
+   * attached session, then replays each session's still-pending approval/question requested
+   * frames (rpcId reused verbatim — the refresh-recovery baseline). Session titles ride the
+   * generic projection pair (history-tail projections block + session/projection frames).
    * since: resume seam, unimplemented in v1 (ignored if passed); reconnection = reopen the
    * stream + refetch history.
    */
@@ -57,7 +57,6 @@ export interface EventsApi {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
-  | { type: 'session/title'; sessionId: SessionId; title: string; eventSeq: number; updatedAt: number }
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
@@ -75,6 +74,15 @@ export type MuxFrame =
    * reconciliation key).
    */
   | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
+  /**
+   * One projection unit's finished value changed (session-projection RFC).
+   * Live push state, never logged — replay recomputes on the host (the
+   * tool-view posture). `value` is the unit's schema-validated view output;
+   * `seq` is the unit's watermark at emission. Clients keep one generic
+   * per-session value store under higher-seq-wins, seeded by the history
+   * tail page's projections block.
+   */
+  | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
   | { type: 'stream/error'; error: RpcError }
 
 /**

@@ -26,8 +26,9 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   others: <IconSparkle16 size={14} />,
 }
 
-export function GenericToolCard({ toolName, block, cwd, openDetails }: ToolRowOwnerProps) {
+export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
+  const singleFile = model.filePath !== undefined
   return (
     <ToolRow
       variant={model.variant}
@@ -35,10 +36,12 @@ export function GenericToolCard({ toolName, block, cwd, openDetails }: ToolRowOw
       icon={VARIANT_ICONS[model.variant]}
       title={model.title}
       summary={model.summary}
-      body={model.body}
+      // Single-file tools never expose an args body — the path link is the only action.
+      body={singleFile ? null : model.body}
       terminal={terminalCardModel(block)}
       state={model.state}
-      onOpenDetails={openDetails}
+      filePath={model.filePath}
+      onOpenFile={singleFile ? openFile : undefined}
     />
   )
 }

@@ -109,7 +109,7 @@ describe('terminalCardModel', () => {
 
 describe('chat row terminal body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName: 'bash', block, openDetails: vi.fn(),
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
   })
 
   it('the expanded body is the command output, capped tighter than the panel', () => {
@@ -184,22 +184,19 @@ describe('BashRow terminal card', () => {
     phase: 'ready',
   })
 
-  const rowProps = (block: RunningToolCall | ToolResultNode, openDetails = vi.fn()): ToolRowProps => ({
-    callId: 'c1', toolName: 'bash', block, openDetails,
+  const rowProps = (block: RunningToolCall | ToolResultNode): ToolRowProps => ({
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
   } as unknown as ToolRowProps)
 
   it('renders the command output under the summary row, without an expand gesture', () => {
-    const openDetails = vi.fn()
-    const view = render(<BashRow {...rowProps(settled(), openDetails)} />)
+    const view = render(<BashRow {...rowProps(settled())} />)
     expect(view.getByText('List files')).toBeTruthy()
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
-    // The terminal card sits outside the row's click target: copying does not
-    // open the details panel.
-    fireEvent.click(view.getByText('复制'))
-    expect(openDetails).not.toHaveBeenCalled()
-    fireEvent.click(view.getByText('List files'))
-    expect(openDetails).toHaveBeenCalledTimes(1)
+    // The card's controls are the row's only interactions: a bash row is not a
+    // path link and no longer a details-panel target, so nothing here navigates.
+    expect(view.container.querySelector('[data-clickable]')).toBeNull()
+    expect(view.getByText('复制')).toBeTruthy()
   })
 
   // The row's leading StateDot and the card's run-state dot describe the same
@@ -244,6 +241,7 @@ describe('DetailsPanel Output section', () => {
         useWorkspaces={bindSnapshotSelector(workspaces)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
+        useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
@@ -254,7 +252,7 @@ describe('DetailsPanel Output section', () => {
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
       sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-      pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
+      pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, lastAgentError: null, ...over,
     }
@@ -360,6 +358,7 @@ describe('DetailsPanel Output section', () => {
         }))}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
+        useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}

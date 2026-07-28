@@ -44,6 +44,15 @@ export interface SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown> | undefined>
   /** Static plain-member roster; values are undefined with the session. */
   props: Record<string, unknown>
+  /**
+   * Key-addressed projection value sources (the useProjection framework seat,
+   * session-projection RFC). Unlike `hooks`, the key space is open — values
+   * arrive from host-computed push frames — so the render side binds per
+   * resolved key instead of per static roster member. Faces are always
+   * defined per key (absence is an `undefined` snapshot); the whole member is
+   * absent with the session.
+   */
+  projections?: { faceOf(key: string): HostObservable<unknown> } | undefined
 }
 
 /** Definite per-session standard props resolved for strict session slots. */
