@@ -256,6 +256,42 @@ describe('paging', () => {
     expect(snapshot.nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
   })
 
+  it('loads every older page for complete-history inspection', async () => {
+    const pages = [
+      plainTurn(0, 0, '最早问', '最早答'),
+      plainTurn(6, 1, '中间问', '中间答'),
+      plainTurn(12, 2, '最新问', '最新答'),
+    ]
+    const { api, session } = makeSession()
+    api.onHistory = (payload) => {
+      if (payload.beforeSeq === undefined) return histResponse(pages[2]!, true)
+      if (payload.beforeSeq === 12) return histResponse(pages[1]!, true)
+      return histResponse(pages[0]!, false)
+    }
+
+    await session.open()
+    await session.history.loadAll()
+
+    expect(api.callsOf('session.history')).toHaveLength(3)
+    expect(session.history.getSnapshot().hasMore).toBe(false)
+    expect(session.history.getSnapshot().entries.map(entry => entry.event.seq))
+      .toEqual([...Array(18).keys()])
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9, 13, 15])
+  })
+
+  it('stops complete-history loading when a page makes no progress', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = payload => payload.beforeSeq === undefined
+      ? histResponse(plainTurn(6, 1, '新问', '新答'), true)
+      : Promise.resolve(err({ code: 'internal', message: 'page unavailable', details: {} }))
+
+    await session.open()
+    await session.history.loadAll()
+
+    expect(api.callsOf('session.history')).toHaveLength(2)
+    expect(session.history.getSnapshot().hasMore).toBe(true)
+  })
+
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {
     const { api, session } = makeSession()
     api.onHistory = payload => payload.beforeSeq === undefined
@@ -855,16 +891,12 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
-    expect(after.requestAttempts).toBe(before.requestAttempts)
-    expect(after.compactionRequests).toBe(before.compactionRequests)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()
     expect(resolved.runningCalls).not.toBe(after.runningCalls)
     expect(resolved.pending).toBe(after.pending)
     feed(ev.assistant(12, 1, '完成'))
-    const completed = session.getSnapshot()
-    expect(completed.requestAttempts).not.toBe(resolved.requestAttempts)
-    expect(completed.compactionRequests).toBe(resolved.compactionRequests)
+    expect(session.getSnapshot()).not.toBe(resolved)
   })
 })

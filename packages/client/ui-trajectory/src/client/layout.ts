@@ -6,10 +6,10 @@ import type {
   AssistantBlock,
   AssistantMessageNode,
   CodeSubCall,
-  CompactionRequestView,
-  ConversationPromptChange,
   ConversationSnapshot,
-  ModelRequestView,
+  RequestInspectionSnapshot,
+  RequestPromptChange,
+  RequestView,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -35,10 +35,8 @@ export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
-  compactionRequests?: readonly CompactionRequestView[]
-  requestAttempts?: readonly ModelRequestView[]
-  promptChanges?: readonly ConversationPromptChange[]
-  callSchemas?: ConversationSnapshot['callSchemas']
+  requests?: readonly RequestView[]
+  callSchemas?: RequestInspectionSnapshot['callSchemas']
   /** run_code sub-dispatches by parent callId (sub-cells nest under the parent Tool cell). */
   codeDispatches: ConversationSnapshot['codeDispatches']
 }
@@ -83,17 +81,18 @@ type OrderedLayoutEntry =
   | {
     kind: 'compaction'
     seq: number
-    request: CompactionRequestView
+    request: RequestView
   }
   | {
     kind: 'system'
     seq: number
-    change: ConversationPromptChange
+    request: RequestView
+    change: RequestPromptChange
   }
   | {
     kind: 'request'
     seq: number
-    request: ModelRequestView
+    request: RequestView
   }
 
 function layoutEntryOrder(entry: OrderedLayoutEntry): number {
@@ -124,9 +123,7 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, partial, runningCalls, compactionRequests = [], requestAttempts = [],
-    promptChanges = [],
-    callSchemas, codeDispatches,
+    nodes, partial, runningCalls, requests = [], callSchemas, codeDispatches,
   } = input
   const resultByCall = indexResults(nodes)
   const callStartById = new Map<string, number>()
@@ -193,17 +190,23 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       node,
       nodeIndex,
     })),
-    ...compactionRequests.map(request => ({
-      kind: 'compaction' as const,
-      seq: request.startSeq,
-      request,
-    })),
-    ...promptChanges.map(change => ({
-      kind: 'system' as const,
-      seq: change.seq,
-      change,
-    })),
-    ...requestAttempts
+    ...requests
+      .filter(request => request.purpose === 'compaction')
+      .map(request => ({
+        kind: 'compaction' as const,
+        seq: request.startSeq,
+        request,
+      })),
+    ...requests.flatMap(request => request.promptChange === undefined || request.prompt === undefined
+      ? []
+      : [{
+        kind: 'system' as const,
+        seq: request.promptChange.seq,
+        request,
+        change: request.promptChange,
+      }]),
+    ...requests
+      .filter(request => request.purpose === 'assistant')
       .filter(request =>
         !representedRequests.has(`${request.turn}\u0000${request.step}`),
       )
@@ -238,7 +241,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (entry.kind === 'system') {
-      const { change } = entry
+      const { change, request } = entry
       const turn = change.kind === 'initial'
         ? firstVisibleTurn(nodes, partial)
         : enclosingPromptTurn(nodes, change.seq, partial)
@@ -249,7 +252,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           kind: 'system',
           text: promptChangeLabel(change),
           sourceSeq: change.seq,
-          promptDetail: change.prompt,
+          ...(request.prompt === undefined ? {} : { promptDetail: request.prompt }),
           ...(change.previous === undefined
             ? {}
             : { previousPromptDetail: change.previous }),
@@ -450,7 +453,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
 
 function attachToolSchema(
   laid: LaidCell,
-  callSchemas: ConversationSnapshot['callSchemas'],
+  callSchemas: RequestInspectionSnapshot['callSchemas'] | undefined,
 ): void {
   if (laid.callId === undefined || callSchemas === undefined) return
   const schema = callSchemas.get(laid.callId)
@@ -616,7 +619,7 @@ function summarizeAssistantActivity(blocks: readonly AssistantBlock[]): string {
   return ''
 }
 
-function promptChangeLabel(change: ConversationPromptChange): string {
+function promptChangeLabel(change: RequestPromptChange): string {
   if (change.kind === 'initial') return 'Initial System Prompt'
   if (change.kind === 'system') return 'System Prompt Updated'
   if (change.kind === 'tools') return 'Tools Updated'

@@ -9,11 +9,25 @@ import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-import type {
-  AssistantProvenanceView, AssistantRequestConfig, ConversationContext, SessionInspectionSnapshot,
-} from './inspection.ts'
-
 export type { TodoItem }
+
+/** Request configuration recorded for one provider call. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  purpose?: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity reported for one completed request. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -224,14 +238,6 @@ export interface ConversationSnapshot {
   sessionId: SessionId
   /** Surface fold product (finalized conversation nodes in surface order). */
   nodes: readonly ConversationNode[]
-  /** Append-only context generations split at every model-surface replacement. */
-  contexts?: readonly ConversationContext[]
-  /** Auxiliary compaction requests, including those without an assistant/message surface node. */
-  compactionRequests?: SessionInspectionSnapshot['compactionRequests']
-  /** Ordinary provider requests, including failed attempts that produced no assistant message. */
-  requestAttempts?: SessionInspectionSnapshot['requestAttempts']
-  /** System-prompt/tool-catalog changes in request order. */
-  promptChanges?: SessionInspectionSnapshot['promptChanges']
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean
   partial: PartialAssistant | null
@@ -243,8 +249,6 @@ export interface ConversationSnapshot {
    * unrelated snapshot swaps (memo premise, same regime as `nodes`).
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
-  /** Model-visible tool schema captured for each recorded call id. */
-  callSchemas?: SessionInspectionSnapshot['callSchemas']
   pending: readonly PendingInteraction[]
   /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
   queue: readonly QueuedMessage[]

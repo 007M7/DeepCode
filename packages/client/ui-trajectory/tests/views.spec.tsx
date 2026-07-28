@@ -15,7 +15,10 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ConversationSnapshot, SessionHistory, SessionHistorySnapshot, SessionId,
+  SessionListState, WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
@@ -80,10 +83,42 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
   } as unknown as ConvViewProps
 }
 
+function emptyHistory(): SessionHistory {
+  const store = createSnapshotStore<SessionHistorySnapshot>({
+    sessionId: SID,
+    entries: [],
+    baseSeq: 0,
+    openState: 'open',
+    openError: null,
+    hasMore: false,
+    loadingOlder: false,
+  })
+  return {
+    getSnapshot: () => store.getSnapshot(),
+    subscribe: listener => store.subscribe(listener),
+    loadAll: () => Promise.resolve(),
+  }
+}
+
 /** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
 async function bench() {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
+  const loadAllHistory = vi.fn(() => Promise.resolve())
+  const historyStore = createSnapshotStore<SessionHistorySnapshot>({
+    sessionId: SID,
+    entries: [],
+    baseSeq: 0,
+    openState: 'open',
+    openError: null,
+    hasMore: true,
+    loadingOlder: false,
+  })
+  const history: SessionHistory = {
+    getSnapshot: () => historyStore.getSnapshot(),
+    subscribe: listener => historyStore.subscribe(listener),
+    loadAll: loadAllHistory,
+  }
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
     name: 'root',
@@ -95,9 +130,14 @@ async function bench() {
   // 'conversation' inject is an ordering edge; the bench declares the ring
   // itself, so a stub satisfies the wait.
   ctx.provide('conversation', {})
+  ctx.provide('sessions', {
+    binding: (sessionId: SessionId) => sessionId === SID
+      ? { session: { history } }
+      : undefined,
+  })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber }
+  return { ctx, slots, fiber, loadAllHistory }
 }
 
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
@@ -110,6 +150,7 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
+    openState: 'open' as const, hasMore: true, loadingOlder: false,
     partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
@@ -121,8 +162,13 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
     const entry = slots.entries('conversation.view').find(e => e.options.id === opts?.only)
     if (entry === undefined) return null
     const View = entry.component as FC<ConvViewProps>
+    const injectEntry = entry.inject as ((sessionId: SessionId) => object) | undefined
+    const injected = injectEntry === undefined
+      ? {}
+      : injectEntry(SID)
     return (
       <View
+        {...injected}
         {...({ sessionId: SID, useSession, useSessions: emptySessions(), useWorkspaces: emptyWorkspaces() } as unknown as ConvViewProps)}
         key={key}
       />
@@ -186,6 +232,9 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
+    await vi.waitFor(() => {
+      expect(b.loadAllHistory).toHaveBeenCalledOnce()
+    })
   })
 
   it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
@@ -244,8 +293,10 @@ describe('span derivation', () => {
     const { useSession } = fakeSession([])
     const { container } = render(createElement(TrajectoryStatsHeader, { useSession: useSession }))
     expect(container.firstChild).toBeNull()
-    render(createElement(TrajectoryView as FC<ConvViewProps>,
-      standaloneProps([])))
+    render(createElement(
+      TrajectoryView,
+      { ...standaloneProps([]), history: emptyHistory() },
+    ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
   })

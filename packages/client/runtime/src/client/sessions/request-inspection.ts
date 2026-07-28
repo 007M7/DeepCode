@@ -1,0 +1,352 @@
+// Request-centric inspection read model. Ordinary generation and compaction
+// calls share one chronological projection; presentation-specific grouping
+// remains in the trajectory consumer.
+
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
+import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {
+  AssistantProvenanceView, AssistantRequestConfig,
+} from './conversation.ts'
+
+export type {
+  AssistantProvenanceView, AssistantRequestConfig,
+} from './conversation.ts'
+
+/** Complete model-visible request header in force for an ordinary generation. */
+export interface ConversationPromptSnapshot {
+  /** Provider/model and sampling configuration from the effective request header. */
+  config: AssistantRequestConfig
+  /** Rendered system prompt text; empty when the request had no system prompt. */
+  system: string
+  /** Complete tool catalog sent with the request, including tools that were never called. */
+  tools: readonly ToolSchema[]
+}
+
+/** System/tool change introduced while preparing one ordinary request. */
+export interface RequestPromptChange {
+  /** Sequence of the request/header event that introduced this state. */
+  seq: number
+  /** Unix epoch ms from the request/header event. */
+  time: number
+  /** How the model-visible prompt differs from the previous recorded state. */
+  kind: 'initial' | 'system' | 'tools' | 'system-and-tools'
+  /** State immediately before this change; absent for the initial header. */
+  previous?: ConversationPromptSnapshot
+}
+
+/** One provider request reconstructed from durable request lifecycle events. */
+export interface RequestView {
+  /** Request category; compaction is a purpose, not a separate projection. */
+  purpose: 'assistant' | 'compaction'
+  /** Sequence that opened the operation represented by this request. */
+  startSeq: number
+  turn: number
+  /** Agent-loop step, or zero for a direct compaction request. */
+  step: number
+  startedAt: number
+  completedAt: number | null
+  status: 'running' | 'complete' | 'error'
+  error?: string
+  /** Effective ordinary request input, inherited until a later header changes it. */
+  prompt?: ConversationPromptSnapshot
+  /** Prompt change logged while preparing this request. */
+  promptChange?: RequestPromptChange
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  usage?: unknown
+  /** Assistant message or compaction summary sequence produced by this request. */
+  resultSeq?: number
+  /** Compaction replacement message sequence, when one was committed. */
+  replacementSeq?: number
+  /** Safe compaction summary projection. */
+  summary?: readonly ContentBlock[]
+  /** Complete compaction provider output before the safe projection. */
+  rawOutput?: readonly ContentBlock[]
+  /** Retry ordinal scheduled after a failed ordinary request. */
+  retry?: number
+  maxRetries?: number
+  retryDelayMs?: number
+}
+
+/** Immutable request-centric projection derived from one history window. */
+export interface RequestInspectionSnapshot {
+  requests: readonly RequestView[]
+  callSchemas: ReadonlyMap<string, ToolSchema>
+}
+
+/**
+ * Derive the request-centric read model from one immutable history window.
+ * Compaction participates as a request purpose rather than a parallel
+ * top-level collection.
+ * @param entries - Contiguous raw session history.
+ * @returns Requests and call-time schemas derived from that history.
+ */
+export function inspectRequests(
+  entries: readonly HistoryEntry[],
+): RequestInspectionSnapshot {
+  const events = entries.map(entry => entry.event)
+  return {
+    requests: deriveRequests(events),
+    callSchemas: deriveCallSchemas(events),
+  }
+}
+
+interface RetryEvent {
+  type: 'llm/retry'
+  seq: number
+  time: number
+  data: {
+    turn: number
+    step: number
+    retry: number
+    maxRetries: number
+    delayMs: number
+    failure: { message: string }
+  }
+}
+
+interface CompactionStartEvent {
+  type: 'compact/start'
+  seq: number
+  time: number
+  data: { turn: number }
+}
+
+interface CompactionSummaryEvent {
+  type: 'compact/summary'
+  seq: number
+  time: number
+  data: {
+    summary: readonly ContentBlock[]
+    rawOutput?: readonly ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: unknown
+  }
+}
+
+interface CompactionEndEvent {
+  type: 'compact/end'
+  seq: number
+  time: number
+  data: { turn: number; error?: string }
+}
+
+function requestKey(turn: number, step: number): string {
+  return `${turn}\u0000${step}`
+}
+
+function deriveCallSchemas(
+  events: readonly SessionEvent[],
+): ReadonlyMap<string, ToolSchema> {
+  let active = new Map<string, ToolSchema>()
+  const calls = new Map<string, ToolSchema>()
+  const capture = (callId: string, name: string): void => {
+    if (calls.has(callId)) return
+    const schema = active.get(name)
+    if (schema !== undefined) calls.set(callId, schema)
+  }
+  for (const event of events) {
+    if (event.type === 'request/header') {
+      active = new Map(
+        (event.data.header.tools ?? []).map(schema => [schema.name, schema]),
+      )
+      continue
+    }
+    if (event.type === 'tool/call') {
+      capture(String(event.data.callId), event.data.name)
+      continue
+    }
+    const type = event.type as string
+    if (type === 'tool/code-dispatch-start' || type === 'tool/code-dispatch') {
+      const data = event.data as unknown as { subCallId: string; name: string }
+      capture(data.subCallId, data.name)
+    }
+  }
+  return calls
+}
+
+function promptChange(
+  previous: ConversationPromptSnapshot | undefined,
+  prompt: ConversationPromptSnapshot,
+  event: SessionEvent<'request/header'>,
+): RequestPromptChange | undefined {
+  const systemChanged = previous !== undefined && previous.system !== prompt.system
+  const toolsChanged = previous !== undefined
+    && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
+  if (previous !== undefined && !systemChanged && !toolsChanged) return
+  return {
+    seq: event.seq,
+    time: event.time,
+    kind: previous === undefined
+      ? 'initial'
+      : systemChanged && toolsChanged
+        ? 'system-and-tools'
+        : systemChanged
+          ? 'system'
+          : 'tools',
+    ...(previous === undefined ? {} : { previous }),
+  }
+}
+
+/** Project ordinary and compaction provider calls into one chronological request stream. */
+function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[] {
+  const requests: RequestView[] = []
+  const ordinaryByStep = new Map<string, number>()
+  let activeStep: string | undefined
+  let activePrompt: ConversationPromptSnapshot | undefined
+  let activeCompaction: number | undefined
+
+  const update = (index: number | undefined, change: Partial<RequestView>): void => {
+    if (index === undefined) return
+    const request = requests[index]
+    if (request !== undefined) requests[index] = { ...request, ...change }
+  }
+
+  for (const sourceEvent of events) {
+    if (sourceEvent.type === 'step/start') {
+      const { turn, step } = sourceEvent.data
+      const key = requestKey(turn, step)
+      ordinaryByStep.set(key, requests.length)
+      requests.push({
+        purpose: 'assistant',
+        startSeq: sourceEvent.seq,
+        turn,
+        step,
+        startedAt: sourceEvent.time,
+        completedAt: null,
+        status: 'running',
+        ...(activePrompt === undefined
+          ? {}
+          : { prompt: activePrompt, requestConfig: activePrompt.config }),
+      })
+      activeStep = key
+      continue
+    }
+    if (sourceEvent.type === 'request/header') {
+      const prompt: ConversationPromptSnapshot = {
+        config: sourceEvent.data.header.config,
+        system: sourceEvent.data.header.system ?? '',
+        tools: sourceEvent.data.header.tools ?? [],
+      }
+      const change = promptChange(activePrompt, prompt, sourceEvent)
+      activePrompt = prompt
+      update(activeStep === undefined ? undefined : ordinaryByStep.get(activeStep), {
+        prompt,
+        requestConfig: prompt.config,
+        ...(change === undefined ? {} : { promptChange: change }),
+      })
+      continue
+    }
+    if (sourceEvent.type === 'assistant/message') {
+      update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, sourceEvent.data.step)), {
+        completedAt: sourceEvent.time,
+        status: 'complete',
+        resultSeq: sourceEvent.seq,
+        provenance: {
+          provider: sourceEvent.data.provenance.provider,
+          model: sourceEvent.data.provenance.model,
+        },
+        ...(sourceEvent.data.usage === undefined ? {} : { usage: sourceEvent.data.usage }),
+      })
+      continue
+    }
+    if (sourceEvent.type === 'step/end') {
+      const key = requestKey(sourceEvent.data.turn, sourceEvent.data.step)
+      const index = ordinaryByStep.get(key)
+      const request = index === undefined ? undefined : requests[index]
+      if (request?.status === 'running') {
+        update(index, {
+          completedAt: sourceEvent.time,
+          status: 'error',
+        })
+      }
+      if (activeStep === key) activeStep = undefined
+      continue
+    }
+    if ((sourceEvent.type as string) === 'llm/retry') {
+      const event = sourceEvent as unknown as RetryEvent
+      update(ordinaryByStep.get(requestKey(event.data.turn, event.data.step)), {
+        status: 'error',
+        error: event.data.failure.message,
+        retry: event.data.retry,
+        maxRetries: event.data.maxRetries,
+        retryDelayMs: event.data.delayMs,
+      })
+      continue
+    }
+    if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
+      const reason = sourceEvent.data.reason
+      update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
+        status: 'error',
+        error: 'failure' in reason ? reason.failure.message : reason.message,
+      })
+      continue
+    }
+
+    const type = sourceEvent.type as string
+    if (type === 'compact/start') {
+      const event = sourceEvent as unknown as CompactionStartEvent
+      activeCompaction = requests.length
+      requests.push({
+        purpose: 'compaction',
+        startSeq: event.seq,
+        turn: event.data.turn,
+        step: 0,
+        startedAt: event.time,
+        completedAt: null,
+        status: 'running',
+      })
+      continue
+    }
+    if (type === 'compact/summary' && activeCompaction !== undefined) {
+      const event = sourceEvent as unknown as CompactionSummaryEvent
+      update(activeCompaction, {
+        resultSeq: event.seq,
+        summary: event.data.summary,
+        ...(event.data.rawOutput === undefined ? {} : { rawOutput: event.data.rawOutput }),
+        provenance: {
+          provider: event.data.provider,
+          model: event.data.model,
+        },
+        requestConfig: {
+          provider: event.data.provider,
+          model: event.data.model,
+          purpose: 'compaction',
+          ...(event.data.maxTokens === undefined ? {} : { maxTokens: event.data.maxTokens }),
+        },
+        ...(event.data.usage === undefined ? {} : { usage: event.data.usage }),
+      })
+      continue
+    }
+    if (
+      sourceEvent.type === 'user/message'
+      && activeCompaction !== undefined
+      && isCompactionSource(sourceEvent.data.source)
+    ) {
+      update(activeCompaction, { replacementSeq: sourceEvent.seq })
+      continue
+    }
+    if (type !== 'compact/end' || activeCompaction === undefined) continue
+    const event = sourceEvent as unknown as CompactionEndEvent
+    update(activeCompaction, {
+      completedAt: event.time,
+      status: event.data.error === undefined ? 'complete' : 'error',
+      ...(event.data.error === undefined ? {} : { error: event.data.error }),
+    })
+    activeCompaction = undefined
+  }
+
+  return requests.sort((left, right) => left.startSeq - right.startSeq)
+}
+
+function isCompactionSource(source: unknown): boolean {
+  return typeof source === 'object'
+    && source !== null
+    && 'kind' in source
+    && source.kind === 'plugin'
+    && 'plugin' in source
+    && source.plugin === 'compact'
+}

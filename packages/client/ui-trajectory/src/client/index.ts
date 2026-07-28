@@ -3,10 +3,11 @@
  * view slot without defining a service.
  */
 import type { Context } from 'cordis'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the 'conversation.view' SlotMap row (declared by the slot's
 // owning package) must be in the program for the register calls to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { TrajectoryView } from './TrajectoryView.tsx'
+import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.tsx'
 import { WaterfallView } from './WaterfallView.tsx'
 
 /**
@@ -16,7 +17,7 @@ import { WaterfallView } from './WaterfallView.tsx'
  * into an undeclared slot throws — service waiting is what orders this
  * apply after the declaring one.
  */
-export const inject = ['slots', 'conversation']
+export const inject = ['slots', 'conversation', 'sessions']
 
 /**
  * Client plugin body: register the trajectory and waterfall view tabs. The
@@ -25,8 +26,19 @@ export const inject = ['slots', 'conversation']
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
-  ctx.slots.register(
-    { name: 'conversation.view', id: 'trajectory', order: 10, label: 'Trajectory' }, TrajectoryView)
+  ctx.slots.register({
+    name: 'conversation.view',
+    id: 'trajectory',
+    order: 10,
+    label: 'Trajectory',
+    inject: (sessionId: SessionId): TrajectoryViewInjected => {
+      const session = ctx.sessions.binding(sessionId)?.session
+      if (session === undefined) {
+        throw new Error(`ui-trajectory: session "${sessionId}" resolved no binding`)
+      }
+      return { history: session.history }
+    },
+  }, TrajectoryView)
   ctx.slots.register(
     { name: 'conversation.view', id: 'waterfall', order: 20, label: 'Waterfall' }, WaterfallView)
 }

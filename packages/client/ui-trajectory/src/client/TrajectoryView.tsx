@@ -1,14 +1,14 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  AssistantMessageNode, CompactionRequestView, ConversationContext,
-  ConversationPromptChange, ModelRequestView,
+  AssistantMessageNode, ConversationContext, SessionHistory,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveTrajectoryContextBranches, trajectoryBranchContainsSeq,
-} from './context-branches.ts'
+  inspectRequests, projectConversationHistory,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import { deriveTrajectoryContextBranches } from './context-branches.ts'
 import {
   TrajectoryTable,
   type TrajectoryRequestNumber,
@@ -19,9 +19,11 @@ import { deriveTrajectoryLayout } from './layout.ts'
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
-const EMPTY_COMPACTION_REQUESTS: readonly CompactionRequestView[] = []
-const EMPTY_MODEL_REQUESTS: readonly ModelRequestView[] = []
-const EMPTY_PROMPT_CHANGES: readonly ConversationPromptChange[] = []
+
+/** Raw session-history source needed by the event-complete trajectory view. */
+export interface TrajectoryViewInjected {
+  history: SessionHistory
+}
 
 interface UsageLike {
   inputTokens?: number
@@ -67,30 +69,47 @@ function addUsage(
   }
 }
 
-export function TrajectoryView({ useSession }: ConvViewProps) {
+export function TrajectoryView({ useSession, history }: ConvViewProps & TrajectoryViewInjected) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<number>>(EMPTY_IDS)
   const nodes = useSession(s => s.nodes)
-  const projectedContexts = useSession(s => s.contexts)
-  const compactionRequests = useSession(
-    s => s.compactionRequests ?? EMPTY_COMPACTION_REQUESTS,
-  )
-  const requestAttempts = useSession(
-    s => s.requestAttempts ?? EMPTY_MODEL_REQUESTS,
-  )
-  const promptChanges = useSession(
-    s => s.promptChanges ?? EMPTY_PROMPT_CHANGES,
-  )
   const partial = useSession(s => s.partial)
   const runningCalls = useSession(s => s.runningCalls)
-  const callSchemas = useSession(s => s.callSchemas)
   const codeDispatches = useSession(s => s.codeDispatches)
+  const subscribeHistory = useMemo(
+    () => (listener: () => void) => history.subscribe(listener),
+    [history],
+  )
+  const getHistorySnapshot = useMemo(
+    () => () => history.getSnapshot(),
+    [history],
+  )
+  const historySnapshot = useSyncExternalStore(
+    subscribeHistory,
+    getHistorySnapshot,
+    getHistorySnapshot,
+  )
+  useEffect(() => {
+    if (historySnapshot.openState === 'open' && historySnapshot.hasMore) {
+      void history.loadAll()
+    }
+  }, [history, historySnapshot.hasMore, historySnapshot.openState])
+  const projectedHistory = useMemo(
+    () => projectConversationHistory(historySnapshot.entries),
+    [historySnapshot.entries],
+  )
+  const requestInspection = useMemo(
+    () => inspectRequests(historySnapshot.entries),
+    [historySnapshot.entries],
+  )
+  const requests = requestInspection.requests
+  const callSchemas = requestInspection.callSchemas
   const contexts = useMemo<readonly ConversationContext[]>(
-    () => projectedContexts === undefined || projectedContexts.length === 0
+    () => projectedHistory.contexts.length === 0
       ? [{ id: 0, nodes }]
-      : projectedContexts,
-    [nodes, projectedContexts],
+      : projectedHistory.contexts,
+    [nodes, projectedHistory.contexts],
   )
   const branches = useMemo(
     () => deriveTrajectoryContextBranches(contexts),
@@ -98,11 +117,9 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
   )
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = useMemo(() => {
-    const bySeq = new Map(currentBranch.nodes.map(node => [node.seq, node]))
-    for (const node of nodes) bySeq.set(node.seq, node)
-    return [...bySeq.values()].sort((left, right) => left.seq - right.seq)
-  }, [currentBranch, nodes])
+  const selectedNodes = projectedHistory.eventNodes.length === 0
+    ? nodes
+    : projectedHistory.eventNodes
   const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
@@ -115,46 +132,38 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
       if (node.kind !== 'assistant' || node.step <= 0) continue
       assistantsByStep.set(`${node.turn}\u0000${node.step}`, node)
     }
-    const attemptsByStep = new Map(
-      requestAttempts.map(request => [
-        `${request.turn}\u0000${request.step}`,
-        request,
-      ]),
+    const requestsByStep = new Map(
+      requests
+        .filter(request => request.purpose === 'assistant')
+        .map(request => [
+          `${request.turn}\u0000${request.step}`,
+          request,
+        ]),
     )
     const orderedRequests = [
-      ...requestAttempts.map(request => ({
+      ...requests.map(request => ({
         seq: request.startSeq,
-        kind: 'ordinary' as const,
         request,
-        node: assistantsByStep.get(`${request.turn}\u0000${request.step}`),
+        node: request.purpose === 'assistant'
+          ? assistantsByStep.get(`${request.turn}\u0000${request.step}`)
+          : undefined,
       })),
       ...[...assistantsByStep.entries()].flatMap(([key, node]) =>
-        attemptsByStep.has(key)
+        requestsByStep.has(key)
           ? []
           : [{
             seq: node.seq,
-            kind: 'ordinary' as const,
             request: undefined,
             node,
           }],
       ),
-      ...compactionRequests.map(request => ({
-        seq: request.startSeq,
-        kind: 'compaction' as const,
-        request,
-        node: undefined,
-      })),
     ].sort((left, right) => left.seq - right.seq)
     const numbered: TrajectoryRequestNumber[] = []
     let cumulativeUsage: TrajectoryUsage | undefined
     for (const [index, entry] of orderedRequests.entries()) {
-      const usage = requestUsage(
-        entry.kind === 'compaction'
-          ? entry.request.usage
-          : entry.request?.usage ?? entry.node?.usage,
-      )
+      const usage = requestUsage(entry.request?.usage ?? entry.node?.usage)
       cumulativeUsage = addUsage(cumulativeUsage, usage)
-      if (entry.kind === 'ordinary') {
+      if (entry.request?.purpose !== 'compaction') {
         const request = entry.request
         const node = entry.node
         const turn = request?.turn ?? node?.turn
@@ -223,10 +232,10 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
           step: partial.step,
           group: `Step ${partial.step}`,
           number: orderedRequests.length + 1,
-          ...(currentBranch.latest.prompt?.config?.provider === undefined
+          ...(currentBranch.latest.prompt?.config.provider === undefined
             ? {}
             : { provider: currentBranch.latest.prompt.config.provider }),
-          ...(currentBranch.latest.prompt?.config?.model === undefined
+          ...(currentBranch.latest.prompt?.config.model === undefined
             ? {}
             : { model: currentBranch.latest.prompt.config.model }),
           ...(currentBranch.latest.prompt?.config === undefined
@@ -238,48 +247,20 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
     }
     return numbered
   }, [
-    compactionRequests, contexts, currentBranch.latest.prompt, nodes, partial,
-    requestAttempts,
+    contexts, currentBranch.latest.prompt, nodes, partial, requests,
   ])
-  const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
-    return globalRequestNumbers.filter(request =>
-      request.seq === undefined
-      || trajectoryBranchContainsSeq(currentBranch, request.seq),
-    )
-  }, [currentBranch, globalRequestNumbers])
-  const visibleRequestAttempts = useMemo(
-    () => requestAttempts.filter(request =>
-      requestNumbers.some(number =>
-        number.purpose !== 'compaction' && number.seq === request.startSeq,
-      )),
-    [requestAttempts, requestNumbers],
-  )
-  const visibleCompactionRequests = useMemo(
-    () => compactionRequests.filter(request =>
-      requestNumbers.some(number =>
-        number.purpose === 'compaction' && number.seq === request.startSeq,
-      )),
-    [compactionRequests, requestNumbers],
-  )
-  const visiblePromptChanges = useMemo(
-    () => promptChanges.filter(change =>
-      trajectoryBranchContainsSeq(currentBranch, change.seq)),
-    [currentBranch, promptChanges],
-  )
+  const requestNumbers = globalRequestNumbers
   const turns = useMemo(
     () => deriveTrajectoryLayout({
       nodes: selectedNodes,
       partial,
       runningCalls,
-      compactionRequests: visibleCompactionRequests,
-      requestAttempts: visibleRequestAttempts,
-      promptChanges: visiblePromptChanges,
+      requests,
       callSchemas,
       codeDispatches,
     }),
     [
-      selectedNodes, partial, runningCalls, visibleCompactionRequests,
-      visibleRequestAttempts, visiblePromptChanges, callSchemas, codeDispatches,
+      selectedNodes, partial, runningCalls, requests, callSchemas, codeDispatches,
     ],
   )
   const collapsibleTurnIds = useMemo(

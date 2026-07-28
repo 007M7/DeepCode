@@ -6,7 +6,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import { FoldAdapter } from '../src/client/sessions/fold-adapter.ts'
+import {
+  FoldAdapter, projectConversationHistory,
+} from '../src/client/sessions/fold-adapter.ts'
 import { ev, plainTurn } from './event-script.ts'
 
 const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
@@ -35,8 +37,7 @@ describe('FoldAdapter', () => {
   })
 
   it('projects frozen surface generations without widening the core live surface', () => {
-    const adapter = new FoldAdapter()
-    adapter.reset([
+    const events = [
       ev.user(0, 'a'),
       ev.user(1, 'b'),
       at(2, {
@@ -61,9 +62,9 @@ describe('FoldAdapter', () => {
           provenance: { provider: 'fake', model: 'fake' },
         },
       }),
-    ], 0)
+    ]
 
-    expect(adapter.contexts().map(context => ({
+    expect(projectConversationHistory(events.map(event => ({ event }))).contexts.map(context => ({
       id: context.id,
       parentId: context.parentId,
       originSeq: context.originSeq,

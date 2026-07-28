@@ -10,13 +10,45 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import {
   SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
 } from '@deepseek-ai/dsh-session/surface'
-import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { AssistantTiming, ConversationNode } from './conversation.ts'
+import type {
+  HistoryEntry, ToolCallView, ToolEventView, ToolResultView,
+} from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  AssistantRequestConfig, AssistantTiming, ConversationNode,
+} from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 import type {
-  AssistantRequestConfig, ConversationContext, ConversationContextOriginKind,
-  ConversationPromptSnapshot,
-} from './inspection.ts'
+  ConversationContext, ConversationContextOriginKind,
+} from './conversation-context.ts'
+import type { ConversationPromptSnapshot } from './request-inspection.ts'
+
+/** Lazy event-order and context-generation projection for history consumers. */
+export interface ConversationHistoryProjection {
+  eventNodes: readonly ConversationNode[]
+  contexts: readonly ConversationContext[]
+}
+
+/**
+ * Project an immutable raw history window into event-order nodes and context
+ * generations. Session's chat snapshot never computes this projection.
+ * @param entries - Contiguous history entries in sequence order.
+ * @returns Inspection-oriented conversation projections.
+ */
+export function projectConversationHistory(
+  entries: readonly HistoryEntry[],
+): ConversationHistoryProjection {
+  const adapter = new FoldAdapter(true)
+  const events = entries.map(entry => entry.event)
+  adapter.reset(
+    events,
+    events[0]?.seq ?? 0,
+    entries.map(entry => entry.view),
+  )
+  return {
+    eventNodes: adapter.eventNodes(),
+    contexts: adapter.contexts(),
+  }
+}
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
 export interface CallIndexEntry {
@@ -155,12 +187,19 @@ export class FoldAdapter {
    *  reference-stability contract (§A.9.4) starts here. */
   private rev = 0
   private nodesResult: { rev: number; value: { nodes: ConversationNode[]; degraded: boolean } } | null = null
+  private eventNodesResult: { rev: number; value: readonly ConversationNode[] } | null = null
   /** Revision of context structure or its request header; unrelated log-only events do not rebuild contexts. */
   private contextRev = 0
   private contextsResult: { rev: number; value: readonly ConversationContext[] } | null = null
   private contextGeneration = 0
   private activePrompt: ConversationPromptSnapshot | undefined
   private promptsByContext = new Map<number, ConversationPromptSnapshot>()
+
+  /**
+   * @param projectContexts - Whether to maintain context-generation indexes
+   * for a later history projection. The live chat fold leaves this disabled.
+   */
+  constructor(private readonly projectContexts = false) {}
 
   /** In-window tool/call index (Session uses it for runningCalls and result-card backfill). */
   get callIndex(): ReadonlyMap<string, CallIndexEntry> {
@@ -176,7 +215,7 @@ export class FoldAdapter {
    */
   reset(events: readonly SessionEvent[], baseSeq: number, views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
-    this.contextRev++
+    if (this.projectContexts) this.contextRev++
     this.baseSeq = baseSeq
     this.padded = []
     for (let i = 0; i < baseSeq; i++) this.padded.push(paddingEvent(i))
@@ -194,7 +233,7 @@ export class FoldAdapter {
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
       if (event !== undefined) {
         this.indexCall(event, views?.[i])
-        this.indexContextPrompt(event)
+        if (this.projectContexts) this.indexContextPrompt(event)
       }
     }
   }
@@ -207,10 +246,12 @@ export class FoldAdapter {
    */
   append(event: SessionEvent, view?: ToolEventView): void {
     this.rev++
-    if (isSurfaceEvent(event) || event.type === 'request/header') this.contextRev++
+    if (this.projectContexts && (isSurfaceEvent(event) || event.type === 'request/header')) {
+      this.contextRev++
+    }
     this.padded.push(event)
     this.indexCall(event, view)
-    this.indexContextPrompt(event)
+    if (this.projectContexts) this.indexContextPrompt(event)
   }
 
   /**
@@ -244,10 +285,32 @@ export class FoldAdapter {
   }
 
   /**
+   * Every in-window message-producing event in original sequence order, without surface replacement folding.
+   * @returns append-only event projection for history inspection.
+   */
+  eventNodes(): readonly ConversationNode[] {
+    if (this.eventNodesResult !== null && this.eventNodesResult.rev === this.rev) {
+      return this.eventNodesResult.value
+    }
+    const nodes: ConversationNode[] = []
+    for (let seq = this.baseSeq; seq < this.padded.length; seq++) {
+      const event = this.padded[seq]
+      if (event === undefined || !isSurfaceEligibleType(event.type)) continue
+      const node = this.materialize(seq)
+      if (node !== undefined) nodes.push(node)
+    }
+    this.eventNodesResult = { rev: this.rev, value: nodes }
+    return nodes
+  }
+
+  /**
    * Append-only context generations reconstructed from canonical surface replacements.
    * @returns Frozen historical contexts followed by the current context.
    */
   contexts(): readonly ConversationContext[] {
+    if (!this.projectContexts) {
+      throw new Error('FoldAdapter context projection was not enabled')
+    }
     if (this.contextsResult !== null && this.contextsResult.rev === this.contextRev) {
       return this.contextsResult.value
     }

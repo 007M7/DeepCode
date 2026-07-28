@@ -28,16 +28,21 @@ export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
-  ConversationNode,
+  AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
+  AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode, ConversationNode,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
-  AssistantProvenanceView, AssistantRequestConfig, CompactionRequestView,
-  ConversationContext, ConversationContextOriginKind, ConversationPromptChange,
-  ConversationPromptSnapshot, ModelRequestView,
-} from './sessions/inspection.ts'
+  ConversationContext, ConversationContextOriginKind,
+} from './sessions/conversation-context.ts'
+export type {
+  ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
+} from './sessions/request-inspection.ts'
+export { inspectRequests } from './sessions/request-inspection.ts'
+export { projectConversationHistory } from './sessions/fold-adapter.ts'
+export type { ConversationHistoryProjection } from './sessions/fold-adapter.ts'
+export type { SessionHistory, SessionHistorySnapshot } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
