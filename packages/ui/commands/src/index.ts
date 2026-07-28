@@ -119,11 +119,6 @@ class CommandLayer implements ScopeLayer {
 }
 
 declare module '@deepseek-ai/dsh-session' {
-  interface TurnTriggerMap {
-    /** Zero-step turn opened only to durably record a command lifecycle event on an idle log. */
-    command: { kind: 'command' }
-  }
-
   interface SessionEventMap {
     /**
      * A resolved slash command entered its handler. Log-only (never model
@@ -141,11 +136,6 @@ declare module '@deepseek-ai/dsh-session' {
      * rendered failure); presentation stays client-computed at render time.
      */
     'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
-  }
-
-  interface OutOfBandSessionEventMap {
-    'command/run': true
-    'command/done': true
   }
 }
 
@@ -286,9 +276,6 @@ function normalizeResult(command: string, value: unknown): CommandResult {
  * globals for that agent.
  */
 export class CommandService extends Service {
-  /** The executor writes lifecycle events through the session store. */
-  static inject = ['sessions']
-
   private readonly layers = new ScopedLayers(
     scope => new CommandLayer(scope),
     () => { this.notifyChange() },
@@ -298,12 +285,6 @@ export class CommandService extends Service {
   private commandSeq = 0
   /** Instance token keeping minted ids unique across process restarts over one resumed log. */
   private readonly instanceToken = crypto.randomUUID().slice(0, 8)
-  /**
-   * Per-session lifecycle-append chains: `appendOutOfBand` rejects a second
-   * concurrent out-of-band append, so this service serializes its own writes
-   * (the session-title tail-queue pattern).
-   */
-  private readonly logTails = new WeakMap<Session, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx, 'commands')
@@ -348,13 +329,15 @@ export class CommandService extends Service {
   /**
    * Parse and execute a known command without sending it to the model.
    *
-   * A resolved command's lifecycle is durably logged: `command/run` is
-   * appended before the handler is invoked and `command/done` after
-   * settlement (a thrown or aborted handler settles as `kind: 'error'`).
-   * Admission misses (syntax or unknown name) log nothing — they never
-   * entered a handler. A `command/run` append failure fails the execution
-   * loud; a `command/done` append failure on the handler-failure path is
-   * contained so the handler's own error stays the reported failure.
+   * A resolved command's lifecycle is logged: `command/run` is appended
+   * before the handler is invoked and `command/done` after settlement (a
+   * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+   * log-only appends — no turn wraps them, and persistence drains them at
+   * ordinary checkpoints. Admission misses (syntax or unknown name) log
+   * nothing — they never entered a handler. A `command/run` append failure
+   * fails the execution loud; a `command/done` append failure on the
+   * handler-failure path is contained so the handler's own error stays the
+   * reported failure.
    *
    * @param agent - exact receiving agent.
    * @param line - complete slash-command line.
@@ -373,7 +356,7 @@ export class CommandService extends Service {
     if (command === undefined) return undefined
     if (signal.aborted) throw abortError(signal)
     const commandId = this.mintCommandId()
-    await this.appendLifecycle(agent.session, 'command/run', {
+    this.appendLifecycle(agent.session, 'command/run', {
       commandId, name: parsed.name, args: parsed.rawInput, source: { kind: 'user' },
     })
     const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
@@ -383,7 +366,7 @@ export class CommandService extends Service {
       result = normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
     } catch (error: unknown) {
       try {
-        await this.appendLifecycle(agent.session, 'command/done', {
+        this.appendLifecycle(agent.session, 'command/done', {
           commandId, kind: 'error',
           text: error instanceof Error ? error.message : renderThrown(error),
         })
@@ -392,7 +375,7 @@ export class CommandService extends Service {
       }
       throw error
     }
-    await this.appendLifecycle(agent.session, 'command/done', {
+    this.appendLifecycle(agent.session, 'command/done', {
       commandId, kind: result.kind,
       ...result.text === undefined ? {} : { text: result.text },
     })
@@ -406,19 +389,21 @@ export class CommandService extends Service {
   }
 
   /**
-   * Append one lifecycle event, serialized per session: `appendOutOfBand`
-   * rejects concurrent out-of-band appends, and two commands may overlap on
-   * one session.
+   * Append one log-only lifecycle event directly: no turn is opened for it and
+   * no flush is forced — persistence observes the eager `session/event` path
+   * and drains at ordinary checkpoints and teardown, like every other
+   * standalone plugin event.
    */
   private appendLifecycle<T extends 'command/run' | 'command/done'>(
     session: Session,
     type: T,
     data: SessionEventMap[T],
-  ): Promise<SessionEvent<T>> {
-    const tail = this.logTails.get(session) ?? Promise.resolve()
-    const run = tail.then(() => this.ctx.sessions.appendOutOfBand(session, type, data, { kind: 'command' }))
-    this.logTails.set(session, run.then(() => undefined, () => undefined))
-    return run
+  ): SessionEvent<T> {
+    // Both admitted types are log-only (non-surface), but TypeScript does not
+    // reduce Session.append's conditional rest parameter through a generic
+    // type parameter. Preserve the proven two-argument call shape.
+    const appendLogOnly = session.append.bind(session) as (eventType: T, eventData: SessionEventMap[T]) => SessionEvent<T>
+    return appendLogOnly(type, data)
   }
 
   /** Resolve global definitions followed by exact scoped shadows. */
