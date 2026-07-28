@@ -1,11 +1,11 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
 import type {
-  MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+  InjectFace, MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConversationSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, ObservableSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, InputActions, InputState } from '../input/contract.ts'
+import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -220,6 +220,13 @@ export interface ComposerBarInjected {
   keyboard: ComposerKeyboard
   /** Cancel the in-flight turn. */
   stop: () => void
+  /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
+  hooks: {
+    /** Latest surfaced notice (null after none; seq keys re-render of repeats). */
+    notices: ObservableSnapshot<InputNotice | null>
+    /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
+    lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
+  }
 }
 
 /**
@@ -231,11 +238,11 @@ export interface InputControlOwnerProps {
   locked: boolean
 }
 
-/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share. */
+/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share (hooks compartment bound). */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
   & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
-  & ComposerBarInjected
+  & InjectFace<ComposerBarInjected>
 
 /**
  * Composer chain currency: what ConversationRoot dispatches at its

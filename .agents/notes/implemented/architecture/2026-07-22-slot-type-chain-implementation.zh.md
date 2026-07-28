@@ -45,7 +45,7 @@ ctx.slots.register({
 | 运行时 | `PropsRuntime<K>` | K 对应的 SlotMap entry | `OwnerOf<K>`（渲染现场传参）+ session scope 标配 `useSession`/`sessionId` + 全局 `useSessions`/`useWorkspaces` |
 | 子坑渲染 | `PropsRenderSlots<S>` | register 的 `children` 键集 | `renderSlot(key, owner)`，键参静态收窄到 S；chain 键另有 `renderSlotChain` |
 | store | `PropsStore<H>` | store 工厂的返回类型 | `useStore` selector hook + `actions.*`（剥去 draft 形参） |
-| 业务 | `I` | inject 的返回类型 | 普通数据+回调（禁 hook） |
+| 业务 | `I` | inject 的返回类型 | 普通数据+回调；保留键 `hooks` 格的裸 observable 经绑定以 `use<Name>` 选择器 hook 到达（`InjectFace<I>`） |
 
 凡声明 `scope: 'session'` 之处，`sessionId` 一律由框架供给——owner 传参不携带它。register 调用点是双向锁的收口：组件的 renderSlot 键集超出 `children` 声明、漏接某个已声明的面、store/inject 形状漂移，任何一条都在那一行上报编译错误。转授就是普通的 props 传递（把 `renderSlot` 函数递下去，可按需包一层更窄的签名）——不存在白名单面对象，也不存在铸面 API。
 
@@ -80,11 +80,11 @@ store 的 scope **从挂载 entry 的 scope 推导**（session 坑→每个会�
 
 ### inject：注册方的业务面，立足自己的 ctx
 
-inject 工厂只收其声明挣来的形参——session 坑得 `sessionId`，声明了 store 的得绑定好的 `actions`，否则无参——取服务一律经 **apply 闭包自己的 ctx**，其能力边界因此就是本插件声明的 `inject` 拓扑（cordis property proxy 原生生效；不存在携带更宽 ctx 的装配句柄）。返回值只含普通数据与回调：本插件自有服务的收窄读写面、跨服务编排（如 `send` = `actions.clearDraft()` + `ctx.conversation.send(...)`）、以及 per-(entry×session) 的装配副作用。禁 hook、禁 ReactNode 生产者、禁递整个服务对象——收窄本身就是价值：组件能做什么，恰由工厂返回值的形状圈定。
+inject 工厂只收其声明挣来的形参——session 坑得 `sessionId`，声明了 store 的得绑定好的 `actions`，否则无参——取服务一律经 **apply 闭包自己的 ctx**，其能力边界因此就是本插件声明的 `inject` 拓扑（cordis property proxy 原生生效；不存在携带更宽 ctx 的装配句柄）。返回值是普通数据与回调，至多外加保留键 `hooks` 格：一张裸 observable source（getSnapshot+subscribe）表，渲染器在业务面抵达组件前把每个 source 绑成 `use<Name>` 选择器 hook——即 provide 通道 hooks 格的注册方私有孪生，供太小众、不该进全局标准件的响应式事实（composer 的 notices/lexicon、settings 导航行）取用。组件永远收不到裸 source，业务代码因此仍零订阅机械。其余保持普通：本插件自有服务的收窄读写面、跨服务编排（如 `send` = `actions.clearDraft()` + `ctx.conversation.send(...)`）、以及 per-(entry×session) 的装配副作用。禁手造 hook、禁 ReactNode 生产者、禁递整个服务对象——收窄本身就是价值：组件能做什么，恰由工厂返回值的形状圈定。
 
 ### 数据界线纪律
 
-hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStore`、`renderSlot` 是仅有的五席，各实现一次、正确性由框架担保；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
+hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStore`、`renderSlot` 五席，加上 provide 贡献与 inject `hooks` 格绑出的 hook——全部出自渲染器同一台绑定机械；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
 
 ### 树上语境与渲染器安装缝
 
@@ -111,7 +111,7 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 | 白名单面对象（`ScopedSlots` + 收窄辅助件） | 白名单已在组件的 props 类型里，面可由机械推导；可铸造的面对象是第三个权威面，且只有运行时校验 |
 | 装配句柄把 root ctx 带进 inject | 绕开声明的 inject 拓扑——每个工厂都摸得到每个服务，package.json 的依赖声明就此失去意义 |
 | `children` 用键数组形 | kind/scope 是运行时分派数据；SlotMap 已被擦除，数组形必然逼出第二个 spec 注册 API——定义 API 复活 |
-| 业务经 inject 自定义 hook | 每个插件都变成自己的订阅机械；框架 store 席位用一台受审计的机械承载同样的数据 |
+| 业务手造 hook / 组件 props 里递裸 observable | 每个插件都变成自己的订阅机械；inject `hooks` 格让同样的事实走那一台受审计的绑定机械 |
 | 模块级 store 句柄 | 模块级句柄是跨插件重载与跨测试用例的单例；工厂形把身份圈定在单次 apply/测试调用内 |
 | 组件直收 store 实例 | 渲染代码里能用 `update`/`set`，变更面就无从审计；声明的 actions 让「什么能变」保持为 register 现场的事实 |
 | 注册位用 `FC` / 从组件推断 `I` | FC 静态位产生协变噪音、拒绝合法组件；组件侧推断静默吸收 props 漂移（见上文裁定） |
