@@ -66,8 +66,8 @@ function validateEvent(
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
 
-  // Model input may be appended between turns without running the model.
-  // Merge-extensible package events remain turn-enclosed by default.
+  // Context and plugin-owned log-only events may be appended between model
+  // executions. Core execution events retain their explicit turn relations.
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -143,12 +143,17 @@ function validateEvent(
     }
     case 'user/message':
       break
-    default: {
+    case 'steering/message':
+    case 'todo/write':
+    case 'request/header': {
       if (trace.openTurn === null) {
-        fail(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)
+        fail(`${event.type} appended outside any open turn (core execution events must be turn-enclosed)`)
       }
       break
     }
+    default:
+      // Merge-extensible event relations belong to their owning plugin.
+      break
   }
   return {
     scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },

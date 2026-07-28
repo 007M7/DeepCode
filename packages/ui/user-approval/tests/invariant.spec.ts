@@ -13,10 +13,15 @@ async function setup(): Promise<Context> {
   return ctx
 }
 
+function startTurn(session: Session): void {
+  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+}
+
 describe('approval invariants', () => {
   it('accepts paired audit events and closed policy values', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
+    startTurn(session)
     const id = ApprovalRequestId('ask-1')
     session.append('approval/asked', { id, toolName: 'bash' })
     session.append('approval/decided', { id, outcome: 'allowed-once' })
@@ -47,14 +52,43 @@ describe('approval invariants', () => {
       type: 'approval/decided', seq: 1, time: 1, data: { id, outcome: 'rejected' as const },
     } as const
     expect(() => {
+      ctx.emit('session/event', session, {
+        type: 'turn/start', seq: 0, time: 0,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      })
       ctx.emit('session/event', session, asked)
       ctx.emit('session/event', session, decided)
     }).not.toThrow()
   })
 
+  it('rejects audit events outside any open turn', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    expect(() => session.append('approval/asked', {
+      id: ApprovalRequestId('ask-1'), toolName: 'bash',
+    })).toThrow(/outside any open turn/)
+    expect(() => session.append('approval/decided', {
+      id: ApprovalRequestId('ask-1'), outcome: 'rejected',
+    })).toThrow(/outside any open turn/)
+  })
+
+  it('rejects an unenclosed audit event when replaying an existing session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    startTurn(session)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('approval/asked', {
+      id: ApprovalRequestId('ask-replay'), toolName: 'bash',
+    })
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(ApprovalInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
+  })
+
   it('rejects malformed and unpaired audit events', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
+    startTurn(session)
     const id = ApprovalRequestId('ask-1')
     expect(() => session.append('approval/asked', { id, toolName: '' }))
       .toThrow(/toolName must be non-empty/)

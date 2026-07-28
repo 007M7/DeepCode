@@ -1,6 +1,7 @@
 # Agent Note: 每个会话事件都封闭在一个轮次内
 
 Status: implemented
+Archived: 2026-07-28
 
 [English](2026-06-15-turn-enclosure-invariant.md) | 中文
 

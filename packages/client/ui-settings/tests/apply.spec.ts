@@ -60,22 +60,25 @@ describe('ui-settings apply', () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const injected = injectedOf(b.slots)
+    const { sections } = injectedOf(b.slots).hooks
     // The shell ships no sections of its own — registrants fill the ledger.
-    expect(injected.sections()).toEqual([])
+    expect(sections.getSnapshot()).toEqual([])
     b.slots.register({ name: 'settings.section', id: 'z', order: 20, label: 'Z' } as never, () => null)
     // No order and no label: both projection defaults apply.
     b.slots.register({ name: 'settings.section', id: 'a' } as never, () => null)
-    expect(injected.sections()).toEqual([
+    const rows = sections.getSnapshot()
+    expect(rows).toEqual([
       { id: 'a', order: 0, label: '' },
       { id: 'z', order: 20, label: 'Z' },
     ])
-    expect(injected.sectionsVersion()).toBe(b.slots.getVersion('settings.section'))
+    // Snapshot identity is stable until the ledger moves (uSES contract).
+    expect(sections.getSnapshot()).toBe(rows)
     const listener = vi.fn()
-    const off = injected.subscribeSections(listener)
+    const off = sections.subscribe(listener)
     b.slots.register({ name: 'settings.section', id: 'b', order: 1, label: 'B' } as never, () => null)
     await Promise.resolve()
     expect(listener).toHaveBeenCalled()
+    expect(sections.getSnapshot()).not.toBe(rows)
     off()
   })
 

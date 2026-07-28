@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
-import { HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
+import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import { DisabledInputBar } from './DisabledInputBar.tsx'
 import css from './ConversationRoot.module.css'
 
@@ -36,33 +36,53 @@ export function ConversationRoot({
     workspace => workspace.workspaceId === pendingWorkspaceId,
   )
 
+  // Clear the pending pick once the session lands in it, or when the picked
+  // workspace disappears from a ready list (deleted from the sidebar).
   useEffect(() => {
-    if (pendingWorkspaceId !== undefined
-      && sessionWorkspace?.workspaceId === pendingWorkspaceId) {
+    if (pendingWorkspaceId === undefined) return
+    if (sessionWorkspace?.workspaceId === pendingWorkspaceId
+      || (workspaces.phase === 'ready' && pendingWorkspace === undefined)) {
       setPendingWorkspaceId(undefined)
     }
-  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId])
+  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
 
-  const hero = sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))
+  // While a session is still replaying (loading + blank) the hero/docked
+  // choice is unknowable — render the composer hidden instead of flashing
+  // the centered hero and snapping to the docked bar (or vice versa).
+  const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
+  const hero = sessionId === undefined || (composerPhase === 'blank' && openState === 'open')
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
+  // Flow optimization — worth a close PR review for code/boundary issues.
+  // The chip is a selector; label resolution walks the flow top-down:
+  //   1. a just-picked workspace (pending) → its title;
+  //   2. cold start, no session yet → placeholder ("Choose workspace");
+  //   3. the blank session's workspace is in the list → its title;
+  //   4. list still loading → cwd folder name bridges so the title does not
+  //      flash on refresh (empty cwd → placeholder);
+  //   5. list ready but no owning workspace (deleted from the sidebar) →
+  //      placeholder, never the deleted folder's name via cwd.
+  const chipTitle = pendingWorkspace?.title
+    ?? (sessionId === undefined
+      ? undefined
+      : sessionWorkspace?.title
+        ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''
+          ? undefined
+          : workspaceLabel(cwd)))
+
   const heroWorkspaceRow = (
-    <>
+    <div className={css.heroWorkspaceRow}>
       <WorkspaceChip
         buttonRef={pickerAnchor}
-        label={
-          pendingWorkspace?.title
-          ?? (sessionId === undefined
-            ? workspaceLabel('')
-            : sessionWorkspace?.title ?? workspaceLabel(cwd ?? ''))
-        }
+        label={chipTitle}
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
       />
       {renderSlot('conversation.hero.workspace', {
         open: pickerOpen,
         anchorRef: pickerAnchor,
+        selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
         onPick: (workspaceId) => {
           setPickerOpen(false)
           setPendingWorkspaceId(workspaceId)
@@ -72,10 +92,13 @@ export function ConversationRoot({
         },
         onClose: () => { setPickerOpen(false) },
       })}
-    </>
+    </div>
   )
 
-  const inputBar = sessionId === undefined
+  // The placeholder chip ("Choose workspace") and the inert input travel
+  // together: a blank session whose workspace vanished (deleted from the
+  // sidebar) reverts to the same disabled bar as the initial no-session state.
+  const inputBar = sessionId === undefined || (hero && chipTitle === undefined)
     ? <DisabledInputBar />
     : renderSlot('conversation.composer.bar', {
       variant: hero ? 'hero' : 'composer',
@@ -87,6 +110,7 @@ export function ConversationRoot({
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
+      {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell />}
       {hero && heroWorkspaceRow}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
@@ -96,7 +120,7 @@ export function ConversationRoot({
   )
 
   return (
-    <div className={css.root} data-phase={hero ? 'hero' : 'active'}>
+    <div className={css.root} data-phase={settling ? 'settling' : hero ? 'hero' : 'active'}>
       {/* Mounted for every real session, hero included: ConversationSession
           renders no chrome while blank but owns the draft-persistence mirror
           bind — unmounting it in the hero would lose pre-first-send text on

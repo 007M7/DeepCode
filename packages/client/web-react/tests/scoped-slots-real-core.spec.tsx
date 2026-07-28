@@ -26,6 +26,7 @@ type FrameSlots = PropsRenderSlots<'spec.single' | 'spec.list'>
 
 /** Passthrough host over the real core (store/session seats unused here). */
 function hostOver(core: SlotCore): SlotRendererHost {
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   return {
     subscribe: (key, fn) => core.subscribe(key, fn),
     getVersion: key => core.getVersion(key),
@@ -35,9 +36,7 @@ function hostOver(core: SlotCore): SlotRendererHost {
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-      current: { getSnapshot: () => undefined, subscribe: () => () => {} },
-      provideInfo: () => undefined,
-      maybeProvideInfo: () => ({ sessionId: undefined, hooks: {}, props: {} }),
+      provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     },
     workspaces: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },

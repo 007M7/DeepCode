@@ -32,7 +32,7 @@ Outside that window, `inject()` appends its `user/message` immediately. It does 
 
 If prompt admission blocks or fails, a caller-staged context-only batch appends immediately without a turn. Steering and context staged beside it remain in the outbox for a later admitted prompt; cancellation or disposal may discard them. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
 
-The session invariant permits `user/message` between turns while continuing to require turn enclosure for execution events, steering, assistant output, tools, and package-added events by default. Persistence, recovery, resume, fork, and compaction treat a valid out-of-turn `user/message` as committed session history rather than an interrupted or discardable turn tail.
+The session invariant permits `user/message` between turns while continuing to require turn enclosure for core execution events, steering, assistant output, and tools. Merge-extensible event relations belong to their declaring plugin rather than a core default. Persistence, recovery, resume, fork, and compaction treat valid between-turn events as committed session history rather than an interrupted or discardable turn tail.
 
 ## Extension and caller semantics
 
@@ -42,7 +42,7 @@ Caller-driven injection and hook-produced additional context deliberately have d
 
 Cross-session references use that domain composition: TUI prepares the snapshot, then either adds it to the prompt's admission decision outside an acceptance window or injects it beside steering during one. The target log contains two simple messages, so later source mutation cannot change replay and transcript consumers do not need a prompt envelope. This supersedes the attachment mechanism in the [cross-session reference decision](../feature/2026-07-21-cross-session-references.md) while retaining its snapshot and trust-boundary rules.
 
-This decision preserves the caller-owned framing decision from [unwrapped injected content](../simplification/2026-07-20-unwrap-injected-content-envelopes.md), the one-item turn rule from [one send, one turn](../simplification/2026-07-17-one-send-one-turn.md), and narrows the [turn-enclosure decision](2026-06-15-turn-enclosure-invariant.md) so turns enclose execution rather than every session event.
+This decision preserves the caller-owned framing decision from [unwrapped injected content](../simplification/2026-07-20-unwrap-injected-content-envelopes.md) and the one-item turn rule from [one send, one turn](../simplification/2026-07-17-one-send-one-turn.md). The later [standalone log-only event decision](../simplification/2026-07-28-remove-synthetic-log-only-turns.md) applies the same execution-only meaning to plugin-owned records.
 
 ## Alternatives considered
 
