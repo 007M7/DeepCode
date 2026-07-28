@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // TerminalBlock: the prompt label's cwd shortening, the running/empty/settled
-// arms, the exit-status pill, the head/tail height cap and its expand control,
+// arms, the prompt line's run-state dot, the exit-status pill, the head/tail height cap and its expand control,
 // and the copy control writing the raw output on both the accepted and the
 // refused clipboard paths. writeClipboard's own return contract is pinned here
 // too, since it is the seam both copy controls in this package share; the
@@ -23,6 +23,15 @@ beforeEach(() => {
 /** The rendered output rows, one string per visible line (CSS-module class prefix). */
 function outputLines(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[class^="_line_"]')].map(row => row.textContent ?? '')
+}
+
+/** The prompt line's run-state dot: its StateDot state plus the hidden text label beside it. */
+function runStateOf(container: HTMLElement): { state: string | null; label: string | undefined } {
+  const dot = container.querySelector('[class*="_runState_"][data-state]')
+  return {
+    state: dot?.getAttribute('data-state') ?? null,
+    label: container.querySelector('[class^="_runStateLabel_"]')?.textContent ?? undefined,
+  }
 }
 
 /** `count` numbered output lines, without the terminating newline. */
@@ -128,7 +137,8 @@ describe('TerminalBlock states', () => {
 
   it('renders ANSI runs as styled spans and plain text bare', () => {
     const view = render(<TerminalBlock command="ls" output={`${ESC}[31mbad${ESC}[39m ok`} />)
-    const span = view.container.querySelector('span[style]')
+    // Scoped to a line: the prompt line's run-state dot is a styled span too.
+    const span = view.container.querySelector('[class^="_line_"] span[style]')
     expect(span?.textContent).toBe('bad')
     expect(span?.getAttribute('style')).toContain('--dsw-alias-state-error-primary')
     expect(outputLines(view.container)).toEqual(['bad ok'])
@@ -160,6 +170,46 @@ describe('TerminalBlock status pill', () => {
     render(<TerminalBlock command="sleep 9" output="a" exitCode={0} signal="SIGKILL" />)
     expect(screen.getByText('信号 SIGKILL')).toBeTruthy()
     expect(screen.queryByText(/退出码/u)).toBeNull()
+  })
+})
+
+describe('TerminalBlock run-state dot', () => {
+  it('shows the spinning ring and its running label while the command runs', () => {
+    const view = render(<TerminalBlock command="sleep 5" running />)
+    expect(runStateOf(view.container)).toEqual({ state: 'ongoing', label: '运行中' })
+  })
+
+  it('shows the done dot for a clean settled exit', () => {
+    const view = render(<TerminalBlock command="true" output="a" exitCode={0} />)
+    expect(runStateOf(view.container)).toEqual({ state: 'done', label: '已完成' })
+  })
+
+  it('counts a settled command with no exit status as a clean settle', () => {
+    const view = render(<TerminalBlock command="ls" output="a" />)
+    expect(runStateOf(view.container)).toEqual({ state: 'done', label: '已完成' })
+  })
+
+  it('shows the error dot for a non-zero exit', () => {
+    const view = render(<TerminalBlock command="false" output="a" exitCode={1} />)
+    expect(runStateOf(view.container)).toEqual({ state: 'error', label: '失败' })
+  })
+
+  it('shows the error dot for a signal, whatever the exit code says', () => {
+    const view = render(<TerminalBlock command="sleep 9" output="a" exitCode={0} signal="SIGKILL" />)
+    expect(runStateOf(view.container)).toEqual({ state: 'error', label: '失败' })
+  })
+
+  // The dot precedes the prompt label, which is what makes it read as the
+  // state OF this command rather than of the card's chrome.
+  it('places the dot ahead of the prompt label and the command', () => {
+    const view = render(<TerminalBlock command="ls" cwd="/srv/app" output="a" />)
+    const prompt = view.container.querySelector('[class^="_prompt_"]')
+    expect([...prompt!.children].map(node => node.textContent)).toEqual(['', '已完成', 'app', 'ls'])
+  })
+
+  it('keeps the running dot even while a settled-looking status pill is supplied', () => {
+    const view = render(<TerminalBlock command="sleep 5" running signal="SIGINT" />)
+    expect(runStateOf(view.container)).toEqual({ state: 'ongoing', label: '运行中' })
   })
 })
 

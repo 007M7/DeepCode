@@ -207,6 +207,34 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       return { whiteSpace: getComputedStyle(row).whiteSpace, overflowX: getComputedStyle(pane).overflowX, ...squeezed }
     })
     expect(layout).toEqual({ whiteSpace: 'pre', overflowX: 'auto', wrapped: false, scrollsSideways: true })
+    // The run-state dot's color is the whole point of it and is the one thing
+    // jsdom cannot report: --dsw-* tokens resolve only against the real theme
+    // stylesheet. This command settled cleanly, so the dot must be the green
+    // success token — a red one here would read as a failed command.
+    const dot = await card.locator('[class*="_runState_"][data-state]').first().evaluate((node) => {
+      // The token lives on body, so the probe must sit in the same cascade.
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--dsw-alias-state-success-primary)'
+      document.body.appendChild(probe)
+      const success = getComputedStyle(probe).color
+      probe.remove()
+      return {
+        state: node.getAttribute('data-state'),
+        color: getComputedStyle(node as HTMLElement).color,
+        success,
+        label: node.parentElement?.querySelector('[class*="_runStateLabel_"]')?.textContent ?? null,
+        // The dot precedes the prompt label in document order, which is what
+        // puts it to the left of the `$`.
+        beforePrompt: node.compareDocumentPosition(node.parentElement!.querySelector('[class*="_cwd_"]')!)
+          === Node.DOCUMENT_POSITION_FOLLOWING,
+      }
+    })
+    expect(dot.state).toBe('done')
+    expect(dot.label).toBe('已完成')
+    expect(dot.beforePrompt).toBe(true)
+    // Resolved through the theme token, not a literal hex in the component.
+    expect(dot.success).toMatch(/^rgb/)
+    expect(dot.color).toBe(dot.success)
     // Golden of the card at rest — captured before the copy click, whose
     // confirmation label self-reverts on a timer and would not hold still.
     const snapshot = (await captureStableAria(page, '[data-terminal]', scaffold.workspaceCwd))

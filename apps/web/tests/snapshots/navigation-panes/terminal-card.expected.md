@@ -1,3 +1,3 @@
-- text: $ echo NAVIGATION_OK
+- text: 已完成 $ echo NAVIGATION_OK
 - button "复制"
 - text: NAVIGATION_OK

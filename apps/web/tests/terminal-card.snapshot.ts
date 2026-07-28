@@ -120,9 +120,14 @@ function readCard(card: Element) {
       text: expander.textContent,
       expanded: expander.getAttribute('aria-expanded'),
     },
+    // The run-state dot at the head of the prompt line, by its StateDot state.
+    runState: card.querySelector('[class*="_runState_"][data-state]')?.getAttribute('data-state') ?? null,
+    runStateLabel: card.querySelector('[class*="_runStateLabel_"]')?.textContent ?? null,
     // Every color the ANSI parser emits resolves through a --dsw-* token, so
     // the card follows the theme instead of painting literal terminal rgb.
-    colors: [...new Set([...card.querySelectorAll('span[style]')]
+    // Scoped to the output lines: the run-state dot is an inline-styled span
+    // too, and its geometry is not an ANSI-resolved color.
+    colors: [...new Set([...card.querySelectorAll('[class*="_line_"] span[style]')]
       .map(span => span.getAttribute('style')))],
   }
 }
@@ -198,6 +203,8 @@ it('renders the keyed bash row with a resident terminal card', async () => {
         "[exit code: 1]",
       ],
       "prompt": "nested pnpm run check",
+      "runState": "error",
+      "runStateLabel": "失败",
       "status": "退出码 1",
     }
   `)
@@ -229,6 +236,8 @@ it('the fallback row reaches the same card through its expand control', async ()
         "-rw-r--r-- demo.txt",
       ],
       "prompt": "fixture ls -la",
+      "runState": "done",
+      "runStateLabel": "已完成",
       "status": null,
     }
   `)
@@ -318,6 +327,8 @@ it('the details panel Output section renders the same call at full height', asyn
       ],
       "panelLines": 16,
       "prompt": "nested pnpm run check",
+      "runState": "error",
+      "runStateLabel": "失败",
       "status": "退出码 1",
     }
   `)

@@ -28,6 +28,11 @@ afterEach(cleanup)
  */
 const RAW = { normalizer: (text: string) => text }
 
+/** The rendered card's run-state dot state, so a render site cannot silently drop it. */
+function runStateOf(container: HTMLElement): string | null {
+  return container.querySelector('[data-terminal] [data-state]')?.getAttribute('data-state') ?? null
+}
+
 const SID = 's1' as SessionId
 
 const ARGS = '{"command":"ls -la","description":"List files"}'
@@ -137,6 +142,9 @@ describe('chat row terminal body', () => {
     fireEvent.click(view.container.querySelector('button')!)
     expect(view.getByText('ls -la')).toBeTruthy()
     expect(view.queryByText('复制')).toBeNull()
+    // The card states its own run state: a running command reads as running
+    // even though it has no output yet to distinguish it from an empty settle.
+    expect(runStateOf(view.container)).toBe('ongoing')
   })
 
   it('a non-terminal call keeps the args-JSON text body', () => {
@@ -181,6 +189,19 @@ describe('BashRow terminal card', () => {
     expect(openDetails).not.toHaveBeenCalled()
     fireEvent.click(view.getByText('List files'))
     expect(openDetails).toHaveBeenCalledTimes(1)
+  })
+
+  // The row's leading StateDot and the card's run-state dot describe the same
+  // command, so a running row whose card claimed 'done' would be a contradiction
+  // the reader sees on one line.
+  it('agrees with the summary row about the run state', () => {
+    const runningView = render(<BashRow {...rowProps(running())} />)
+    expect(runningView.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('running')
+    expect(runStateOf(runningView.container)).toBe('ongoing')
+    cleanup()
+    const settledView = render(<BashRow {...rowProps(settled())} />)
+    expect(settledView.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('ok')
+    expect(runStateOf(settledView.container)).toBe('done')
   })
 
   it('a non-terminal bash call (background start) renders the summary row alone', () => {
@@ -246,6 +267,7 @@ describe('DetailsPanel Output section', () => {
     const view = mount(snapshot({ runningCalls: [running()] }), target)
     expect(view.getByText('ls -la')).toBeTruthy()
     expect(view.queryByText('运行中…')).toBeNull()
+    expect(runStateOf(view.container)).toBe('ongoing')
   })
 
   it('a running non-terminal call keeps the 运行中… placeholder', () => {

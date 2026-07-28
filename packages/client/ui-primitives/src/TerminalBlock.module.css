@@ -36,6 +36,23 @@
   font: var(--dsw-font-markdown-code-block);
 }
 
+/* The dot sits on the prompt row's baseline box, which is a code-font line, so
+   it is centered against that line's box rather than sitting on the baseline. */
+.runState {
+  flex: none;
+  align-self: center;
+}
+
+/* The dot is aria-hidden; this is its text label for assistive technology. */
+.runStateLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .cwd {
   flex: none;
   color: var(--dsw-alias-label-tertiary);

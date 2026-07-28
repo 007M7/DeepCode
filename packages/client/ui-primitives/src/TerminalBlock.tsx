@@ -1,6 +1,6 @@
 // TerminalBlock: the terminal surface for a shell command and its output —
-// prompt line (shortened cwd + command), ANSI-colored output, settled exit
-// status, and a copy control for the raw output. Output never soft-wraps:
+// prompt line (run-state dot + shortened cwd + command), ANSI-colored output,
+// settled exit status, and a copy control for the raw output. Output never soft-wraps:
 // column-aligned output (ls, tables, box drawing) keeps its alignment and
 // scrolls horizontally instead of folding. Colors resolve through --dsw-*
 // tokens; ANSI parsing lives in ansi.ts.
@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import { parseAnsiLines, type AnsiLine } from './ansi.ts'
 import { writeClipboard } from './clipboard.ts'
 import { Pill } from './Pill.tsx'
+import { StateDot, type StateDotState } from './StateDot.tsx'
 import css from './TerminalBlock.module.css'
 
 /**
@@ -71,6 +72,31 @@ function statusText(exitCode: number | undefined, signal: string | undefined): s
 }
 
 /**
+ * Run-state indicator for the command, shown at the head of the prompt line so
+ * the card states whether the command is still running without the reader
+ * having to infer it from the presence of output. Three of {@link StateDotState}'s
+ * four states are reachable: the spinning ring while running (the same
+ * indicator a running tool row's leading icon uses, so the row and its card
+ * never disagree), green for a clean settle, red for a signal or a non-zero
+ * exit — the same status distinction {@link statusText} draws for the pill. A
+ * settled command whose exit status never reached the view counts as a clean
+ * settle: the view says it finished and says nothing went wrong.
+ * @param running - the command has not settled.
+ * @param exitCode - settled exit code, when known.
+ * @param signal - settled terminating signal name, when known.
+ * @returns the dot's state and its text label, since the dot is aria-hidden.
+ */
+function runState(
+  running: boolean,
+  exitCode: number | undefined,
+  signal: string | undefined,
+): { state: StateDotState; label: string } {
+  if (running) return { state: 'ongoing', label: '运行中' }
+  if (statusText(exitCode, signal) !== undefined) return { state: 'error', label: '失败' }
+  return { state: 'done', label: '已完成' }
+}
+
+/**
  * Render one parsed output line. Runs without SGR state render as bare text,
  * so uncolored output carries no span wrappers.
  * @param line - the line's styled runs.
@@ -120,6 +146,7 @@ export function TerminalBlock({
   const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
 
   const status = statusText(exitCode, signal)
+  const state = runState(running, exitCode, signal)
   const empty = text.trim() === ''
   const hidden = lines.length - maxLines
   const capped = hidden > 0 && !expanded
@@ -132,6 +159,8 @@ export function TerminalBlock({
     <div className={clsx(css.block, className)} data-terminal="" data-running={running ? '' : undefined}>
       <div className={css.header}>
         <div className={css.prompt}>
+          <StateDot state={state.state} className={css.runState} />
+          <span className={css.runStateLabel}>{state.label}</span>
           <span className={css.cwd}>{cwd === undefined ? '$' : promptLabel(cwd, home)}</span>
           <span className={css.command}>{command}</span>
         </div>

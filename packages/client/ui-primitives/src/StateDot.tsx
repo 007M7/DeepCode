@@ -19,8 +19,8 @@ export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error'
  */
 export function StateDot({ state, size = 10, className }: {
   state: StateDotState
-  size?: number
-  className?: string
+  size?: number | undefined
+  className?: string | undefined
 }) {
   const gradientId = useId()
   if (state === 'ongoing') {

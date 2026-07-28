@@ -16,7 +16,7 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 该组件的契约：
 
-- **提示符行。** 一个缩短的 cwd 标签，其后原样跟随命令。标签取 cwd 的最后一段路径，当 cwd 等于 `home` prop 时取 `~`——浏览器没有 `$HOME`，因此由调用方提供绝对家目录，不提供时该折叠不生效。视图不带 cwd 时渲染一个纯 `$`。
+- **提示符行。** 一枚运行状态点，其后是缩短的 cwd 标签，再原样跟随命令。标签取 cwd 的最后一段路径，当 cwd 等于 `home` prop 时取 `~`——浏览器没有 `$HOME`，因此由调用方提供绝对家目录，不提供时该折叠不生效。视图不带 cwd 时渲染一个纯 `$`。状态点是 `StateDot` 四种状态中的三种：运行期间为旋转圆环，与渲染状态徽章相同的退出状态为红色，干净落定为绿色——与工具行行首图标使用同一个指示器，因此一行与其自身的卡片不可能对同一条命令产生分歧。它位于行首，因为读者对一条 shell 命令的第一个问题就是它是否仍在运行；没有该状态点时，这一点只能从「没有输出」推断，而一条落定后无输出的命令看起来也一样。`StateDot` 是 `aria-hidden`，因此其旁伴随一处视觉隐藏的文本标签。
 - **不软换行。** 输出行使用 `white-space: pre`，置于横向滚动的容器内。列对齐得以保留；长行滚动，而非折行。
 - **高度上限与展开控件。** 输出超过 `DEFAULT_TERMINAL_MAX_LINES`（16）行时，显示 `ceil(max/2)` 行首部加余下的尾部行数，中间是一个按钮，报告被隐藏的行数并可展开。计数针对的是剥除输出末尾终止符之后解析出的行，因此以换行结尾的 N 行输出就是 N 行。切分算法与 TUI transcript 折叠态工具卡片（`packages/ui/tui/src/components/transcript.ts`）完全一致，因此同一条命令的首尾切片在两个前端之间吻合。
 - **ANSI 颜色。** `anser` 切分 SGR 分段；`ui-primitives/src/ansi.ts` 把每段解析为内联样式，渲染成 React span。只设前景色的分段把基本 16 色映射到 `--dsw-*` 主题 token，使作者指定的颜色在两种主题下都可读；自行绘制背景的分段则前后景都保留 anser 给出的字面 rgb，以保住它意图中的对比度，256 色板、truecolor 以及本设计系统没有对应 token 的两种基本色同样如此。不承载颜色的转义序列（OSC 串、非 CSI 转义、无显示意义的 C0 控制符）在解析前被剥除，因此绝不会以字面字符抵达 DOM；回车会把所在行归约为最后一次重绘，这正是终端对进度输出的呈现。
@@ -50,13 +50,13 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 ## Testing
 
-`packages/client/ui-primitives/tests/ansi.spec.ts` 固定解析层：基本色的 token 映射、无对应 token 取值的字面 rgb、带背景分段的前后景配对、每一项装饰以及其中两项之间的 `textDecoration` 冲突、OSC 串与非 CSI 转义及无显示意义控制符的剥除、逐行的回车重绘，以及 CRLF 的保留。`packages/client/ui-primitives/tests/terminal-block.spec.tsx` 固定组件：cwd 缩短、运行中／空／已落定三条分支、信号优先于退出码、末尾终止符规则、首尾高度上限及其 `aria-expanded` 开关，以及复制控件在剪贴板接受与拒绝两条路径上都断言原始输出，另有对 `writeClipboard` 的直接固定。
+`packages/client/ui-primitives/tests/ansi.spec.ts` 固定解析层：基本色的 token 映射、无对应 token 取值的字面 rgb、带背景分段的前后景配对、每一项装饰以及其中两项之间的 `textDecoration` 冲突、OSC 串与非 CSI 转义及无显示意义控制符的剥除、逐行的回车重绘，以及 CRLF 的保留。`packages/client/ui-primitives/tests/terminal-block.spec.tsx` 固定组件：cwd 缩短、运行中／空／已落定三条分支、信号优先于退出码、末尾终止符规则、首尾高度上限及其 `aria-expanded` 开关、运行状态点全部三种可达状态及其位于提示符标签之前的位置，以及复制控件在剪贴板接受与拒绝两条路径上都断言原始输出，另有对 `writeClipboard` 的直接固定。
 
-`packages/client/ui-conversation/tests/terminal-card.spec.tsx` 固定每个渲染点上的接线：`terminalCardModel` 的推导及其每一处 null 分支、对话行受展开控制的输出体与面板的全高输出体的对比、`BashRow` 的常驻卡片，以及面板 Output 区段（含 run_code 子派发与超出窗口的调用头）。该文件在没有门禁压力的情况下写成——`packages/client/ui-conversation/src/*` 位于 `vitest.config.ts` 的覆盖率 `exclude` 列表中，因此覆盖率运行不会统计其中任何文件。
+`packages/client/ui-conversation/tests/terminal-card.spec.tsx` 固定每个渲染点上的接线：`terminalCardModel` 的推导及其每一处 null 分支、对话行受展开控制的输出体与面板的全高输出体的对比、`BashRow` 的常驻卡片及其与自身摘要行状态点的一致性，以及面板 Output 区段（含 run_code 子派发与超出窗口的调用头）。该文件在没有门禁压力的情况下写成——`packages/client/ui-conversation/src/*` 位于 `vitest.config.ts` 的覆盖率 `exclude` 列表中，因此覆盖率运行不会统计其中任何文件。
 
 `apps/web/tests/terminal-card.snapshot.ts` 在构建后的客户端产物上固定组装完整的应用：同一渲染意图在两个对话渲染点、以及两种对话行形态下的表现——因为 bash 调用只有经由带键的 `BashRow` 注册才得到常驻卡片，而其他任何声明 terminal 的工具名都落到渲染点兜底行上，其输出体受展开控制。fixture 第 66 轮改名为 `bash`、第 60 轮保留 `fx-bash`，于是一份 fixture 覆盖两种形态；该轮还承载第 60 轮三行干净输出无法覆盖的部分——解析到 `--dsw-*` token 的 SGR 分段、超出对话上限的输出、嵌套 cwd，以及从末尾标记还原出的非零退出码。
 
-`apps/web/tests/navigation-panes.e2e.ts` 在其既有的 `echo NAVIGATION_OK` bash 调用上新增真实浏览器场景，断言 jsdom 无法计算的部分：把输出面板挤压到窄于内容宽度后，行仍保持单行且面板产生横向溢出；复制控件走的是页面自身的异步 Clipboard API，而非 `execCommand` 兜底路径。其 `details-open.expected.md` 基准已为面板的新终端卡片重新录制。该次录制同时吸收了一行陈旧的 `Input json` 及其复制按钮——那是 master 上已有的 shiki `CodeBlock` 改动留下的；在干净并重新构建的工作树上验证过它本就失败，因此那是被顺带修正的部分，而非本次改动的影响。
+`apps/web/tests/navigation-panes.e2e.ts` 在其既有的 `echo NAVIGATION_OK` bash 调用上新增真实浏览器场景，断言 jsdom 无法计算的部分：把输出面板挤压到窄于内容宽度后，行仍保持单行且面板产生横向溢出；运行状态点解析为绿色的 success token，而不是字面颜色（没有真实主题样式表时，`--dsw-*` 变量根本不产生计算值）；复制控件走的是页面自身的异步 Clipboard API，而非 `execCommand` 兜底路径。其 `details-open.expected.md` 基准已为面板的新终端卡片重新录制。该次录制同时吸收了一行陈旧的 `Input json` 及其复制按钮——那是 master 上已有的 shiki `CodeBlock` 改动留下的；在干净并重新构建的工作树上验证过它本就失败，因此那是被顺带修正的部分，而非本次改动的影响。
 
 ## Related
 

@@ -3,6 +3,6 @@
 - text: Input json
 - button "复制"
 - code: "{ \"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\" }"
-- text: Output $ echo NAVIGATION_OK
+- text: Output 已完成 $ echo NAVIGATION_OK
 - button "复制"
 - text: NAVIGATION_OK
