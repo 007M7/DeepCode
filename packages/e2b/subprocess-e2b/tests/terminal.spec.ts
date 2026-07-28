@@ -19,6 +19,11 @@ function commandError(exitCode: number): CommandExitError {
   return new CommandExitError({ exitCode, stdout: '', stderr: '', error: `exit ${exitCode}` })
 }
 
+interface CommandOptions {
+  signal?: AbortSignal
+  cwd?: string
+}
+
 class FakeTerminalCommandHandle {
   pid = 123
   disconnects = 0
@@ -74,6 +79,7 @@ class FakeTerminalCommandHandle {
 class FakeTerminalSandbox {
   readonly handle = new FakeTerminalCommandHandle()
   readonly commands: string[] = []
+  readonly commandOptions: CommandOptions[] = []
   readonly inputs: Array<{ pid: number; data: Buffer }> = []
   readonly removed: string[] = []
   readonly directories: string[] = []
@@ -121,8 +127,9 @@ class FakeTerminalSandbox {
       },
     },
     commands: {
-      run: async (command: string, options?: { signal?: AbortSignal }): Promise<CommandResult> => {
+      run: async (command: string, options?: CommandOptions): Promise<CommandResult> => {
         this.commands.push(command)
+        if (options !== undefined) this.commandOptions.push(options)
         options?.signal?.throwIfAborted()
         if (this.commandFailure !== undefined) {
           const error = this.commandFailure
@@ -525,12 +532,16 @@ describe('E2B subprocess terminal service', () => {
   }
 
   it('publishes execution-world coordinates and resolves remote executables', async () => {
-    const { ctx } = await service()
+    const { ctx, fake } = await service()
     expect(ctx.subprocess.cwd).toBe('/workspace')
     expect(ctx.subprocess.runtimeRoot).toBe('/workspace/.dsh-e2b')
     await expect(ctx.subprocess.resolveExecutable('/bin/bash')).resolves.toBe('/bin/bash')
     await expect(ctx.subprocess.resolveExecutable('node', { PATH: '/custom/bin' }, new AbortController().signal))
       .resolves.toBe('/usr/bin/node')
+    fake.resolvedExecutable = 'tools/bin/node\n'
+    await expect(ctx.subprocess.resolveExecutable('node', { PATH: 'tools/bin' }))
+      .resolves.toBe('/workspace/tools/bin/node')
+    expect(fake.commandOptions.at(-1)).toMatchObject({ cwd: '/workspace' })
     expect((ctx.e2b)).toBeDefined()
   })
 
@@ -539,7 +550,7 @@ describe('E2B subprocess terminal service', () => {
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('non-empty')
     await expect(ctx.subprocess.resolveExecutable('node', undefined, AbortSignal.abort(new Error('stop'))))
       .rejects.toThrow('stop')
-    fake.resolvedExecutable = 'relative/node\n'
+    fake.resolvedExecutable = 'node\n'
     await expect(ctx.subprocess.resolveExecutable('node')).rejects.toThrow('did not resolve')
     fake.resolvedExecutable = '/one\n/two\n'
     await expect(ctx.subprocess.resolveExecutable('node')).rejects.toThrow('did not resolve')

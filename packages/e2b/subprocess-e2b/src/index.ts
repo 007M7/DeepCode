@@ -79,14 +79,14 @@ export class E2BSubprocessService extends SubprocessService {
     const prefix = path === undefined ? '' : `PATH=${quoteE2BShellArg(path)} `
     const result = await sandbox.commands.run(
       `${prefix}command -v -- ${quoteE2BShellArg(command)}`,
-      signalOpts(signal),
+      { cwd: this.cwd, ...signalOpts(signal) },
     )
     signal?.throwIfAborted()
     const executable = result.stdout.trim()
-    if (!posix.isAbsolute(executable) || executable.includes('\n')) {
+    if (executable.includes('\n') || (!posix.isAbsolute(executable) && !executable.includes('/'))) {
       throw new Error(`subprocess-e2b: executable ${JSON.stringify(command)} did not resolve to one absolute path`)
     }
-    return executable
+    return posix.resolve(this.cwd, executable)
   }
 
   /** @inheritdoc */

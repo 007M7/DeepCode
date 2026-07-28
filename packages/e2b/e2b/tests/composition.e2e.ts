@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
@@ -40,6 +40,9 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       } as never)
       const ptyFiber = await ctx.plugin(PtyService)
       const subprocessFiber = await ctx.plugin(E2BSubprocessService)
+      const node = await ctx.subprocess.resolveExecutable('node')
+      const relativeNodePath = posix.relative(ctx.subprocess.cwd, posix.dirname(node)) || '.'
+      await expect(ctx.subprocess.resolveExecutable('node', { PATH: relativeNodePath })).resolves.toBe(node)
       const ownerId = SessionId('e2b-pty-env-owner')
       const owner: Agent = {
         id: ownerId,
