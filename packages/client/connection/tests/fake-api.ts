@@ -66,6 +66,8 @@ export class FakeApiClient implements IApiClient {
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
   onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
     () => Promise.resolve(ok({ path: null }))
+  onOpenPath: (payload: unknown) => Promise<RpcResponse<{ opened: true }>> =
+    () => Promise.resolve(ok({ opened: true as const }))
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
@@ -88,6 +90,7 @@ export class FakeApiClient implements IApiClient {
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
     pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
+    openPath: payload => this.record('host.openPath', payload, this.onOpenPath(payload)),
   }
 
   readonly workspace: IApiClient['workspace'] = {

@@ -5,7 +5,7 @@
 // standard useSessions kit (no registry predicates — tool ring dissolved).
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -133,10 +133,9 @@ describe('bash sample row', () => {
 
   const rowProps = (sessionId: SessionId, over?: {
     store?: ReturnType<typeof listStore>
-    openDetails?: () => void
   }): ToolRowProps => ({
     callId: 'c1', toolName: 'bash', block: result('c1'),
-    openDetails: over?.openDetails ?? vi.fn(),
+    openFile: vi.fn(),
     sessionId,
     useSessions: bindSnapshotSelector(over?.store ?? listStore()),
   } as unknown as ToolRowProps)
@@ -169,21 +168,17 @@ describe('bash sample row', () => {
     expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
   })
 
-  it('summarizes as Bash · description and hands clicks to openDetails on both arms', () => {
-    const openGlobal = vi.fn()
-    const global = render(<BashRow {...rowProps(ROOT, { openDetails: openGlobal })} />)
+  it('summarizes as Bash · description on both arms without row click targets', () => {
+    const global = render(<BashRow {...rowProps(ROOT)} />)
     // Two renders share document.body: query inside each container.
     const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
     expect(globalRow.textContent).toContain('Bash')
     expect(globalRow.textContent).toContain('Build')
-    fireEvent.click(globalRow)
-    expect(openGlobal).toHaveBeenCalledTimes(1)
-    const openScoped = vi.fn()
-    const scoped = render(<BashRow {...rowProps(CHILD, { openDetails: openScoped })} />)
+    expect(globalRow.getAttribute('data-clickable')).toBeNull()
+    const scoped = render(<BashRow {...rowProps(CHILD)} />)
     const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
     expect(scopedRow.textContent).toContain('Bash')
     expect(scopedRow.textContent).toContain('Build')
-    fireEvent.click(scopedRow)
-    expect(openScoped).toHaveBeenCalledTimes(1)
+    expect(scopedRow.getAttribute('data-clickable')).toBeNull()
   })
 })
