@@ -193,6 +193,20 @@ describe('host.listDirectory / host.createDirectory', () => {
     })
   })
 
+  it('reports an aborted listing as cancelled, like the other signal-following RPCs', async () => {
+    const { api } = await harness(undefined, {
+      kind: 'browse',
+      list: (_path, signal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(new Error('scan aborted')) }, { once: true })
+      }),
+      createDirectory: async () => '/never',
+    })
+    const abort = new AbortController()
+    const pending = api.host.listDirectory(request({}), abort.signal)
+    abort.abort()
+    expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+
   it('refuses the browse RPCs under a native composition', async () => {
     const { api } = await harness()
     expect((await api.host.listDirectory(request({}), new AbortController().signal)).result).toMatchObject({

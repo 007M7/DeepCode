@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
-import BrowseDirectoryPicker, { boundedInsert, fullyQualified } from '../src/index.ts'
+import BrowseDirectoryPicker, { boundedInsert, fullyQualified, raceAbort } from '../src/index.ts'
 import type { ListingCandidate } from '../src/index.ts'
 
 let root: string
@@ -86,14 +86,49 @@ describe('BrowseDirectoryPicker', () => {
   it('stops the scan with the caller: an aborted signal rejects with its own reason', async () => {
     const gone = new AbortController()
     gone.abort(new Error('caller left'))
-    // The abort surfaces as-is, not dressed as an unreadable directory.
+    // The abort surfaces as-is, not dressed as an unreadable directory —
+    // and rejects even before any level row is read.
     await expect(capability.list(root, gone.signal)).rejects.toThrow('caller left')
+    // The abandoned open that still succeeds is closed, not leaked.
+    await new Promise(resolve => setTimeout(resolve, 10))
+    // Aborted against a missing target: the abandoned open rejects on its
+    // own and there is nothing to close.
+    await expect(capability.list(join(root, 'no-such-dir'), gone.signal)).rejects.toThrow('caller left')
+    await new Promise(resolve => setTimeout(resolve, 10))
     // A live signal changes nothing about ordinary failures.
     const live = new AbortController()
     const missing = join(root, 'no-such-dir')
     const failure = await capability.list(missing, live.signal).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(DirectoryPickerError)
     expect((failure as DirectoryPickerError).code).toBe('directory-unreadable')
+  })
+
+  it('raceAbort follows the operation until the signal wins, and swallows the abandoned settlement', async () => {
+    // No signal / settled operations: plain passthrough, listener removed.
+    await expect(raceAbort(Promise.resolve('ok'), undefined)).resolves.toBe('ok')
+    const live = new AbortController()
+    await expect(raceAbort(Promise.resolve('ok'), live.signal)).resolves.toBe('ok')
+    // Failure passthrough keeps the operation's own error.
+    await expect(raceAbort(Promise.reject(new Error('raw failure')), live.signal)).rejects.toThrow('raw failure')
+    // The abort wins over a pending operation and carries its own reason;
+    // the operation's late rejection is swallowed, never unhandled.
+    const rejections: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      let rejectLate!: (reason: unknown) => void
+      const pending = new Promise<never>((_resolve, reject) => { rejectLate = reject })
+      const controller = new AbortController()
+      const raced = raceAbort(pending, controller.signal)
+      // A bare-string abort reason exercises the Error wrap.
+      controller.abort('caller left')
+      await expect(raced).rejects.toThrow('caller left')
+      rejectLate(new Error('late read failure'))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(rejections).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 
   it('boundedInsert keeps the window name-sorted and bounded, reporting evictions', () => {

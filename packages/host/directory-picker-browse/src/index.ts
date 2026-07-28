@@ -95,6 +95,49 @@ export function boundedInsert(window: ListingCandidate[], candidate: ListingCand
   return true
 }
 
+/**
+ * Await `operation`, but reject with the signal's reason the moment it
+ * aborts. Node's filesystem reads are not retractable, so the operation
+ * itself keeps running against a handle the caller then closes — its late
+ * settlement is swallowed here so an abandoned read cannot surface as an
+ * unhandled rejection.
+ * @param operation - the in-flight filesystem step.
+ * @param signal - caller lifetime; absent means plain awaiting.
+ * @returns the operation's value.
+ */
+export function raceAbort<T>(operation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return operation
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      operation.catch(() => {
+        // Abandoned read: its handle is being closed by the aborting caller,
+        // and the abort reason already carried the outcome.
+      })
+      reject(asError(signal.reason))
+    }
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (reason: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(asError(reason))
+      },
+    )
+  })
+}
+
+/** The thrown value as an Error (wire/abort reasons may be anything). */
+function asError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason))
+}
+
 /** Message text of an unknown thrown value. */
 function messageOf(error: unknown): string {
   /* v8 ignore next -- node:fs rejects with Error instances; the String arm only satisfies the unknown narrowing. */
@@ -180,16 +223,35 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     const window: ListingCandidate[] = []
     let evicted = false
     try {
-      const level = await opendir(target)
-      for await (const dirent of level) {
-        // A disconnected/timed-out caller stops the scan here; throwing out
-        // of the loop closes the directory handle via the iterator's return.
-        signal?.throwIfAborted()
-        // Only rows a browser could enter contend for the window; dirent
-        // says "directory" outright, a symlink needs the later stat probe.
-        if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
-        const candidate = { name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() }
-        if (boundedInsert(window, candidate, keep)) evicted = true
+      // Every filesystem await races the caller's signal: a stalled
+      // opendir/read on a network filesystem must not keep a departed
+      // caller's scan alive, and an already-aborted request rejects even
+      // when the level is empty.
+      const opening = opendir(target)
+      const level = await raceAbort(opening, signal).catch((error: unknown) => {
+        // The abandoned open can still mint a handle after the abort won;
+        // close it so a departed caller cannot leak a descriptor. (A lost
+        // race against opendir's own rejection has nothing to close.)
+        void opening.then(async (dir) => { await dir.close() }, () => {
+          // Already rejected: raceAbort surfaced or swallowed it.
+        })
+        throw error
+      })
+      try {
+        for (;;) {
+          const dirent = await raceAbort(level.read(), signal)
+          if (dirent === null) break
+          // Only rows a browser could enter contend for the window; dirent
+          // says "directory" outright, a symlink needs the later stat probe.
+          if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
+          const candidate = { name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() }
+          if (boundedInsert(window, candidate, keep)) evicted = true
+        }
+      } finally {
+        // Manual read() never auto-closes; close on every exit, the aborted
+        // one included (its abandoned read settles against the closed handle
+        // and raceAbort already swallowed that settlement).
+        await level.close()
       }
     } catch (error: unknown) {
       // An abort is the caller's own reason, not an unreadable directory.
