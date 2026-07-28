@@ -177,6 +177,27 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
   })
 
+  it('restarts the home listing when Escape cancels an edit opened before any level listed', async () => {
+    // The initial home listing hangs; Edit Path supersedes it while parent
+    // is still null, and Escape must not strand a blank picker.
+    let settled = false
+    const gate = new Promise<never>(() => {})
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (!settled) { settled = true; return gate }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    expect(input.value).toBe('')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    // Cancellation relaunched the home listing instead of leaving neither
+    // rows nor status behind.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
+    expect(listDirectory).toHaveBeenCalledTimes(2)
+    expect(listDirectory).toHaveBeenLastCalledWith(undefined)
+  })
+
   it('surfaces an unreadable target as an alert and keeps the edit open for correction', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })

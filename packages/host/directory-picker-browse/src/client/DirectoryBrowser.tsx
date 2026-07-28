@@ -1,6 +1,7 @@
 /**
  * The in-app workspace-directory browser (figma Harness 813-23126 family): a
- * fixed 600×420 dialog whose header carries the title, the selection-path
+ * 600×420 dialog (clamped to short/narrow viewports — the Miller row scrolls
+ * sideways, the columns scroll down) whose header carries the title, the selection-path
  * breadcrumb, and a click-to-edit path zone; below it a Miller view — one
  * full-width level until a row is selected, then two 256px columns (level |
  * selected folder's children) around a hairline divider. Selecting in the
@@ -364,6 +365,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     // half-empty two-pane view, so cancel falls back to the
                     // single-pane level.
                     if (child === null) setSelected(null)
+                    // With no level listed yet (the editor superseded the
+                    // initial home listing), plain cancellation would leave a
+                    // permanently blank picker: restart the home listing.
+                    if (parent === null) navigate()
                   }
                 }}
               />
