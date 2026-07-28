@@ -6,7 +6,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Cordis `Service` subclasses and fun
 
 ## Hierarchy
 
-Packages live at `packages/<group>/<pkg>/`; groups are containers, while names remain `@deepseek-ai/dsh-<pkg>`. **Each group README is the canonical package/ctx-key map.**
+Groups contain packages at `packages/<group>/<pkg>/`; names remain `@deepseek-ai/dsh-<pkg>`. **Group READMEs own package/ctx-key maps.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -16,7 +16,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle | Product — stable surface |
 | [`feedback/`](feedback/README.md) | Human feedback | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
-| [`e2b/`](e2b/README.md) | E2B remote-runtime provider family | POC |
+| [`e2b/`](e2b/README.md) | E2B providers | POC |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
 | [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |

@@ -6,7 +6,7 @@
 
 ## 层级结构
 
-包位于 `packages/<group>/<pkg>/`；组是容器，包名仍为 `@deepseek-ai/dsh-<pkg>`。**每个组 README 是规范的包／ctx 键映射。**
+组在 `packages/<group>/<pkg>/` 容纳包；包名仍为 `@deepseek-ai/dsh-<pkg>`。**组 README 是规范的包／ctx 键映射。**
 
 | 组 | 职责 | 发布预期 |
 |---|---|---|
@@ -16,7 +16,7 @@
 | [`goal/`](goal/README.md) | 同会话 goal 的持久化与生命周期 | 产品：稳定表面 |
 | [`feedback/`](feedback/README.md) | 人类反馈 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
-| [`e2b/`](e2b/README.md) | E2B 远程运行时提供方系列 | POC |
+| [`e2b/`](e2b/README.md) | E2B 提供方 | POC |
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
 | [`pty/`](pty/README.md) | 持久 PTY 能力系列：按所有者隔离的会话、本地实现和面向模型的工具 | 产品：稳定表面 |
