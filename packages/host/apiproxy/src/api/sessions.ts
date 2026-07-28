@@ -206,9 +206,16 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  /**
+   * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
+   * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
+   * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
+   * successful command returns ok with the command slot (its success text, when the command produced
+   * one — carried for future rendering; the state change is the feedback). A usage/state error is an
+   * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
+   */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
-  Promise<RpcResponse<{ accepted: true }>>
+  Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
