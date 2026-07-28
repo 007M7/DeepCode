@@ -1,0 +1,96 @@
+/** Behavior of the browse backend over a real temporary directory tree. */
+
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
+import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
+import BrowseDirectoryPicker from '../src/index.ts'
+
+let root: string
+let capability: DirectoryPickerBrowseCapability
+let dispose: () => Promise<void>
+
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), 'dsh-browse-'))
+  await mkdir(join(root, 'projects'))
+  await mkdir(join(root, 'projects', 'harness'))
+  await mkdir(join(root, '.hidden-dir'))
+  await writeFile(join(root, 'notes.txt'), 'not a directory')
+  await symlink(join(root, 'projects'), join(root, 'linked'), 'junction')
+  await symlink(join(root, 'gone'), join(root, 'broken'), 'junction')
+
+  const ctx = new Context()
+  const fiber = ctx.plugin(BrowseDirectoryPicker)
+  await fiber.await()
+  const picked = ctx.get('directoryPicker')!.capability()
+  if (picked.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+  capability = picked
+  dispose = () => fiber.dispose()
+})
+
+afterAll(async () => {
+  await dispose()
+  await rm(root, { recursive: true, force: true })
+})
+
+describe('BrowseDirectoryPicker', () => {
+  it('lists directories only, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
+    const listing = await capability.list(root)
+    expect(listing.path).toBe(root)
+    expect(listing.home).toBe(homedir())
+    expect(listing.entries.map(entry => entry.name)).toEqual(['.hidden-dir', 'linked', 'projects'])
+    expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
+    // Every entry path is absolute and host-joined — clients never join segments.
+    expect(listing.entries.every(entry => entry.path === join(root, entry.name))).toBe(true)
+  })
+
+  it('reports the ancestry as jump-target crumbs ending at the listed directory', async () => {
+    const listing = await capability.list(join(root, 'projects'))
+    const tail = listing.crumbs.at(-1)!
+    expect(tail).toMatchObject({ name: 'projects', path: join(root, 'projects'), hidden: false })
+    expect(listing.crumbs.at(-2)!.path).toBe(root)
+    expect(listing.crumbs.at(-2)!.name).toBe(basename(root))
+    // The chain starts at the filesystem root, whose crumb is labeled by its full path.
+    expect(listing.crumbs[0]!.name).toBe(listing.crumbs[0]!.path)
+  })
+
+  it('lists the home directory when no path is given', async () => {
+    const listing = await capability.list()
+    expect(listing.path).toBe(homedir())
+  })
+
+  it('throws directory-unreadable for a missing target', async () => {
+    const missing = join(root, 'no-such-dir')
+    const failure = await capability.list(missing).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DirectoryPickerError)
+    expect((failure as DirectoryPickerError).code).toBe('directory-unreadable')
+    expect((failure as DirectoryPickerError).path).toBe(missing)
+  })
+
+  it('creates one child directory and surfaces it in the next listing', async () => {
+    const created = await capability.createDirectory(root, 'fresh')
+    expect(created).toBe(join(root, 'fresh'))
+    const listing = await capability.list(root)
+    expect(listing.entries.map(entry => entry.name)).toContain('fresh')
+  })
+
+  it('refuses an existing child with directory-exists', async () => {
+    const failure = await capability.createDirectory(root, 'projects').catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DirectoryPickerError)
+    expect((failure as DirectoryPickerError).code).toBe('directory-exists')
+  })
+
+  it('refuses non-segment names and other filesystem failures with directory-create-failed', async () => {
+    for (const name of ['', '  ', '.', '..', 'a/b', 'a\\b']) {
+      const failure = await capability.createDirectory(root, name).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(DirectoryPickerError)
+      expect((failure as DirectoryPickerError).code).toBe('directory-create-failed')
+    }
+    // Missing parent is a real failure, not a level to invent.
+    const missingParent = await capability.createDirectory(join(root, 'no-such-dir'), 'child').catch((error: unknown) => error)
+    expect((missingParent as DirectoryPickerError).code).toBe('directory-create-failed')
+  })
+})

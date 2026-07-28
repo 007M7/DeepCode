@@ -5,6 +5,40 @@
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
+/**
+ * The composed directory-picker interaction the host serves (mirror of the
+ * `ctx.directoryPicker` capability kind): `dialog` = one native OS chooser on
+ * the host display (`host.pickDirectory`); `browse` = in-app listing/creation
+ * primitives (`host.listDirectory`/`host.createDirectory`). Calling a method
+ * outside the advertised kind fails with `directory-picker-unavailable`.
+ */
+export type DirectoryPickerKind = 'dialog' | 'browse'
+
+/** One directory row of a listing: a child entry or a breadcrumb ancestor. */
+export interface DirectoryEntry {
+  /** Base name shown in a browser row (a root crumb carries its full path). */
+  name: string
+  /** Absolute host path — the client never joins path segments itself. */
+  path: string
+  /** Hidden by the host platform's convention (dot-prefixed on POSIX); the client owns whether to show it. */
+  hidden: boolean
+}
+
+/** host.listDirectory response value: one directory level plus its ancestry. */
+export interface DirectoryListing {
+  /** Absolute path of the listed directory. */
+  path: string
+  /** The host account's home directory (breadcrumb "Home" rooting). */
+  home: string
+  /**
+   * Ancestor chain from the filesystem root to the listed directory
+   * inclusive; every crumb is a jump target (crumb `hidden` is always false).
+   */
+  crumbs: DirectoryEntry[]
+  /** Direct child directories, name-sorted; symlinks to directories included. */
+  entries: DirectoryEntry[]
+}
+
 /** Host-level unary methods. */
 export interface HostApi {
   /**
@@ -13,7 +47,8 @@ export interface HostApi {
    * directory (root for session persistence and tool execution); provider/model = the defaults
    * applied when a new agent doesn't specify them explicitly, absent when the host configures
    * no explicit default (the adapter falls back internally);
-   * attachedSessions = count of currently attached sessions (those with a live agent).
+   * attachedSessions = count of currently attached sessions (those with a live agent);
+   * directoryPicker = the composed picker interaction the client renders for.
    */
   describe(request: RpcRequest<{}>): Promise<RpcResponse<{
     version: string
@@ -21,11 +56,34 @@ export interface HostApi {
     provider?: string
     model?: string
     attachedSessions: number
+    directoryPicker: DirectoryPickerKind
   }>>
 
-  /** Open the operating system's single-directory picker; cancellation returns null. */
+  /**
+   * Open the operating system's single-directory picker; cancellation returns
+   * null. Only served under the `dialog` capability.
+   */
   pickDirectory(
     request: RpcRequest<{}>,
     signal: AbortSignal,
   ): Promise<RpcResponse<{ path: string | null }>>
+
+  /**
+   * List one directory level for the in-app browser; an absent path lists the
+   * host account's home directory. Only served under the `browse` capability;
+   * unreadable or missing targets fail with `directory-unreadable`.
+   */
+  listDirectory(
+    request: RpcRequest<{ path?: string }>,
+  ): Promise<RpcResponse<DirectoryListing>>
+
+  /**
+   * Create one child directory under an existing parent (the browser's
+   * "New folder"). Only served under the `browse` capability; an existing
+   * child fails with `directory-exists`, every other filesystem failure with
+   * `directory-create-failed`.
+   */
+  createDirectory(
+    request: RpcRequest<{ path: string; name: string }>,
+  ): Promise<RpcResponse<{ path: string }>>
 }

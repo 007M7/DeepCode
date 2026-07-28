@@ -419,6 +419,37 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+
+  // In-memory browse tree behind the fixture's `browse` picker capability —
+  // deterministic content mirroring the design mock so assembled Web tests
+  // and snapshots can walk it. Leaves are materialized lazily: a child listed
+  // by its parent lists as empty until something is created inside it.
+  const FIXTURE_HOME = '/home/fixture'
+  const directoryTree = new Map<string, string[]>([
+    ['/', ['home']],
+    ['/home', ['fixture']],
+    [FIXTURE_HOME, ['Documents', 'Downloads', '.config']],
+    [`${FIXTURE_HOME}/Documents`, [
+      'project', 'deepseek-iOS', 'deepseek-android', 'deepseek-platform',
+      'deepseek-web', 'deepseek-harness', 'deepseek-app', 'deepseek-landing-blog',
+    ]],
+  ])
+  const childrenOf = (path: string): string[] | undefined => {
+    const known = directoryTree.get(path)
+    if (known !== undefined) return known
+    const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    return directoryTree.get(parent)?.includes(name) === true ? [] : undefined
+  }
+  const crumbsOf = (path: string): { name: string; path: string; hidden: boolean }[] => {
+    const crumbs = [{ name: '/', path: '/', hidden: false }]
+    let acc = ''
+    for (const segment of path.split('/').filter(Boolean)) {
+      acc += `/${segment}`
+      crumbs.push({ name: segment, path: acc, hidden: false })
+    }
+    return crumbs
+  }
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
@@ -774,8 +805,40 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
-      pickDirectory: request => ok(request, { path: null }),
+      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, directoryPicker: 'browse' as const }),
+      pickDirectory: request => err(request, {
+        code: 'directory-picker-unavailable',
+        message: 'the fixture host serves the browse capability',
+        details: { capability: 'browse' },
+      }),
+      listDirectory: (request) => {
+        const target = request.payload.path ?? FIXTURE_HOME
+        const children = childrenOf(target)
+        if (children === undefined) {
+          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
+        }
+        return ok(request, {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+        })
+      },
+      createDirectory: (request) => {
+        const parent = request.payload.path
+        const children = childrenOf(parent)
+        if (children === undefined) {
+          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
+        }
+        const target = `${parent}/${request.payload.name}`
+        if (children.includes(request.payload.name)) {
+          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
+        }
+        directoryTree.set(parent, [...children, request.payload.name])
+        directoryTree.set(target, [])
+        return ok(request, { path: target })
+      },
     },
     workspace: {
       list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
@@ -1027,6 +1090,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.listDirectory': return this.api.host.listDirectory(request)
+      case 'host.createDirectory': return this.api.host.createDirectory(request)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)

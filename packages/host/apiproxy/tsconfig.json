@@ -51,6 +51,9 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../directory-picker"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

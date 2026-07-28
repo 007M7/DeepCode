@@ -12,7 +12,11 @@ import {
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
   sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
-import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
+import {
+  hostCreateDirectoryRequestSchema, hostCreateDirectoryValueSchema,
+  hostDescribeRequestSchema, hostDescribeValueSchema,
+  hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
+} from '../src/api/host.schema.ts'
 import {
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
@@ -204,9 +208,27 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
+    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, directoryPicker: 'dialog' })
     expect(value.attachedSessions).toBe(2)
-    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'browse' }).provider).toBeUndefined()
+    expect(() => hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'other' })).toThrow()
+  })
+
+  it('validates the browse listing/creation payloads', () => {
+    expect(hostListDirectoryRequestSchema.parse({})).toEqual({})
+    expect(hostListDirectoryRequestSchema.parse({ path: '/x' })).toEqual({ path: '/x' })
+    const listing = hostListDirectoryValueSchema.parse({
+      path: '/home/u/p',
+      home: '/home/u',
+      crumbs: [{ name: '/', path: '/', hidden: false }, { name: 'p', path: '/home/u/p', hidden: false }],
+      entries: [{ name: '.dot', path: '/home/u/p/.dot', hidden: true }],
+    })
+    expect(listing.entries[0]?.hidden).toBe(true)
+    expect(hostCreateDirectoryRequestSchema.parse({ path: '/x', name: 'new' })).toEqual({ path: '/x', name: 'new' })
+    for (const name of ['', ' ', '.', '..', 'a/b', 'a\\b']) {
+      expect(() => hostCreateDirectoryRequestSchema.parse({ path: '/x', name })).toThrow()
+    }
+    expect(hostCreateDirectoryValueSchema.parse({ path: '/x/new' })).toEqual({ path: '/x/new' })
   })
 })
 

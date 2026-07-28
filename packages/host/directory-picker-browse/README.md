@@ -1,0 +1,21 @@
+# @deepseek-ai/dsh-host-directory-picker-browse
+
+English | [中文](README.zh.md)
+
+The **in-app browsing backend** of the [directory-picker seam](../directory-picker/README.md): `BrowseDirectoryPicker` registers `ctx.directoryPicker` with the `browse` capability — one-level directory listing and child-directory creation over Node's stdlib, which already carries the per-OS adaptation. Nothing renders on the host display, so this backend serves remote clients the dialog backend cannot.
+
+Behavior facts: listings return **directories only**, name-sorted, with symlinks-to-directories followed (broken/cyclic links skipped — the probe `stat` failing means "not enterable") and a host-owned `hidden` flag (POSIX dot convention) left for the client to act on; `crumbs` is the root-to-target ancestor chain, the root crumb labeled by its full path (`/`, `C:\`); an absent `list` path means the host account's home directory. `createDirectory` is non-recursive (a missing parent is a real failure, not a level to invent) and validates the name as a single non-blank segment even when called directly, mirroring the wire schema's fence. Failures throw the seam's typed `DirectoryPickerError`. Policy rationale: [the directory-picker capability seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-directory-picker-capability-seam.md).
+
+## Model Experience
+
+None, as the backend serves the GUI host's directory selection; nothing here reaches a model request.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+- **Windows hidden attribute is not read** — Node dirents do not expose `FILE_ATTRIBUTE_HIDDEN`, so `hidden` means dot-prefixed on every platform until a native probe is worth its cost.
+- **No drive-root enumeration** — on Windows the ancestry stops at the drive root; crossing drives waits for the browser UI's path-entry affordance rather than an enumeration primitive here.
+- **Whole-filesystem scope** — no per-deployment browse-root restriction; `workspace.create` accepts arbitrary paths today, so a root here would be UX scoping, not a boundary — deferred until a deployment needs it.

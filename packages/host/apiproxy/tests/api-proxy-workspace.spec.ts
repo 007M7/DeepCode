@@ -10,6 +10,8 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
+import type { DirectoryPickerCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import type { HostFrame, WorkspaceId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -57,7 +59,7 @@ function stubAgent(session: Session): Agent {
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>,
+  picker: DirectoryPickerCapability = { kind: 'dialog', pick: async () => null },
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -92,35 +94,113 @@ async function harness(
     },
   }
   ctx.agents.setFactory(factory)
+  // Structural picker fake: the gateway only reads capability(); a stable
+  // object per harness mirrors the seam's stability contract.
+  ctx.provide('directoryPicker', { capability: () => picker } as never)
   const api = createApiProxy(ctx, {
     provider: 'test',
     model: 'test-model',
     cwd: workspaceRoot,
     workspaceRoot,
-    ...pickDirectory === undefined ? {} : { pickDirectory },
   })
   return { api, ctx, storageDomain, workspaceRoot }
 }
 
 describe('host.pickDirectory', () => {
-  it('returns a selected path or explicit cancellation from the injected native boundary', async () => {
-    const selected = await harness(undefined, async () => '/tmp/project')
+  it('returns a selected path or explicit cancellation from the dialog capability', async () => {
+    const selected = await harness(undefined, { kind: 'dialog', pick: async () => '/tmp/project' })
     expect((await selected.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: '/tmp/project' } })
 
-    const cancelled = await harness(undefined, async () => null)
+    const cancelled = await harness(undefined, { kind: 'dialog', pick: async () => null })
     expect((await cancelled.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: null } })
   })
 
-  it('propagates abort into the native boundary as a cancelled RPC error', async () => {
-    const { api } = await harness(undefined, signal => new Promise((_resolve, reject) => {
-      signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
-    }))
+  it('propagates abort into the dialog capability as a cancelled RPC error', async () => {
+    const { api } = await harness(undefined, {
+      kind: 'dialog',
+      pick: signal => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }),
+    })
     const abort = new AbortController()
     const pending = api.host.pickDirectory(request({}), abort.signal)
     abort.abort()
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+
+  it('folds a non-abort dialog failure into an internal error', async () => {
+    const { api } = await harness(undefined, { kind: 'dialog', pick: async () => { throw new Error('no chooser installed') } })
+    const response = await api.host.pickDirectory(request({}), new AbortController().signal)
+    expect(response.result).toMatchObject({ ok: false, error: { code: 'internal' } })
+  })
+
+  it('refuses the dialog RPC under a browse composition', async () => {
+    const { api } = await harness(undefined, BROWSE_STUB)
+    const response = await api.host.pickDirectory(request({}), new AbortController().signal)
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'directory-picker-unavailable', details: { capability: 'browse' } },
+    })
+  })
+})
+
+/** Canned browse capability: one listing, one created path, typed failures on demand. */
+const BROWSE_STUB: DirectoryPickerCapability = {
+  kind: 'browse',
+  list: async (path) => {
+    if (path === '/denied') throw new DirectoryPickerError('directory-unreadable', '/denied', 'cannot list /denied')
+    const target = path ?? '/home/user'
+    return {
+      path: target,
+      home: '/home/user',
+      crumbs: [{ name: '/', path: '/', hidden: false }],
+      entries: [{ name: 'projects', path: `${target}/projects`, hidden: false }],
+    }
+  },
+  createDirectory: async (path, name) => {
+    if (name === 'taken') throw new DirectoryPickerError('directory-exists', `${path}/${name}`, 'already exists')
+    if (name === 'unwritable') throw new Error('disk detached')
+    return `${path}/${name}`
+  },
+}
+
+describe('host.listDirectory / host.createDirectory', () => {
+  it('serves listings and creation through the browse capability, defaulting to home', async () => {
+    const { api } = await harness(undefined, BROWSE_STUB)
+    const home = await api.host.listDirectory(request({}))
+    expect(home.result).toMatchObject({ ok: true, value: { path: '/home/user', home: '/home/user' } })
+    const listed = await api.host.listDirectory(request({ path: '/home/user/projects' }))
+    expect(listed.result).toMatchObject({ ok: true, value: { path: '/home/user/projects' } })
+    const created = await api.host.createDirectory(request({ path: '/home/user', name: 'fresh' }))
+    expect(created.result).toEqual({ ok: true, value: { path: '/home/user/fresh' } })
+  })
+
+  it('maps typed picker failures onto the wire error codes and folds unknown throws to internal', async () => {
+    const { api } = await harness(undefined, BROWSE_STUB)
+    expect((await api.host.listDirectory(request({ path: '/denied' }))).result).toMatchObject({
+      ok: false, error: { code: 'directory-unreadable', details: { path: '/denied' } },
+    })
+    expect((await api.host.createDirectory(request({ path: '/home/user', name: 'taken' }))).result).toMatchObject({
+      ok: false, error: { code: 'directory-exists' },
+    })
+    expect((await api.host.createDirectory(request({ path: '/home/user', name: 'unwritable' }))).result).toMatchObject({
+      ok: false, error: { code: 'internal' },
+    })
+  })
+
+  it('refuses the browse RPCs under a dialog composition and advertises the kind in describe', async () => {
+    const { api } = await harness()
+    expect((await api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'dialog' } })
+    expect((await api.host.listDirectory(request({}))).result).toMatchObject({
+      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'dialog' } },
+    })
+    expect((await api.host.createDirectory(request({ path: '/x', name: 'y' }))).result).toMatchObject({
+      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'dialog' } },
+    })
+    const browse = await harness(undefined, BROWSE_STUB)
+    expect((await browse.api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'browse' } })
   })
 })
 

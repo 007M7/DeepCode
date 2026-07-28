@@ -1,0 +1,21 @@
+# @deepseek-ai/dsh-host-directory-picker-browse
+
+[English](README.md) | 中文
+
+[目录选择 seam](../directory-picker/README.md) 的**应用内浏览后端**：`BrowseDirectoryPicker` 以 `browse` 能力注册 `ctx.directoryPicker`——基于 Node 标准库（跨 OS 适配本就由它承担）提供单层目录列举与子目录创建。宿主屏幕上不渲染任何东西，因此该后端能服务 dialog 后端无法触及的远程客户端。
+
+行为事实：列举**只返回目录**、按名称排序，指向目录的符号链接会被跟随（断链／循环链接被跳过——探测 `stat` 失败即"不可进入"），并携带宿主判定的 `hidden` 标志（POSIX 点前缀约定），展示决策留给客户端；`crumbs` 是从根到目标的祖先链，根 crumb 以完整路径标注（`/`、`C:\`）；`list` 不带路径即列举宿主账户的家目录。`createDirectory` 不递归（父目录缺失是真实失败，不是要补造的层级），且即便被直接调用也把名称校验为单个非空段，与协议 schema 的栅栏一致。失败抛出 seam 的类型化 `DirectoryPickerError`。策略依据：[目录选择能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-28-directory-picker-capability-seam.md)。
+
+## 模型体验
+
+无。该后端服务于 GUI 宿主的目录选择；这里没有任何内容进入模型请求。
+
+#### KV 缓存影响
+
+无；该包既不组装也不发送提供方请求。
+
+## 已知限制与延期工作
+
+- **不读取 Windows 隐藏属性**——Node 的 dirent 不暴露 `FILE_ATTRIBUTE_HIDDEN`，因此在所有平台上 `hidden` 都意味着点前缀，直到原生探测值回其成本为止。
+- **不枚举盘符根**——Windows 上祖先链止于盘符根；跨盘依赖浏览器 UI 的路径输入入口，而不是这里的枚举原语。
+- **全盘可浏览**——没有按部署限定的浏览根；`workspace.create` 今天就接受任意路径，这里的根只会是 UX 范围而非边界——等到有部署需要时再做。

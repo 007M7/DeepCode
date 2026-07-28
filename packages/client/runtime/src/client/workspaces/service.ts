@@ -2,7 +2,8 @@
 
 import type { Context } from 'cordis'
 import type {
-  IApiClient, RpcError, SessionId, WorkspaceId, WorkspaceView,
+  DirectoryListing, DirectoryPickerKind, IApiClient, RpcError,
+  SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
@@ -26,6 +27,14 @@ export class WorkspaceCreateError extends Error {
   constructor(readonly rpcError: RpcError) {
     super(`workspace create failed: ${rpcError.code}: ${rpcError.message}`)
     this.name = 'WorkspaceCreateError'
+  }
+}
+
+/** Structured browse failure so the directory browser can branch on Host business codes. */
+export class DirectoryBrowseError extends Error {
+  constructor(readonly rpcError: RpcError) {
+    super(`directory browse failed: ${rpcError.code}: ${rpcError.message}`)
+    this.name = 'DirectoryBrowseError'
   }
 }
 
@@ -171,7 +180,7 @@ export class WorkspacesService {
   }
 
   /**
-   * Open the Host's native directory picker.
+   * Open the Host's native directory picker (the `dialog` capability).
    * @returns the selected path, or null when the user cancelled.
    */
   async pickDirectory(): Promise<string | null> {
@@ -179,6 +188,44 @@ export class WorkspacesService {
     if (!response.result.ok) {
       throw new Error(`directory picker failed: ${response.result.error.message}`)
     }
+    return response.result.value.path
+  }
+
+  /**
+   * The directory-picking interaction the Host composed — the fact the picker
+   * UI branches on (`dialog` opens the native chooser; `browse` opens the
+   * in-app browser). Read per flow open: one describe round trip, no cache to
+   * go stale across reconnects.
+   * @returns the Host's advertised picker kind.
+   */
+  async directoryPickerKind(): Promise<DirectoryPickerKind> {
+    const response = await this.api.host.describe({})
+    if (!response.result.ok) {
+      throw new Error(`host describe failed: ${response.result.error.message}`)
+    }
+    return response.result.value.directoryPicker
+  }
+
+  /**
+   * List one directory level through the Host's `browse` capability.
+   * @param path - absolute directory to list; absent lists the Host home directory.
+   * @returns the level's listing with breadcrumb ancestry.
+   */
+  async listDirectory(path?: string): Promise<DirectoryListing> {
+    const response = await this.api.host.listDirectory(path === undefined ? {} : { path })
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
+    return response.result.value
+  }
+
+  /**
+   * Create one child directory through the Host's `browse` capability.
+   * @param path - absolute existing parent directory.
+   * @param name - single non-blank path segment.
+   * @returns the created directory's absolute path.
+   */
+  async createDirectory(path: string, name: string): Promise<string> {
+    const response = await this.api.host.createDirectory({ path, name })
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
     return response.result.value.path
   }
 

@@ -1,4 +1,4 @@
-/** Cross-platform native single-directory picker used by the local GUI carrier. */
+/** Cross-platform native single-directory chooser behind the dialog backend's capability. */
 
 import { execFile } from 'node:child_process'
 

@@ -48,8 +48,10 @@ function scriptedApi(overrides: {
       ...overrides.sessions,
     },
     host: {
-      describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
+      describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0, directoryPicker: 'browse' as const }),
       pickDirectory: r => ok(r, { path: null }),
+      listDirectory: r => ok(r, { path: '/t', home: '/t', crumbs: [], entries: [] }),
+      createDirectory: r => ok(r, { path: '/t/new' }),
       ...overrides.host,
     },
     workspace: {

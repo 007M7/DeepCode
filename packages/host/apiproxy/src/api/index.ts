@@ -29,7 +29,7 @@ export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelTarget, SessionModels, SessionsApi, SessionSummary,
 } from './sessions.ts'
-export type { HostApi } from './host.ts'
+export type { DirectoryEntry, DirectoryListing, DirectoryPickerKind, HostApi } from './host.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor, CommandExecuteResult } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
