@@ -1191,9 +1191,9 @@ snapshot(session: Session): ProjectionSnapshot
  * State-level checkpoint of every registered unit for one session, read
  * from the watermark cache (missing cells fold lazily over the in-memory
  * log). This is the write side of the persisted projection cache: the
- * returned rows are the `(key → {stateVersion, observedSeq, state})` part
- * of the durable `(sessionId, key, stateVersion, observedSeq, state)`
- * rows. Every `state` is a DETACHED structured clone — never the live
+ * returned rows are the `(key → {ver, seq, val})` part of the durable
+ * `(sessionId, key, ver, seq, val)`
+ * rows. Every `val` is a DETACHED structured clone — never the live
  * cell reference: the watermark cache is this registry's authoritative
  * mutable state, and a caller reaching the live reference could corrupt
  * every subsequent snapshot and frame through it (plain JSON by the unit
@@ -1206,7 +1206,7 @@ checkpoint(session: Session): ProjectionCheckpoint
 /**
  * The stored seq a {@link restore} tail read over `checkpoint` must start
  * at: one event BELOW the lowest usable watermark (a row is usable when
- * its `stateVersion` matches the live unit; an absent or mismatched row
+ * its `ver` matches the live unit's `stateVersion`; an absent or mismatched row
  * pulls the floor to `0` — that key must refold the full log). The
  * one-below anchor is load-bearing: the tail then proves how far the
  * stored log still extends, so {@link restore} can detect a log that
@@ -1223,7 +1223,7 @@ restoreFloor(checkpoint: ProjectionCheckpoint): number | undefined
 
 /**
  * View a checkpoint's rows without any log read: for every registered
- * unit whose row's `stateVersion` matches, serve the schema-validated
+ * unit whose row's `ver` matches, serve the schema-validated
  * `view` of the stored state; mismatched or absent rows leave their key
  * absent (a cold or listing consumer treats it as not-yet-available and a
  * fuller read path refolds it). The zero-I/O rung of the read ladder —
@@ -1241,9 +1241,9 @@ viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>
  * `readFrom(id, restoreFloor(checkpoint))` and that same floor as
  * `baseSeq`; the floor's one-below anchor makes the supplied end honest,
  * so a shrunk log is detected here. A row is usable iff its
- * `stateVersion` matches the live unit, it does not predate `baseSeq`
- * (`observedSeq >= baseSeq - 1`), and it does not claim events past the
- * supplied end (`observedSeq <= endSeq`); an unusable row is discarded
+ * `ver` matches the live unit's `stateVersion`, it does not predate `baseSeq`
+ * (`seq >= baseSeq - 1`), and it does not claim events past the
+ * supplied end (`seq <= endSeq`); an unusable row is discarded
  * and its key refolds from `init` — which is only sound over the full
  * log, so a discarded row with `baseSeq > 0` throws (the caller re-reads
  * from seq 0, e.g. after a crash-repair truncation shrank the log below
@@ -1260,7 +1260,7 @@ restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseS
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-projection/session-projection/src/index.ts:157`](../../packages/session-projection/session-projection/src/index.ts)
+Source: [`packages/session-projection/session-projection/src/index.ts:156`](../../packages/session-projection/session-projection/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 

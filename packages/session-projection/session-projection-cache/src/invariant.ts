@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: the cache's correctness relation (a stored row equals
- * the registry fold at its `observedSeq`) is only checkable by re-running the
+ * the registry fold at its `seq` watermark) is only checkable by re-running the
  * fold over the persisted log — duplicating the implementation rather than
  * detecting drift — and its staleness is by design (fail-soft writes). The
  * durable boundary is already schema-validated by the storage-domain layer

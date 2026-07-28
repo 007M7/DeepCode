@@ -175,11 +175,11 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.register({ ...countUnit(), stateVersion: 7 })
     const markEvent = mark(session, ['a'])
     const rows = ctx.sessionProjections.checkpoint(session)
-    expect(rows['test/marks']).toEqual({ stateVersion: 1, observedSeq: markEvent.seq, state: { marks: ['a'] } })
-    expect(rows['test/count']).toEqual({ stateVersion: 7, observedSeq: markEvent.seq, state: 1 })
+    expect(rows['test/marks']).toEqual({ ver: 1, seq: markEvent.seq, val: { marks: ['a'] } })
+    expect(rows['test/count']).toEqual({ ver: 7, seq: markEvent.seq, val: 1 })
     // Empty log: init-derived state at watermark -1.
     const fresh = ctx.sessions.create()
-    expect(ctx.sessionProjections.checkpoint(fresh)['test/marks']).toEqual({ stateVersion: 1, observedSeq: -1, state: null })
+    expect(ctx.sessionProjections.checkpoint(fresh)['test/marks']).toEqual({ ver: 1, seq: -1, val: null })
   })
 
   it('checkpoint states are detached clones — mutating them cannot corrupt the watermark cache', async () => {
@@ -188,11 +188,11 @@ describe('SessionProjectionRegistry drive', () => {
     mark(session, ['a'])
     const rows = ctx.sessionProjections.checkpoint(session)
     // Hostile (or merely careless) consumer mutates the handed-out state.
-    ;(rows['test/marks']?.state as { marks: string[] }).marks.push('INJECTED')
+    ;(rows['test/marks']?.val as { marks: string[] }).marks.push('INJECTED')
     // The registry's authoritative cell is untouched: snapshot and a fresh
     // checkpoint both still serve the committed value.
     expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['a'] })
-    expect(ctx.sessionProjections.checkpoint(session)['test/marks']?.state).toEqual({ marks: ['a'] })
+    expect(ctx.sessionProjections.checkpoint(session)['test/marks']?.val).toEqual({ marks: ['a'] })
   })
 
   it('restoreFloor anchors one below the lowest usable watermark and at 0 for missing or mismatched rows', async () => {
@@ -204,18 +204,18 @@ describe('SessionProjectionRegistry drive', () => {
     // Lowest usable watermark is count's 5 → the anchored tail starts AT 5
     // (one below the first needed seq 6), so the read proves seq 5 still exists.
     expect(ctx.sessionProjections.restoreFloor({
-      'test/marks': { stateVersion: 1, observedSeq: 10, state: { marks: [] } },
-      'test/count': { stateVersion: 1, observedSeq: 5, state: 6 },
+      'test/marks': { ver: 1, seq: 10, val: { marks: [] } },
+      'test/count': { ver: 1, seq: 5, val: 6 },
     })).toBe(5)
     // A version-mismatched row forces that key back to a full refold.
     expect(ctx.sessionProjections.restoreFloor({
-      'test/marks': { stateVersion: 2, observedSeq: 10, state: { marks: [] } },
-      'test/count': { stateVersion: 1, observedSeq: 5, state: 6 },
+      'test/marks': { ver: 2, seq: 10, val: { marks: [] } },
+      'test/count': { ver: 1, seq: 5, val: 6 },
     })).toBe(0)
     // A fresh (-1) row still needs the whole tail from 0.
     expect(ctx.sessionProjections.restoreFloor({
-      'test/marks': { stateVersion: 1, observedSeq: -1, state: null },
-      'test/count': { stateVersion: 1, observedSeq: -1, state: 0 },
+      'test/marks': { ver: 1, seq: -1, val: null },
+      'test/count': { ver: 1, seq: -1, val: 0 },
     })).toBe(0)
   })
 
@@ -230,8 +230,8 @@ describe('SessionProjectionRegistry drive', () => {
     // marks row usable (watermark 2, tail starts at 3); count row mismatched — but
     // a mismatch with baseSeq > 0 cannot silently refold: it throws for a re-read.
     expect(() => ctx.sessionProjections.restore({
-      'test/marks': { stateVersion: 1, observedSeq: 2, state: { marks: ['old'] } },
-      'test/count': { stateVersion: 99, observedSeq: 2, state: 3 },
+      'test/marks': { ver: 1, seq: 2, val: { marks: ['old'] } },
+      'test/count': { ver: 99, seq: 2, val: 3 },
     }, tail, 3)).toThrow(/re-read from seq 0/)
     // The full-log re-read (baseSeq 0) refolds the mismatched key from init.
     const full: SessionEvent[] = [
@@ -241,15 +241,15 @@ describe('SessionProjectionRegistry drive', () => {
       ...tail,
     ]
     const { snapshot, checkpoint } = ctx.sessionProjections.restore({
-      'test/marks': { stateVersion: 1, observedSeq: 2, state: { marks: ['old', '2'] } },
-      'test/count': { stateVersion: 99, observedSeq: 2, state: 3 },
+      'test/marks': { ver: 1, seq: 2, val: { marks: ['old', '2'] } },
+      'test/count': { ver: 99, seq: 2, val: 3 },
     }, full, 0)
     expect(snapshot.asOfSeq).toBe(4)
     expect(snapshot.values['test/marks']).toEqual({ marks: ['new'] })
     expect(snapshot.values['test/count']).toBe(5) // refolded from init over all 5 events
     // The refreshed rows sit at the served cut, ready for a durable write-back.
-    expect(checkpoint['test/marks']).toEqual({ stateVersion: 1, observedSeq: 4, state: { marks: ['new'] } })
-    expect(checkpoint['test/count']).toEqual({ stateVersion: 1, observedSeq: 4, state: 5 })
+    expect(checkpoint['test/marks']).toEqual({ ver: 1, seq: 4, val: { marks: ['new'] } })
+    expect(checkpoint['test/count']).toEqual({ ver: 1, seq: 4, val: 5 })
   })
 
   it('restore over a suffix folds only past each row watermark and serves an exact empty-tail cut', async () => {
@@ -257,8 +257,8 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.register(marksUnit())
     ctx.sessionProjections.register(countUnit())
     const rows = {
-      'test/marks': { stateVersion: 1, observedSeq: 4, state: { marks: ['done'] } },
-      'test/count': { stateVersion: 1, observedSeq: 2, state: 3 },
+      'test/marks': { ver: 1, seq: 4, val: { marks: ['done'] } },
+      'test/count': { ver: 1, seq: 2, val: 3 },
     }
     const tail: SessionEvent[] = [
       { type: 'turn/start', seq: 3, time: 3, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -273,8 +273,8 @@ describe('SessionProjectionRegistry drive', () => {
 
     // Empty tail (checkpoint is current): the cut sits at baseSeq - 1.
     const { snapshot: current } = ctx.sessionProjections.restore({
-      'test/marks': { stateVersion: 1, observedSeq: 4, state: { marks: ['done'] } },
-      'test/count': { stateVersion: 1, observedSeq: 4, state: 5 },
+      'test/marks': { ver: 1, seq: 4, val: { marks: ['done'] } },
+      'test/count': { ver: 1, seq: 4, val: 5 },
     }, [], 5)
     expect(current.asOfSeq).toBe(4)
     expect(current.values['test/count']).toBe(5)
@@ -285,8 +285,8 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.register(marksUnit())
     ctx.sessionProjections.register(countUnit())
     const values = ctx.sessionProjections.viewCheckpoint({
-      'test/marks': { stateVersion: 1, observedSeq: 4, state: { marks: ['stored'] } },
-      'test/count': { stateVersion: 99, observedSeq: 4, state: 5 }, // mismatched: absent
+      'test/marks': { ver: 1, seq: 4, val: { marks: ['stored'] } },
+      'test/count': { ver: 99, seq: 4, val: 5 }, // mismatched: absent
     })
     expect(values['test/marks']).toEqual({ marks: ['stored'] })
     expect('test/count' in values).toBe(false)
@@ -296,7 +296,7 @@ describe('SessionProjectionRegistry drive', () => {
   it('restore rejects a row claiming events past the supplied log end (shrunk log ⇒ re-read)', async () => {
     const { ctx } = await harness()
     ctx.sessionProjections.register(countUnit())
-    const rows = { 'test/count': { stateVersion: 1, observedSeq: 9, state: 10 } }
+    const rows = { 'test/count': { ver: 1, seq: 9, val: 10 } }
     // The anchored floor sits ON the watermark, so the tail read must return
     // at least seq 9 from an intact log…
     const floor = ctx.sessionProjections.restoreFloor(rows)

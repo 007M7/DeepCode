@@ -1,7 +1,7 @@
 /**
  * The session-projcache domain declaration: one `sessions` table keyed by
  * {@link SessionId}, each record the full projection checkpoint for one
- * session (`key → {stateVersion, observedSeq, state}` rows). The spec object
+ * session (`key → {ver, seq, val}` rows). The spec object
  * is the single source of the domain's identity, version, and record schema;
  * the storage-domain routing decides the medium (the shipped composition's
  * json backend lands it at `<root>/session_projcache.json`, beside
@@ -14,17 +14,17 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 
 /**
- * One persisted checkpoint row (the RFC's `(sessionId, key, stateVersion,
- * observedSeq, state)` minus the two record keys). `state` is the unit's
- * internal state — plain JSON by the unit contract; `z.json()` enforces that
- * at the durable boundary. A row is never wrong, only possibly stale:
- * `observedSeq` says exactly how stale, and a `stateVersion` mismatch
+ * One persisted checkpoint row (the RFC's `(sessionId, key, ver, seq, val)`
+ * minus the two record keys). `val` is the unit's internal state — plain
+ * JSON by the unit contract; `z.json()` enforces that at the durable
+ * boundary. A row is never wrong, only possibly stale: `seq` says exactly
+ * how stale, and a `ver` mismatch against the live unit's `stateVersion`
  * discards it at read time (never a migration).
  */
 export const checkpointRow = z.object({
-  stateVersion: z.number().int().nonnegative(),
-  observedSeq: z.number().int().gte(-1),
-  state: z.json(),
+  ver: z.number().int().nonnegative(),
+  seq: z.number().int().gte(-1),
+  val: z.json(),
 })
 
 /**
@@ -61,10 +61,11 @@ export type CheckpointRecord = z.infer<typeof checkpointRecord>
 /**
  * The session-projcache domain spec. Version bumps discard the whole medium
  * (cache semantics: a stale or unreadable cache costs a longer tail replay,
- * never a wrong value). v2 added the record's log-identity binding.
+ * never a wrong value). v2 added the record's log-identity binding; v3
+ * renamed the row fields to `ver`/`seq`/`val`.
  */
 export const projectionCacheDomainSpec = defineDomain({
   name: 'session_projcache',
-  version: 2,
+  version: 3,
   tables: { sessions: domainTable<SessionId, CheckpointRecord>(checkpointRecord) },
 })

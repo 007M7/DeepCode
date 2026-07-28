@@ -51,7 +51,7 @@ declare module 'cordis' {
 
 - 值就是协议层的 JSON 载荷；同一张类型表经 `import type` 端到端贯通（host 侧单元、协议块、React 钩子）——没有第二张 DTO 表，也没有独立的客户端「views」表。值如何*渲染*是 slot 体系的事，永远不归投影层管。
 - **host 是投影唯一的计算地点。** 框架正向驱动（eager drive）每个已注册的单元：每个已提交的会话事件都经过 `apply`；对某事件不感兴趣的单元返回同一个状态引用，而引用未变（`Object.is`）就不产生任何下游工作。客户端从不折叠领域事件——它们收到的是成品值（基线块 + 下文的推送帧）。这消除了双重实现陷阱（plan 的双事件折叠只在 host 写一遍），也消除了一切客户端侧领域代码。
-- **状态永远靠计算得出，绝不入日志。** 日志只存事件；单元的状态住在框架的按会话水位线缓存里（每单元一份 `{state, observedSeq}`），并在后续阶段进入 domain-KV 存储 seam 上的**持久投影缓存（persisted projection cache）**：形如 `(sessionId, key, stateVersion, observedSeq, stateJson)` 的行。一行永远不会是错的，至多是陈旧的——`observedSeq` 精确说明陈旧到哪。冷读与活读共用同一套读取配方：取缓存状态（或 `init()`），只对超出其水位线的事件做正向 `apply`，再对结果做 `view`。冷列表（跨全部 workspace 列出每个会话的标题）变成一次索引读，至多外加一小段尾部回放；session-persistence seam 在同一后续阶段为这段尾部补一个按 seq 起读的原语。写入策略：节流（次数/间隔，可配置）外加两个强制点——`turn/end` 与 detach（由活转冷的时刻）。两次写入之间崩溃的代价是尾部回放更长一些，绝不会是值出错。
+- **状态永远靠计算得出，绝不入日志。** 日志只存事件；单元的状态住在框架的按会话水位线缓存里（每单元一份 `{state, observedSeq}`），并在后续阶段进入 domain-KV 存储 seam 上的**持久投影缓存（persisted projection cache）**：形如 `(sessionId, key, ver, seq, val)` 的行（`ver` = 单元的 `stateVersion`，`seq` = 水位线，`val` = 状态 JSON）。一行永远不会是错的，至多是陈旧的——其 `seq` 精确说明陈旧到哪。冷读与活读共用同一套读取配方：取缓存状态（或 `init()`），只对超出其水位线的事件做正向 `apply`，再对结果做 `view`。冷列表（跨全部 workspace 列出每个会话的标题）变成一次索引读，至多外加一小段尾部回放；session-persistence seam 在同一后续阶段为这段尾部补一个按 seq 起读的原语。写入策略：节流（次数/间隔，可配置）外加两个强制点——`turn/end` 与 detach（由活转冷的时刻）。两次写入之间崩溃的代价是尾部回放更长一些，绝不会是值出错。
 - 领域的输入事件集由领域自己选择：todos 只折叠 `todo/write`；plan 折叠 `plan/mode` 外加它自己的 `/plan` `command/run` 记录（见 plan 一节）；goal 折叠 `goal/change` 元数据；会话标题折叠其标题事件（顺带下线专设的 `session/title` 帧与客户端的标题快照表——这是该 seam 收编的第四个手工投影）。
 - 注册是 effect（disposer 随 fiber 走）：插件卸载后其 key 从后续响应中消失，客户端将其读作能力缺失——HMR（热模块替换）语义随之自动成立。key 重复直接 throw。领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响。
 - 该包拥有 `./invariant`（每个被服务的 key 都有一条存活的注册）。
@@ -133,7 +133,7 @@ host 侧命令执行器（`packages/ui/commands`）在调用处理器前追加 `
 2. **客户端基座**：通用值仓 + `useProjection` 席位；下线按领域的 cell 机制，并在标题单元注册后一并下线 `session/title` 帧与标题快照表。帧的形状依赖 1（在此之前 fixture（测试前置数据）喂合成帧）。
 3. **命令通道**：两个事件、执行器落日志、通用节点 + keyed slot、通知通道下线、`{matched, commandId?}` 准入。与 1 并行。
 4. **领域重新对接**（在 1+2 之后）：先 todo（单元进 `tool-todo`，删掉搭载字段），再 plan（双事件单元、RPC 下线、开关改发 `/plan`），最后 goal（`goal/change` 单元，删掉 `goals.get`，把六个 `Session` 方法移入领域插件的 inject）。
-5. **持久投影缓存**（后续阶段，待 domain-KV 存储 seam 就绪后）：`(sessionId, key, stateVersion, observedSeq, state)` 行、带 turn/end 与 detach 强制点的节流写入，以及持久化侧供冷尾部回放用的按 seq 起读原语。
+5. **持久投影缓存**（后续阶段，待 domain-KV 存储 seam 就绪后）：`(sessionId, key, ver, seq, val)` 行、带 turn/end 与 detach 强制点的节流写入，以及持久化侧供冷尾部回放用的按 seq 起读原语。
 
 ## Alternatives considered
 

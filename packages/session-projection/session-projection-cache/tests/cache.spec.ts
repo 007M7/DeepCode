@@ -100,7 +100,7 @@ function storedRecord(pool: MemoryMediaPool, id: Session['id']) {
   return pool.media.get('session_projcache')?.tables.get('sessions')?.get(String(id)) as
     {
       identity: { createdAt: number; cwd?: string }
-      rows: Record<string, { stateVersion: number; observedSeq: number; state: unknown }>
+      rows: Record<string, { ver: number; seq: number; val: unknown }>
     } | undefined
 }
 
@@ -126,7 +126,7 @@ describe('SessionProjectionCache write policy', () => {
     const end = endTurn(session)
     await settle()
     const rows = storedRows(pool, session.id)
-    expect(rows?.['cache-test/marks']).toEqual({ stateVersion: 1, observedSeq: end.seq, state: { marks: ['a'] } })
+    expect(rows?.['cache-test/marks']).toEqual({ ver: 1, seq: end.seq, val: { marks: ['a'] } })
   })
 
   it('writes at session disposal (detach, the live-to-cold moment)', async () => {
@@ -140,7 +140,7 @@ describe('SessionProjectionCache write policy', () => {
     mark(session, ['live'])
     await owner.dispose()
     await settle()
-    expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['live'] })
+    expect(storedRows(pool, session.id)?.['cache-test/marks']?.val).toEqual({ marks: ['live'] })
   })
 
   it('flushes when the in-turn event count reaches the configured threshold', async () => {
@@ -152,7 +152,7 @@ describe('SessionProjectionCache write policy', () => {
     expect(storedRows(pool, session.id)).toBeUndefined()
     mark(session, ['3'])
     await settle()
-    expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['3'] })
+    expect(storedRows(pool, session.id)?.['cache-test/marks']?.val).toEqual({ marks: ['3'] })
   })
 
   it('flushes on the configured interval when the count threshold is not reached', async () => {
@@ -164,7 +164,7 @@ describe('SessionProjectionCache write policy', () => {
     expect(storedRows(pool, session.id)).toBeUndefined()
     await vi.advanceTimersByTimeAsync(1)
     await vi.advanceTimersByTimeAsync(0)
-    expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['slow'] })
+    expect(storedRows(pool, session.id)?.['cache-test/marks']?.val).toEqual({ marks: ['slow'] })
   })
 
   it('write() on a never-dirty session checkpoints directly and rejects a non-JSON unit state', async () => {
@@ -172,7 +172,7 @@ describe('SessionProjectionCache write policy', () => {
     // Never dirtied: no events — write() still lands the init-derived cut.
     const clean = ctx.sessions.create(SessionId('clean-write'))
     await ctx.sessionProjectionCache.write(clean)
-    expect(storedRows(pool, clean.id)?.['cache-test/marks']).toEqual({ stateVersion: 1, observedSeq: -1, state: null })
+    expect(storedRows(pool, clean.id)?.['cache-test/marks']).toEqual({ ver: 1, seq: -1, val: null })
     // A unit whose state violates the plain-JSON contract fails the write loud.
     ctx.sessionProjections.register({
       key: 'cache-test/marks2' as never,
@@ -214,7 +214,7 @@ describe('SessionProjectionCache write policy', () => {
     mark(session, ['y'])
     endTurn(session)
     await settle()
-    expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['y'] })
+    expect(storedRows(pool, session.id)?.['cache-test/marks']?.val).toEqual({ marks: ['y'] })
   })
 })
 
@@ -234,10 +234,10 @@ describe('SessionProjectionCache cold read', () => {
   function seedRow(
     pool: MemoryMediaPool,
     id: string,
-    row: { stateVersion: number; observedSeq: number; state: unknown },
+    row: { ver: number; seq: number; val: unknown },
     identity: { createdAt: number; cwd?: string } = { createdAt: 0 },
   ): void {
-    pool.versions.set('session_projcache', 2)
+    pool.versions.set('session_projcache', 3)
     pool.media.set('session_projcache', {
       tables: new Map([['sessions', new Map([[id, { identity, rows: { 'cache-test/marks': row } }]])]]),
       global: null,
@@ -248,7 +248,7 @@ describe('SessionProjectionCache cold read', () => {
     const pool = new MemoryMediaPool()
     const logs = new Map([['cold', storedLog([['a'], ['a', 'b']])]])
     // A warm-era checkpoint at watermark 1 (only ['a'] folded).
-    seedRow(pool, 'cold', { stateVersion: 1, observedSeq: 1, state: { marks: ['a'] } })
+    seedRow(pool, 'cold', { ver: 1, seq: 1, val: { marks: ['a'] } })
     const { cache, persistence, pool: samePool } = await harness({ pool, logs })
     const id = SessionId('cold')
     const snapshot = await cache.coldSnapshot(id)
@@ -258,13 +258,13 @@ describe('SessionProjectionCache cold read', () => {
     expect(persistence.readFrom).toHaveBeenCalledWith(id, 1, undefined)
     // Write-back: the stored row advanced to the served cut.
     expect(storedRows(samePool, id)?.['cache-test/marks'])
-      .toEqual({ stateVersion: 1, observedSeq: 3, state: { marks: ['a', 'b'] } })
+      .toEqual({ ver: 1, seq: 3, val: { marks: ['a', 'b'] } })
   })
 
   it('discards a version-mismatched row and refolds the full log', async () => {
     const pool = new MemoryMediaPool()
     const logs = new Map([['bumped', storedLog([['a']])]])
-    seedRow(pool, 'bumped', { stateVersion: 1, observedSeq: 2, state: { marks: ['stale'] } })
+    seedRow(pool, 'bumped', { ver: 1, seq: 2, val: { marks: ['stale'] } })
     const { cache, persistence } = await harness({ pool, logs, stateVersion: 2 })
     const snapshot = await cache.coldSnapshot(SessionId('bumped'))
     expect(snapshot.values['cache-test/marks']).toEqual({ marks: ['a'] })
@@ -276,7 +276,7 @@ describe('SessionProjectionCache cold read', () => {
   it('detects a log shrunk below the row watermark and degrades to one full re-read', async () => {
     const pool = new MemoryMediaPool()
     const logs = new Map([['shrunk', storedLog([['a']])]]) // seqs 0..2
-    seedRow(pool, 'shrunk', { stateVersion: 1, observedSeq: 9, state: { marks: ['ghost'] } })
+    seedRow(pool, 'shrunk', { ver: 1, seq: 9, val: { marks: ['ghost'] } })
     const { cache, persistence } = await harness({ pool, logs })
     const snapshot = await cache.coldSnapshot(SessionId('shrunk'))
     expect(snapshot.values['cache-test/marks']).toEqual({ marks: ['a'] })
@@ -307,7 +307,7 @@ describe('SessionProjectionCache cold read', () => {
     const logs = new Map([['reborn', storedLog([['real']])]]) // stored header stamps createdAt 0
     // A checkpoint from a PRIOR lifecycle of the same id (different createdAt):
     // its rows pass every watermark check, but the identity does not match.
-    seedRow(pool, 'reborn', { stateVersion: 1, observedSeq: 2, state: { marks: ['phantom'] } }, { createdAt: 999 })
+    seedRow(pool, 'reborn', { ver: 1, seq: 2, val: { marks: ['phantom'] } }, { createdAt: 999 })
     const { cache, pool: samePool } = await harness({ pool, logs })
     const snapshot = await cache.coldSnapshot(SessionId('reborn'))
     expect(snapshot.values['cache-test/marks']).toEqual({ marks: ['real'] })
@@ -317,14 +317,14 @@ describe('SessionProjectionCache cold read', () => {
 
   it('cachedSnapshot returns undefined when every stored row is version-mismatched', async () => {
     const pool = new MemoryMediaPool()
-    seedRow(pool, 'all-stale', { stateVersion: 99, observedSeq: 4, state: { marks: ['old'] } })
+    seedRow(pool, 'all-stale', { ver: 99, seq: 4, val: { marks: ['old'] } })
     const { cache } = await harness({ pool })
     expect(cache.cachedSnapshot(headerOf(SessionId('all-stale')))).toBeUndefined()
   })
 
   it('binds identity on cwd too: a matching cwd serves, a moved session does not', async () => {
     const pool = new MemoryMediaPool()
-    seedRow(pool, 'homed', { stateVersion: 1, observedSeq: 2, state: { marks: ['w'] } }, { createdAt: 0, cwd: '/work' })
+    seedRow(pool, 'homed', { ver: 1, seq: 2, val: { marks: ['w'] } }, { createdAt: 0, cwd: '/work' })
     const { cache } = await harness({ pool })
     const id = SessionId('homed')
     expect(cache.cachedSnapshot(headerOf(id, 0, '/work'))?.values['cache-test/marks']).toEqual({ marks: ['w'] })
@@ -352,7 +352,7 @@ describe('SessionProjectionCache cold read', () => {
 
   it('cachedSnapshot serves identity-matching rows with the cut watermark and refuses unrelated ones', async () => {
     const pool = new MemoryMediaPool()
-    seedRow(pool, 'listed', { stateVersion: 1, observedSeq: 4, state: { marks: ['t'] } })
+    seedRow(pool, 'listed', { ver: 1, seq: 4, val: { marks: ['t'] } })
     const { cache } = await harness({ pool })
     const id = SessionId('listed')
     // Matching header: values plus the watermark the client seeds under.

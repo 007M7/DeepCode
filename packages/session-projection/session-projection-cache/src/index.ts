@@ -3,10 +3,10 @@
  * checkpoints of every registered projection unit's state, one record per
  * session on the domain data form (`session_projcache` domain — the shipped
  * json backend lands it beside `workspace.json`). The cache is a fold
- * shortcut, never an authority: a row is possibly stale (its `observedSeq`
+ * shortcut, never an authority: a row is possibly stale (its `seq`
  * says how stale) but never wrong, so every write path is fail-soft (a lost
  * write costs a longer tail replay on the next cold read) and a
- * `stateVersion` mismatch discards the row instead of migrating it. Design
+ * `ver` mismatch discards the row instead of migrating it. Design
  * authority: the session-projection RFC
  * (.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md).
  * @module @deepseek-ai/dsh-session-projection-cache
@@ -125,7 +125,7 @@ export class SessionProjectionCache extends Service {
     // The block carries ONE cut: the lowest served watermark is the seq every
     // value is at least current as of (under-claiming is safe under
     // higher-seq-wins; over-claiming would let a stale value outrank pushes).
-    const asOfSeq = Math.min(...keys.map(key => (record.rows[key] as { observedSeq: number }).observedSeq))
+    const asOfSeq = Math.min(...keys.map(key => (record.rows[key] as { seq: number }).seq))
     return { asOfSeq, values }
   }
 

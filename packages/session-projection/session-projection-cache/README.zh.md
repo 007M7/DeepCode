@@ -4,10 +4,10 @@
 
 持久投影缓存（`ctx.sessionProjectionCache`）：把每个已注册投影单元的状态持久化为检查点（checkpoint），基于域数据形态（domain data form）每会话一条记录（`session_projcache` 域——出厂 json 后端将其落在配置的存储根目录下、`workspace.json` 旁边）。设计权威：[session-projection RFC](../../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md)（persisted projection cache 一节）。
 
-一条存储行 `(key → {stateVersion, observedSeq, state})` 是折叠捷径，绝不是权威：可能陈旧（`observedSeq` 精确说明陈旧到哪），但绝不会错。实现据此承诺：
+一条存储行 `(key → {ver, seq, val})` 是折叠捷径，绝不是权威：可能陈旧（`seq` 精确说明陈旧到哪），但绝不会错。实现据此承诺：
 
 - **每次后台写入都 fail-soft。** 持久写失败只记一条警告并保持缓存陈旧；下一次写入或冷读自愈。两次写之间崩溃的代价是更长的尾部重放，绝不是错误的值。
-- **`stateVersion` 不匹配即丢弃，绝不迁移。** 单元递增版本会在读取时使其行失效；该 key 从日志重新折叠。
+- **`ver` 与活单元 `stateVersion` 不匹配即丢弃，绝不迁移。** 单元递增版本会在读取时使其行失效；该 key 从日志重新折叠。
 - **整记录写入。** 每次写入替换该会话的完整检查点（注册表切面始终是完整的），并经无损 JSON 边界快照——违反纯 JSON 契约的单元状态会大声失败。
 - **记录绑定到日志生命周期，而不只是 id。** 每条记录存储其折叠来源的 header 身份（`createdAt`、`cwd`）；每次读取先以活 header 或存储 header 为证验证它,再接受任何行——被删后重建的 id、或缓存幸存而持久化存储被换掉时,无关记录被整体丢弃,绝不播种幻影值。
 - **日志领先，缓存跟随。** 活会话检查点先把缓冲事件持久 flush,缓存行才落地,因此崩溃只会让缓存落后于日志（更长的尾部重放）,绝不领先于它。
