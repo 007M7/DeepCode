@@ -17,7 +17,7 @@ const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /** Stable model-visible orientation for sessions created through `dsh web`. */
-export const WEB_SURFACE_PROMPT = 'You are interacting with the user through the DeepSeek Harness Web GUI. '
+const WEB_SURFACE_PROMPT = 'You are interacting with the user through the DeepSeek Harness Web GUI. '
   + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
   + 'The browser provides no implicit DOM, route, or screenshot context.'
 
