@@ -5,7 +5,6 @@
  */
 
 import type { Context } from 'cordis'
-import type { Agent, AgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionMetrics } from './api/sessions.ts'
@@ -20,25 +19,8 @@ interface UsageState {
   byStep: Map<string, TokenUsage>
 }
 
-interface CapacityState {
-  routeKey: string | undefined
-  generation: number
-  epoch: number
-  status: 'pending' | 'ready' | 'retryable'
-  contextWindow?: number
-  controller?: AbortController
-}
-
-type CapacityTarget = Pick<AgentLlmTarget, 'provider' | 'model'>
-
 interface TokenMeterLike {
   measure(session: Session): { totalTokens: number }
-}
-
-interface LlmLike {
-  resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<{
-    context?: { contextWindow: number }
-  }>
 }
 
 function usageFrom(event: SessionEvent): { turn: number; step: number; usage: TokenUsage } | undefined {
@@ -79,51 +61,19 @@ function recordUsage(state: UsageState, turn: number, step: number, usage: Token
   state.cacheWriteTokens += usage.cacheWriteTokens ?? 0
 }
 
-function routeKeyFor(target: CapacityTarget | undefined): string | undefined {
-  return target === undefined ? undefined : `${target.provider}\u0000${target.model}`
-}
-
-/**
- * Projects durable cumulative usage and route-aware current context without
- * awaiting model metadata on the session append path.
- */
+/** Projects durable cumulative usage and synchronous current context pressure. */
 export class SessionMetricsProjector {
   private readonly usage = new WeakMap<Session, UsageState>()
-  private readonly capacities = new WeakMap<Agent, CapacityState>()
-  private readonly pendingCapacities = new Set<CapacityState>()
-  private capacityEpoch = 0
-  private disposed = false
 
-  /**
-   * @param ctx - Host context providing optional token-meter and LLM services.
-   * @param targetFor - side-effect-free selected or logged route lookup for one attached agent.
-   * @param onCapacityResolved - schedules a fresh live projection after exact-route metadata resolves.
-   */
-  constructor(
-    private readonly ctx: Context,
-    private readonly targetFor: (agent: Agent) => CapacityTarget | undefined,
-    private readonly onCapacityResolved: (agent: Agent) => void,
-  ) {}
-
-  /** Retire adapter-owned metadata and fence every resolution already in flight. */
-  invalidateCapacities(): void {
-    this.capacityEpoch++
-    for (const pending of this.pendingCapacities) this.abortCapacityResolution(pending)
-  }
-
-  /** Permanently retire capacity projection and cancel every adapter-owned lookup. */
-  dispose(): void {
-    this.disposed = true
-    this.invalidateCapacities()
-  }
+  /** @param ctx - Host context providing an optional token-meter service. */
+  constructor(private readonly ctx: Context) {}
 
   /**
    * Read a fresh detached projection through the session's durable tail.
    * @param session - authoritative durable log owner.
-   * @param agent - attached route owner, when available.
-   * @returns cumulative usage and any currently available pressure/capacity.
+   * @returns cumulative usage and any currently measurable pressure.
    */
-  snapshot(session: Session, agent?: Agent): SessionMetrics {
+  snapshot(session: Session): SessionMetrics {
     const state = this.syncUsage(session)
     const tokenMeter = this.ctx.get('tokenMeter') as TokenMeterLike | undefined
     let contextTokens: number | undefined
@@ -134,7 +84,6 @@ export class SessionMetricsProjector {
         // A malformed or temporarily unmeasurable replay has no honest pressure value.
       }
     }
-    const contextWindow = agent === undefined ? undefined : this.capacityFor(agent)
     return {
       logRevision: state.logRevision,
       projectionRevision: state.projectionRevision++,
@@ -143,7 +92,6 @@ export class SessionMetricsProjector {
       cacheReadTokens: state.cacheReadTokens,
       cacheWriteTokens: state.cacheWriteTokens,
       ...contextTokens === undefined ? {} : { contextTokens },
-      ...contextWindow === undefined ? {} : { contextWindow },
     }
   }
 
@@ -170,88 +118,5 @@ export class SessionMetricsProjector {
       state.logRevision++
     }
     return state
-  }
-
-  private capacityFor(agent: Agent): number | undefined {
-    if (this.disposed) return undefined
-    const target = this.targetFor(agent)
-    const routeKey = routeKeyFor(target)
-    let state = this.capacities.get(agent)
-    if (state === undefined
-      || state.routeKey !== routeKey
-      || state.epoch !== this.capacityEpoch
-      || state.status === 'retryable') {
-      this.abortCapacityResolution(state)
-      state = {
-        routeKey,
-        generation: (state?.generation ?? 0) + 1,
-        epoch: this.capacityEpoch,
-        status: target === undefined ? 'ready' : 'pending',
-      }
-      this.capacities.set(agent, state)
-      if (target !== undefined) this.resolveCapacity(agent, target, state)
-    }
-    return state.status === 'ready' ? state.contextWindow : undefined
-  }
-
-  private resolveCapacity(
-    agent: Agent,
-    target: CapacityTarget,
-    pending: CapacityState,
-  ): void {
-    const llm = this.ctx.get('llm') as LlmLike | undefined
-    if (llm === undefined) {
-      pending.status = 'retryable'
-      return
-    }
-    const controller = new AbortController()
-    pending.controller = controller
-    this.pendingCapacities.add(pending)
-    void Promise.resolve()
-      .then(() => {
-        controller.signal.throwIfAborted()
-        return llm.resolveModelInfo(target.provider, target.model, controller.signal)
-      })
-      .then(
-        (resolved) => {
-          this.finishCapacityResolution(pending, controller)
-          if (this.capacityResolutionIsStale(agent, pending)) return
-          pending.status = 'ready'
-          if (resolved.context !== undefined) pending.contextWindow = resolved.context.contextWindow
-          this.onCapacityResolved(agent)
-        },
-        () => {
-          this.finishCapacityResolution(pending, controller)
-          if (!this.capacityResolutionIsStale(agent, pending)) pending.status = 'retryable'
-        },
-      )
-  }
-
-  private abortCapacityResolution(pending: CapacityState | undefined): void {
-    if (pending === undefined || pending.controller === undefined) return
-    const controller = pending.controller
-    delete pending.controller
-    this.pendingCapacities.delete(pending)
-    controller.abort()
-  }
-
-  private finishCapacityResolution(pending: CapacityState, controller: AbortController): void {
-    this.pendingCapacities.delete(pending)
-    if (pending.controller === controller) delete pending.controller
-  }
-
-  private capacityResolutionIsStale(agent: Agent, pending: CapacityState): boolean {
-    if (pending.epoch !== this.capacityEpoch) return true
-    if (this.capacities.get(agent)?.generation !== pending.generation) return true
-    if (routeKeyFor(this.targetFor(agent)) === pending.routeKey) return false
-    // Unknown is the neutral generation; the next observed concrete route
-    // starts a fresh resolution even when it equals the route that disappeared.
-    this.capacities.set(agent, {
-      routeKey: undefined,
-      generation: pending.generation + 1,
-      epoch: this.capacityEpoch,
-      status: 'ready',
-    })
-    return true
   }
 }

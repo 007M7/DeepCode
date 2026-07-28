@@ -127,6 +127,26 @@ describe('StatsLine', () => {
     expect(emptyView.container.textContent).toBe('')
   })
 
+  it('renders durable counters without a percentage before live capacity is observed', () => {
+    const { source } = makeSource({
+      nodes: [assistant(1, 1)],
+      metrics: {
+        logRevision: 4,
+        projectionRevision: 1,
+        uncachedInputTokens: 120,
+        outputTokens: 20,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 10,
+        contextTokens: 8_000,
+      },
+    })
+    const view = render(<StatsLine {...props(source)} />)
+    expect(view.getByText(
+      '120 uncached input · 20 output · 30 cache read · cache hit 20% · context unknown · 1 turns · 1 steps',
+    )).toBeTruthy()
+    expect(view.container.textContent).not.toContain('% of')
+  })
+
   it('renders honest unknowns when the host projection is missing', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsLine {...props(source)} />)

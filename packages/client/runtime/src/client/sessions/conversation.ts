@@ -12,6 +12,15 @@ import type { PendingInteraction } from './pending.ts'
 
 export type { TodoItem }
 
+/**
+ * Durable Host metrics with the latest capacity observed on this live mux
+ * connection overlaid for presentation.
+ */
+export interface ConversationMetrics extends SessionMetrics {
+  /** Latest dispatched-request capacity; absent until observed or after reset/clear. */
+  contextWindow?: number
+}
+
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
 export type AssistantBlock =
@@ -247,9 +256,9 @@ export interface ConversationSnapshot {
    *  write (last write wins); empty = the log holds no plan. */
   todos: readonly TodoItem[]
   /**
-   * Host-owned cumulative usage and current-context projection. Independent
-   * of `nodes` pagination; null until a tail response or live metrics frame
-   * supplies a current value.
+   * Host-owned cumulative usage/current pressure with live mux-local capacity
+   * overlaid. Independent of `nodes` pagination; null until a tail response or
+   * live metrics frame supplies a current durable value.
    */
-  metrics: SessionMetrics | null
+  metrics: ConversationMetrics | null
 }

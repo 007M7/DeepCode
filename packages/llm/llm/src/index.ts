@@ -10,6 +10,7 @@ import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
   LlmFailure,
+  LlmModelContext,
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
@@ -111,14 +112,18 @@ export class LlmError extends HarnessError {
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Detached context metadata resolved with the registration-bound call. */
+  readonly context?: LlmModelContext
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
    * reuse or mismatch fails with `INVALID_PREPARED_CALL`.
    * @param options - fully assembled request carrying the prepared config.
+   * @param onDispatched - contained Agent-loop notification hook invoked after
+   *   a stream handle is constructed and before its adapter is iterated.
    * @returns the chunk stream, including the `llm/stream` waterfall.
    */
-  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+  stream(options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk>
 }
 
 /**
@@ -392,15 +397,16 @@ export class LlmService extends Service {
    * @returns a detached config only when a default must be materialized.
    */
   async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig> {
-    return this.resolveCallConfigFor(this.registration(config.provider), config, signal)
+    return (await this.resolveCallFor(this.registration(config.provider), config, signal)).config
   }
 
-  private async resolveCallConfigFor(
+  private async resolveCallFor(
     registration: AdapterRegistration,
     config: LlmCallConfig,
     signal?: AbortSignal,
-  ): Promise<LlmCallConfig> {
-    const reasoning = (await this.resolveModelInfoFor(registration, config.model, signal)).reasoning
+  ): Promise<{ config: LlmCallConfig; context?: LlmModelContext }> {
+    const resolved = await this.resolveModelInfoFor(registration, config.model, signal)
+    const reasoning = resolved.reasoning
     const requested = config.reasoningEffort
     if (reasoning === undefined) {
       if (requested !== undefined) {
@@ -409,17 +415,28 @@ export class LlmService extends Service {
           'UNSUPPORTED_REASONING_EFFORT',
         )
       }
-      return config
+      return {
+        config,
+        ...resolved.context === undefined ? {} : { context: resolved.context },
+      }
     }
     const effective = requested ?? reasoning.defaultEffort
-    if (effective === undefined) return config
+    if (effective === undefined) {
+      return {
+        config,
+        ...resolved.context === undefined ? {} : { context: resolved.context },
+      }
+    }
     if (!reasoning.efforts.some(effort => effort.id === effective)) {
       throw new LlmError(
         `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
         'UNSUPPORTED_REASONING_EFFORT',
       )
     }
-    return requested === effective ? config : { ...config, reasoningEffort: effective }
+    return {
+      config: requested === effective ? config : { ...config, reasoningEffort: effective },
+      ...resolved.context === undefined ? {} : { context: resolved.context },
+    }
   }
 
   /**
@@ -432,18 +449,25 @@ export class LlmService extends Service {
    */
   async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
     const registration = this.registration(config.provider)
-    const resolvedConfig = deepFreeze(structuredClone(
-      await this.resolveCallConfigFor(registration, config, signal),
-    ))
+    const resolved = await this.resolveCallFor(registration, config, signal)
+    const resolvedConfig = deepFreeze(structuredClone(resolved.config))
+    const context = resolved.context === undefined
+      ? undefined
+      : Object.freeze(structuredClone(resolved.context))
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
-      stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+      ...context === undefined ? {} : { context },
+      stream: (options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
         }
         dispatched = true
-        return this.streamWithRegistration(options, { registration, config: resolvedConfig })
+        return this.streamWithRegistration(
+          options,
+          { registration, config: resolvedConfig },
+          onDispatched,
+        )
       },
     })
   }
@@ -478,25 +502,51 @@ export class LlmService extends Service {
    * so it cannot suppress the primary provider error. A downstream close awaits
    * adapter cleanup, whose failures remain ordinary untagged work.
    */
-  private async * adapterStream(
+  private adapterStream(
     options: GenerateOptions,
     failures: AdapterFailureScope,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
-  ): AsyncGenerator<StreamChunk> {
+    onDispatched?: () => void,
+  ): AsyncIterable<StreamChunk> {
+    if (prepared === undefined) {
+      return this.resolveAndStream(options, failures, onDispatched)
+    }
     let iterator: AsyncIterator<StreamChunk>
     try {
-      const registration = prepared?.registration ?? this.registration(options.provider)
+      const registration = prepared.registration
       failures.retryPolicy = registration.retryPolicy
-      const resolvedConfig = prepared === undefined
-        ? await this.resolveCallConfigFor(registration, options, options.signal)
-        : prepared.config
-      if (prepared !== undefined && !callConfigEquals(options, resolvedConfig)) {
+      const resolvedConfig = prepared.config
+      if (!callConfigEquals(options, resolvedConfig)) {
         throw new LlmError(
           'prepared LLM call config changed before adapter dispatch',
           'INVALID_PREPARED_CALL',
         )
       }
-      const resolvedOptions = prepared !== undefined || callConfigEquals(options, resolvedConfig)
+      const adapter = registration.adapter
+      const stream = adapter.stream(this.forAdapter(options, adapter))
+      iterator = stream[Symbol.asyncIterator]()
+    } catch (error: unknown) {
+      return this.failedAdapterStream(markLlmAdapterFailure(failures, error))
+    }
+    this.notifyDispatched(onDispatched)
+    return this.iterateAdapter(iterator, failures)
+  }
+
+  private async * resolveAndStream(
+    options: GenerateOptions,
+    failures: AdapterFailureScope,
+    onDispatched?: () => void,
+  ): AsyncGenerator<StreamChunk> {
+    let iterator: AsyncIterator<StreamChunk>
+    try {
+      const registration = this.registration(options.provider)
+      failures.retryPolicy = registration.retryPolicy
+      const resolvedConfig = (await this.resolveCallFor(
+        registration,
+        options,
+        options.signal,
+      )).config
+      const resolvedOptions = callConfigEquals(options, resolvedConfig)
         ? options
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
@@ -507,7 +557,19 @@ export class LlmService extends Service {
     } catch (error: unknown) {
       throw markLlmAdapterFailure(failures, error)
     }
+    this.notifyDispatched(onDispatched)
+    yield* this.iterateAdapter(iterator, failures)
+  }
 
+  private async * failedAdapterStream(error: Error): AsyncGenerator<StreamChunk> {
+    await Promise.resolve()
+    throw error
+  }
+
+  private async * iterateAdapter(
+    iterator: AsyncIterator<StreamChunk>,
+    failures: AdapterFailureScope,
+  ): AsyncGenerator<StreamChunk> {
     let completed = false
     let iterationFailed = false
     try {
@@ -537,6 +599,15 @@ export class LlmService extends Service {
     }
   }
 
+  private notifyDispatched(onDispatched: (() => void) | undefined): void {
+    if (onDispatched === undefined) return
+    try {
+      onDispatched()
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`llm dispatch observer threw: ${String(error)}`)
+    }
+  }
+
   /**
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
@@ -548,23 +619,32 @@ export class LlmService extends Service {
    * agent-loop request recovery; middleware and nested-call failures remain
    * untagged for the outer call.
    * @param options - the full request; `options.provider` selects the adapter.
+   * @param onDispatched - contained Agent-loop notification hook invoked after
+   *   a stream handle is constructed and before its adapter is iterated.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
-  stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    return this.streamWithRegistration(options)
+  stream(options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk> {
+    return this.streamWithRegistration(options, undefined, onDispatched)
   }
 
   private streamWithRegistration(
     options: GenerateOptions,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
+    onDispatched?: () => void,
   ): AsyncIterable<StreamChunk> {
     const failures: AdapterFailureScope = { failures: new WeakMap<Error, LlmFailure>() }
+    let terminalEntered = false
     const stream = this.ctx.waterfall(
       this,
       'llm/stream',
       options,
-      () => this.adapterStream(options, failures, prepared),
+      () => {
+        terminalEntered = true
+        return this.adapterStream(options, failures, prepared, onDispatched)
+      },
     )
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- waterfall mutates this latch.
+    if (!terminalEntered) this.notifyDispatched(onDispatched)
     return bindAdapterFailureScope(stream, failures)
   }
 }

@@ -145,7 +145,7 @@ export const todoItemSchema = z.object({
   status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
 })
 
-/** Host-owned durable usage and current-context projection. */
+/** Host-owned durable usage and current-pressure projection. */
 export const sessionMetricsSchema = z.object({
   logRevision: z.number().int().nonnegative(),
   projectionRevision: z.number().int().nonnegative(),
@@ -154,7 +154,6 @@ export const sessionMetricsSchema = z.object({
   cacheReadTokens: z.number().nonnegative(),
   cacheWriteTokens: z.number().nonnegative(),
   contextTokens: z.number().nonnegative().optional(),
-  contextWindow: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<SessionMetrics>>
 
 /** session.history response value. */

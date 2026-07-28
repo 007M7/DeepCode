@@ -116,6 +116,16 @@ export type PromptDecision =
 /** Model-request failure with an optional machine-routable provider code. */
 export type RequestError = Error & { code?: string }
 
+/** Live metadata for one model request that reached adapter dispatch. */
+export interface AgentModelRequest {
+  /** Final registered provider route. */
+  readonly provider: string
+  /** Final adapter-owned model id. */
+  readonly model: string
+  /** Registration-bound context capacity when the adapter exposed one. */
+  readonly contextWindow?: number
+}
+
 /** Action returned by a listener that owns model-request recovery. */
 export type RequestErrorAction = { kind: 'retry' } | undefined
 
@@ -360,6 +370,20 @@ declare module 'cordis' {
      * @mode waterfall
     */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    /**
+     * One model request constructed its final stream handle and is about to
+     * iterate it. This live notification is not durable or replayed; failed or
+     * aborted iteration still has a dispatch, while preparation and
+     * synchronous stream-construction failures do not. Listener failures are
+     * contained and cannot affect the request.
+     * @param agent - the agent dispatching the model request.
+     * @param turn - the open turn number.
+     * @param step - the request's step number.
+     * @param request - final route plus registration-bound context capacity.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/model-request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, request: AgentModelRequest): void
     /**
      * Handle a model-request failure after its failed step has closed but
      * before the failed turn closes. A listener returns `{ kind: 'retry' }`

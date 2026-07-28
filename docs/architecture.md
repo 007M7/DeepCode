@@ -92,7 +92,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> prepare reasoning/default + context under turn signal -> log request/header -> construct llm/stream (frozen, registration-bound) -> agent/model-request (live, contained) -> iterate
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -151,7 +151,7 @@ Log-only events may sit between turns. Owners append through `Session`, flushing
 
 Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](core-data-structures/token-meter.md).
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](core-data-structures/llm-streaming.md)).
+Streaming uses raw chunks and `BlockAssembler`. After final-stream construction, the loop emits contained, non-durable, non-replayed `agent/model-request` metadata. Adapters normalize failures; `agent/request-error` may retry. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter ([contract](core-data-structures/llm-streaming.md)).
 
 ## Extension And Composition
 

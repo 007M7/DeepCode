@@ -20,7 +20,9 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 `host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，Linux 为 `xdg-open`）。打开器可在测试中注入。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
 
-`session.history` 按消息边界分页，其尾页（不带 `beforeSeq`）携带页窗口本身无法提供的会话级投影：进行中局部消息的分片事件；`todos`，即最后一次 `todo/write` 的整表投影；以及 `metrics`，即按 `(turn, step)` 去重的完整日志用量，并在可用时包含当前 token 计量压力和所选精确路由的容量。较早的页面省略会话级投影。实时 `session/metrics` mux 帧携带单调递增的日志修订号与投影修订号，因此客户端会拒绝陈旧帧，并在向前加载较早页面时保留计数器。缓存读取与缓存写入保持为彼此独立的计数项；缓存命中率的分母是未缓存输入加缓存读取。
+`session.history` 按消息边界分页，其尾页（不带 `beforeSeq`）携带页窗口本身无法提供的会话级投影：进行中局部消息的分片事件；`todos`，即最后一次 `todo/write` 的整表投影；以及 `metrics`，即按 `(turn, step)` 去重的完整日志用量与当前 token 计量压力。较早的页面省略会话级投影。实时 `session/metrics` mux 帧携带单调递增的日志修订号与投影修订号，因此客户端会拒绝陈旧帧，并在向前加载较早页面时保留计数器。缓存读取与缓存写入保持为彼此独立的计数项；缓存命中率的分母是未缓存输入加缓存读取。
+
+上下文容量使用独立的临时 `session/model-request` mux 帧；实际请求到达分派点后，该帧由失败会被收容的 Agent 通知发出。该帧携带轮次、步骤、最终提供方／模型与可选容量，且只发送给当时已经打开的 mux 连接。`session.history`、mux 订阅基线、重连和会话恢复绝不会查询或回放先前的容量；不带容量的帧会显式清除较早的连接本地值。
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行并返回脱耦结果；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 

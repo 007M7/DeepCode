@@ -34,9 +34,9 @@ export interface HistoryEntry {
 
 /**
  * Host-owned token metrics for one durable session revision. Provider usage
- * buckets are cumulative across the full log; current context fields describe
- * the replayed request surface at this revision and are absent when the Host
- * cannot measure pressure or resolve exact-route capacity.
+ * buckets are cumulative across the full log; current context pressure
+ * describes the replayed request surface at this revision and is absent when
+ * the Host cannot measure it.
  */
 export interface SessionMetrics {
   /** Number of durable events included in this projection. */
@@ -53,8 +53,6 @@ export interface SessionMetrics {
   cacheWriteTokens: number
   /** Current request pressure from `ctx.tokenMeter.measure(session).totalTokens`. */
   contextTokens?: number
-  /** Exact selected-route capacity from `ctx.llm.resolveModelInfo()`. */
-  contextWindow?: number
 }
 
 /** Complete model target selected for one session. */
@@ -178,8 +176,10 @@ export interface SessionsApi {
    * projection (latest `todo/write` over the FULL log, independent of the page window) —
    * so a paged client restores the plan without walking history; absent when the session
    * never wrote one. Older pages omit it (the projection is session-level, not per-page).
-   * The same tail-only rule carries `metrics`, whose cumulative usage and current context
-   * are Host projections over the full log rather than products of the returned page.
+   * The same tail-only rule carries `metrics`, whose cumulative usage and
+   * current pressure are Host projections over the full log rather than
+   * products of the returned page. Live model capacity is connection-local
+   * telemetry and is never reconstructed here.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[]; metrics?: SessionMetrics }>>

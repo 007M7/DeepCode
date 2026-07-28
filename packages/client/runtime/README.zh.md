@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。`ConversationSnapshot` 携带两项由 Host 拥有的完整日志投影。`todos` 来自 history 尾页，在向前加载较早页面时保留，并随实时 `todo/write` 事件更新。`metrics` 来自 history 尾页和实时 `session/metrics` 帧，在向前加载较早页面时保留，并且只接受日志修订号与投影修订号均不减小的数据；订阅基线会在回放前将其清除，使新的流代次可以安全地从头开始计数修订号。缺失的 metrics 保持为 `null`，而不是根据可见节点窗口推断。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。`ConversationSnapshot` 携带两项由 Host 拥有的完整日志投影。`todos` 来自 history 尾页，在向前加载较早页面时保留，并随实时 `todo/write` 事件更新。持久 `metrics` 来自 history 尾页和实时 `session/metrics` 帧，在向前加载较早页面时保留，并且只接受日志修订号与投影修订号均不减小的数据。Session 另行保留当前 mux 连接观察到的最新 `session/model-request` 容量，并在普通用量／压力更新期间把它覆盖到 metrics 上。后续请求会替换或清除该值，`session/subscribed` 则同时清除指标顺序状态与容量；因此，重连、恢复和新订阅都不会显示百分比，直到观察到另一次请求。缺失的 metrics 保持为 `null`，而不是根据可见节点窗口推断。
 
 ## Workspace 与 Session 列表
 

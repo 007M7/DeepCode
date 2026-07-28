@@ -6,7 +6,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { FiberState } from 'cordis'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
@@ -409,26 +408,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return target
   }
 
-  /**
-   * Read the best capacity route without taking ownership of foreign routing.
-   * Web agents expose their live selection; other agents expose only a route
-   * that already crossed the durable request-header boundary.
-   */
-  function metricsRouteFor(agent: Agent): Pick<AgentLlmTarget, 'provider' | 'model'> | undefined {
-    const installed = targets.get(agent)
-    if (installed !== undefined) return installed.current
-    const logged = agent.session.requestHeader()?.config
-    return logged === undefined
-      ? undefined
-      : { provider: logged.provider, model: logged.model }
-  }
-
-  /** Pair a registry agent only with the exact Session lifecycle it owns. */
-  function metricsAgentFor(session: Session): Agent | undefined {
-    const agent = ctx.get('agents')?.get(session.id)
-    return agent?.session === session ? agent : undefined
-  }
-
   /** Pre-publication setup used by both fresh and resumed Web agents. */
   function installTarget(agentCtx: Context): void {
     const agent = agentCtx.agent
@@ -444,39 +423,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   const pendingMetricSessions = new Set<Session>()
   let metricFlushScheduled = false
-  let metricsDisposed = false
-  const metricsProjector = new SessionMetricsProjector(
-    ctx,
-    metricsRouteFor,
-    (agent) => {
-      if (metricsDisposed) return
-      const agents = ctx.get('agents')
-      if (agents?.get(agent.id) !== agent) return
-      const sessions = ctx.get('sessions')
-      if (sessions?.get(agent.id) !== agent.session) return
-      scheduleMetrics(agent.session)
-    },
-  )
+  const metricsProjector = new SessionMetricsProjector(ctx)
 
   /** Queue one full-log metrics publication after synchronous session listeners drain. */
   function scheduleMetrics(session: Session): void {
-    if (metricsDisposed || muxQueues.size === 0) return
+    if (muxQueues.size === 0) return
     pendingMetricSessions.add(session)
     if (metricFlushScheduled) return
     metricFlushScheduled = true
     queueMicrotask(() => {
       metricFlushScheduled = false
-      if (metricsDisposed) {
-        pendingMetricSessions.clear()
-        return
-      }
       const sessions = [...pendingMetricSessions]
       pendingMetricSessions.clear()
       for (const current of sessions) {
         broadcast({
           type: 'session/metrics',
           sessionId: current.id,
-          metrics: metricsProjector.snapshot(current, metricsAgentFor(current)),
+          metrics: metricsProjector.snapshot(current),
         })
       }
     })
@@ -488,25 +451,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (affectsSessionMetrics(event)) scheduleMetrics(session)
       }),
       ctx.on('agent/created', (agent: Agent) => { scheduleMetrics(agent.session) }),
+      ctx.on('agent/model-request', (agent, turn, step, request) => {
+        broadcast({
+          type: 'session/model-request',
+          sessionId: agent.session.id,
+          turn,
+          step,
+          provider: request.provider,
+          model: request.model,
+          ...request.contextWindow === undefined
+            ? {}
+            : { contextWindow: request.contextWindow },
+        })
+      }),
       ctx.on('session/disposed', (session: Session) => { pendingMetricSessions.delete(session) }),
-      ctx.on('internal/status', (fiber) => {
-        if (metricsDisposed) return
-        if (fiber.state === FiberState.UNLOADING) {
-          metricsProjector.invalidateCapacities()
-          return
-        }
-        if (fiber.state !== FiberState.ACTIVE
-          && fiber.state !== FiberState.FAILED
-          && fiber.state !== FiberState.DISPOSED) return
-        metricsProjector.invalidateCapacities()
-        const sessions = ctx.get('sessions')
-        if (sessions === undefined) return
-        for (const session of sessions.list()) scheduleMetrics(session)
-      }, { global: true }),
     ]
     return () => {
-      metricsDisposed = true
-      metricsProjector.dispose()
       pendingMetricSessions.clear()
       for (const dispose of disposers) dispose()
     }
@@ -819,7 +779,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // client cannot reconstruct session-level state from it).
         const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
         const metrics = beforeSeq === undefined
-          ? metricsProjector.snapshot(found.agent.session, found.agent)
+          ? metricsProjector.snapshot(found.agent.session)
           : undefined
         return ok(request, {
           events: entries,
@@ -920,11 +880,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               : { reasoningEffort: resolved.reasoningEffort },
           }
           targetFor(found.agent).current = selected
-          broadcast({
-            type: 'session/metrics',
-            sessionId: found.agent.session.id,
-            metrics: metricsProjector.snapshot(found.agent.session, found.agent),
-          })
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1235,7 +1190,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           queue.push(frame({
             type: 'session/metrics',
             sessionId: session.id,
-            metrics: metricsProjector.snapshot(session, metricsAgentFor(session)),
+            metrics: metricsProjector.snapshot(session),
           }))
         }
         for (const pending of pendingQuestions.values()) {
@@ -1292,7 +1247,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({
               type: 'session/metrics',
               sessionId: session.id,
-              metrics: metricsProjector.snapshot(session, metricsAgentFor(session)),
+              metrics: metricsProjector.snapshot(session),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

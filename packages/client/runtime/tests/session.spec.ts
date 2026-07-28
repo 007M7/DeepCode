@@ -51,7 +51,6 @@ function metrics(
     cacheReadTokens: 90,
     cacheWriteTokens: 3,
     contextTokens: 35,
-    contextWindow: 100,
     ...over,
   }
 }
@@ -146,7 +145,7 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
-  it('orders live metrics, rejects stale projections, and clears the value at a reconnect baseline', async () => {
+  it('retains live capacity across metrics, replaces or clears it on requests, and resets at subscription', async () => {
     const { session } = await opened()
     const current = metrics(8, 10)
     session.handleMuxEnvelope('m1' as never, {
@@ -155,6 +154,20 @@ describe('live event path', () => {
       metrics: current,
     })
     expect(session.getSnapshot().metrics).toBe(current)
+
+    session.handleMuxEnvelope('request-1' as never, {
+      type: 'session/model-request',
+      sessionId: SID,
+      turn: 1,
+      step: 1,
+      provider: 'test',
+      model: 'alpha',
+      contextWindow: 128_000,
+    })
+    expect(session.getSnapshot().metrics).toEqual({
+      ...current,
+      contextWindow: 128_000,
+    })
 
     session.handleMuxEnvelope('m2' as never, {
       type: 'session/metrics',
@@ -166,7 +179,31 @@ describe('live event path', () => {
       sessionId: SID,
       metrics: metrics(7, 11, { uncachedInputTokens: 2 }),
     })
-    expect(session.getSnapshot().metrics).toBe(current)
+    expect(session.getSnapshot().metrics).toEqual({
+      ...current,
+      contextWindow: 128_000,
+    })
+
+    const ordinaryUpdate = metrics(9, 11, { contextTokens: 40 })
+    session.handleMuxEnvelope('m4' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: ordinaryUpdate,
+    })
+    expect(session.getSnapshot().metrics).toEqual({
+      ...ordinaryUpdate,
+      contextWindow: 128_000,
+    })
+
+    session.handleMuxEnvelope('request-2' as never, {
+      type: 'session/model-request',
+      sessionId: SID,
+      turn: 2,
+      step: 1,
+      provider: 'test',
+      model: 'without-capacity',
+    })
+    expect(session.getSnapshot().metrics).toEqual(ordinaryUpdate)
 
     session.handleMuxEnvelope('sub' as never, {
       type: 'session/subscribed',
@@ -174,13 +211,25 @@ describe('live event path', () => {
       lastSeq: 5,
     })
     expect(session.getSnapshot().metrics).toBeNull()
+    session.handleMuxEnvelope('request-3' as never, {
+      type: 'session/model-request',
+      sessionId: SID,
+      turn: 3,
+      step: 1,
+      provider: 'test',
+      model: 'beta',
+      contextWindow: 256_000,
+    })
     const nextGeneration = metrics(0, 10, { contextTokens: 20 })
-    session.handleMuxEnvelope('m4' as never, {
+    session.handleMuxEnvelope('m5' as never, {
       type: 'session/metrics',
       sessionId: SID,
       metrics: nextGeneration,
     })
-    expect(session.getSnapshot().metrics).toBe(nextGeneration)
+    expect(session.getSnapshot().metrics).toEqual({
+      ...nextGeneration,
+      contextWindow: 256_000,
+    })
   })
 
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {

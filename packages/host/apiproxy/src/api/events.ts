@@ -59,6 +59,22 @@ export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
   | { type: 'session/metrics'; sessionId: SessionId; metrics: SessionMetrics }
+  /**
+   * One model request observed by this already-open mux connection after its
+   * final route and stream handle were resolved. This frame is transient: mux
+   * baselines, reconnects, and session history never replay it. An absent
+   * `contextWindow` explicitly clears a capacity observed from an earlier
+   * request on the same connection.
+   */
+  | {
+    type: 'session/model-request'
+    sessionId: SessionId
+    turn: number
+    step: number
+    provider: string
+    model: string
+    contextWindow?: number
+  }
   | { type: 'session/title'; sessionId: SessionId; title: string; eventSeq: number; updatedAt: number }
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }

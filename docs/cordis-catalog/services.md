@@ -780,14 +780,16 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
  * agent-loop request recovery; middleware and nested-call failures remain
  * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
+ * @param onDispatched - contained Agent-loop notification hook invoked after
+ *   a stream handle is constructed and before its adapter is iterated.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
-stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+stream(options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk>
 ```
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:194`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

@@ -56,7 +56,7 @@ export function cacheHitPercent(metrics: SessionMetrics): number | null {
 
 /**
  * Current context occupancy using the TUI's integer rounding and upper clamp.
- * @param metrics - Host-owned current pressure and exact route capacity.
+ * @param metrics - Host-owned pressure plus current-connection request capacity.
  * @returns occupancy percent, or null when either input is unavailable.
  */
 export function contextPercent(metrics: SessionMetrics): number | null {

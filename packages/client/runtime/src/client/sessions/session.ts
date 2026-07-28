@@ -12,7 +12,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
+  CodeSubCall, ComposerPhase, ConversationMetrics, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
@@ -102,8 +102,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
    *  field is the authoritative empty list) and every live write overwrites it. */
   private todos: readonly TodoItem[] = []
-  /** Host-owned metrics projection; ordering resets on each subscribed baseline. */
-  private metrics: SessionMetrics | null = null
+  /** Host-owned metrics with current-connection request capacity overlaid. */
+  private metrics: ConversationMetrics | null = null
+  /** Latest capacity observed on this mux connection, independent of durable metrics arrival. */
+  private contextWindow: number | undefined
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -367,6 +369,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.queueRev++
           this.notifier.markDirty()
         }
+        this.contextWindow = undefined
         if (this.metrics !== null) {
           this.metrics = null
           this.notifier.markDirty()
@@ -375,6 +378,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       }
       case 'session/metrics': {
         this.installMetrics(frame.metrics)
+        return
+      }
+      case 'session/model-request': {
+        if (this.contextWindow === frame.contextWindow) return
+        this.contextWindow = frame.contextWindow
+        if (this.metrics !== null) {
+          const { contextWindow: _previous, ...durable } = this.metrics
+          this.metrics = frame.contextWindow === undefined
+            ? durable
+            : { ...durable, contextWindow: frame.contextWindow }
+          this.notifier.markDirty()
+        }
         return
       }
       case 'approval/requested': {
@@ -800,7 +815,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         || metrics.projectionRevision < current.projectionRevision
       )
     ) return
-    this.metrics = metrics
+    this.metrics = this.contextWindow === undefined
+      ? metrics
+      : { ...metrics, contextWindow: this.contextWindow }
     this.notifier.markDirty()
   }
 

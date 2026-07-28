@@ -146,10 +146,9 @@ describe('sessions domain schemas', () => {
         cacheReadTokens: 4_000,
         cacheWriteTokens: 500,
         contextTokens: 8_000,
-        contextWindow: 128_000,
       },
       modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    }).metrics?.contextWindow).toBe(128_000)
+    }).metrics?.contextTokens).toBe(8_000)
     expect(() => sessionMetricsSchema.parse({
       logRevision: 1,
       projectionRevision: 0,
@@ -157,15 +156,6 @@ describe('sessions domain schemas', () => {
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-    })).toThrow()
-    expect(() => sessionMetricsSchema.parse({
-      logRevision: 1,
-      projectionRevision: 0,
-      uncachedInputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      contextWindow: 0,
     })).toThrow()
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
@@ -344,6 +334,23 @@ describe('events frame schemas', () => {
           cacheWriteTokens: 40,
         },
       },
+      {
+        type: 'session/model-request',
+        sessionId: 's',
+        turn: 2,
+        step: 1,
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        contextWindow: 128_000,
+      },
+      {
+        type: 'session/model-request',
+        sessionId: 's',
+        turn: 3,
+        step: 1,
+        provider: 'deepseek',
+        model: 'unknown-capacity',
+      },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
@@ -358,6 +365,8 @@ describe('events frame schemas', () => {
       { type: 'session/title', sessionId: 's', title: '', eventSeq: 0, updatedAt: 1 },
       { type: 'session/title', sessionId: 's', title: 'x', eventSeq: -1, updatedAt: 1 },
       { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0.5, updatedAt: 1 },
+      { type: 'session/model-request', sessionId: 's', turn: 0, step: 1, provider: 'p', model: 'm' },
+      { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextWindow: 0 },
       { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: 'now' },
       { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: Number.NaN },
     ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
