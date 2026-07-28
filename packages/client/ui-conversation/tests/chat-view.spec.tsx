@@ -141,7 +141,8 @@ describe('chat-flow derivation', () => {
     }
     const items = deriveChatFlow([toolResult(3, 'a'), headsOnly, toolResult(5, 'b')])
     expect(flowKeys(items)).toBe('g3')
-    expect(items[0]!.kind === 'tool-group' && items[0].results.map(r => r.callId)).toEqual(['a', 'b'])
+    const group = items[0]!
+    expect(group.kind === 'tool-group' && group.results.map(r => r.callId)).toEqual(['a', 'b'])
     // Interrupted and visible-content nodes still render (已停止 marker / prose).
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), { ...headsOnly, interrupted: true }, toolResult(5, 'b')]))).toBe('g3|n4|g5')
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
