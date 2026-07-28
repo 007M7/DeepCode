@@ -4,18 +4,15 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { renderGoalChange } from './render.ts'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
+import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot } from './types.ts'
 import type {
   FoldedGoal,
-  GoalBlockReason,
   GoalChangeMeta,
   GoalClearChangeMeta,
   GoalMessageSource,
   GoalOperation,
-  GoalPhase,
-  GoalRef,
-  GoalSnapshot,
   GoalSnapshotChangeMeta,
-} from './types.ts'
+} from './domain.ts'
 
 type UserMessageEvent = Extract<SessionEvent, { type: 'user/message' }>
 
