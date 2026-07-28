@@ -337,6 +337,21 @@ describe('DirectoryBrowser', () => {
     expect(columns()).toHaveLength(2)
   })
 
+  it('keeps the editor open when a pending listing settles right after Edit Path was clicked', async () => {
+    const pending: ((listing: DirectoryListing) => void)[] = []
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // A crumb navigation hangs; the user opens the editor before it settles.
+    b.listDirectory.mockImplementation(() =>
+      new Promise<DirectoryListing>((settle) => { pending.push(settle) }))
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'browser.home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    expect(screen.getByLabelText('browser.editPath')).toBeTruthy()
+    await act(async () => { pending.shift()!(listingFor(HOME)) })
+    // The superseded settlement must not close the editor underneath the user.
+    expect(screen.getByLabelText('browser.editPath')).toBeTruthy()
+  })
+
   it('keeps a newer path edit when an older slow navigation settles', async () => {
     const pending: ((listing: DirectoryListing) => void)[] = []
     const b = mount()

@@ -307,7 +307,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   // listing itself fails, typing an absolute path is the one
                   // remaining way forward.
                   disabled={parentInert}
-                  onClick={() => { setPathDraft(selected?.path ?? parent?.path ?? '') }}
+                  onClick={() => {
+                    // Opening the editor supersedes any pending listing: a
+                    // settlement landing before the first keystroke would
+                    // otherwise close the editor via navigate's draft reset.
+                    requestSeq.current += 1
+                    setLoading(false)
+                    setPathDraft(selected?.path ?? parent?.path ?? '')
+                  }}
                 />
               </>
             )
