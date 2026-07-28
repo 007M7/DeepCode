@@ -62,12 +62,19 @@ export const inject = ['slots', 'workspaces']
 export function apply(ctx: ClientContext): void {
   const injected = (): NativeFlowInjected => ({ pick: () => ctx.workspaces.pickDirectory() })
   ctx.effect(() => {
-    const deferred = [
-      deferRegistration(ctx.slots, 'conversation.hero.workspace.directoryFlow', NativeDirectoryFlow, () =>
-        ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, NativeDirectoryFlow)),
-      deferRegistration(ctx.slots, 'sidebar.workspaces.directoryFlow', NativeDirectoryFlow, () =>
-        ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, NativeDirectoryFlow)),
-    ]
+    // Constructing the pair can throw halfway (a declared hole already
+    // occupied registers synchronously): roll the earlier deferral back so
+    // no live subscription outlives the failed fiber.
+    const deferred: ReturnType<typeof deferRegistration>[] = []
+    try {
+      deferred.push(deferRegistration(ctx.slots, 'conversation.hero.workspace.directoryFlow', NativeDirectoryFlow, () =>
+        ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, NativeDirectoryFlow)))
+      deferred.push(deferRegistration(ctx.slots, 'sidebar.workspaces.directoryFlow', NativeDirectoryFlow, () =>
+        ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, NativeDirectoryFlow)))
+    } catch (error) {
+      for (const entry of deferred) entry.dispose()
+      throw error
+    }
     return () => { for (const entry of deferred) entry.dispose() }
   }, 'directory-picker-native: flow registrations')
 }
