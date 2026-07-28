@@ -430,13 +430,14 @@ function optionalString(data: Record<string, unknown>, key: string): { [K in typ
 
 function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy | undefined {
   rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
+  rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
   rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
   const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
   const userInvocable = frontmatterBoolean(data, 'user-invocable')
   if (disableModelInvocation === undefined && userInvocable === undefined) return undefined
   return {
-    ...disableModelInvocation === undefined ? {} : { disableModelInvocation },
-    ...userInvocable === undefined ? {} : { userInvocable },
+    modelInvocable: disableModelInvocation !== true,
+    userInvocable: userInvocable !== false,
   }
 }
 

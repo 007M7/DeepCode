@@ -130,7 +130,7 @@ Paths prefixed with @ are files explicitly referenced by the user. Use the read 
 
 #### 模型看到的内容
 
-提交 `/skill:<name> [instructions]` 会加载具名 skill，并交付一个文本块：用 `<skill name="…">` 元素包装 skill 指令；提供方公开资源基准时，会先添加一行定位 skill 相对资源；最后附上用户输入的尾随指令。交付遵循普通输入同样的空闲时 followup、运行时 steer 规则。选择 skill 的是命令而非模型：自动补全和按精确名称调用都应用 `userInvocable`，`disableModelInvocation` 不限制这个接口。用户禁用的 skill 会产生一条警告，不会产生用户轮次。
+提交 `/skill:<name> [instructions]` 会加载具名 skill，并交付一个文本块：用 `<skill name="…">` 元素包装 skill 指令；提供方公开资源基准时，会先添加一行定位 skill 相对资源；最后附上用户输入的尾随指令。交付遵循普通输入同样的空闲时 followup、运行时 steer 规则。选择 skill 的是命令而非模型：自动补全和按精确名称调用都应用 `invocation.userInvocable`，`invocation.modelInvocable` 不限制这个接口。用户禁用的 skill 会产生一条警告，不会产生用户轮次。skill 服务是可选 peer；这项策略检查仅使用其类型契约，不引入运行时包依赖。
 
 #### Token 影响
 

@@ -5,6 +5,7 @@ import SkillService, {
   isUserInvocable,
   type SkillCandidate,
   type SkillDefinition,
+  type SkillInvocationPolicy,
   type SkillLookupOptions,
   type SkillProvider,
 } from '@deepseek-ai/dsh-skill'
@@ -119,9 +120,9 @@ describe('SkillService registry', () => {
     await ctx.plugin(SkillService)
     const registrations = [
       { name: 'both', invocation: undefined },
-      { name: 'model-only', invocation: { userInvocable: false } },
-      { name: 'user-only', invocation: { disableModelInvocation: true } },
-      { name: 'trusted-only', invocation: { disableModelInvocation: true, userInvocable: false } },
+      { name: 'model-only', invocation: { modelInvocable: true, userInvocable: false } },
+      { name: 'user-only', invocation: { modelInvocable: false, userInvocable: true } },
+      { name: 'trusted-only', invocation: { modelInvocable: false, userInvocable: false } },
     ] as const
     for (const registration of registrations) {
       ctx.skills.register({
@@ -150,7 +151,7 @@ describe('SkillService registry', () => {
         ...memorySkill('bad-candidate', 'placeholder', 1),
         provider: 'bad-candidate',
         description: badDescription as unknown as string,
-        invocation: { disableModelInvocation: 'false' as unknown as boolean },
+        invocation: { modelInvocable: false, userInvocable: true },
       }]),
       get: () => Promise.resolve(undefined),
     })
@@ -163,11 +164,11 @@ describe('SkillService registry', () => {
       list: () => Promise.resolve([{
         ...memorySkill('bad-boolean', 'Bad boolean', 1),
         provider: 'bad-boolean',
-        invocation: { disableModelInvocation: 'false' as unknown as boolean },
+        invocation: { modelInvocable: 'false' as unknown as boolean, userInvocable: true },
       }]),
       get: () => Promise.resolve(undefined),
     })
-    await expect(badBoolean.skills.list()).rejects.toThrow('non-boolean invocation.disableModelInvocation')
+    await expect(badBoolean.skills.list()).rejects.toThrow('non-boolean invocation.modelInvocable')
   })
 
   it('rejects non-array provider results and every malformed candidate scalar', async () => {
@@ -196,7 +197,7 @@ describe('SkillService registry', () => {
         name: `candidate-${index}`,
         description: 'Candidate',
         whenToUse: 'Use this candidate.',
-        invocation: { disableModelInvocation: false, userInvocable: true },
+        invocation: { modelInvocable: true, userInvocable: true },
         provider: providerName,
         source: 'test',
         rank: 1,
@@ -353,7 +354,7 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const locator = { id: 'provider-owned' }
-    const invocation = { disableModelInvocation: false, userInvocable: true }
+    const invocation = { modelInvocable: true, userInvocable: true }
     const candidate: SkillCandidate = {
       name: 'stable-skill',
       description: 'Stable description',
@@ -414,7 +415,7 @@ describe('SkillService registry', () => {
     await ctx.plugin(SkillService)
     const resourceBase = { kind: 'opaque' as const, description: 'runtime resources' }
     const metadata = { owner: 'runtime' }
-    const invocation = { disableModelInvocation: false, userInvocable: true }
+    const invocation = { modelInvocable: true, userInvocable: true }
     const registration = {
       name: 'runtime-skill',
       description: 'Runtime',
@@ -449,11 +450,19 @@ describe('SkillService registry', () => {
       { patch: { description: '' }, expected: 'requires a description' },
       { patch: { invocation: null as never }, expected: 'non-object invocation policy' },
       {
-        patch: { invocation: { disableModelInvocation: 'false' as unknown as boolean } },
-        expected: 'invocation.disableModelInvocation',
+        patch: { invocation: { modelInvocable: 'false' as unknown as boolean, userInvocable: true } },
+        expected: 'invocation.modelInvocable',
       },
       {
-        patch: { invocation: { userInvocable: 'true' as unknown as boolean } },
+        patch: { invocation: { modelInvocable: true, userInvocable: 'true' as unknown as boolean } },
+        expected: 'invocation.userInvocable',
+      },
+      {
+        patch: { invocation: { userInvocable: true } as unknown as SkillInvocationPolicy },
+        expected: 'invocation.modelInvocable',
+      },
+      {
+        patch: { invocation: { modelInvocable: true } as unknown as SkillInvocationPolicy },
         expected: 'invocation.userInvocable',
       },
       { patch: { whenToUse: 1 as unknown as string }, expected: 'whenToUse must be a string' },
@@ -481,7 +490,7 @@ describe('SkillService registry', () => {
           name: skillName,
           description: 'Definition',
           whenToUse: 'Use this definition.',
-          invocation: { disableModelInvocation: false, userInvocable: true },
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: providerName,
           source: 'test',
           content: 'Definition body.',

@@ -23,16 +23,16 @@
 
 ### 调用策略
 
-`SkillSummary.invocation` 是类型化策略对象，其中包含可选的布尔字段 `disableModelInvocation` 和 `userInvocable`。字段缺失时保留模型和用户均可调用的默认行为。注册表保留全部四种组合，使一次发现结果可以同时服务面向模型的工具、面向用户的命令和受信内部调用方，而不会混淆各自的目录。
+`SkillSummary.invocation` 是一个可选的类型化策略对象。该对象存在时，其必填的正向布尔字段 `modelInvocable` 和 `userInvocable` 分别描述两个接口；省略该对象时保留模型和用户均可调用的默认行为。注册表保留全部四种组合，使一次发现结果可以同时服务面向模型的工具、面向用户的命令和受信内部调用方，而不会混淆各自的目录。
 
 | 策略 | 模型 | 用户 |
 |---|---|---|
-| 两个字段均未设置，或分别为 `false` / `true` | 包含 | 包含 |
-| `userInvocable: false` | 包含 | 排除 |
-| `disableModelInvocation: true` | 排除 | 包含 |
-| 两个限制值均已设置 | 排除 | 排除 |
+| 无 `invocation`，或 `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
+| `{ modelInvocable: true, userInvocable: false }` | 包含 | 排除 |
+| `{ modelInvocable: false, userInvocable: true }` | 排除 | 包含 |
+| `{ modelInvocable: false, userInvocable: false }` | 排除 | 排除 |
 
-`isModelInvocable(skill)` 仅在 `disableModelInvocation: true` 时返回 false；`isUserInvocable(skill)` 仅在 `userInvocable: false` 时返回 false。`ctx.skills.get()` 仍是受信且与策略无关的加载原语，因此每个面向用户或模型的消费方都必须先执行与自身接口匹配的判定，再暴露或加载 skill。
+`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的正向字段；策略缺失时两个接口均允许调用。`ctx.skills.get()` 仍是受信且与策略无关的加载原语，因此每个面向用户或模型的消费方都必须先执行与自身接口匹配的判定，再暴露或加载 skill。
 
 ## 提供方契约
 

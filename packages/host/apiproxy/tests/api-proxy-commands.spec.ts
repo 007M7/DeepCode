@@ -182,17 +182,17 @@ describe('skill.list', () => {
           },
           {
             name: 'user-only', description: 'User-only',
-            invocation: { disableModelInvocation: true },
+            invocation: { modelInvocable: false, userInvocable: true },
             source: 'custom', provider: 'probe', rank: 0, locator: null,
           },
           {
             name: 'model-only', description: 'Model-only',
-            invocation: { userInvocable: false },
+            invocation: { modelInvocable: true, userInvocable: false },
             source: 'custom', provider: 'probe', rank: 0, locator: null,
           },
           {
             name: 'trusted-only', description: 'Trusted-only',
-            invocation: { disableModelInvocation: true, userInvocable: false },
+            invocation: { modelInvocable: false, userInvocable: false },
             source: 'custom', provider: 'probe', rank: 0, locator: null,
           },
         ])

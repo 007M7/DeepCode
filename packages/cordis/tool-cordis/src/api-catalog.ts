@@ -2191,7 +2191,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillInvocationPolicy',
-    declaration: 'export interface SkillInvocationPolicy {\n    readonly disableModelInvocation?: boolean;\n    readonly userInvocable?: boolean;\n}',
+    declaration: 'export interface SkillInvocationPolicy {\n    readonly modelInvocable: boolean;\n    readonly userInvocable: boolean;\n}',
   },
   {
     name: 'SkillLookupOptions',

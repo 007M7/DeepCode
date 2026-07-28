@@ -130,7 +130,7 @@ Changing provider or model enters that target's cache domain; no cache reuse acr
 
 #### What the model sees
 
-A `/skill:<name> [instructions]` submission loads the named skill and delivers one text block: a `<skill name="…">` element wrapping the skill's instructions — preceded, when the provider exposes a resource base, by a line locating the skill's relative resources — followed by any trailing instructions the user typed. Delivery follows the same followup-while-idle / steer-while-running rule as ordinary input. The command, not the model, chooses the skill: autocomplete and exact invocation apply `userInvocable`, while `disableModelInvocation` does not restrict this surface. A user-disabled skill produces a warning and no user turn.
+A `/skill:<name> [instructions]` submission loads the named skill and delivers one text block: a `<skill name="…">` element wrapping the skill's instructions — preceded, when the provider exposes a resource base, by a line locating the skill's relative resources — followed by any trailing instructions the user typed. Delivery follows the same followup-while-idle / steer-while-running rule as ordinary input. The command, not the model, chooses the skill: autocomplete and exact invocation apply `invocation.userInvocable`, while `invocation.modelInvocable` does not restrict this surface. A user-disabled skill produces a warning and no user turn. The skill service is an optional peer; this policy check uses its type contract without introducing a runtime package dependency.
 
 #### Token effect
 

@@ -49,10 +49,7 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 // Type import also declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import {
-  isUserInvocable,
-  type SkillService,
-} from '@deepseek-ai/dsh-skill'
+import type { SkillService, SkillSummary } from '@deepseek-ai/dsh-skill'
 // Type import declaration-merges the `userInteraction` service onto `Context`;
 // the ask-user-question queue is registered by ./chat/questions.
 import type {} from '@deepseek-ai/dsh-user-interaction'
@@ -172,6 +169,10 @@ export type {
   TuiTheme,
   TuiViewport,
 } from './extension/types.ts'
+
+function isSkillUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
+  return skill.invocation?.userInvocable !== false
+}
 
 declare module 'cordis' {
   interface Context {
@@ -1000,7 +1001,7 @@ export function createTuiChat(
   const loadSkillCommands = (service: SkillService): void => {
     service.list({ cwd, signal: skillAbort.signal }).then(
       (summaries) => {
-        const invocable = summaries.filter(isUserInvocable)
+        const invocable = summaries.filter(isSkillUserInvocable)
         if (disposed || invocable.length === 0) return
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
@@ -1213,7 +1214,7 @@ export function createTuiChat(
           appendNotice(`Unknown skill: ${name}`, 'warning')
           return
         }
-        if (!isUserInvocable(skill)) {
+        if (!isSkillUserInvocable(skill)) {
           appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
           return
         }

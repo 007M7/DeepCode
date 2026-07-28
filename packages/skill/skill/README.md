@@ -23,16 +23,16 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 
 ### Invocation policy
 
-`SkillSummary.invocation` is a typed policy object with optional `disableModelInvocation` and `userInvocable` booleans. Missing values preserve the default model-and-user behavior. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
+`SkillSummary.invocation` is an optional typed policy object. When present, its required positive booleans `modelInvocable` and `userInvocable` describe the two surfaces independently; omitting the object preserves the default model-and-user behavior. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
 
 | Policy | Model | User |
 |---|---|---|
-| neither field, or `false` / `true` | included | included |
-| `userInvocable: false` | included | excluded |
-| `disableModelInvocation: true` | excluded | included |
-| both restrictive values | excluded | excluded |
+| no `invocation`, or `{ modelInvocable: true, userInvocable: true }` | included | included |
+| `{ modelInvocable: true, userInvocable: false }` | included | excluded |
+| `{ modelInvocable: false, userInvocable: true }` | excluded | included |
+| `{ modelInvocable: false, userInvocable: false }` | excluded | excluded |
 
-`isModelInvocable(skill)` returns false only for `disableModelInvocation: true`; `isUserInvocable(skill)` returns false only for `userInvocable: false`. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
+`isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field, with an absent policy permitting both surfaces. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
 
 ## Provider Contract
 

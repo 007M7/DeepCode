@@ -62,15 +62,15 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## 摘要、候选项与完整定义
 
-`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 使两个独立调用控制保持类型化，而不会把任意 frontmatter 纳入领域模型。
+`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，而不会把任意 frontmatter 纳入领域模型。
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
 interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders exclude this skill. */
-  readonly disableModelInvocation?: boolean
+  /** Whether model-facing catalogs and loaders include this skill. */
+  readonly modelInvocable: boolean
   /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable?: boolean
+  readonly userInvocable: boolean
 }
 ```
 
@@ -94,7 +94,7 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` 保留全部四种策略组合。`isModelInvocable(skill)` 仅排除 `disableModelInvocation: true`，`isUserInvocable(skill)` 仅排除 `userInvocable: false`；字段缺失时两个接口均允许调用。仅供模型调用的 skill 设置 `userInvocable: false`，仅供用户调用的 skill 设置 `disableModelInvocation: true`，同时设置两个限制值后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方从名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable` 读取这些值。
+`ctx.skills.list()` 保留全部四种策略组合。缺少 `invocation` 对象时两个接口均允许调用；该对象存在时，两个布尔字段都为必填。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的正向字段。仅供模型调用的 skill 设置 `{ modelInvocable: true, userInvocable: false }`，仅供用户调用的 skill 设置 `{ modelInvocable: false, userInvocable: true }`，两个字段均设为 `false` 后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方读取名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`，应用其默认值，再将其投影到这个规范化策略中。
 
 `SkillCandidate` 是提供方到注册表的形状。`locator` 是提供方的不透明状态；注册表只存储它并在调用获胜提供方的 `get()` 时传回。
 

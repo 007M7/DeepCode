@@ -3547,21 +3547,21 @@ describe('skill slash command', () => {
     skills.register({
       name: 'user-only-skill',
       description: 'User-only skill',
-      invocation: { disableModelInvocation: true },
+      invocation: { modelInvocable: false, userInvocable: true },
       source: 'runtime',
       content: 'User-only instructions body.',
     })
     skills.register({
       name: 'model-only-skill',
       description: 'Model-only skill',
-      invocation: { userInvocable: false },
+      invocation: { modelInvocable: true, userInvocable: false },
       source: 'runtime',
       content: 'Model-only instructions body.',
     })
     skills.register({
       name: 'trusted-only-skill',
       description: 'Trusted-only skill',
-      invocation: { disableModelInvocation: true, userInvocable: false },
+      invocation: { modelInvocable: false, userInvocable: false },
       source: 'runtime',
       content: 'Trusted-only instructions body.',
     })

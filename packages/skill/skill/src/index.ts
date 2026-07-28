@@ -38,10 +38,10 @@ export type SkillResourceBase =
 
 /** Invocation controls shared by skill discovery consumers. */
 export interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders exclude this skill. */
-  readonly disableModelInvocation?: boolean
+  /** Whether model-facing catalogs and loaders include this skill. */
+  readonly modelInvocable: boolean
   /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable?: boolean
+  readonly userInvocable: boolean
 }
 
 /** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
@@ -98,16 +98,16 @@ export interface SkillLookupOptions {
 /**
  * Return whether a skill may be advertised to and loaded by a model.
  * @param skill - skill metadata carrying optional invocation controls.
- * @returns `false` only when model invocation is explicitly disabled.
+ * @returns whether the normalized policy permits model invocation.
  */
 export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
-  return skill.invocation?.disableModelInvocation !== true
+  return skill.invocation?.modelInvocable !== false
 }
 
 /**
  * Return whether a skill may be advertised to and loaded by a human-facing command.
  * @param skill - skill metadata carrying optional invocation controls.
- * @returns `false` only when user invocation is explicitly disabled.
+ * @returns whether the normalized policy permits user invocation.
  */
 export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
   return skill.invocation?.userInvocable !== false
@@ -477,10 +477,10 @@ function validateInvocation(invocation: unknown, subject: string): void {
     throw new TypeError(`${subject} with a non-object invocation policy`)
   }
   const policy = invocation as Record<string, unknown>
-  if (policy.disableModelInvocation !== undefined && typeof policy.disableModelInvocation !== 'boolean') {
-    throw new TypeError(`${subject} with a non-boolean invocation.disableModelInvocation`)
+  if (typeof policy.modelInvocable !== 'boolean') {
+    throw new TypeError(`${subject} with a non-boolean invocation.modelInvocable`)
   }
-  if (policy.userInvocable !== undefined && typeof policy.userInvocable !== 'boolean') {
+  if (typeof policy.userInvocable !== 'boolean') {
     throw new TypeError(`${subject} with a non-boolean invocation.userInvocable`)
   }
 }

@@ -246,16 +246,16 @@ describe('LocalSkillProvider', () => {
     ])
     expect(await ctx.skills.get('flat-skill')).toBeUndefined()
     expect(await ctx.skills.get('user-only-skill')).toMatchObject({
-      invocation: { disableModelInvocation: true },
+      invocation: { modelInvocable: false, userInvocable: true },
       content: 'User-only.',
     })
     expect(await ctx.skills.get('model-only-skill')).toMatchObject({
-      invocation: { userInvocable: false },
+      invocation: { modelInvocable: true, userInvocable: false },
       content: 'Model-only.',
     })
     expect(await ctx.skills.get('rich-skill')).toMatchObject({
       whenToUse: 'For richer local parsing',
-      invocation: { disableModelInvocation: false, userInvocable: true },
+      invocation: { modelInvocable: true, userInvocable: true },
       metadata: { owner: 'tests' },
     })
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
@@ -293,10 +293,16 @@ describe('LocalSkillProvider', () => {
     const ctx = await setupLocal(home)
 
     for (const [index] of truthy.entries()) {
-      expect((await ctx.skills.get(`truthy-${index}`))?.invocation).toEqual({ disableModelInvocation: true })
+      expect((await ctx.skills.get(`truthy-${index}`))?.invocation).toEqual({
+        modelInvocable: false,
+        userInvocable: true,
+      })
     }
     for (const [index] of falsy.entries()) {
-      expect((await ctx.skills.get(`falsy-${index}`))?.invocation).toEqual({ userInvocable: false })
+      expect((await ctx.skills.get(`falsy-${index}`))?.invocation).toEqual({
+        modelInvocable: true,
+        userInvocable: false,
+      })
     }
   })
 
@@ -306,6 +312,7 @@ describe('LocalSkillProvider', () => {
     await writeSkill(root, 'good-skill', 'Good skill')
     const invalid = [
       ['legacy-model', 'disableModelInvocation: true'],
+      ['legacy-positive-model', 'modelInvocable: false'],
       ['legacy-user', 'userInvocable: false'],
       ['bad-string', 'disable-model-invocation: maybe'],
       ['bad-value', 'user-invocable: null'],

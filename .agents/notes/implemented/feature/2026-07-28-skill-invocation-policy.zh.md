@@ -8,26 +8,26 @@ Status: implemented
 
 skill 注册表最初将发现操作视为模型目录：`ctx.skills.list()` 会移除禁止模型调用的 skill，而 `ctx.skills.get()` 仍是不过滤内容的可信 loader。该设计足以支持由模型发起的加载，却无法表示与 Claude 兼容的四类 skill：仅向用户公开、仅向模型公开、同时向两者公开，或者两者均不公开。TUI 从面向模型过滤后的列表中生成用户自动补全，并允许通过 `get()` 加载任意精确名称，这进一步放大了两类调用策略不匹配的问题。
 
-本地解析器还将内部使用的驼峰式 `disableModelInvocation` 拼写暴露为 frontmatter。若要支持既有的 `disable-model-invocation` 和 `user-invocable` 字段，需要建立持久的领域表示，同时避免把所有可能出现的 YAML 键都变成跨包的无类型契约。
+本地解析器还将一种内部驼峰式拼写暴露为 frontmatter。若要支持既有的负向字段 `disable-model-invocation` 和正向字段 `user-invocable`，需要建立持久且对称的领域表示，同时避免把所有可能出现的 YAML 键都变成跨包的无类型契约。
 
 ## 决策
 
-`SkillSummary` 包含一个可选且类型明确的 `invocation: SkillInvocationPolicy` 对象。该对象当前提供 `disableModelInvocation?: boolean` 和 `userInvocable?: boolean` 两个字段；未来的 frontmatter 键只有在具备消费方和执行契约后，才会进入领域模型。本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段投影到类型化策略中。
+`SkillSummary` 包含一个可选且类型明确的 `invocation: SkillInvocationPolicy` 对象。该对象存在时，`modelInvocable: boolean` 和 `userInvocable: boolean` 都是必填、正向且对称的字段；未来的 frontmatter 键只有在具备消费方和执行契约后，才会进入领域模型。本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段及其默认值投影到规范化的类型化策略中。
 
-`ctx.skills.list()` 返回所有胜出的摘要，不再替任何调用接口选择策略。`isModelInvocable(skill)` 只排除 `disableModelInvocation: true` 的 skill；`isUserInvocable(skill)` 只排除 `userInvocable: false` 的 skill。字段缺失时，模型和用户均可调用。`ctx.skills.get()` 保持策略无关，因为可信内部调用方可能需要任意定义；对外消费方则必须在展示或加载 skill 之前执行自身对应的判定函数。
+`ctx.skills.list()` 返回所有胜出的摘要，不再替任何调用接口选择策略。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的正向字段；策略缺失时两个接口均允许调用。`ctx.skills.get()` 保持策略无关，因为可信内部调用方可能需要任意定义；对外消费方则必须在展示或加载 skill 之前执行自身对应的判定函数。
 
-本地提供方只接受拼写完全一致的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`。它接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`，与 Claude skills 实际支持的布尔写法一致。旧的驼峰式拼写会被拒绝，并产生有针对性的警告；本仓库尚处于发布前阶段，因此不为磁盘格式保留兼容别名。
+本地提供方只接受拼写完全一致的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`。它接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`，与 Claude skills 实际支持的布尔写法一致。它将 `disable-model-invocation` 映射为相反的正向字段，并在任一键存在时填充另一个字段的默认值。外部使用的驼峰式拼写会被拒绝，并产生有针对性的警告；本仓库尚处于发布前阶段，因此不为磁盘格式保留兼容别名。
 
-面向模型的 `dsh-tool-skill` 目录和 loader 执行 `isModelInvocable`。TUI 的 `/skill:` 自动补全与精确名称 loader 执行 `isUserInvocable`，因此仅允许用户调用的 skill 即使不出现在模型发现结果中，仍会在此处显示并可加载。浏览器的 `skill.list` RPC 提供的是由用户选择、但仍要求模型加载的引用，因此只公开同时允许模型和用户调用的 skill；本次改动不新增让浏览器直接加载 skill 的 RPC。
+面向模型的 `dsh-tool-skill` 目录和 loader 执行 `isModelInvocable`。TUI 的 `/skill:` 自动补全与精确名称 loader 在本地执行用户字段，因此仅允许用户调用的 skill 即使不出现在模型发现结果中，仍会在此处显示并可加载，同时不会将可选的 skill peer 变成运行时导入。浏览器的 `skill.list` RPC 提供的是由用户选择、但仍要求模型加载的引用，因此只公开同时允许模型和用户调用的 skill；本次改动不新增让浏览器直接加载 skill 的 RPC。
 
 这些规则允许以下四种组合：
 
 | 策略 | 模型侧接口 | 用户侧接口 |
 |---|---|---|
-| 默认值 | 包含 | 包含 |
-| `userInvocable: false` | 包含 | 排除 |
-| `disableModelInvocation: true` | 排除 | 包含 |
-| 两个限制值同时存在 | 排除 | 排除 |
+| 无策略，或 `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
+| `{ modelInvocable: true, userInvocable: false }` | 包含 | 排除 |
+| `{ modelInvocable: false, userInvocable: true }` | 排除 | 包含 |
+| `{ modelInvocable: false, userInvocable: false }` | 排除 | 排除 |
 
 该决策扩展了 [skill 系统](2026-07-05-skill-system.md)，并取代 [TUI skill 斜杠命令](2026-07-21-tui-skill-slash-command.md)中记录的调用策略限制。
 

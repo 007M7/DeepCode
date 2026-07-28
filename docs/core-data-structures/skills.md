@@ -62,15 +62,15 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` keeps the two independent invocation controls typed without turning arbitrary frontmatter into the domain model.
+`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans without turning arbitrary frontmatter into the domain model.
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
 interface SkillInvocationPolicy {
-  /** Whether model-facing catalogs and loaders exclude this skill. */
-  readonly disableModelInvocation?: boolean
+  /** Whether model-facing catalogs and loaders include this skill. */
+  readonly modelInvocable: boolean
   /** Whether human-facing command catalogs and loaders include this skill. */
-  readonly userInvocable?: boolean
+  readonly userInvocable: boolean
 }
 ```
 
@@ -94,7 +94,7 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` excludes only `disableModelInvocation: true`, while `isUserInvocable(skill)` excludes only `userInvocable: false`; missing fields permit both surfaces. A model-only skill sets `userInvocable: false`, a user-only skill sets `disableModelInvocation: true`, and setting both restrictive values keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads these values from the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`.
+`ctx.skills.list()` preserves all four policy combinations. An absent `invocation` object permits both surfaces; when present, both booleans are required. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding positive field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, applies their defaults, and projects them into this normalized policy.
 
 `SkillCandidate` is the provider-to-registry shape. `locator` is opaque provider state; the registry only stores it and gives it back to the winning provider's `get()`.
 

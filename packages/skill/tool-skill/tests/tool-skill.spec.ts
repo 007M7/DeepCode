@@ -146,14 +146,14 @@ describe('dsh-tool-skill', () => {
     ctx.skills.register({
       name: 'model-only-skill',
       description: 'Model-only skill.',
-      invocation: { userInvocable: false },
+      invocation: { modelInvocable: true, userInvocable: false },
       source: 'runtime',
       content: 'Model-only body.',
     })
     ctx.skills.register({
       name: 'user-only-skill',
       description: 'User-only skill.',
-      invocation: { disableModelInvocation: true },
+      invocation: { modelInvocable: false, userInvocable: true },
       source: 'runtime',
       content: 'User-only body.',
     })
@@ -200,7 +200,7 @@ describe('dsh-tool-skill', () => {
     ctx.skills.register({
       name: 'user-only-skill',
       description: 'User-only skill',
-      invocation: { disableModelInvocation: true },
+      invocation: { modelInvocable: false, userInvocable: true },
       source: 'runtime',
       content: 'User-only body.',
     })
@@ -361,7 +361,7 @@ describe('dsh-tool-skill', () => {
     ctx.skills.register({
       name: 'model-only-skill',
       description: 'Model-only skill',
-      invocation: { userInvocable: false },
+      invocation: { modelInvocable: true, userInvocable: false },
       source: 'runtime',
       content: 'Model-only instructions.',
     })
