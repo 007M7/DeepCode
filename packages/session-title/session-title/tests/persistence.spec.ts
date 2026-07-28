@@ -30,9 +30,8 @@ async function appendPersistedTitle(ctx: Context, id: ReturnType<typeof SessionI
     content: [{ type: 'text', text: 'Persist this session title' }],
     source: { kind: 'user' },
   }, { surfaceOp: 'append' })
-  await new Promise(resolve => setTimeout(resolve, 0))
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await ctx.parallel('session/flush', session)
+  await ctx.sessionTitle.refresh(session)
 }
 
 async function expectPersistedTitle(ctx: Context, id: ReturnType<typeof SessionId>): Promise<void> {
@@ -41,13 +40,13 @@ async function expectPersistedTitle(ctx: Context, id: ReturnType<typeof SessionI
     title: 'Persist this session title',
     messageSeqs: [1],
     source: { kind: 'fallback' },
-    eventSeq: 2,
+    eventSeq: 3,
   })
   expect(loaded.events.map(event => event.type)).toEqual([
     'turn/start',
     'user/message',
-    'session/title',
     'turn/end',
+    'session/title',
   ])
 }
 

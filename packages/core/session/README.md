@@ -14,9 +14,8 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 - `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt`, `seedLength`, and `delegationDepth`.
 - `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; unpublished, detached, and stale objects reject.
-- `ctx.sessions.appendOutOfBand(session, type, data, trigger)` accepts only plugin event types opted into `OutOfBandSessionEventMap`. It appends directly inside an open turn; otherwise it atomically opens a zero-step plugin turn, appends, closes, and flushes. A target failure still closes and flushes the synthetic turn, and detach is deferred until the sequence settles.
-- `findLastMessageTurnEnd(events)` pairs message-triggered starts with their ends and returns the latest matched `turn/end`. Outcome consumers use this fold instead of the raw latest turn boundary because a later injection or plugin-owned zero-step turn has its own outcome.
-- `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
+- `findLastMessageTurnEnd(events)` pairs message-triggered starts with their ends and returns the latest matched `turn/end`. Outcome consumers use this fold instead of the raw latest log event because between-turn records and non-message turns have no prompt outcome.
+- `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that prefix to end outside an open turn, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -74,7 +73,7 @@ A `user/message` renders its `content` verbatim as a user-role message whether i
 
 The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message. Provider/model/replay provenance rides on `assistant/message`; an operational error's step is on `turn/end.reason` for `kind: 'error'`, with structured provider facts for a final model-request failure.
 
-Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, bounded recovery's non-surface `llm/retry`, the hook bridges' `hook/*`); merged members appear in the same catalog. `OutOfBandSessionEventMap` is a separate empty-by-default marker map: an event owner must merge the same key there before `appendOutOfBand()` accepts that log-only type, while surface and lifecycle types remain excluded.
+Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, bounded recovery's non-surface `llm/retry`, the hook bridges' `hook/*`); merged members appear in the same catalog. A plugin owns the relational invariant for its merged events, including whether a log-only event may appear between turns. A producer that requires durability appends through `Session` and then awaits `ctx.sessions.flush(session)` without fabricating an execution turn.
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings). A final model-request error retains one structured `LlmFailure`; other turn errors retain message/code, and both identify the failed step.
 
@@ -142,6 +141,6 @@ Logging causes no invalidation, and exact reconstruction preserves request-prefi
 ## Known Limitations and Deferred Work
 
 - **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
-- **`fork()` cuts only at closed-turn boundaries of live sessions** — the boundary must be a `turn/end` event and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
+- **`fork()` cuts only at stable boundaries of live sessions** — the selected prefix must end outside an open turn and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
 - **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no compatibility implied: a backend rejects any other version, and no migration path exists until the first release ([policy](../../../AGENTS.md)).
 - **`TurnEndReasonMap` omits the ACP-named `refusal` / `max_turn_requests` variants** — producer-gated: they land when an adapter or the loop first emits them.
