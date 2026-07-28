@@ -16,6 +16,17 @@ The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-
 6. **Stores: read `props.useStore`, write `props.actions.*`** — the declared actions are the complete mutation surface. Write the store as an exported `createXXXStore()` factory (module-level handles are forbidden — de-facto singletons); share by passing one handle to several registers inside `apply`. Production code never calls the factory or `.create()` outside `apply`; tests do (that is the sanctioned zero-machinery path).
 7. **inject returns plain data and callbacks** from the apply closure's own ctx — no hand-made hooks, no ReactNode producers, no whole-service objects. A registrant-private reactive fact rides the reserved `hooks` compartment (bare observables the renderer binds to `use<Name>`; components never see the sources). Its capability boundary is the plugin's declared `inject` topology; there is no wider ctx to reach for.
 
+## Reactive read and contract-currency discipline
+
+The three stale-UI bugs this section descends from shared one root: mutable state read during render without a subscription. The rules:
+
+1. **Everything a render reads that can change outside React arrives through a subscription**: a framework hook (rule 4 above), never a getter call, a `.getSnapshot()` in render, or a mirror copied into `useState`/a second store. Event handlers may read live snapshots (`keyboard.snapshot`); render may not.
+2. **Business components contain no subscription machinery**: no `useSyncExternalStore`, no manual `useState`+`useEffect` subscribe pattern (it has a render-to-effect gap that drops notifications). A registrant-private reactive fact goes through the inject `hooks` compartment; a cross-entry fact goes through a store; a per-session fact goes through `sessions.provide`.
+3. **Data-access ladder** — resolve needs in this order, and escalate rather than improvise: framework hooks (standing seats + provide/inject-bound `use<Name>`) → a declared store (`useStore`/`actions`) → inject callbacks → anything else is a new framework seam and needs main-thread arbitration, never a hand-rolled subscription.
+4. **Contract currency is JSON-able data and callbacks.** Everything crossing a business boundary (owner props, inject faces, store state, provide contributions) is plain serializable data or a callback over such data; the inject `hooks` compartment is the one sanctioned carrier of bare observables, and components never see those either. ReactNode is NOT a currency: do not add new ReactNode-valued owner props or inject members (existing ones — composer `accessory`/`overlay`/`leftItems`/`rightItems` — are legacy under progressive removal; route new render content through a slot instead).
+5. **An observable source keeps two identities stable**: the source object itself (hook binding is cached per source; a fresh source per render re-subscribes uSES), and its snapshot between changes (`getSnapshot` returns the same reference until the fact moves — a fresh object per call is an infinite re-render).
+6. **Whoever rebuilds a published value republishes it through the same source in the same step.** Rebuild-without-notify is exactly the stale-roster bug; registration paths that can run after consumers exist must notify the live consumers (the slash late-source warm is the template).
+
 ## Export discipline (client plugin packages)
 
 The `/client` surface of a UI plugin package is a contract face, not a convenience barrel. Three rules, enforced package-wide (do not restate them as per-file comments):
