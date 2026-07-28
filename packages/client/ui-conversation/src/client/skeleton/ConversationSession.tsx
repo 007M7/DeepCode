@@ -31,7 +31,6 @@ export function ConversationSession({
   const activeId = useStore(s => s.view) ?? 'chat'
   const active = tabs.find(view => view.id === activeId) ?? tabs[0]
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
-  const turns = useSession(s => countTurns(s))
   const composerPhase = useSession(s => s.composerPhase)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)
@@ -69,7 +68,6 @@ export function ConversationSession({
               )
             })}
             {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
-            <span className={css.meta}>· {turns} turns</span>
           </nav>
         </div>
         {tabs.length > 1 && (
@@ -94,10 +92,4 @@ export function ConversationSession({
       </div>
     </>
   )
-}
-
-function countTurns(snapshot: { nodes: readonly { kind: string }[] }): number {
-  let count = 0
-  for (const node of snapshot.nodes) if (node.kind === 'user') count += 1
-  return count
 }

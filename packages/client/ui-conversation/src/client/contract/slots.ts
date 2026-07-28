@@ -143,6 +143,8 @@ export interface ToolRowOwnerProps {
   toolName: string
   /** Frozen call slice: the running call or the settled result node. */
   block: ToolCallBlock
+  /** Session workspace root; path summaries display relative to it. */
+  cwd?: string | undefined
   /** Open the details panel for this call (session-level facility, supplied by the view). */
   openDetails: () => void
 }
@@ -307,6 +309,8 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
+  /** Currently active workspace (renders a trailing check in the picker list). */
+  selectedId?: WorkspaceId | undefined
   onPick: (workspaceId: WorkspaceId) => void
   onClose: () => void
 }

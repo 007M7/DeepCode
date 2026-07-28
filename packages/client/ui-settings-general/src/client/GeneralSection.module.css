@@ -72,6 +72,10 @@
   cursor: pointer;
 }
 
+.selector:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .selector:disabled {
   cursor: default;
 }
@@ -80,18 +84,21 @@
   flex: none;
 }
 
-/* Tool Call mode cubes share an 8px gap. */
+/* Tool Call mode cubes share an 8px gap and wrap to one per row when the
+   panel is too narrow. */
 .cubeRow {
   display: flex;
   align-items: stretch;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-/* Tool Call mode cube (figma '.Selector Cube' 418w r16; horizontal inset =
- * outer pad 4 + inner .Menu_cell pad 10, vertical = inner pad 8). */
+/* Tool Call mode cube (figma '.Selector Cube' 418w r16, flexed to fit the
+ * 800 panel; horizontal inset = outer pad 4 + inner .Menu_cell pad 10,
+ * vertical = inner pad 8). */
 .modeCube {
   box-sizing: border-box;
-  width: 418px;
+  flex: 1 1 276px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -101,6 +108,11 @@
   border-radius: 16px;
   background: transparent;
   text-align: left;
+  cursor: pointer;
+}
+
+.modeCube:hover:not(.selected) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* Selected cube: #F5F6F7 fill + #ADB2B8 border (static token — the bluish-400
