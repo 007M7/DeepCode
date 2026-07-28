@@ -16,6 +16,7 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **No client half yet** — the in-app browsing dialog that consumes these primitives lands in the next PR of this stack; until then a `-browse` composition hides the picking affordance entirely (ui-workspace's documented empty-hole default) and the listing/creation RPCs go unconsumed.
 - **Windows hidden attribute is not read** — Node dirents do not expose `FILE_ATTRIBUTE_HIDDEN`, so `hidden` means dot-prefixed on every platform until a native probe is worth its cost.
 - **No drive-root enumeration** — on Windows the ancestry stops at the drive root; crossing drives waits for the browser UI's path-entry affordance rather than an enumeration primitive here.
 - **Whole-filesystem scope** — no per-deployment browse-root restriction; `workspace.create` accepts arbitrary paths today, so a root here would be UX scoping, not a boundary — deferred until a deployment needs it.
