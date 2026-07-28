@@ -263,25 +263,21 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('rail create-workspace expands the shell and opens the picker; wide toggles in place', () => {
+  it('rail create-workspace toggles the create-only picker in place, without expanding', () => {
     const expandSidebar = vi.fn()
-    const b = mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
+    mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
-    expect(expandSidebar).toHaveBeenCalledTimes(1)
-    rerender(b, { wide: true })
-    // The picker menu is open (anchored on the ＋); picking starts a session.
-    fireEvent.click(screen.getByRole('menuitem', { name: 'alpha' }))
-    expect(b.props.startSession).toHaveBeenCalledWith(wid('alpha'))
-    expect(screen.queryByRole('menu')).toBeNull()
-    // Wide toggle: open and close without expand requests.
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
-    expect(screen.getByRole('menu')).toBeTruthy()
+    expect(expandSidebar).not.toHaveBeenCalled()
+    // createOnly: existing workspaces are not listed, only the create actions.
+    expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
+    // Toggle: open and close in place.
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(expandSidebar).toHaveBeenCalledTimes(1)
 
     // Escape closes the picker through its own onClose.
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    expect(screen.getByRole('menu')).toBeTruthy()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
   })
