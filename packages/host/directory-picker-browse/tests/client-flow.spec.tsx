@@ -66,6 +66,31 @@ describe('directory-picker-browse client half', () => {
     for (const hole of HOLES) expect(after.slots.entries(hole)).toHaveLength(1)
   })
 
+  it('rolls back the first deferral when the second hole is already occupied', async () => {
+    const b = await bench()
+    b.declare()
+    // Foreign occupant in the SECOND registered hole: the pair construction
+    // throws after the first deferral installed its subscription.
+    b.slots.register({ name: HOLES[1] } as never, () => null)
+    const rejections: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const fiber = b.ctx.plugin({ inject: [...inject], apply })
+      await expect(fiber.await()).rejects.toThrow(/already has a registration/)
+      // A leaked first deferral would now race this probe registration and
+      // throw from its orphaned subscription against the HERO hole; the
+      // rollback leaves only the activation failure itself (cordis re-raises
+      // the apply throw as a late rejection — installFailLoud's contract).
+      const disposeProbe = b.slots.register({ name: HOLES[0] } as never, () => null)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(rejections.map(String).filter(text => text.includes(HOLES[0]))).toEqual([])
+      disposeProbe()
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('registers the dialog dictionaries and binds this package namespace', async () => {
     const b = await bench()
     b.declare()

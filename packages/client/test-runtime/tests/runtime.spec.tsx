@@ -322,6 +322,26 @@ describe('workspaces', () => {
     expect(stub).toHaveBeenCalledOnce()
     await runtime.dispose()
   })
+
+  it('records the browse calls: listDirectory serves an empty home, createDirectory joins, stubs override', async () => {
+    const runtime = await runtimeWithFrame()
+    // Defaults: an empty home level and parent/name joining.
+    await expect(runtime.workspaces.listDirectory()).resolves.toMatchObject({ path: '/home/test', entries: [] })
+    await expect(runtime.workspaces.listDirectory('/home/test')).resolves.toMatchObject({ path: '/home/test' })
+    await expect(runtime.workspaces.createDirectory('/home/test', 'fresh')).resolves.toBe('/home/test/fresh')
+    expect(runtime.workspaces.calls).toEqual([
+      { method: 'listDirectory', args: [undefined] },
+      { method: 'listDirectory', args: ['/home/test'] },
+      { method: 'createDirectory', args: ['/home/test', 'fresh'] },
+    ])
+    // Stubs replace the defaults like every sibling method.
+    const listing = { path: '/x', home: '/x', crumbs: [], entries: [] }
+    runtime.workspaces.stub('listDirectory', vi.fn(() => Promise.resolve(listing as never)))
+    runtime.workspaces.stub('createDirectory', vi.fn(() => Promise.resolve('/x/made' as never)))
+    await expect(runtime.workspaces.listDirectory('/x')).resolves.toBe(listing)
+    await expect(runtime.workspaces.createDirectory('/x', 'made')).resolves.toBe('/x/made')
+    await runtime.dispose()
+  })
 })
 
 describe('feature mount and disposal', () => {
