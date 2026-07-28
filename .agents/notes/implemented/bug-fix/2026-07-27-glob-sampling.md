@@ -42,4 +42,4 @@ The tool surface does not grow. The fix changes glob's prompt, schema descriptio
 
 ## Testing
 
-Package tests pin concentrated and flat results, explicit roots, more groups than the JavaScript argument limit, exhausted groups, fewer slots than groups, and paths outside the workdir. The `fs-glob-sampling` ACP scenario boots the real Loader/app/sandbox-bash composition and executes the real search plugin against a deterministic `rg` process fixture; its result spans four top-level entries instead of returning one subtree's head.
+Package tests pin concentrated and flat results, explicit roots, more groups than the JavaScript argument limit, exhausted groups, fewer slots than groups, and paths outside the workdir. The `fs-glob-sampling` ACP scenario boots a minimal real Loader/app/local-bash composition and executes the real search plugin against a deterministic `rg` process fixture; its result spans four top-level entries instead of returning one subtree's head.

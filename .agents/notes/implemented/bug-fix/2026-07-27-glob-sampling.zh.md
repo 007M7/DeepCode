@@ -42,4 +42,4 @@ footer 会说明当前页面是跨条目的样本，而不是按修改时间排�
 
 ## 测试
 
-包测试锁定了结果集中与扁平两种情况、显式根目录、分组数超过 JavaScript 参数个数上限、分组耗尽、位置数少于分组数，以及工作目录以外的路径。`fs-glob-sampling` ACP（Agent Client Protocol）场景会启动真实的 Loader/app/sandbox-bash 组合，并让真实搜索插件对接确定性的 `rg` 进程 fixture（测试前置数据）；其结果覆盖 4 个顶层条目，而不是只返回某棵子树的前部。
+包测试锁定了结果集中与扁平两种情况、显式根目录、分组数超过 JavaScript 参数个数上限、分组耗尽、位置数少于分组数，以及工作目录以外的路径。`fs-glob-sampling` ACP（Agent Client Protocol）场景会启动最小化的真实 Loader/app/local-bash 组合，并让真实搜索插件对接确定性的 `rg` 进程 fixture（测试前置数据）；其结果覆盖 4 个顶层条目，而不是只返回某棵子树的前部。

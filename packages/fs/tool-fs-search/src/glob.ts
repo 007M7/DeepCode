@@ -5,13 +5,6 @@
  * model-facing schema, argument validation, shell-safe command construction,
  * result parsing, inline sampling, and formatting; process concerns (defaulting,
  * scrubbing, kill, backend substitution) stay behind `ctx.bash`.
- *
- * A complete result keeps ripgrep's modification-time order. A result too large
- * to show inline does NOT: its inline page is sampled across the complete
- * result's top-level entries ({@link sampleAcrossTopLevel}), because the sorted
- * head of a broad match is routinely one subtree's worth of files and reads as
- * if the workspace held nothing else.
- *
  * @module @deepseek-ai/dsh-tool-fs-search/glob
  */
 
@@ -145,19 +138,9 @@ function topLevelSegment(path: string): string {
  * Choose the inline page of an over-cap result by round-robin across the
  * complete result's top-level entries, instead of taking its head.
  *
- * `--sort=modified` (oldest first) is the right order for a complete result and
- * the wrong basis for a sample of one: a broad pattern in a workspace holding one
- * unpacked archive — whose restored timestamps predate everything the user
- * wrote — gives a head that is entirely that subtree, and the model reads the
- * page as the workspace. Round-robin gives every top-level entry a slot before
- * any entry gets a second, so the page spans the tree; an entry that runs out of
- * paths drops out and its remaining slots go to the rest.
- *
- * Modification-time order survives where it still means something: groups are
- * visited in the order ripgrep first emits them, and each group's own paths keep
- * their relative order. With one path per group — a flat result — this
- * reproduces the sorted head exactly, so nothing changes for a result that has
- * no subtree to hide.
+ * Every top-level entry receives a slot before any receives a second; exhausted
+ * groups drop out. Group order and order within each group follow `paths`, so a
+ * flat result reproduces the modification-time head.
  *
  * @param paths - the complete result, in ripgrep's modification-time order.
  * @param maxItems - how many paths the page may hold; the caller has already established it is smaller than `paths`.
@@ -191,16 +174,8 @@ export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number,
 }
 
 /**
- * Format a CAPPED `glob` result: the inline page, then a footer stating that
- * the page is a cross-directory sample rather than the most recent paths, how
- * much of the top level it reaches, and either the formatted-spill recovery
- * locator or the could-not-save explanation. The omitted count is a budget
- * fact: the search itself completed. A result that fits inline never reaches
- * here — it is emitted verbatim, in ripgrep's order.
- *
- * A result whose every path is its own top-level entry keeps the plain footer:
- * the sample is the modification-time-ordered head, and naming a spread would only
- * restate the path counts already there.
+ * Format a capped sampled page and its complete-result recovery path. A flat
+ * result keeps the plain footer because its sample is the modification-time head.
  *
  * @param sample - the inline page and its top-level spread.
  * @param seen - how many paths the complete result holds; always more than the page.
