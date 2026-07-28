@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -72,7 +73,7 @@ describe('ACP prompt lifecycle', () => {
     harness.ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        agent.inject({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
     })
 
@@ -91,10 +92,10 @@ describe('ACP prompt lifecycle', () => {
       inserted = true
       const source = { kind: 'plugin', plugin: 'test' } as const
       agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })
-      agent.session.append('user/message', {
+      agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'autonomous work' }],
         source,
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
       agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
 

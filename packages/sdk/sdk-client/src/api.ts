@@ -223,7 +223,8 @@ function validatedSessionEvent(value: unknown): SessionEvent {
   // kind-tagged content blocks; other variants pass through under their
   // envelope shape.
   if (value.type === 'assistant/message') {
-    const content = isRecord(value.data) ? value.data.content : undefined
+    const message = isRecord(value.data) ? value.data.message : undefined
+    const content = isRecord(message) ? message.content : undefined
     if (!Array.isArray(content) || !content.every(block => isRecord(block) && typeof block.type === 'string')) {
       throw new SdkProtocolError(`assistant/message event carried malformed content: ${JSON.stringify(value)}`)
     }
@@ -249,7 +250,7 @@ export function finalResponse(events: SessionEvent[]): string {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
     if (event?.type !== 'assistant/message') continue
-    return event.data.content
+    return event.data.message.content
       .filter((block): block is ContentBlock & { type: 'text' } => block.type === 'text')
       .map(block => block.text)
       .join('')

@@ -11,6 +11,7 @@ import {
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -132,10 +133,11 @@ export async function compactSurfaceRegion(
       throw new Error('compaction: session surface changed during summarization')
     }
     const framedSummary = frameSummary(summary)
-    const framedSummaryTokenCount = dependencies.meter.estimateMessage({
-      role: 'user',
+    const checkpointMessage = createUserMessage({
       content: framedSummary,
+      source: COMPACT_CHECKPOINT_SOURCE,
     })
+    const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
     if (framedSummaryTokenCount >= shadowedTokenCount) {
       throw new Error(
         `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
@@ -151,10 +153,7 @@ export async function compactSurfaceRegion(
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
     })
-    session.append('user/message', {
-      content: framedSummary,
-      source: COMPACT_CHECKPOINT_SOURCE,
-    }, {
+    session.append('user/message', checkpointMessage, {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })

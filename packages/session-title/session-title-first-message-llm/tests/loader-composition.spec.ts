@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
@@ -95,10 +95,10 @@ describe('session-title Loader composition', () => {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    const message = session.append('user/message', {
+    const message = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Compose a title through Loader' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await new Promise(resolve => setTimeout(resolve, 0))
     session.append('request/header', {
       header: { config: { provider: 'main-route', model: 'main-model' } },

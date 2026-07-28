@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,7 +31,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('full loop: real model + real bas
     ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(SessionId('e2e-loop'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{ type: 'text', text: 'Run `echo e2e-ok` with the bash tool and tell me its exact output.' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Run `echo e2e-ok` with the bash tool and tell me its exact output.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]
@@ -40,7 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('full loop: real model + real bas
 
     const results = events.filter(event => event.type === 'tool/result')
     const resultTexts = results.flatMap(event =>
-      event.data.content.filter(block => block.type === 'text').map(block => block.text))
+      event.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text))
     expect(resultTexts.some(text => text.includes('e2e-ok'))).toBe(true)
 
     expect(finalText(events)).toContain('e2e-ok')

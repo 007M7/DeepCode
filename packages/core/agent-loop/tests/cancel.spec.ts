@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the broad verb — it
  * clears queued + steering work, aborts the active turn, and drops work not yet claimed by the
@@ -33,7 +34,7 @@ async function harness(adapter: MockAdapter) {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
@@ -63,7 +64,7 @@ describe('Agent.cancel()', () => {
     ctx.on('agent/cancel-requested', (subject, cause) => {
       if (subject !== agent) return
       seen.push(`first:${cause.kind}`)
-      subject.followup({ content: [{ type: 'text', text: 'queued by cancel observer' }], source: { kind: 'user' } })
+      subject.followup(createUserMessage({ content: [{ type: 'text', text: 'queued by cancel observer' }], source: { kind: 'user' } }))
       throw new Error('observer failed')
     })
     ctx.on('agent/cancel-requested', (subject, cause) => {
@@ -108,7 +109,7 @@ describe('Agent.cancel()', () => {
     ctx.on('agent/cancel-requested', (subject, cause) => { if (subject === agent) cancelRequests.push(cause) })
 
     // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
-    agent.send({ content: [{ type: 'text', text: 'preserved' }], source: { kind: 'user' } }, { target: 'next-turn', wakeup: false })
+    agent.send(createUserMessage({ content: [{ type: 'text', text: 'preserved' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
     // keepInbox cancel: no active turn, work preserved, no discard event. With
     // nothing to abort and nothing discarded, the call is a documented no-op,
     // so it emits no cancel-requested either.
@@ -129,7 +130,7 @@ describe('Agent.cancel()', () => {
 
     // A quiet item alone must NOT wake the driver: no turn runs and whenIdle
     // resolves (the agent is quiescent), leaving the item queued.
-    agent.send({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }, { target: 'next-turn', wakeup: false })
+    agent.send(createUserMessage({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
     await agent.whenIdle()
     expect(agent.status).toBe('idle')
     expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
@@ -145,7 +146,7 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }, { target: 'next-turn', wakeup: false })
+    agent.send(createUserMessage({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
     const idle = agent.whenIdle()
     agent.cancel({ kind: 'user' })
     await idle
@@ -337,8 +338,10 @@ describe('Agent.cancel()', () => {
     const result = agent.session.events.find(event => event.type === 'tool/result')
     expect(call?.type === 'tool/call' ? call.data.callId : undefined).toBe('c1')
     expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
-      callId: 'c1',
-      isError: true,
+      message: {
+        source: { kind: 'tool', callId: 'c1' },
+        content: [{ type: 'tool-result', toolCallId: 'c1', isError: true }],
+      },
       error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
 
@@ -578,7 +581,7 @@ describe('Agent.cancel()', () => {
     expect(agent.status).toBe('running')
     // Steer (joins the running turn's steering FIFO), then cancel: the steering
     // must be dropped, NOT re-enqueued as a new queued turn.
-    agent.steer({ content: [{ type: 'text', text: 'steer text' }], source: { kind: 'user' } })
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'steer text' }], source: { kind: 'user' } }))
     agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
@@ -591,7 +594,7 @@ describe('Agent.cancel()', () => {
     // The steering text was dropped — it never reached the log.
     const flat = agent.session.events
       .filter(e => e.type === 'steering/message')
-      .flatMap(e => e.type === 'steering/message' ? e.data.content : [])
+      .flatMap(e => e.type === 'steering/message' ? e.data.message.content : [])
       .flatMap(b => b.type === 'text' ? [b.text] : [])
     expect(flat).not.toContain('steer text')
   })
@@ -693,7 +696,7 @@ describe('Agent.cancel()', () => {
 
     switch (stage) {
       case 'prompt-submit':
-        ctx.on('agent/prompt-submit', async (subject, _content, _source, signal, next) => {
+        ctx.on('agent/prompt-submit', async (subject, _message, signal, next) => {
           if (subject === agent) await blockUntilAbort(signal)
           return next()
         })

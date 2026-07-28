@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, TodoItem } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -58,7 +59,10 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
 
 /** One paginable message so the tail page is non-degenerate. */
 function seedMessage(session: Session): void {
-  session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hi' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
 }
 
 describe('todos projection provider', () => {

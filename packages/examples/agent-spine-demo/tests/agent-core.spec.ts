@@ -10,7 +10,7 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import {
+import { createUserMessage,
   CallId,
   LlmAdapter,
   LlmError,
@@ -165,10 +165,10 @@ describe('dsh-agent-spine-demo bundle', () => {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(ctx.sessionTitle.get(session)?.title).toBe('One')
@@ -235,7 +235,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    handle.agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
@@ -335,7 +335,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
       const agent = handle.agent
 
-      agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
@@ -364,10 +364,15 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+      expect(adapter.requests[0]?.messages).toEqual([{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'user' },
+      }])
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {
@@ -454,7 +459,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
