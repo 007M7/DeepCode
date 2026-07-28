@@ -11,7 +11,7 @@ import { constants } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { access, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, extname, isAbsolute, join } from 'node:path'
+import { delimiter, extname, isAbsolute, join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
@@ -107,7 +107,7 @@ export class LocalSubprocessService extends SubprocessService {
       ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
       : ['']
     return path.split(delimiter).flatMap(directory =>
-      directory === '' ? [] : extensions.map(extension => join(directory, command + extension)))
+      directory === '' ? [] : extensions.map(extension => resolve(this.cwd, directory, command + extension)))
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {

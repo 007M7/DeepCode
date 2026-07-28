@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { stat } from 'node:fs/promises'
-import { basename, delimiter, dirname } from 'node:path'
+import { basename, delimiter, dirname, relative } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -37,6 +37,9 @@ describe('LocalSubprocessService', () => {
     expect(await ctx.subprocess.resolveExecutable(process.execPath)).toBe(process.execPath)
     expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
       PATH: dirname(process.execPath),
+    })).toBe(process.execPath)
+    expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
+      PATH: relative(process.cwd(), dirname(process.execPath)) || '.',
     })).toBe(process.execPath)
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('must be non-empty')
     await expect(ctx.subprocess.resolveExecutable('dsh-command-that-does-not-exist', { PATH: '' }))
