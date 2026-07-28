@@ -103,7 +103,7 @@ function fakeSessions() {
   const absentInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
   return {
     list: { getSnapshot: () => state, subscribe: () => () => undefined },
-    currentProvide: { getSnapshot: () => absentInfo, subscribe: () => () => undefined },
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => undefined },
   }
 }
 

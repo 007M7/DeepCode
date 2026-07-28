@@ -111,7 +111,7 @@ async function bench(nodes: ToolResultNode[]) {
     binding: bindingOf,
     scope: () => actxFake,
     provideInfo,
-    currentProvide: {
+    currentProvideInfo: {
       getSnapshot: () => provideInfo(SID),
       subscribe: () => () => {},
     },
@@ -255,7 +255,7 @@ describe('registrant load-order seam', () => {
       binding: () => undefined,
       scope: () => undefined,
       provideInfo: () => undefined,
-      currentProvide: {
+      currentProvideInfo: {
         getSnapshot: () => ABSENT_INFO,
         subscribe: () => () => {},
       },

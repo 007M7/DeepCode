@@ -157,7 +157,7 @@ export class SessionsService {
    * host's `sessions.provide` feed), so a roster change under a stable
    * current id republishes the bundle instead of stranding mounted entries.
    */
-  readonly currentProvide: HostObservable<SessionMaybeProvideInfo>
+  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -174,10 +174,10 @@ export class SessionsService {
   private readonly providers: SessionProvideDescriptor[] = []
   /** Static no-session projection, rebuilt only when the provider roster changes. */
   private maybeInfo: SessionMaybeProvideInfo
-  /** Latest published {@link SessionsService.currentProvide} bundle (identity comparison dedupes republish). */
-  private currentProvideSnapshot: SessionMaybeProvideInfo
-  /** currentProvide subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
-  private readonly currentProvideListeners = new Set<() => void>()
+  /** Latest published {@link SessionsService.currentProvideInfo} bundle (identity comparison dedupes republish). */
+  private currentProvideInfoSnapshot: SessionMaybeProvideInfo
+  /** currentProvideInfo subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
+  private readonly currentProvideInfoListeners = new Set<() => void>()
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -221,12 +221,12 @@ export class SessionsService {
       resolve: binding => ({ hooks: { session: binding.session } }),
     })
     this.maybeInfo = this.materializeMaybeProvideInfo()
-    this.currentProvideSnapshot = this.maybeInfo
-    this.currentProvide = {
-      getSnapshot: () => this.currentProvideSnapshot,
+    this.currentProvideInfoSnapshot = this.maybeInfo
+    this.currentProvideInfo = {
+      getSnapshot: () => this.currentProvideInfoSnapshot,
       subscribe: (fn) => {
-        this.currentProvideListeners.add(fn)
-        return () => { this.currentProvideListeners.delete(fn) }
+        this.currentProvideInfoListeners.add(fn)
+        return () => { this.currentProvideInfoListeners.delete(fn) }
       },
     }
     rootCtx.reflect.provide('sessions', this, undefined)
@@ -272,9 +272,9 @@ export class SessionsService {
    */
   private projectCurrentProvide(): void {
     const next = this.maybeProvideInfo(this.list.getSnapshot().current)
-    if (next === this.currentProvideSnapshot) return
-    this.currentProvideSnapshot = next
-    for (const fn of [...this.currentProvideListeners]) fn()
+    if (next === this.currentProvideInfoSnapshot) return
+    this.currentProvideInfoSnapshot = next
+    for (const fn of [...this.currentProvideInfoListeners]) fn()
   }
 
   /** Build the static no-session kit and reject duplicate declared names. */
@@ -443,7 +443,7 @@ export class SessionsService {
   /**
    * Resolve one session's render-layer standard-props bundle (ctx never
    * enters the render layer; the renderer subscribes to
-   * {@link SessionsService.currentProvide}). Pure resolution — render-safe:
+   * {@link SessionsService.currentProvideInfo}). Pure resolution — render-safe:
    * no staging, no window side effects (StrictMode double-invokes and
    * concurrent discarded passes must stay free).
    * @param id - session id.

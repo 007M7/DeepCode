@@ -26,7 +26,7 @@ function bench(): Bench {
       ids: [], byId: {}, current: undefined, phase: 'ready',
     }),
     provideInfo: () => undefined,
-    currentProvide: {
+    currentProvideInfo: {
       getSnapshot: () => ABSENT_INFO,
       subscribe: () => () => {},
     },

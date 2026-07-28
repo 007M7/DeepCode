@@ -38,7 +38,7 @@ async function bench() {
     binding: vi.fn(),
     scope: () => undefined,
     provideInfo: () => undefined,
-    currentProvide: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     provide: vi.fn(() => () => {}),
     create: vi.fn(),
     open: vi.fn(),

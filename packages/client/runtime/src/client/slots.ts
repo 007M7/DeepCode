@@ -256,7 +256,7 @@ export class SlotsService extends Service {
         entry.store === undefined ? undefined : this.resolveStore(entry.store as unknown as EngineStoreHandle, scopeKey),
       sessions: {
         list: sessions.list,
-        provideInfo: sessions.currentProvide,
+        provideInfo: sessions.currentProvideInfo,
       },
       workspaces: { list: workspaces.list },
     }

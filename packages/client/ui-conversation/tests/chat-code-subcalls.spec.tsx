@@ -87,7 +87,7 @@ async function bench(snapshot: ConversationSnapshot) {
   // Provide-channel contributions land in this bundle the way the runtime
   // materializes them; the renderer host serves it through provideInfo.
   const provided: { hooks: Record<string, unknown>; props: Record<string, unknown> } = { hooks: {}, props: {} }
-  // Identity-stable currentProvide snapshot (uSES getSnapshot contract),
+  // Identity-stable currentProvideInfo snapshot (uSES getSnapshot contract),
   // materialized on first render after the provide contributions landed.
   let infoCell: { sessionId: SessionId; hooks: Record<string, unknown>; props: Record<string, unknown> } | undefined
   const sessionsFake = {
@@ -106,7 +106,7 @@ async function bench(snapshot: ConversationSnapshot) {
     provideInfo: (id: string) => (id === SID
       ? { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props }
       : undefined),
-    currentProvide: {
+    currentProvideInfo: {
       getSnapshot: () => infoCell ??= { sessionId: SID, hooks: { session, ...provided.hooks }, props: provided.props },
       subscribe: () => () => {},
     },
