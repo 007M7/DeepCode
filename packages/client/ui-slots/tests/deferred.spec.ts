@@ -2,7 +2,7 @@
 // re-registration, and — the failure contract — no subscription survives a
 // construction that throws synchronously (an already-occupied single slot).
 import { describe, expect, it, vi } from 'vitest'
-import { deferRegistration, SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferGroupRegistration, deferRegistration, SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
 // Shares the merges declared by core.spec.ts (same program); reuse its keys.
 const HOLE = 'test.single' as const
@@ -61,5 +61,66 @@ describe('deferRegistration', () => {
     await Promise.resolve()
     expect(register).toHaveBeenCalledOnce()
     expect(core.entries(HOLE)).toHaveLength(0)
+  })
+})
+
+describe('deferGroupRegistration', () => {
+  const HOLES = ['test.single', 'test.grandchild'] as const
+
+  function declaredPair(): SlotCore {
+    const core = new SlotCore()
+    core.register({
+      name: 'root',
+      children: Object.fromEntries(HOLES.map(name => [name, { kind: 'single', scope: 'root' }])),
+    } as never, (() => null) as never)
+    return core
+  }
+
+  it('registers the whole group and disposes it as a unit', () => {
+    const core = declaredPair()
+    const component = (): null => null
+    const group = deferGroupRegistration(core, HOLES, component, name =>
+      core.register({ name } as never, component as never))
+    for (const name of HOLES) expect(core.entries(name)).toHaveLength(1)
+    group.dispose()
+    for (const name of HOLES) expect(core.entries(name)).toHaveLength(0)
+  })
+
+  it('rolls the group back when construction fails partway', () => {
+    const core = declaredPair()
+    const component = (): null => null
+    core.register({ name: HOLES[1] } as never, (() => null) as never)
+    expect(() => deferGroupRegistration(core, HOLES, component, name =>
+      core.register({ name } as never, component as never))).toThrow(/already has a registration/)
+    // The first hole's registration and subscription rolled back with it.
+    expect(core.entries(HOLES[0])).toHaveLength(0)
+  })
+
+  it('rolls the group back and re-raises loudly on a late conflict', async () => {
+    const core = new SlotCore()
+    const component = (): null => null
+    const failures: unknown[] = []
+    const onLoud = (reason: unknown): void => { failures.push(reason) }
+    process.on('uncaughtException', onLoud)
+    try {
+      const group = deferGroupRegistration(core, HOLES, component, name =>
+        core.register({ name } as never, component as never))
+      // Declaration lands with a rival racing in ahead of the flush.
+      core.register({
+        name: 'root',
+        children: Object.fromEntries(HOLES.map(name => [name, { kind: 'single', scope: 'root' }])),
+      } as never, (() => null) as never)
+      core.register({ name: HOLES[0] } as never, (() => null) as never)
+      core.register({ name: HOLES[1] } as never, (() => null) as never)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(failures.map(String).join('')).toContain('already has a registration')
+      // No partial occupancy from the group's owner survives.
+      for (const name of HOLES) {
+        expect(core.entries(name).filter(entry => entry.component === component)).toHaveLength(0)
+      }
+      group.dispose()
+    } finally {
+      process.off('uncaughtException', onLoud)
+    }
   })
 })
