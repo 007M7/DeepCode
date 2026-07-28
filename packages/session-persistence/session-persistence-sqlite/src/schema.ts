@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 12
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
