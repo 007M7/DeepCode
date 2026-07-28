@@ -1,3 +1,10 @@
+/**
+ * ui-plan browser half on a real SlotsService: the plugin occupies the
+ * conversation-declared `conversation.input.plan` single seat; the injected
+ * face maps mode selections onto /plan command lines and folds admission
+ * outcomes into null (admitted) or a user-visible failure line; teardown
+ * empties the seat (HMR safety).
+ */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -14,45 +21,55 @@ async function bench() {
   const slots = ctx.get('slots') as SlotsService
   slots.register({
     name: 'root',
-    children: { 'conversation.composer.controls': { kind: 'list', scope: 'session' } },
+    children: { 'conversation.input.plan': { kind: 'single', scope: 'session' } },
   } as never, () => null)
-  const setPlanMode = vi.fn(() => Promise.resolve({ ok: true, value: { active: false, pending: true } }))
-  ctx.provide('sessions', { manager: { get: () => ({ setPlanMode }) } })
+  const execute = vi.fn((_payload: { sessionId: SessionId; line: string }) =>
+    Promise.resolve({ result: { ok: true as const, value: { matched: true as const, commandId: 'c1' } } }))
+  ctx.provide('connection', { api: { commands: { execute } } })
   ctx.provide('conversation', {})
-  return { ctx, slots, setPlanMode }
+  return { ctx, slots, execute }
 }
 
 describe('ui-plan browser apply', () => {
   it('declares every service it binds', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'conversation'])
+    expect(inject).toEqual(['slots', 'connection', 'conversation'])
   })
 
-  it('fails loud when conversation did not declare the controls slot', async () => {
+  it('fails loud when conversation did not declare the plan seat', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
-    ctx.provide('sessions', {})
+    ctx.provide('connection', {})
     ctx.provide('conversation', {})
     await expect(ctx.plugin({ inject: [...inject], apply }))
-      .rejects.toThrow(/slot "conversation.composer.controls" is not declared/)
+      .rejects.toThrow(/slot "conversation.input.plan" is not declared/)
   })
 
-  it('registers the control, bridges host results, and unregisters on teardown', async () => {
+  it('registers the control, maps selections to /plan lines, and unregisters on teardown', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    const entry = b.slots.entries('conversation.composer.controls')[0]!
+    const entry = b.slots.entries('conversation.input.plan')[0]!
     expect(entry.component).toBe(PlanModeControl)
-    expect(entry.options).toMatchObject({ id: 'plan-mode', order: 10 })
     const injected = (entry.inject as unknown as (id: SessionId) => PlanModeControlInjected)(SID)
-    await expect(injected.setPlanMode(true)).resolves.toBeNull()
-    expect(b.setPlanMode).toHaveBeenCalledWith(true)
 
-    b.setPlanMode.mockResolvedValueOnce({
-      ok: false, error: { code: 'session-not-found', message: 'gone', details: {} },
+    await expect(injected.setPlanMode(true)).resolves.toBeNull()
+    expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan' })
+    await expect(injected.setPlanMode(false)).resolves.toBeNull()
+    expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan off' })
+
+    // Business failure folds to the composer-visible line.
+    b.execute.mockResolvedValueOnce({
+      result: { ok: false as const, error: { code: 'session-not-found', message: 'gone', details: {} } },
     } as never)
-    await expect(injected.setPlanMode(false)).resolves.toBe('gone（session-not-found）')
+    await expect(injected.setPlanMode(true)).resolves.toBe('gone（session-not-found）')
+
+    // Unmatched admission (plan-mode not composed host-side) is also a failure line.
+    b.execute.mockResolvedValueOnce({
+      result: { ok: true as const, value: { matched: false as const } },
+    } as never)
+    await expect(injected.setPlanMode(true)).resolves.toBe('未知命令：/plan')
 
     await fiber.dispose()
-    expect(b.slots.entries('conversation.composer.controls')).toHaveLength(0)
+    expect(b.slots.entries('conversation.input.plan')).toHaveLength(0)
   })
 })

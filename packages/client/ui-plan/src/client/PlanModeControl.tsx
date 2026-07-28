@@ -1,15 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import type { PlanModeControlProps } from './index.ts'
+import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls the ui-conversation SlotMap merge (the input.plan seat and
+// its {locked} owner share).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { PlanModeControlInjected } from './index.ts'
 import css from './PlanModeControl.module.css'
+
+/** Full plan-seat component props: runtime share (standard kit + locked owner prop) & injected share. */
+export type PlanModeControlProps =
+  PropsRuntime<'conversation.input.plan'> & InjectFace<PlanModeControlInjected>
 
 const labels = {
   default: '默认',
   plan: '计划',
 } as const
 
-/** Composer control for the host-confirmed plan target. */
-export function PlanModeControl({ useSession, setPlanMode }: PlanModeControlProps) {
-  const planMode = useSession(snapshot => snapshot.planMode)
+/** Composer control over the host-computed `plan` projection. */
+export function PlanModeControl({ useProjection, locked, setPlanMode }: PlanModeControlProps) {
+  const plan = useProjection('plan')
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const aliveRef = useRef(true)
@@ -22,15 +30,16 @@ export function PlanModeControl({ useSession, setPlanMode }: PlanModeControlProp
     }
   }, [])
 
-  if (planMode === null) return null
+  // Capability absence: the host composed no plan-mode plugin (or no
+  // baseline has arrived yet) — the seat stays empty.
+  if (plan === undefined) return null
 
-  const pending = planMode.pending !== undefined
-  const target = planMode.pending ?? planMode.active
+  const target = plan.pending ? !plan.active : plan.active
   const value = target ? 'plan' : 'default'
-  const currentLabel = labels[planMode.active ? 'plan' : 'default']
+  const currentLabel = labels[plan.active ? 'plan' : 'default']
   const targetLabel = labels[value]
-  const label = `${targetLabel}${pending ? ' · 待生效' : ''}`
-  const title = pending
+  const label = `${targetLabel}${plan.pending ? ' · 待生效' : ''}`
+  const title = plan.pending
     ? `当前为${currentLabel}模式；${targetLabel}模式将在下一次模型请求时生效`
     : `当前为${currentLabel}模式`
 
@@ -64,7 +73,7 @@ export function PlanModeControl({ useSession, setPlanMode }: PlanModeControlProp
           aria-label="协作模式"
           aria-describedby={descriptionId}
           value={value}
-          disabled={switching}
+          disabled={locked || switching}
           onChange={(event) => { select(event.target.value === 'plan') }}
         >
           <option value="default">默认</option>

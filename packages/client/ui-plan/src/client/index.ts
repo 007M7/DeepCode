@@ -1,46 +1,53 @@
 /**
- * Web plan plugin, browser half: contributes one pending-aware selector to
- * the default composer's additive controls slot.
+ * Plan control plugin, browser half: occupies the composer's named
+ * `conversation.input.plan` seat with a pending-aware mode selector. Reads
+ * ride the generic projection pair — the control renders the `plan`
+ * projection through the standard-kit `useProjection` (an absent key is
+ * capability absence and hides the control); writes ride the standard
+ * command channel — selecting a mode executes `/plan` / `/plan off` through
+ * `command.execute`, whose logged lifecycle plus the boundary `plan/mode`
+ * commit come back as projection frames. Zero client-side plan state.
  */
-import type {
-  ClientContext, SessionId, SessionsService,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { ComposerControlProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the ui-conversation SlotMap merge (the input.plan seat).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the `plan` SessionProjectionMap merge for useProjection.
+import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import { PlanModeControl } from './PlanModeControl.tsx'
 
-/** Callback share injected into the pure control component. */
+/** Injected business face of the composer plan seat. */
 export interface PlanModeControlInjected {
-  /** Select the target mode; null means success, a string is user-visible failure detail. */
+  /**
+   * Select the target mode by executing the corresponding /plan line.
+   * @param active - whether plan mode should be active from the next boundary.
+   * @returns null on admitted execution; a user-visible failure line otherwise.
+   */
   setPlanMode(active: boolean): Promise<string | null>
 }
 
-/** Complete props assembled for the composer-control entry. */
-export type PlanModeControlProps = ComposerControlProps & PlanModeControlInjected
-
 /**
- * Required services. `conversation` is the ordering edge that guarantees the
- * composer-controls slot has been declared before this plugin registers.
+ * Required services: the seat's slot registry, the transport, and the
+ * conversation service whose presence guarantees the seat is declared.
  */
-export const inject = ['slots', 'sessions', 'conversation']
+export const inject = ['slots', 'connection', 'conversation']
 
 /**
- * Register the plan selector and bridge its callback to the session object.
- * @param ctx - Client root context.
+ * Client plugin body: register the plan seat occupant over the command channel.
+ * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  // This dual-half package also imports the host plan service, whose program
-  // carries the host-side `sessions` merge. Resolve and narrow the browser
-  // service at the client entry seam instead of relying on that shared key.
-  const sessions = ctx.get('sessions') as unknown as SessionsService
-  ctx.slots.register({
-    name: 'conversation.composer.controls',
-    id: 'plan-mode',
-    order: 10,
+  ctx.effect(() => ctx.slots.register({
+    name: 'conversation.input.plan',
     inject: (sessionId: SessionId): PlanModeControlInjected => ({
       setPlanMode: async (active) => {
-        const result = await sessions.manager.get(sessionId).setPlanMode(active)
-        return result.ok ? null : `${result.error.message}（${result.error.code}）`
+        const connection = ctx.get('connection') as ConnectionHandle
+        const line = active ? '/plan' : '/plan off'
+        const { result } = await connection.api.commands.execute({ sessionId, line })
+        if (!result.ok) return `${result.error.message}（${result.error.code}）`
+        if (!result.value.matched) return `未知命令：${line}`
+        return null
       },
     }),
-  }, PlanModeControl)
+  }, PlanModeControl), 'ui-plan: composer plan seat registration')
 }

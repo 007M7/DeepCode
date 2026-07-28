@@ -1,21 +1,19 @@
 # @deepseek-ai/dsh-client-ui-plan
 
-Web plan-mode feature with two lifecycle-coupled halves. The node entry mounts `@deepseek-ai/dsh-plan-mode` with the Web product policy; the browser entry contributes a session-scoped selector to `conversation.composer.controls`.
+Plan-mode composer control, a pure browser surface plugin. The browser half occupies the conversation-declared `conversation.input.plan` single seat with a pending-aware mode selector; the node half is an empty apply (the roster row). Plan behavior itself — the `/plan` command, the boundary-committed `plan/mode` state, the `plan` projection unit, and the policy section — is owned by [`@deepseek-ai/dsh-plan-mode`](../../plan/plan-mode/README.md), composed independently on the host roster.
 
-The selector distinguishes unavailable capability (`planMode === null`), committed mode (`active`), and the target queued for the next model-request boundary (`pending`, including `pending: false`). Selecting a mode never cancels a running turn. It remains available while generation is running, disables only during its own RPC, and displays the host-confirmed pending target until a logged `plan/mode` event commits it. The transparent native select mirrors keyboard focus onto the visible chip and carries a dynamic accessible description of the committed and pending modes.
+Reads ride the generic projection pair: the control renders the host-computed `plan` projection (`{ active, pending }`) through the standard-kit `useProjection`; an absent key is capability absence and hides the control, so a host without plan-mode (or a Draft with no session) shows no seat content. Writes ride the standard command channel: selecting a mode executes `/plan` or `/plan off` through `command.execute`, whose logged `command/run` immediately folds into a pending projection frame and whose request-boundary `plan/mode` commit resolves it — the control never holds client-side plan state, displays only host-confirmed values, and stays available while generation runs (switching never cancels a turn; the pending target applies at the next model-request boundary).
 
-The model exits plan mode through the stable `exit_plan_mode` tool. Its plan review uses the composed Web question channel: approval schedules default mode for the next step, while rejection or custom feedback keeps plan mode active and returns the feedback to the model.
+The transparent native select mirrors keyboard focus onto the visible chip and carries a dynamic accessible description of the committed and pending modes. Admission failures (`matched: false`, business errors, transport faults) surface as an inline error without mutating the displayed mode.
+
+The model exits plan mode through the stable `exit_plan_mode` tool; its plan review uses the composed Web question channel.
 
 ## Model Experience
 
-Indirectly, through `@deepseek-ai/dsh-plan-mode`; that package owns policy activation, the exit-tool schema and rendering, logged state, and request-boundary transitions, while this package supplies the Web composition's section text.
-
-#### KV Cache effect
-
-Entering or leaving plan mode changes the active system-prompt section and therefore the request prefix. The stable exit-tool registration avoids an additional tool-catalog shape change across the same transition.
+None directly. Model-visible plan behavior (policy activation, the exit-tool schema, logged state) is owned by `@deepseek-ai/dsh-plan-mode`; this package only renders the projection and dispatches `/plan` lines a user could equally type.
 
 ## Known Limitations and Deferred Work
 
 - **Plan mode is guidance, not an execution sandbox** — deployments that require enforced read-only planning must compose the independent sandbox and approval policies.
 - **The control belongs to the default composer** — a pending whole-composer interaction such as plan review temporarily replaces the InputBar and its mode control.
-- **An idle pending target is process-local until the next boundary** — a process exit before another prompt loses that uncommitted intent; the committed mode remains durable in the session log.
+- **No Draft-time selection** — before a session exists there is no projection and the seat stays empty; plan mode is selected after the first prompt creates the session.

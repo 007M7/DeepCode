@@ -30,15 +30,6 @@
       "path": "../../plan/plan-mode"
     },
     {
-      "path": "../../core/system-prompt"
-    },
-    {
-      "path": "../../core/tools"
-    },
-    {
-      "path": "../../ui/user-interaction"
-    },
-    {
       "path": "../../support/invariants"
     }
   ]
