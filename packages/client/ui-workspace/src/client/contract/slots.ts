@@ -62,11 +62,18 @@ export type DirectoryFlowSlotName =
 /** Directory-picking share both trigger surfaces consume. */
 export type DirectoryPickingInjected = {
   /**
-   * Whether this surface's directory-flow hole is occupied — read when the
-   * menu opens; an empty hole hides the "Open local folder…" entry (the
-   * no-flow composition simply has no picking affordance).
+   * Whether this surface's directory-flow hole is occupied — an empty hole
+   * hides the "Open local folder…" entry (the no-flow composition simply has
+   * no picking affordance).
    */
   hasDirectoryFlow: () => boolean
+  /**
+   * Subscribe to the hole's registration changes (the uSES pair of
+   * {@link hasDirectoryFlow}): the trigger surface withdraws an open flow
+   * whose occupant unloaded mid-interaction — nobody is left to cancel it.
+   * @returns the unsubscriber.
+   */
+  subscribeDirectoryFlow: (listener: () => void) => () => void
 }
 
 /**

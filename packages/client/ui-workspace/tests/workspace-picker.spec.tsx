@@ -50,10 +50,27 @@ function flowProbe() {
   return { probe, renderSlot }
 }
 
+/** Manual occupancy source: flip() drives the uSES subscription like a real registration change. */
+function occupancySource(initial = true) {
+  let occupied = initial
+  const listeners = new Set<() => void>()
+  return {
+    hasDirectoryFlow: () => occupied,
+    subscribeDirectoryFlow: (listener: () => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    flip: (next: boolean) => {
+      occupied = next
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
 function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
-  hasDirectoryFlow: () => boolean = () => true,
+  occupancy = occupancySource(),
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
@@ -68,7 +85,8 @@ function mount(
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
-      hasDirectoryFlow={hasDirectoryFlow}
+      hasDirectoryFlow={occupancy.hasDirectoryFlow}
+      subscribeDirectoryFlow={occupancy.subscribeDirectoryFlow}
       renderSlot={renderSlot}
     />
   )
@@ -76,7 +94,7 @@ function mount(
     renderPicker(items),
   )
   return {
-    view, onPick, onClose, createWorkspace, probe,
+    view, onPick, onClose, createWorkspace, probe, occupancy,
     rerenderItems: (nextItems: readonly WorkspaceView[]) => { view.rerender(renderPicker(nextItems)) },
   }
 }
@@ -247,7 +265,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        hasDirectoryFlow={() => true} renderSlot={renderSlot}
+        hasDirectoryFlow={() => true} subscribeDirectoryFlow={() => () => {}} renderSlot={renderSlot}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -262,26 +280,35 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        hasDirectoryFlow={() => true} renderSlot={renderSlot}
+        hasDirectoryFlow={() => true} subscribeDirectoryFlow={() => () => {}} renderSlot={renderSlot}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')
   })
 
   it('hides the folder entry while the directory-flow hole is empty', () => {
-    mount([], vi.fn(), () => false)
+    mount([], vi.fn(), occupancySource(false))
     expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
   })
 
-  it('shows the folder entry once the hole reports an occupant on a later render', () => {
-    let occupied = false
-    const b = mount([], vi.fn(), () => occupied)
+  it('shows the folder entry when a flow package activates after the first paint', () => {
+    const b = mount([], vi.fn(), occupancySource(false))
     expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
-    // A flow package activating after the first paint is observed on the
-    // next render — the same cadence as reopening the menu.
-    occupied = true
-    b.rerenderItems([])
+    // Registration changes flow through the subscription, no re-render needed.
+    act(() => { b.occupancy.flip(true) })
     expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
+  })
+
+  it('withdraws an open flow when its occupant unloads, re-enabling the menu actions', () => {
+    const b = mount([])
+    chooseItem('Open local folder…')
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+    // The flow plugin unloads mid-interaction (HMR): nobody is left to
+    // cancel, so the owner withdraws and the actions come back.
+    act(() => { b.occupancy.flip(false) })
+    expect(b.probe.owner!.open).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(false)
+    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
   })
 })

@@ -254,6 +254,7 @@ export function WorkspaceBrowser({
   insertSessionBefore,
   createWorkspace,
   hasDirectoryFlow,
+  subscribeDirectoryFlow,
   renderSlot,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
@@ -373,6 +374,7 @@ export function WorkspaceBrowser({
           useWorkspaces={useWorkspaces}
           createWorkspace={createWorkspace}
           hasDirectoryFlow={hasDirectoryFlow}
+          subscribeDirectoryFlow={subscribeDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
           createOnly
           side="right"

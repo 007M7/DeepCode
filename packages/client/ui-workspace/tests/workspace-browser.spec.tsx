@@ -60,6 +60,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     hasDirectoryFlow: () => true,
+    subscribeDirectoryFlow: () => () => {},
     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
     ...overrides,
   }
