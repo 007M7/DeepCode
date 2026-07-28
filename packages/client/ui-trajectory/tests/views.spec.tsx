@@ -19,18 +19,13 @@ import type {
   ConversationSnapshot, RequestView, SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
-// Export discipline: packages/client/AGENTS.md.
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
-import type { TrajectoryTurnModel } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/layout.ts'
-import { TrajectoryView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryView.tsx'
-import {
-  deriveTrajectoryTimeline,
-  filterTrajectoryTimelineRange,
-  formatTimelineOffset,
-} from '@deepseek-ai/dsh-client-ui-trajectory/src/client/timeline.ts'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
+import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+import { TrajectoryView } from '../src/client/TrajectoryView.tsx'
+import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
 afterEach(cleanup)
@@ -229,11 +224,11 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
   })
 
-  it('dragging the overview focuses overlapping records and clear restores the ledger', async () => {
+  it('dragging the overview focuses overlapping records without filtering the ledger', async () => {
     const b = await bench()
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    const plot = screen.getByLabelText('Timeline overview; drag horizontally to filter events')
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
@@ -242,10 +237,11 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.pointerMove(plot, { clientX: 95, pointerId: 1 })
     fireEvent.pointerUp(plot, { clientX: 95, pointerId: 1 })
 
-    expect(screen.queryByRole('row', { name: /USER/ })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
-    expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
+    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+      .toBe('outside')
+    fireEvent.contextMenu(plot)
+    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+      .toBeNull()
   })
 
   it('empty window keeps the toolbar and reports no timing data', async () => {
@@ -272,25 +268,57 @@ describe('timeline projection', () => {
     }],
   }] satisfies readonly TrajectoryTurnModel[]
 
-  it('uses real start/duration timing and stable semantic lanes', () => {
+  it('uses equal-width operation slots and stable semantic lanes', () => {
     expect(deriveTrajectoryTimeline(turns)).toEqual({
-      start: 1_000,
-      end: 3_000,
+      start: 0,
+      end: 3,
       spans: [
         {
-          index: 1, kind: 'message', label: 'assistant', lane: 1, start: 1_000, end: 2_000,
+          index: 1, kind: 'message', label: 'assistant', lane: 1, start: 0, end: 1,
         },
-        { index: 2, kind: 'tool', label: 'bash', lane: 2, start: 2_000, end: 3_000 },
+        { index: 2, kind: 'tool', label: 'bash', lane: 2, start: 1, end: 2 },
+        { index: 3, kind: 'user', label: 'unknown', lane: 0, start: 2, end: 3 },
       ],
+      turnBoundaries: [{ turn: 1, time: 0 }],
     })
-    expect(formatTimelineOffset(999)).toBe('999 ms')
-    expect(formatTimelineOffset(1_500)).toBe('1.5 s')
   })
 
-  it('filters inclusively and drops records without known timing', () => {
-    const focused = filterTrajectoryTimelineRange(turns, { start: 2_000, end: 2_000 })
-    expect(focused[0]?.groups[0]?.cells.map(cell => cell.index)).toEqual([1, 2])
-    expect(filterTrajectoryTimelineRange(turns, null)).toBe(turns)
+  it('ignores durations and idle gaps while retaining turn boundaries', () => {
+    const separatedTurns = [
+      {
+        turn: 1,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 1, kind: 'message', text: 'first', startedAt: 1_000, timeSeconds: 1 },
+            { index: 2, kind: 'tool', text: 'within-turn gap', startedAt: 4_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+      {
+        turn: 2,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 3, kind: 'message', text: 'after user idle', startedAt: 40_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+    ] satisfies readonly TrajectoryTurnModel[]
+
+    expect(deriveTrajectoryTimeline(separatedTurns)).toMatchObject({
+      start: 0,
+      end: 3,
+      spans: [
+        { index: 1, start: 0, end: 1 },
+        { index: 2, start: 1, end: 2 },
+        { index: 3, start: 2, end: 3 },
+      ],
+      turnBoundaries: [
+        { turn: 1, time: 0 },
+        { turn: 2, time: 2 },
+      ],
+    })
   })
 
   it('empty inputs produce no model and the standalone view reports its empty form', () => {

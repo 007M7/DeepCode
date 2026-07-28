@@ -76,7 +76,13 @@
 .table tbody tr:not([data-collapsed-summary]) {
   cursor: default;
   outline: none;
-  transition: background-color 120ms var(--ds-ease-in-out);
+  transition:
+    background-color 120ms var(--ds-ease-in-out),
+    opacity 120ms var(--ds-ease-in-out);
+}
+
+.table tbody tr[data-timeline-focus='outside'] {
+  opacity: 0.24;
 }
 
 .table tbody tr:not([data-collapsed-summary]):not([data-selected='true']):hover {

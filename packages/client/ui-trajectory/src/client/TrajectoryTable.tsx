@@ -1,6 +1,6 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
@@ -217,6 +217,10 @@ export interface TrajectoryTableProps {
   requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
+  /** Record indexes emphasized by the active timeline focus. */
+  timelineFocusIndexes?: ReadonlySet<number> | null
+  /** Report the record currently selected in the local inspector. */
+  onSelectedIndexChange?: (index: number | null) => void
   /** Turn ids whose rows after the first are folded into a summary. */
   collapsedTurns: ReadonlySet<number>
   /** Toggle one turn between folded and expanded. */
@@ -1357,6 +1361,8 @@ function OverviewSection({
 export function TrajectoryTable({
   requestNumbers: sessionRequestNumbers,
   turns,
+  timelineFocusIndexes = null,
+  onSelectedIndexChange,
   collapsedTurns,
   onToggleTurn,
   collapsedAssistants,
@@ -1370,6 +1376,9 @@ export function TrajectoryTable({
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
+  useEffect(() => {
+    onSelectedIndexChange?.(selectedIndex)
+  }, [onSelectedIndexChange, selectedIndex])
   const allRecords = flattenRecords(turns)
   const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
   const turnRecords = collapseTurnRecords(allRecords, collapsedTurns)
@@ -1570,6 +1579,9 @@ export function TrajectoryTable({
                   data-turn-end={record.turnEnd || undefined}
                   data-collapsed-summary={record.collapsedSummaryKind}
                   data-selected={!isCollapsedSummary && selectedIndex === record.cell.index || undefined}
+                  data-timeline-focus={isCollapsedSummary || timelineFocusIndexes === null
+                    ? undefined
+                    : timelineFocusIndexes.has(record.cell.index) ? 'inside' : 'outside'}
                   onClick={isRequestOnly
                     ? undefined
                     : isCollapsedSummary

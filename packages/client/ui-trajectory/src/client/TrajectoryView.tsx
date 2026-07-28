@@ -17,7 +17,9 @@ import { TrajectoryToolbar } from './TrajectoryToolbar.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import { deriveTrajectoryLayout } from './layout.ts'
 import {
-  filterTrajectoryTimelineRange, type TrajectoryTimeRange,
+  trajectoryTimelineFocusIndexes,
+  type TrajectoryTimelineMode,
+  type TrajectoryTimeRange,
 } from './timeline.ts'
 import css from './views.module.css'
 
@@ -81,6 +83,9 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
     branchId: number
     range: TrajectoryTimeRange
   } | null>(null)
+  const [timelineMode, setTimelineMode] = useState<TrajectoryTimelineMode>('sequence')
+  const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
+  const ledgerRef = useRef<HTMLDivElement>(null)
   const nodes = useSession(s => s.nodes)
   const inspection = useSession(s => s.inspection)
   const hasMore = useSession(s => s.hasMore)
@@ -260,12 +265,33 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   const timelineRange = timelineSelection?.branchId === currentBranch.id
     ? timelineSelection.range
     : null
-  const focusedTurns = useMemo(
-    () => filterTrajectoryTimelineRange(turns, timelineRange),
-    [timelineRange, turns],
+  const timelineFocusIndexes = useMemo(
+    () => timelineRange === null
+      ? null
+      : trajectoryTimelineFocusIndexes(turns, timelineRange, timelineMode),
+    [timelineMode, timelineRange, turns],
   )
+  useEffect(() => {
+    if (timelineFocusIndexes === null || timelineFocusIndexes.size === 0) return
+    const ledger = ledgerRef.current
+    if (ledger === null) return
+    const focusedRows = [
+      ...ledger.querySelectorAll<HTMLElement>('tr[data-timeline-focus="inside"]'),
+    ]
+    const first = focusedRows.at(0)
+    const last = focusedRows.at(-1)
+    if (first === undefined || last === undefined) return
+    const focusHeight =
+      last.getBoundingClientRect().bottom - first.getBoundingClientRect().top
+    if (focusHeight > ledger.clientHeight) {
+      first.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+    focusedRows[Math.floor((focusedRows.length - 1) / 2)]
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [timelineFocusIndexes])
   const collapsibleTurnIds = useMemo(
-    () => focusedTurns
+    () => turns
       .filter(turn =>
         turn.groups.reduce(
           (count, group) =>
@@ -274,13 +300,13 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
           0,
         ) > 1)
       .map(turn => turn.turn),
-    [focusedTurns],
+    [turns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every(turn => collapsedTurns.has(turn))
   const collapsibleAssistantIds = useMemo(() => {
     const ids: number[] = []
-    for (const turn of focusedTurns) {
+    for (const turn of turns) {
       const cells = turn.groups.flatMap(group => group.cells)
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i]
@@ -290,7 +316,7 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
       }
     }
     return ids
-  }, [focusedTurns])
+  }, [turns])
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
 
@@ -339,6 +365,11 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   return (
     <div className={css.root}>
       <TrajectoryToolbar
+        actualTime={timelineMode === 'actual'}
+        onActualTimeChange={(actualTime) => {
+          setTimelineMode(actualTime ? 'actual' : 'sequence')
+          setTimelineSelection(null)
+        }}
         collapsibleTurns={collapsibleTurnIds.length}
         allTurnsCollapsed={allTurnsCollapsed}
         onToggleAllTurns={toggleAllTurns}
@@ -348,16 +379,25 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
       />
       <TrajectoryTimeline
         turns={turns}
+        mode={timelineMode}
         range={timelineRange}
+        selectedIndex={selectedTimelineIndex}
         onRangeChange={(range) => {
           setTimelineSelection(range === null ? null : { branchId: currentBranch.id, range })
         }}
+        onRecordFocus={(index) => {
+          ledgerRef.current
+            ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }}
       />
-      <div className={css.ledger}>
+      <div ref={ledgerRef} className={css.ledger}>
         <TrajectoryTable
-          key={`${currentBranch.id}:${timelineRange?.start ?? 'all'}:${timelineRange?.end ?? 'all'}`}
+          key={currentBranch.id}
           requestNumbers={requestNumbers}
-          turns={focusedTurns}
+          turns={turns}
+          timelineFocusIndexes={timelineFocusIndexes}
+          onSelectedIndexChange={setSelectedTimelineIndex}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}

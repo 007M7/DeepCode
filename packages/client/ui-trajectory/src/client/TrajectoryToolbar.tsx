@@ -3,6 +3,10 @@
 import css from './TrajectoryToolbar.module.css'
 
 export interface TrajectoryToolbarProps {
+  /** Whether the timeline uses recorded durations instead of equal-width operations. */
+  actualTime: boolean
+  /** Select the timeline's recorded-time or equal-width projection. */
+  onActualTimeChange: (actualTime: boolean) => void
   /** Number of turns containing more than one row. */
   collapsibleTurns: number
   /** Whether every collapsible turn is currently folded. */
@@ -23,6 +27,8 @@ export interface TrajectoryToolbarProps {
  * @returns the toolbar element.
  */
 export function TrajectoryToolbar({
+  actualTime,
+  onActualTimeChange,
   collapsibleTurns,
   allTurnsCollapsed,
   onToggleAllTurns,
@@ -37,6 +43,18 @@ export function TrajectoryToolbar({
           <span className={css.title}>Trajectory</span>
         </div>
         <div className={css.actions}>
+          <button
+            type="button"
+            className={css.modeSwitch}
+            role="switch"
+            aria-checked={actualTime}
+            onClick={() => { onActualTimeChange(!actualTime) }}
+          >
+            <span>Actual time</span>
+            <span className={css.modeTrack} aria-hidden="true">
+              <span className={css.modeThumb} />
+            </span>
+          </button>
           <button
             type="button"
             className={css.action}

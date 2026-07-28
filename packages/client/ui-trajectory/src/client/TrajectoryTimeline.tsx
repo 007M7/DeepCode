@@ -1,19 +1,19 @@
 /** Chrome-Network-style overview timeline for focusing the trajectory ledger. */
 
 import {
-  memo, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent,
+  memo, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent,
+  type PointerEvent, type WheelEvent,
 } from 'react'
 import type { TrajectoryTurnModel } from './layout.ts'
 import {
   deriveTrajectoryTimeline,
-  filterTrajectoryTimelineRange,
-  formatTimelineOffset,
+  type TrajectoryTimelineMode,
   type TrajectoryTimeRange,
 } from './timeline.ts'
 import css from './TrajectoryTimeline.module.css'
 
-const TICK_COUNT = 5
 const MINIMUM_DRAG_PX = 3
+const MINIMUM_ZOOM_OPERATIONS = 4
 
 interface FractionRange {
   start: number
@@ -23,8 +23,11 @@ interface FractionRange {
 /** Props for the fixed full-domain overview above the trajectory ledger. */
 export interface TrajectoryTimelineProps {
   turns: readonly TrajectoryTurnModel[]
+  mode: TrajectoryTimelineMode
   range: TrajectoryTimeRange | null
+  selectedIndex?: number | null
   onRangeChange: (range: TrajectoryTimeRange | null) => void
+  onRecordFocus?: (index: number) => void
 }
 
 function orderedRange(left: number, right: number): FractionRange {
@@ -46,33 +49,77 @@ function rangeFraction(
   )
 }
 
+function LaneLabels() {
+  return (
+    <div className={css.labels} aria-hidden="true">
+      <span>Input</span>
+      <span>Model</span>
+      <span>Tools</span>
+    </div>
+  )
+}
+
 /** Overview renderer with drag-to-filter and Escape/clear reset. */
 export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   turns,
+  mode,
   range,
+  selectedIndex = null,
   onRangeChange,
+  onRecordFocus,
 }: TrajectoryTimelineProps) {
-  const model = useMemo(() => deriveTrajectoryTimeline(turns), [turns])
+  const model = useMemo(() => deriveTrajectoryTimeline(turns, mode), [mode, turns])
   const dragRef = useRef<{ pointerId: number; anchor: number; width: number } | null>(null)
   const [draft, setDraft] = useState<FractionRange | null>(null)
-  const domainDuration = Math.max(1, (model?.end ?? 0) - (model?.start ?? 0))
+  const [viewport, setViewport] = useState<TrajectoryTimeRange | null>(null)
+  useEffect(() => {
+    if (
+      model !== null
+      && range !== null
+      && (range.end < model.start || range.start > model.end)
+    ) {
+      onRangeChange(null)
+    }
+  }, [model, onRangeChange, range])
+  useEffect(() => {
+    if (model === null) return
+    setViewport(current =>
+      current !== null && (current.end < model.start || current.start > model.end)
+        ? null
+        : current)
+  }, [model])
+  const fullDuration = Math.max(1, (model?.end ?? 0) - (model?.start ?? 0))
+  const viewportDuration = Math.min(
+    fullDuration,
+    Math.max(1, (viewport?.end ?? 0) - (viewport?.start ?? 0)),
+  )
+  const viewportStart = model === null || viewport === null
+    ? model?.start ?? 0
+    : Math.min(
+      Math.max(viewport.start, model.start),
+      model.end - viewportDuration,
+    )
+  const domainDuration = viewport === null ? fullDuration : viewportDuration
+  const domainStart = viewport === null ? model?.start ?? 0 : viewportStart
   const committed = model === null || range === null
     ? null
-    : rangeFraction(range, model.start, domainDuration)
+    : rangeFraction(range, domainStart, domainDuration)
   const visibleRange = draft ?? committed
-  const focusedCount = useMemo(
-    () => range === null
-      ? model?.spans.length ?? 0
-      : deriveTrajectoryTimeline(filterTrajectoryTimelineRange(turns, range))?.spans.length ?? 0,
-    [model?.spans.length, range, turns],
-  )
+  const activeRange = draft === null
+    ? range
+    : {
+      start: domainStart + draft.start * domainDuration,
+      end: domainStart + draft.end * domainDuration,
+    }
 
   if (model === null) {
     return (
       <section className={css.root} aria-label="Trajectory timeline">
-        <div className={css.header}>
-          <span className={css.title}>Overview</span>
-          <span className={css.summary}>No timing data</span>
+        <div className={css.plot}>
+          <LaneLabels />
+          <div className={css.track}>
+            <span className={css.empty}>No timing data</span>
+          </div>
         </div>
       </section>
     )
@@ -85,8 +132,8 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
 
   const commit = (fraction: FractionRange) => {
     onRangeChange({
-      start: model.start + fraction.start * domainDuration,
-      end: model.start + fraction.end * domainDuration,
+      start: domainStart + fraction.start * domainDuration,
+      end: domainStart + fraction.end * domainDuration,
     })
   }
 
@@ -115,6 +162,17 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     setDraft(null)
     if ((selected.end - selected.start) * drag.width < MINIMUM_DRAG_PX) {
       onRangeChange(null)
+      const point = domainStart + selected.start * domainDuration
+      const nearest = model.spans.reduce((candidate, span) => {
+        const candidateDistance = point < candidate.start
+          ? candidate.start - point
+          : point > candidate.end ? point - candidate.end : 0
+        const spanDistance = point < span.start
+          ? span.start - point
+          : point > span.end ? point - span.end : 0
+        return spanDistance < candidateDistance ? span : candidate
+      })
+      onRecordFocus?.(nearest.index)
     } else {
       commit(selected)
     }
@@ -131,85 +189,107 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     setDraft(null)
   }
 
-  const ticks = Array.from({ length: TICK_COUNT }, (_, index) => {
-    const fraction = index / (TICK_COUNT - 1)
-    return {
-      fraction,
-      label: formatTimelineOffset(fraction * domainDuration),
+  const onWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const anchorFraction =
+      clampFraction((event.clientX - rect.left) / Math.max(1, rect.width))
+    const nextDuration = Math.min(
+      fullDuration,
+      Math.max(
+        Math.min(mode === 'actual' ? 20 : MINIMUM_ZOOM_OPERATIONS, fullDuration),
+        domainDuration * Math.exp(event.deltaY * 0.0015),
+      ),
+    )
+    if (nextDuration >= fullDuration * 0.999) {
+      setViewport(null)
+      return
     }
-  })
-  const summary = range === null
-    ? `${model.spans.length} timed events`
-    : `${focusedCount} of ${model.spans.length} events · ${formatTimelineOffset(range.start - model.start)}–${formatTimelineOffset(range.end - model.start)}`
+    const anchorTime = domainStart + anchorFraction * domainDuration
+    const nextStart = Math.min(
+      Math.max(anchorTime - anchorFraction * nextDuration, model.start),
+      model.end - nextDuration,
+    )
+    setViewport({ start: nextStart, end: nextStart + nextDuration })
+  }
 
   return (
     <section className={css.root} aria-label="Trajectory timeline">
-      <div className={css.header}>
-        <span className={css.title}>Overview</span>
-        <span className={css.summary} aria-live="polite">{summary}</span>
-        {range !== null && (
-          <button
-            className={css.clear}
-            type="button"
-            onClick={() => {
-              onRangeChange(null)
-            }}
-          >
-            Clear selection
-          </button>
-        )}
-      </div>
-      <div
-        className={css.plot}
-        aria-label="Timeline overview; drag horizontally to filter events"
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerEnd}
-        onPointerCancel={onPointerCancel}
-      >
-        <div className={css.ticks} aria-hidden="true">
-          {ticks.map(tick => (
-            <span
-              className={css.tick}
-              key={tick.fraction}
-              style={{ '--trajectory-tick-left': `${tick.fraction * 100}%` } as CSSProperties}
-            >
-              {tick.label}
-            </span>
-          ))}
+      <div className={css.plot}>
+        <LaneLabels />
+        <div
+          className={css.track}
+          aria-label="Timeline overview; drag horizontally to focus events"
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerCancel}
+          onWheel={onWheel}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onRangeChange(null)
+            setViewport(null)
+          }}
+        >
+          {visibleRange !== null && (
+            <div
+              className={css.selection}
+              data-dragging={draft === null ? undefined : 'true'}
+              aria-hidden="true"
+              style={{
+                '--trajectory-selection-left': `${visibleRange.start * 100}%`,
+                '--trajectory-selection-width': `${(visibleRange.end - visibleRange.start) * 100}%`,
+              } as CSSProperties}
+            />
+          )}
+          <div className={css.turnBoundaries} aria-hidden="true">
+            {model.turnBoundaries
+              .slice(1)
+              .filter(boundary =>
+                boundary.time >= domainStart
+                && boundary.time <= domainStart + domainDuration)
+              .map(boundary => (
+                <span
+                  className={css.turnBoundary}
+                  data-turn={boundary.turn}
+                  key={boundary.turn}
+                  style={{
+                    '--trajectory-turn-left':
+                      `${(boundary.time - domainStart) / domainDuration * 100}%`,
+                  } as CSSProperties}
+                />
+              ))}
+          </div>
+          <div className={css.lanes} aria-hidden="true">
+            {model.spans
+              .filter(span => span.end >= domainStart && span.start <= domainStart + domainDuration)
+              .map((span) => {
+                const left = (span.start - domainStart) / domainDuration
+                const width = (span.end - span.start) / domainDuration
+                return (
+                  <span
+                    className={css.span}
+                    data-timeline-span={span.kind}
+                    data-current={span.index === selectedIndex || undefined}
+                    data-selected={activeRange === null
+                      ? undefined
+                      : span.start <= activeRange.end && span.end >= activeRange.start
+                        ? 'true'
+                        : 'false'}
+                    key={span.index}
+                    title={span.label}
+                    style={{
+                      '--trajectory-span-left': `${left * 100}%`,
+                      '--trajectory-span-width': `${Math.max(width * 100, 0.35)}%`,
+                      '--trajectory-span-lane': span.lane,
+                    } as CSSProperties}
+                  />
+                )
+              })}
+          </div>
         </div>
-        <div className={css.lanes} aria-hidden="true">
-          {model.spans.map((span) => {
-            const left = (span.start - model.start) / domainDuration
-            const width = (span.end - span.start) / domainDuration
-            return (
-              <span
-                className={css.span}
-                data-timeline-span={span.kind}
-                key={span.index}
-                title={`${span.label} · ${formatTimelineOffset(span.end - span.start)}`}
-                style={{
-                  '--trajectory-span-left': `${left * 100}%`,
-                  '--trajectory-span-width': `${Math.max(width * 100, 0.35)}%`,
-                  '--trajectory-span-lane': span.lane,
-                } as CSSProperties}
-              />
-            )
-          })}
-        </div>
-        {visibleRange !== null && (
-          <div
-            className={css.selection}
-            data-dragging={draft === null ? undefined : 'true'}
-            aria-hidden="true"
-            style={{
-              '--trajectory-selection-left': `${visibleRange.start * 100}%`,
-              '--trajectory-selection-width': `${(visibleRange.end - visibleRange.start) * 100}%`,
-            } as CSSProperties}
-          />
-        )}
       </div>
     </section>
   )

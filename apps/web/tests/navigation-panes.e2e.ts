@@ -159,7 +159,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-timeline'))
-    const plot = page.getByLabel('Timeline overview; drag horizontally to filter events')
+    const plot = page.getByLabel('Timeline overview; drag horizontally to focus events')
     const before = await page.locator('tr[data-kind]').count()
     const box = await plot.boundingBox()
     if (box === null) throw new Error('trajectory timeline plot has no layout box')
@@ -167,11 +167,11 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.mouse.down()
     await page.mouse.move(box.x + box.width * 0.9, box.y + box.height / 2)
     await page.mouse.up()
-    await page.getByRole('button', { name: 'Clear selection' }).waitFor()
-    await expect.poll(() => page.locator('tr[data-kind]').count(), { timeout: 10_000 })
-      .toBeLessThan(before)
-    await page.getByRole('button', { name: 'Clear selection' }).click()
+    await expect.poll(() => page.locator('tr[data-timeline-focus="outside"]').count(), { timeout: 10_000 })
+      .toBeGreaterThan(0)
     await expect.poll(() => page.locator('tr[data-kind]').count(), { timeout: 10_000 }).toBe(before)
+    await plot.click({ button: 'right' })
+    await expect.poll(() => page.locator('tr[data-timeline-focus]').count(), { timeout: 10_000 }).toBe(0)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('opens the details column from the bash row and closes it', async () => {

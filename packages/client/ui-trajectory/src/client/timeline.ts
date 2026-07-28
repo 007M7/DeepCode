@@ -1,15 +1,18 @@
-/** Time-domain projection and filtering for the trajectory overview. */
+/** Operation-sequence and recorded-time projections for the trajectory overview. */
 
-import type { TrajectoryCellKind, TrajectoryCellProps } from './trajectory-record.ts'
 import type { TrajectoryTurnModel } from './layout.ts'
+import type { TrajectoryCellKind, TrajectoryCellProps } from './trajectory-record.ts'
 
-/** Inclusive absolute-time selection in Unix epoch milliseconds. */
+/** Horizontal projection used by the trajectory timeline. */
+export type TrajectoryTimelineMode = 'sequence' | 'actual'
+
+/** Inclusive selection in the active timeline projection's domain. */
 export interface TrajectoryTimeRange {
   start: number
   end: number
 }
 
-/** One timed ledger record projected into the overview. */
+/** One ledger record projected into the active timeline domain. */
 export interface TrajectoryTimelineSpan extends TrajectoryTimeRange {
   index: number
   kind: TrajectoryCellKind
@@ -17,9 +20,22 @@ export interface TrajectoryTimelineSpan extends TrajectoryTimeRange {
   lane: number
 }
 
+/** One turn boundary in the active timeline domain. */
+export interface TrajectoryTimelineTurnBoundary {
+  turn: number
+  time: number
+}
+
 /** Full-domain model used by the overview. */
 export interface TrajectoryTimelineModel extends TrajectoryTimeRange {
   spans: readonly TrajectoryTimelineSpan[]
+  turnBoundaries: readonly TrajectoryTimelineTurnBoundary[]
+}
+
+function laneFor(kind: TrajectoryCellKind): number {
+  if (kind === 'tool' || kind === 'subtool') return 2
+  if (kind === 'message' || kind === 'compacted') return 1
+  return 0
 }
 
 function finite(value: number | null | undefined): value is number {
@@ -34,22 +50,58 @@ function cellRange(cell: TrajectoryCellProps): TrajectoryTimeRange | null {
   return { start: cell.startedAt, end: cell.startedAt + durationMs }
 }
 
-function laneFor(kind: TrajectoryCellKind): number {
-  if (kind === 'tool' || kind === 'subtool') return 2
-  if (kind === 'message' || kind === 'compacted') return 1
-  return 0
-}
-
 /**
- * Project every visible timed record into a stable three-lane overview.
+ * Project every visible record into a stable three-lane timeline.
  * @param turns - Unfiltered trajectory layout.
- * @returns Timeline model, or `null` when no record carries a start time.
+ * @param mode - Equal-width operation sequence or recorded wall-clock timing.
+ * @returns Timeline model, or `null` when no record is visible.
  */
 export function deriveTrajectoryTimeline(
   turns: readonly TrajectoryTurnModel[],
+  mode: TrajectoryTimelineMode = 'sequence',
 ): TrajectoryTimelineModel | null {
-  const spans = turns.flatMap(turn =>
-    turn.groups.flatMap(group =>
+  if (mode === 'actual') return deriveActualTimeline(turns)
+  const spans: TrajectoryTimelineSpan[] = []
+  const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
+
+  for (const turn of turns) {
+    const cells = turn.groups.flatMap(group =>
+      group.cells.filter(cell => cell.requestOnly !== true),
+    )
+    if (cells.length === 0) continue
+    turnBoundaries.push({
+      turn: turn.turn,
+      time: spans.length,
+    })
+    spans.push(...cells.map((cell, offset): TrajectoryTimelineSpan => ({
+      start: spans.length + offset,
+      end: spans.length + offset + 1,
+      index: cell.index,
+      kind: cell.kind,
+      label: cell.text,
+      lane: laneFor(cell.kind),
+    })))
+  }
+
+  if (spans.length === 0) return null
+  return {
+    start: 0,
+    end: spans.length,
+    spans,
+    turnBoundaries,
+  }
+}
+
+function deriveActualTimeline(
+  turns: readonly TrajectoryTurnModel[],
+): TrajectoryTimelineModel | null {
+  const spans: TrajectoryTimelineSpan[] = []
+  const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
+  let removedUserIdle = 0
+  let previousTurnEnd: number | null = null
+
+  for (const turn of turns) {
+    const rawSpans = turn.groups.flatMap(group =>
       group.cells.flatMap((cell): TrajectoryTimelineSpan[] => {
         if (cell.requestOnly === true) return []
         const range = cellRange(cell)
@@ -63,48 +115,53 @@ export function deriveTrajectoryTimeline(
             lane: laneFor(cell.kind),
           }]
       }),
-    ),
-  )
+    )
+    if (rawSpans.length === 0) continue
+
+    const turnStart = Math.min(...rawSpans.map(span => span.start))
+    const turnEnd = Math.max(...rawSpans.map(span => span.end))
+    if (previousTurnEnd !== null) {
+      removedUserIdle += Math.max(0, turnStart - previousTurnEnd)
+    }
+    spans.push(...rawSpans.map(span => ({
+      ...span,
+      start: span.start - removedUserIdle,
+      end: span.end - removedUserIdle,
+    })))
+    turnBoundaries.push({
+      turn: turn.turn,
+      time: turnStart - removedUserIdle,
+    })
+    previousTurnEnd = previousTurnEnd === null
+      ? turnEnd
+      : Math.max(previousTurnEnd, turnEnd)
+  }
+
   if (spans.length === 0) return null
   return {
     start: Math.min(...spans.map(span => span.start)),
     end: Math.max(...spans.map(span => span.end)),
     spans,
+    turnBoundaries,
   }
 }
 
-function overlaps(cell: TrajectoryCellProps, range: TrajectoryTimeRange): boolean {
-  const timed = cellRange(cell)
-  return timed !== null && timed.start <= range.end && timed.end >= range.start
-}
-
 /**
- * Keep records active at any point inside an inclusive selected interval.
+ * Identify records active at any point inside an inclusive selected interval.
  * @param turns - Unfiltered trajectory layout.
- * @param range - Absolute selected interval, or `null` for the full ledger.
- * @returns A layout retaining original turn, group, and record identities.
+ * @param range - Selected interval in the active projection.
+ * @param mode - Equal-width operation sequence or recorded wall-clock timing.
+ * @returns Record indexes inside the focus interval.
  */
-export function filterTrajectoryTimelineRange(
+export function trajectoryTimelineFocusIndexes(
   turns: readonly TrajectoryTurnModel[],
-  range: TrajectoryTimeRange | null,
-): readonly TrajectoryTurnModel[] {
-  if (range === null) return turns
-  return turns.flatMap((turn): TrajectoryTurnModel[] => {
-    const groups = turn.groups.flatMap((group) => {
-      const cells = group.cells.filter(cell => overlaps(cell, range))
-      return cells.length === 0 ? [] : [{ ...group, cells }]
-    })
-    return groups.length === 0 ? [] : [{ ...turn, groups }]
-  })
-}
-
-/**
- * Format a relative timeline offset with a compact unit.
- * @param milliseconds - Non-negative relative offset.
- * @returns Millisecond or second label.
- */
-export function formatTimelineOffset(milliseconds: number): string {
-  if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`
-  const seconds = milliseconds / 1_000
-  return seconds >= 10 ? `${Math.round(seconds)} s` : `${seconds.toFixed(1)} s`
+  range: TrajectoryTimeRange,
+  mode: TrajectoryTimelineMode = 'sequence',
+): ReadonlySet<number> {
+  const model = deriveTrajectoryTimeline(turns, mode)
+  return new Set(
+    model?.spans
+      .filter(span => span.start <= range.end && span.end >= range.start)
+      .map(span => span.index),
+  )
 }
