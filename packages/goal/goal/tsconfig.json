@@ -33,6 +33,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]
