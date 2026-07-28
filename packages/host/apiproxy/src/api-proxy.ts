@@ -447,8 +447,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     metricsRouteFor,
     (agent) => {
       if (metricsDisposed) return
-      if (ctx.agents.get(agent.id) !== agent) return
-      if (ctx.sessions.get(agent.id) !== agent.session) return
+      const agents = ctx.get('agents')
+      if (agents?.get(agent.id) !== agent) return
+      const sessions = ctx.get('sessions')
+      if (sessions?.get(agent.id) !== agent.session) return
       scheduleMetrics(agent.session)
     },
   )
@@ -489,9 +491,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (fiber.state !== FiberState.ACTIVE
           && fiber.state !== FiberState.FAILED
           && fiber.state !== FiberState.DISPOSED) return
+        metricsProjector.invalidateCapacities()
         const sessions = ctx.get('sessions')
         if (sessions === undefined) return
-        metricsProjector.invalidateCapacities()
         for (const session of sessions.list()) scheduleMetrics(session)
       }, { global: true }),
     ]

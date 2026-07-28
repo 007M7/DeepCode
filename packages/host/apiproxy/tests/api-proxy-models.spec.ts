@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context, FiberState } from 'cordis'
 import type { Fiber } from 'cordis'
 import AgentRegistry, { agentEvents, installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentLlmTargetRef } from '@deepseek-ai/dsh-agent'
@@ -100,14 +100,18 @@ const REASONING: LlmModelReasoningInfo = {
   defaultEffort: ReasoningEffortId('high'),
 }
 
-async function hostContext(onSessions?: (fiber: Fiber) => void): Promise<Context> {
+async function hostContext(
+  onSessions?: (fiber: Fiber) => void,
+  onAgents?: (fiber: Fiber) => void,
+): Promise<Context> {
   const ctx = new Context()
   const sessionsFiber = await ctx.plugin(SessionStore)
   onSessions?.(sessionsFiber)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(LlmService)
   await ctx.plugin(UserInteractionService)
-  await ctx.plugin(AgentRegistry)
+  const agentsFiber = await ctx.plugin(AgentRegistry)
+  onAgents?.(agentsFiber)
   ctx.llm.registerAdapter(['deepseek'], new CatalogAdapter('DeepSeek', [
     { provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek Chat' },
     { provider: 'deepseek', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
@@ -574,4 +578,108 @@ describe('Web session model selection', () => {
     expect(list).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
   })
+
+  it('invalidates pending capacity before SessionStore teardown can reach its callback', async () => {
+    let sessionsFiber: Fiber | undefined
+    const ctx = await hostContext((fiber) => { sessionsFiber = fiber })
+    if (sessionsFiber === undefined) throw new Error('sessions fiber missing')
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-session-store-teardown'))
+    const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    const agents = ctx.get('agents')
+    if (agents === undefined) throw new Error('agent registry missing')
+    expect(agents.get(lifecycle.session.id)).toBeDefined()
+    const getAgent = vi.spyOn(agents, 'get')
+
+    await sessionsFiber.dispose()
+    getAgent.mockClear()
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    expect(getAgent).not.toHaveBeenCalled()
+
+    const pendingFrame = iterator.next()
+    const outcome = await Promise.race([
+      pendingFrame.then(() => 'frame' as const),
+      new Promise<'idle'>((resolve) => { setImmediate(() => { resolve('idle') }) }),
+    ])
+    expect(outcome).toBe('idle')
+
+    controller.abort()
+    await expect(pendingFrame).resolves.toMatchObject({ done: true })
+    await iterator.return?.()
+    detachAgent()
+    lifecycle.detach()
+    await ctx.fiber.dispose()
+  })
+
+  it.each(['agents', 'sessions'] as const)(
+    'drops capacity completion while %s is unavailable during unload',
+    async (serviceName) => {
+      let sessionsFiber: Fiber | undefined
+      let agentsFiber: Fiber | undefined
+      const ctx = await hostContext(
+        (fiber) => { sessionsFiber = fiber },
+        (fiber) => { agentsFiber = fiber },
+      )
+      const heldFiber = serviceName === 'sessions' ? sessionsFiber : agentsFiber
+      if (heldFiber === undefined) throw new Error(`${serviceName} fiber missing`)
+      const unloadStarted = Promise.withResolvers<undefined>()
+      const releaseUnload = Promise.withResolvers<undefined>()
+      heldFiber.ctx.effect(() => () => {
+        unloadStarted.resolve(undefined)
+        return releaseUnload.promise
+      }, `test: hold ${serviceName} unload`)
+      const deferred = new DeferredCatalogAdapter()
+      ctx.llm.registerAdapter(['deferred'], deferred)
+      const lifecycle = attachLifecycleSession(ctx, SessionId(`capacity-${serviceName}-unloading`))
+      const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+      const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+      const controller = new AbortController()
+      const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+      expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+      await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+      const agents = ctx.get('agents')
+      if (agents === undefined) throw new Error('agent registry missing')
+      const sessions = ctx.get('sessions')
+      if (sessions === undefined) throw new Error('sessions service missing')
+      const getAgent = vi.spyOn(agents, 'get')
+      const getSession = vi.spyOn(sessions, 'get')
+      const disposing = heldFiber.dispose()
+      await unloadStarted.promise
+      await vi.waitFor(() => { expect(ctx.get(serviceName)).toBeUndefined() })
+      expect(heldFiber.state).toBe(FiberState.UNLOADING)
+
+      getAgent.mockClear()
+      getSession.mockClear()
+      deferred.resolve(0, 64_000)
+      await settleCapacityCompletion()
+      const agentReads = getAgent.mock.calls.length
+      const sessionReads = getSession.mock.calls.length
+      const pendingFrame = iterator.next()
+      const outcome = await Promise.race([
+        pendingFrame.then(() => 'frame' as const),
+        new Promise<'idle'>((resolve) => { setImmediate(() => { resolve('idle') }) }),
+      ])
+
+      controller.abort()
+      await expect(pendingFrame).resolves.toMatchObject({ done: true })
+      await iterator.return?.()
+      releaseUnload.resolve(undefined)
+      await disposing
+      detachAgent()
+      lifecycle.detach()
+      await ctx.fiber.dispose()
+      expect(agentReads).toBe(serviceName === 'sessions' ? 1 : 0)
+      expect(sessionReads).toBe(0)
+      expect(outcome).toBe('idle')
+    },
+  )
 })
