@@ -22,6 +22,9 @@ class TestPersistence extends SessionPersistence {
   inspect(_id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return Promise.reject(new Error('not used'))
   }
+  readFrom(_id: SessionId, _fromSeq: number): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return Promise.reject(new Error('not used'))
+  }
   list(): Promise<SessionHeader[]> { return Promise.resolve([]) }
   listSnapshots(): Promise<never[]> { return Promise.resolve([]) }
 }

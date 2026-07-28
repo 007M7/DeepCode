@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -32,12 +32,11 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     get status() { return status },
     get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
-      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },
@@ -51,10 +50,10 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     .filter(event => event.type === 'turn/start')
     .reduce((max, event) => Math.max(max, event.data.turn), 0) + 1
   stub.session.append('turn/start', { turn, trigger: { kind: 'message', source } })
-  stub.session.append('user/message', {
+  stub.session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source,
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   return turn
 }
 
@@ -304,8 +303,10 @@ describe('goal tool execution authority', () => {
     })
     root.session.append('steering/message', {
       turn: round,
-      content: [{ type: 'text', text: 'pause now' }],
-      source: { kind: 'user' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'pause now' }],
+        source: { kind: 'user' },
+      }),
     }, { surfaceOp: 'append' })
     const paused = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'pause',

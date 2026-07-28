@@ -8,7 +8,8 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
+import { assertNever, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
   isModelInvocable,
   isSkillName,
@@ -132,7 +133,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       .filter(isModelInvocable)
     if (skills.length > 0) {
       const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
-      agent.inject({ content: catalog.content, source: { kind: 'plugin', plugin: 'dsh-tool-skill' } })
+      agent.inject(catalog)
     }
     catalogLoaded.add(agent.session)
   })
@@ -184,10 +185,9 @@ function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceB
   }
 }
 
-function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): Message {
+function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
   const entries = skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
-  return {
-    role: 'user',
+  return createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -202,7 +202,8 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
         '</system-reminder>',
       ].join('\n'),
     }],
-  }
+    source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+  })
 }
 
 function catalogDescription(value: string, maxLength: number): string {

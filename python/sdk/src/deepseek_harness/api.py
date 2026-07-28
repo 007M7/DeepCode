@@ -20,6 +20,7 @@ class DeepSeekHarnessConfig:
 
     provider: str = "deepseek"
     model: str = "deepseek-v4-flash"
+    max_tokens: int | None = None
     cwd: str | None = None
     runtime_cwd: str | None = None
     session_root: str | None = None
@@ -100,6 +101,7 @@ class DeepSeekHarness:
             cwd=self._cwd,
             provider=self.config.provider,
             model=self.config.model,
+            max_tokens=self.config.max_tokens,
         )
         self._initialized = True
 

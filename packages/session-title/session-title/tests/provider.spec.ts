@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { deepFreeze, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, deepFreeze, markAgentLoopRequest  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
   SessionTitleProviderId,
@@ -34,10 +34,10 @@ async function settle(): Promise<void> {
 }
 
 function appendHumanPrompt(session: ReturnType<Context['sessions']['create']>, text: string) {
-  return session.append('user/message', {
+  return session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 function appendRoute(session: ReturnType<Context['sessions']['create']>, reason: 'initial' | 'change' = 'initial'): void {

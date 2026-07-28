@@ -45,13 +45,13 @@ function projectSessionConversation(snapshot: SessionSurfaceSnapshot): Projected
         break
       }
       case 'steering/message': {
-        if (event.data.source.kind !== 'user') break
-        const text = textContent(event.data.content)
+        if (event.data.message.source.kind !== 'user') break
+        const text = textContent(event.data.message.content)
         if (text !== '') conversation.push({ role: 'user', text, checkpoint: false, originalText: text, omittedBytes: 0 })
         break
       }
       case 'assistant/message': {
-        const text = textContent(event.data.content)
+        const text = textContent(event.data.message.content)
         if (text !== '') conversation.push({ role: 'assistant', text, checkpoint: false, originalText: text, omittedBytes: 0 })
         break
       }

@@ -3,7 +3,6 @@ import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
-  AgentMessageId,
   agentEvents,
 } from '@deepseek-ai/dsh-agent'
 
@@ -24,10 +23,10 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject: () => AgentMessageId('stub'),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

@@ -208,6 +208,13 @@
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 12px;
+  /* Row trailing content (the relative time, and the hover action buttons
+     that replace it) sits flush against the row's 8px right padding, so an
+     overlaid scrollbar covers it. Reserving the gutter keeps the bar beside
+     the rows instead of on top of them; `stable` holds the reservation when
+     the list is short enough not to scroll, so expanding a group does not
+     shift every row left. */
+  scrollbar-gutter: stable;
 }
 
 /* One workspace section: header row + expanded session run. Rows inside
