@@ -607,6 +607,20 @@ describe('/plan', () => {
     expect(ctx.planMode.get(active)).toEqual({ active: false })
   })
 
+  it('idle sessions get the immediate-commit copy on both /plan and /plan off', async () => {
+    const ctx = await setup()
+    await ctx.plugin(CommandService)
+    await new Promise(resolve => setImmediate(resolve))
+    const signal = new AbortController().signal
+    const agent = await agentWithSession(ctx, 'idle-plan-command', { status: 'idle' })
+    expect((await ctx.commands.execute(agent, '/plan', signal))?.result)
+      .toEqual({ kind: 'success', text: 'Plan mode on. Use /plan off to leave.' })
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect((await ctx.commands.execute(agent, '/plan off', signal))?.result)
+      .toEqual({ kind: 'success', text: 'Plan mode off.' })
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+  })
+
   it('removes the contributed command when the plan-mode plugin is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

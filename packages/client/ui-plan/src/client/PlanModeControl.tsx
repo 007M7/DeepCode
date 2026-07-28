@@ -37,7 +37,7 @@ export function PlanChip({ useProjection, locked, exitPlanMode }: PlanChipProps)
   if (!target) return null
 
   const off = (): void => {
-    if (leaving || locked) return
+    // No leaving/locked guard: both disable the button, so no click arrives.
     setLeaving(true)
     setError(null)
     void exitPlanMode().then((failure) => {
