@@ -3,7 +3,7 @@
 
 # Plugin Config Catalog
 
-Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin's full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.
+Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin's full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [subsystems/](subsystems/core.md) documents the types these declarations reference.
 
 This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key, nested keys included, must be locatable on the declared config type — so the paste cannot hide a loader-accepted field.
 
@@ -106,7 +106,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
+Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
 
@@ -1044,7 +1044,7 @@ export interface PresetSpec {
 }
 ```
 
-Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md)
 
 Source: [`packages/interaction/permission/src/index.ts:140`](../packages/interaction/permission/src/index.ts)
 
@@ -1234,7 +1234,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`SandboxMode`](subsystems/sandbox.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:67`](../packages/sandbox/sandbox-policy/src/index.ts)
 
@@ -2193,7 +2193,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](core-data-structures/core.md)
+Depends on: [`AgentOptions`](subsystems/core.md)
 
 Source: [`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
 
@@ -2212,7 +2212,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`SubagentReportDelivery`](core-data-structures/subagent.md)
+Depends on: [`SubagentReportDelivery`](subsystems/subagent.md)
 
 Source: [`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
 

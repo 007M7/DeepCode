@@ -56,7 +56,7 @@
 
 ### Surface 类型
 
-此包拥有有序 surface 投影、替换校验、回放，以及区分追加来源事件与替换事件的类型守卫。[surface 类型目录](../../../docs/core-data-structures/session.md#surface-types)拥有精确形状与字段语义。面向人的 transcript（文本记录）必须投影追加来源事件，而不是 `session.surface`，因为已落地的替换会遮蔽读者已经看到的历史；面向模型的消费方继续读取 `session.surface`。
+此包拥有有序 surface 投影、替换校验、回放，以及区分追加来源事件与替换事件的类型守卫。[surface 类型目录](../../../docs/subsystems/session.md#surface-types)拥有精确形状与字段语义。面向人的 transcript（文本记录）必须投影追加来源事件，而不是 `session.surface`，因为已落地的替换会遮蔽读者已经看到的历史；面向模型的消费方继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 

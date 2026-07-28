@@ -123,7 +123,7 @@ Adapter selection, dispatch, and iteration failures become terminal error or abo
 
 Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. Waking input that lands after the abort fires but before convergence runs at the driver's convergence boundary, while a `disposed` cancel leaves it parked ([cancel-convergence wake latch](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)). Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. A turn opens before the initial claim and pre-step, so rejection, empty input, cancellation, or failure closes a durable turn without any step events. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. A turn opens before the initial claim and pre-step, so rejection, empty input, cancellation, or failure closes a durable turn without any step events. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](subsystems/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
@@ -147,9 +147,9 @@ Between turns, owners append log-only events through `Session`, flushing only fo
 
 ### Model Content
 
-Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](core-data-structures/token-meter.md).
+Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](subsystems/token-meter.md).
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](core-data-structures/llm-streaming.md)).
+Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](subsystems/llm-streaming.md)).
 
 ## Extension And Composition
 
@@ -157,7 +157,7 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 Capabilities separate **interface / implementation / consumer** layers. Filesystem and subprocess providers define one execution world; Bash, PTY, and LSP run there without provider forks. See the [capability graph](capability-seams.md).
 
-Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](subsystems/subagent.md)).
 
 `dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. When compaction removes that baseline from the visible surface, the next entering pre-step composes the current baseline and carries it in the same request. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
 

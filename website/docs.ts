@@ -279,13 +279,13 @@ const coreDataReference = pairedPages(([
   ['settings.md', '用户设置', 'User settings', 21],
   ['credentials.md', '用户凭据', 'User credentials', 22],
 ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
-  source: `docs/core-data-structures/${file}`,
-  route: `reference/core-data-structures/${file}`,
+  source: `docs/subsystems/${file}`,
+  route: `reference/subsystems/${file}`,
   label: { root: rootLabel, en: enLabel },
   sidebar: { root: 'zh-reference', en: 'en-reference' },
   section: { root: '数据结构', en: 'Data structures' },
   order,
-  ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
+  ...(file === 'core.md' ? { sourceAliases: ['docs/subsystems'] } : {}),
 })))
 
 const reference = mirroredPages([
@@ -339,8 +339,8 @@ const reference = mirroredPages([
     ['pty.md', 'PTY 会话', 'PTY sessions', 8],
     ['commands.md', '命令', 'Human commands', 17],
   ] as const).map(([file, rootLabel, enLabel, order]): MirroredPage => ({
-    source: `docs/core-data-structures/${file}`,
-    route: `reference/core-data-structures/${file}`,
+    source: `docs/subsystems/${file}`,
+    route: `reference/subsystems/${file}`,
     contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },

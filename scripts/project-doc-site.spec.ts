@@ -271,7 +271,7 @@ describe('docsPages locale routes', () => {
 
   it('projects translated core-data pages while retaining explicit English fallbacks', () => {
     const rootPages = docsPages.filter(page => (
-      page.locale === 'root' && page.route.startsWith('reference/core-data-structures/')
+      page.locale === 'root' && page.route.startsWith('reference/subsystems/')
     ))
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
@@ -279,9 +279,9 @@ describe('docsPages locale routes', () => {
     expect(translated).toHaveLength(20)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks.map(page => page.source).sort()).toEqual([
-      'docs/core-data-structures/commands.md',
-      'docs/core-data-structures/goal.md',
-      'docs/core-data-structures/pty.md',
+      'docs/subsystems/commands.md',
+      'docs/subsystems/goal.md',
+      'docs/subsystems/pty.md',
     ])
   })
 

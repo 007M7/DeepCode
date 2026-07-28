@@ -701,7 +701,7 @@ function typeLinks(signature: string, linkedTypePages: Readonly<Record<string, s
     if (new RegExp(`\\b${name}\\b`).test(signature)) seen.add(name)
   }
   if (seen.size === 0) return ''
-  const links = [...seen].sort().map(n => `[${n}](../core-data-structures/${linkedTypePages[n]})`)
+  const links = [...seen].sort().map(n => `[${n}](../subsystems/${linkedTypePages[n]})`)
   return `Types: ${links.join(' · ')}`
 }
 
@@ -756,7 +756,7 @@ export function renderEvents(events: EventEntry[], policy: CordisCatalogPolicy):
     ...BANNER,
     '# Cordis Events Catalog',
     '',
-    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around.',
+    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around.',
     '',
     GATE_NOTICE,
     '',
@@ -796,7 +796,7 @@ export function renderServices(services: ServiceEntry[], policy: CordisCatalogPo
     ...BANNER,
     '# Cordis Services Catalog',
     '',
-    'Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
+    'Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
     '',
     GATE_NOTICE,
     '',

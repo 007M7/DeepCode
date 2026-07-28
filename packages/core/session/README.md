@@ -56,7 +56,7 @@ The shared [storage codec](src/chunk-rows.ts) losslessly converts event sequence
 
 ### Surface types
 
-This package owns ordered surface projection, replacement validation, replay, and the type guards that distinguish append-origin from replacement events. The [surface type catalog](../../../docs/core-data-structures/session.md#surface-types) owns the exact shapes and field semantics. A human transcript must project append-origin events rather than `session.surface`, because landed replacements shadow history the reader already saw; model-facing consumers continue to read `session.surface`.
+This package owns ordered surface projection, replacement validation, replay, and the type guards that distinguish append-origin from replacement events. The [surface type catalog](../../../docs/subsystems/session.md#surface-types) owns the exact shapes and field semantics. A human transcript must project append-origin events rather than `session.surface`, because landed replacements shadow history the reader already saw; model-facing consumers continue to read `session.surface`.
 
 ### Request-header reconstruction (`request-header.ts`)
 

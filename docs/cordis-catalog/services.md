@@ -3,7 +3,7 @@
 
 # Cordis Services Catalog
 
-Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
@@ -42,7 +42,7 @@ async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<Agent
 async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
+Types: [Agent](../subsystems/core.md) · [AgentOptions](../subsystems/core.md) · [SessionHeader](../subsystems/persistence.md) · [SessionId](../subsystems/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
 
@@ -214,7 +214,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
+Types: [Agent](../subsystems/core.md) · [SessionId](../subsystems/core.md)
 
 Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
 
@@ -260,7 +260,7 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
+Types: [Agent](../subsystems/core.md) · [ApprovalOutcome](../subsystems/approval.md) · [ApprovalPolicy](../subsystems/approval.md) · [ApprovalRequest](../subsystems/approval.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/interaction/user-approval/src/index.ts:193`](../../packages/interaction/user-approval/src/index.ts)
 
@@ -300,7 +300,7 @@ abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
+Types: [BashExecRequest](../subsystems/bash.md) · [BashExecSpec](../subsystems/bash.md) · [BashProcess](../subsystems/bash.md) · [BashRunResult](../subsystems/bash.md)
 
 Source: [`packages/bash/bash/src/index.ts:53`](../../packages/bash/bash/src/index.ts)
 
@@ -331,7 +331,7 @@ collect(execution: ToolExecution): DshEnvironment
 list(): BashEnvVariableInfo[]
 ```
 
-Types: [DshEnvironment](../core-data-structures/subprocess.md) · [ToolExecution](../core-data-structures/tools.md)
+Types: [DshEnvironment](../subsystems/subprocess.md) · [ToolExecution](../subsystems/tools.md)
 
 Source: [`packages/bash/bash-env/src/index.ts:89`](../../packages/bash/bash-env/src/index.ts)
 
@@ -396,7 +396,7 @@ Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and subs
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 ```
 
-Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
+Types: [CodeRunRequest](../subsystems/code-runtime.md) · [CodeRunResult](../subsystems/code-runtime.md)
 
 Source: [`packages/code-runtime/code-runtime/src/index.ts:104`](../../packages/code-runtime/code-runtime/src/index.ts)
 
@@ -449,7 +449,7 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
+Types: [Agent](../subsystems/core.md) · [CommandDefinition](../subsystems/commands.md) · [CommandDescriptor](../subsystems/commands.md)
 
 Source: [`packages/interaction/commands/src/index.ts:305`](../../packages/interaction/commands/src/index.ts)
 
@@ -514,7 +514,7 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): P
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
+Types: [CompactionResult](../subsystems/compaction.md) · [CompactionTrigger](../subsystems/compaction.md)
 
 Source: [`packages/compact/compact/src/index.ts:93`](../../packages/compact/compact/src/index.ts)
 
@@ -560,7 +560,7 @@ abstract set(ref: CredentialRef, value: string): Promise<void>
 abstract unset(ref: CredentialRef): Promise<void>
 ```
 
-Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
+Types: [CredentialInfo](../subsystems/credentials.md) · [CredentialRef](../subsystems/credentials.md) · [ResolvedCredential](../subsystems/credentials.md)
 
 Source: [`packages/credentials/credentials/src/index.ts:77`](../../packages/credentials/credentials/src/index.ts)
 
@@ -719,7 +719,7 @@ abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent,
 abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>
 ```
 
-Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxExecutionPolicy](../core-data-structures/sandbox.md)
+Types: [FsDirEntry](../subsystems/filesystem.md) · [FsEditOutcome](../subsystems/filesystem.md) · [FsEditRequest](../subsystems/filesystem.md) · [FsInfo](../subsystems/filesystem.md) · [FsPathInfo](../subsystems/filesystem.md) · [FsTarget](../subsystems/filesystem.md) · [FsVersion](../subsystems/filesystem.md) · [FsWriteIntent](../subsystems/filesystem.md) · [FsWriteOutcome](../subsystems/filesystem.md) · [SandboxExecutionPolicy](../subsystems/sandbox.md)
 
 Source: [`packages/fs/fs/src/index.ts:83`](../../packages/fs/fs/src/index.ts)
 
@@ -814,7 +814,7 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
 @Remote('create') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalResult](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+Types: [Agent](../subsystems/core.md) · [CreateGoalRequest](../subsystems/goal.md) · [CreateGoalResult](../subsystems/goal.md) · [EditGoalRequest](../subsystems/goal.md) · [GoalBlockReason](../subsystems/goal.md) · [GoalRef](../subsystems/goal.md) · [GoalView](../subsystems/goal.md)
 
 Source: [`packages/goal/goal/src/index.ts:183`](../../packages/goal/goal/src/index.ts)
 
@@ -1008,7 +1008,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../subsystems/core.md) · [DirectoryRegistrationHandle](../subsystems/core.md) · [GenerateOptions](../subsystems/core.md) · [LlmAdapter](../subsystems/llm-streaming.md) · [LlmCallConfig](../subsystems/core.md) · [LlmConfigurableProvider](../subsystems/core.md) · [LlmDiscoveredModel](../subsystems/core.md) · [LlmModelDiscoveryRequest](../subsystems/core.md) · [LlmModelInfo](../subsystems/core.md) · [LlmProviderInfo](../subsystems/core.md) · [LlmResolvedModelInfo](../subsystems/core.md) · [PreparedLlmCall](../subsystems/llm-streaming.md) · [ResolvedRetryPolicy](../subsystems/llm-streaming.md) · [StreamChunk](../subsystems/llm-streaming.md)
 
 Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
 
@@ -1060,7 +1060,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
+Types: [Session](../subsystems/session.md) · [SessionEvent](../subsystems/core.md)
 
 Source: [`packages/interaction/permission/src/index.ts:159`](../../packages/interaction/permission/src/index.ts)
 
@@ -1096,7 +1096,7 @@ get(agent: Agent): { active: boolean; pending?: boolean }
 set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../subsystems/core.md)
 
 Source: [`packages/plan/plan-mode/src/index.ts:183`](../../packages/plan/plan-mode/src/index.ts)
 
@@ -1178,7 +1178,7 @@ async kill(owner: Agent, id: PtySessionId, reason: string = 'model request'): Pr
 list(owner: Agent): PtySessionSnapshot[]
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
+Types: [Agent](../subsystems/core.md) · [PtyBackend](../subsystems/pty.md) · [PtyReadRequest](../subsystems/pty.md) · [PtyReadResult](../subsystems/pty.md) · [PtySendOperation](../subsystems/pty.md) · [PtySendRequest](../subsystems/pty.md) · [PtySessionId](../subsystems/pty.md) · [PtySessionSnapshot](../subsystems/pty.md) · [PtySignal](../subsystems/pty.md) · [PtySignalResult](../subsystems/pty.md) · [PtySpawnRequest](../subsystems/pty.md) · [PtySpawnResult](../subsystems/pty.md)
 
 Source: [`packages/pty/pty/src/index.ts:105`](../../packages/pty/pty/src/index.ts)
 
@@ -1201,7 +1201,7 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 
-Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
+Types: [ConfinedArgv](../subsystems/sandbox.md) · [SandboxPolicy](../subsystems/sandbox.md)
 
 Source: [`packages/sandbox/sandbox/src/index.ts:148`](../../packages/sandbox/sandbox/src/index.ts)
 
@@ -1229,7 +1229,7 @@ resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 overrideOf(session: Session): SandboxMode | undefined
 ```
 
-Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
+Types: [SandboxExecutionPolicy](../subsystems/sandbox.md) · [SandboxMode](../subsystems/sandbox.md) · [SandboxPolicyRequest](../subsystems/sandbox.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
@@ -1350,7 +1350,7 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
+Types: [SessionEvent](../subsystems/core.md) · [SessionHeader](../subsystems/persistence.md) · [SessionId](../subsystems/core.md) · [SessionInspection](../subsystems/persistence.md) · [SessionLocation](../subsystems/persistence.md) · [SessionPersistenceSnapshot](../subsystems/persistence.md) · [SessionPreparation](../subsystems/persistence.md)
 
 Source: [`packages/session/session-persistence/src/index.ts:72`](../../packages/session/session-persistence/src/index.ts)
 
@@ -1398,7 +1398,7 @@ async write(session: Session): Promise<void>
 async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
+Types: [Session](../subsystems/session.md) · [SessionHeader](../subsystems/persistence.md) · [SessionId](../subsystems/core.md)
 
 Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../packages/session/session-projection-cache/src/index.ts)
 
@@ -1506,7 +1506,7 @@ viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>
 restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
+Types: [Session](../subsystems/session.md) · [SessionEvent](../subsystems/core.md)
 
 Source: [`packages/session/session-projection/src/index.ts:156`](../../packages/session/session-projection/src/index.ts)
 
@@ -1633,7 +1633,7 @@ async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promi
 async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../subsystems/session-query.md) · [SessionEventRecord](../subsystems/session-query.md) · [SessionEventResultFilter](../subsystems/session-query.md) · [SessionEventSearchDocument](../subsystems/session-query.md) · [SessionEventSearchPage](../subsystems/session-query.md) · [SessionEventSearchRequest](../subsystems/session-query.md) · [SessionEventTraceObservation](../subsystems/session-query.md) · [SessionEventTraceRequest](../subsystems/session-query.md) · [SessionEventWindow](../subsystems/session-query.md) · [SessionId](../subsystems/core.md) · [SessionLineageTrace](../subsystems/session-query.md) · [SessionLogSnapshot](../subsystems/session-query.md) · [SessionRecord](../subsystems/session-query.md) · [SessionResultFilter](../subsystems/session-query.md) · [SessionSearchExecContext](../subsystems/session-query.md) · [SessionSearchHit](../subsystems/session-query.md) · [SessionSearchPage](../subsystems/session-query.md) · [SessionSearchRequest](../subsystems/session-query.md) · [SessionSurfaceSnapshot](../subsystems/session-query.md) · [SessionTitleObservation](../subsystems/session-query.md) · [SessionTitleObservationResult](../subsystems/session-query.md) · [SessionTitleSnapshot](../subsystems/session-title.md)
 
 Source: [`packages/session-query/session-query/src/index.ts:81`](../../packages/session-query/session-query/src/index.ts)
 
@@ -1663,7 +1663,7 @@ async listCandidates( agent: Agent, query: string = '', limit: number = this.con
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [PreparedReferencedMessage](../core-data-structures/session-reference.md) · [SessionReferenceCandidate](../core-data-structures/session-reference.md) · [SessionReferenceInput](../core-data-structures/session-reference.md)
+Types: [Agent](../subsystems/core.md) · [ContentBlock](../subsystems/core.md) · [PreparedReferencedMessage](../subsystems/session-reference.md) · [SessionReferenceCandidate](../subsystems/session-reference.md) · [SessionReferenceInput](../subsystems/session-reference.md)
 
 Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 
@@ -1797,7 +1797,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+Types: [CreateSessionOptions](../subsystems/persistence.md) · [PrepareSessionOptions](../subsystems/persistence.md) · [Session](../subsystems/session.md) · [SessionId](../subsystems/core.md)
 
 Source: [`packages/core/session/src/index.ts:807`](../../packages/core/session/src/index.ts)
 
@@ -1844,7 +1844,7 @@ async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnaps
 register(provider: SessionTitleProvider): () => Promise<void>
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [Session](../subsystems/session.md) · [SessionTitleProvider](../subsystems/session-title.md) · [SessionTitleSnapshot](../subsystems/session-title.md)
 
 Source: [`packages/session/session-title/src/index.ts:261`](../../packages/session/session-title/src/index.ts)
 
@@ -1929,7 +1929,7 @@ async replace(ns: SettingsNamespace, section: object, expectedRevision?: number)
 async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 ```
 
-Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+Types: [SettingsDescribeOptions](../subsystems/settings.md) · [SettingsDescriptor](../subsystems/settings.md) · [SettingsNamespace](../subsystems/settings.md) · [SettingsPathOp](../subsystems/settings.md) · [SettingsRegisterOptions](../subsystems/settings.md) · [SettingsScope](../subsystems/settings.md)
 
 Source: [`packages/settings/settings/src/index.ts:387`](../../packages/settings/settings/src/index.ts)
 
@@ -1987,7 +1987,7 @@ async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
+Types: [SkillCatalogSnapshot](../subsystems/skills.md) · [SkillDefinition](../subsystems/skills.md) · [SkillLookupOptions](../subsystems/skills.md) · [SkillProvider](../subsystems/skills.md) · [SkillProviderControl](../subsystems/skills.md) · [SkillRegistration](../subsystems/skills.md) · [SkillSummary](../subsystems/skills.md)
 
 Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
 
@@ -2010,7 +2010,7 @@ Semantics every implementation must honor:
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 ```
 
-Types: [SaveTextSpill](../core-data-structures/spill.md) · [SpillRef](../core-data-structures/spill.md)
+Types: [SaveTextSpill](../subsystems/spill.md) · [SpillRef](../subsystems/spill.md)
 
 Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
 
@@ -2248,7 +2248,7 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentDescendantListEntry](../core-data-structures/subagent.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentInterruptAuthority](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../subsystems/core.md) · [ContentBlock](../subsystems/core.md) · [ContinuableSetupContribution](../subsystems/subagent.md) · [ContinuableStart](../subsystems/subagent.md) · [ContinuableStartSpec](../subsystems/subagent.md) · [MessageId](../subsystems/core.md) · [SessionId](../subsystems/core.md) · [SubagentDescendantListEntry](../subsystems/subagent.md) · [SubagentFollowupOptions](../subsystems/subagent.md) · [SubagentInterruptAuthority](../subsystems/subagent.md) · [SubagentListEntry](../subsystems/subagent.md) · [SubagentProvider](../subsystems/subagent.md) · [SubagentReportOptions](../subsystems/subagent.md) · [SubagentRun](../subsystems/subagent.md) · [SubagentStartRequest](../subsystems/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
 
@@ -2297,7 +2297,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md) · [SubprocessTerminalHandle](../core-data-structures/subprocess.md) · [SubprocessTerminalSpawnSpec](../core-data-structures/subprocess.md)
+Types: [SubprocessHandle](../subsystems/subprocess.md) · [SubprocessSpawnSpec](../subsystems/subprocess.md) · [SubprocessTerminalHandle](../subsystems/subprocess.md) · [SubprocessTerminalSpawnSpec](../subsystems/subprocess.md)
 
 Source: [`packages/subprocess/subprocess/src/index.ts:102`](../../packages/subprocess/subprocess/src/index.ts)
 
@@ -2353,7 +2353,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
+Types: [AssembleContext](../subsystems/system-prompt.md) · [PromptContext](../subsystems/system-prompt.md) · [PromptSection](../subsystems/system-prompt.md) · [ToolProviderResult](../subsystems/system-prompt.md)
 
 Source: [`packages/core/system-prompt/src/index.ts:314`](../../packages/core/system-prompt/src/index.ts)
 
@@ -2448,7 +2448,7 @@ abstract onTaskDone(listener: TaskDoneListener): () => void
 abstract attachSurface(name: string): () => void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
+Types: [Agent](../subsystems/core.md) · [TaskDoneListener](../subsystems/tasks.md) · [TaskId](../subsystems/tasks.md) · [TaskRead](../subsystems/tasks.md) · [TaskSnapshot](../subsystems/tasks.md) · [TaskStart](../subsystems/tasks.md)
 
 Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
 
@@ -2507,7 +2507,7 @@ measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 estimateMessage(message: Message): number
 ```
 
-Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
+Types: [EpochHeader](../subsystems/session.md) · [Message](../subsystems/core.md) · [Session](../subsystems/session.md) · [TokenMeasurement](../subsystems/token-meter.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:74`](../../packages/llm/token-meter/src/index.ts)
 
@@ -2547,7 +2547,7 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 pruneSession(session: Session): PruneResult
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
+Types: [ContentBlock](../subsystems/core.md) · [PruneResult](../subsystems/compaction.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/compact/compact-tool-result-prune/src/index.ts:44`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
@@ -2630,7 +2630,7 @@ executionMode(exec: ToolExecutionInput): ToolExecutionMode
 async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 ```
 
-Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
+Types: [ScopeKey](../subsystems/scope.md) · [ToolDefinition](../subsystems/tools.md) · [ToolExecutionInput](../subsystems/tools.md) · [ToolExecutionMode](../subsystems/tools.md) · [ToolExecutionResult](../subsystems/tools.md) · [ToolGuard](../subsystems/tools.md) · [ToolRestriction](../subsystems/tools.md) · [ToolSchema](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/index.ts)
 
@@ -2743,7 +2743,7 @@ registerProvider(provider: UserInteractionProvider): () => void
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 
-Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
+Types: [AskUserQuestionAnswer](../subsystems/user-interaction.md) · [AskUserQuestionRequest](../subsystems/user-interaction.md) · [UserInteractionProvider](../subsystems/user-interaction.md)
 
 Source: [`packages/interaction/user-interaction/src/index.ts:51`](../../packages/interaction/user-interaction/src/index.ts)
 
@@ -2801,7 +2801,7 @@ async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearch
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Types: [WebFetchProvider](../core-data-structures/web.md) · [WebFetchRequest](../core-data-structures/web.md) · [WebFetchResult](../core-data-structures/web.md) · [WebSearchProvider](../core-data-structures/web.md) · [WebSearchRequest](../core-data-structures/web.md) · [WebSearchResult](../core-data-structures/web.md)
+Types: [WebFetchProvider](../subsystems/web.md) · [WebFetchRequest](../subsystems/web.md) · [WebFetchResult](../subsystems/web.md) · [WebSearchProvider](../subsystems/web.md) · [WebSearchRequest](../subsystems/web.md) · [WebSearchResult](../subsystems/web.md)
 
 Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts)
 
@@ -2819,7 +2819,7 @@ Workflow execution seam. Invalid requests throw before publication; a live run i
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Types: [WorkflowRun](../core-data-structures/workflow.md) · [WorkflowStartRequest](../core-data-structures/workflow.md)
+Types: [WorkflowRun](../subsystems/workflow.md) · [WorkflowStartRequest](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
 
@@ -2885,7 +2885,7 @@ archiveSession(sessionId: SessionId): Promise<void>
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Types: [SessionId](../core-data-structures/core.md)
+Types: [SessionId](../subsystems/core.md)
 
 Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 

@@ -18,7 +18,7 @@ const OUT_EVENTS = 'docs/cordis-catalog/events.md'
 const OUT_SERVICES = 'docs/cordis-catalog/services.md'
 const OUT_RUNTIME_API = 'packages/self-modification/tool-cordis/src/api-catalog.ts'
 
-/** One primary core-data-structures page per project type used by a generated signature. */
+/** One primary subsystems page per project type used by a generated signature. */
 export const LINK_MAP: Readonly<Record<string, string>> = {
   Agent: 'core.md',
   AgentCancelCause: 'core.md',

@@ -1,4 +1,4 @@
-# Agent Note: Core-data-structures catalog and the `ts type-equiv` drift gate
+# Agent Note: Subsystems catalog and the `ts type-equiv` drift gate
 
 Status: implemented
 
@@ -12,7 +12,7 @@ So the work had two intertwined questions: **what belongs in such a catalog** (t
 
 ## Decision
 
-A new `docs/core-data-structures/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type declaration and its JSDoc synchronized with source.
+A new `docs/subsystems/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type declaration and its JSDoc synchronized with source.
 
 ### What counts as "core" — the spine-vs-seam line
 

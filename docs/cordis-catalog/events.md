@@ -3,7 +3,7 @@
 
 # Cordis Events Catalog
 
-Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [core-data-structures/](../core-data-structures/core.md) catalogs the *data structures* these signatures move around.
+Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around.
 
 This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.
 
@@ -31,7 +31,7 @@ A fully configured agent and live session were published. Setup is composition-o
 'agent/created'(this: Scoped<Agent>, payload: { agent: Agent }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:158`](../../packages/core/agent/src/types.ts)
 
@@ -51,7 +51,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 'agent/disposed'(this: Scoped<Agent>, payload: { agent: Agent }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
 
@@ -73,7 +73,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
 
@@ -95,7 +95,7 @@ One message left the inbox inside its open turn. If the proposed step is rejecte
 'agent/inbox/claimed'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [UserMessage](../subsystems/session.md)
 
 Source: [`packages/core/agent/src/types.ts:196`](../../packages/core/agent/src/types.ts)
 
@@ -114,7 +114,7 @@ One message was discarded from the live inbox.
 'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [UserMessage](../subsystems/session.md)
 
 Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
 
@@ -133,7 +133,7 @@ One message entered the live inbox.
 'agent/inbox/inserted'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [UserMessage](../subsystems/session.md)
 
 Source: [`packages/core/agent/src/types.ts:185`](../../packages/core/agent/src/types.ts)
 
@@ -156,7 +156,7 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../subsystems/core.md) · [PreStepDecision](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [UserMessage](../subsystems/session.md)
 
 Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
 
@@ -180,7 +180,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [LlmCallConfig](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
 
@@ -207,7 +207,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 'agent/request-error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [LlmFailure](../subsystems/llm-streaming.md) · [RequestErrorAction](../subsystems/core.md) · [ResolvedRetryPolicy](../subsystems/llm-streaming.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
 
@@ -229,7 +229,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [SessionStartSource](../subsystems/core.md)
 
 Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
 
@@ -250,7 +250,7 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
 'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [AgentStatus](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/types.ts)
 
@@ -279,7 +279,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:277`](../../packages/core/agent/src/types.ts)
 
@@ -302,7 +302,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
-Types: [SessionId](../core-data-structures/core.md)
+Types: [SessionId](../subsystems/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:182`](../../packages/core/agent-loop/src/index.ts)
 
@@ -323,7 +323,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [ApprovalService](../core-data-structures/approval.md) · [Scoped](../core-data-structures/scope.md)
+Types: [ApprovalOutcome](../subsystems/approval.md) · [ApprovalRequest](../subsystems/approval.md) · [ApprovalService](../subsystems/approval.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/interaction/user-approval/src/index.ts:30`](../../packages/interaction/user-approval/src/index.ts)
 
@@ -367,7 +367,7 @@ Committed change to a provider-managed credential source: a `set`, an `unset`, o
 'credentials/updated'(ref: CredentialRef): void
 ```
 
-Types: [CredentialRef](../core-data-structures/credentials.md)
+Types: [CredentialRef](../subsystems/credentials.md)
 
 Source: [`packages/credentials/credentials/src/index.ts:67`](../../packages/credentials/credentials/src/index.ts)
 
@@ -408,7 +408,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+Types: [FsTarget](../subsystems/filesystem.md) · [FsVersion](../subsystems/filesystem.md)
 
 Source: [`packages/fs/fs/src/index.ts:64`](../../packages/fs/fs/src/index.ts)
 
@@ -428,7 +428,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
 ```
 
-Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+Types: [FsTarget](../subsystems/filesystem.md) · [FsVersion](../subsystems/filesystem.md)
 
 Source: [`packages/fs/fs/src/index.ts:73`](../../packages/fs/fs/src/index.ts)
 
@@ -448,7 +448,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
 ```
 
-Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
+Types: [FsTarget](../subsystems/filesystem.md) · [FsWriteIntent](../subsystems/filesystem.md)
 
 Source: [`packages/fs/fs/src/index.ts:56`](../../packages/fs/fs/src/index.ts)
 
@@ -470,7 +470,7 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
 'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../subsystems/core.md) · [GoalChanged](../subsystems/goal.md) · [Scoped](../subsystems/scope.md)
 
 Source: [`packages/goal/goal/src/domain.ts:114`](../../packages/goal/goal/src/domain.ts)
 
@@ -515,7 +515,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../subsystems/core.md) · [LlmService](../subsystems/llm-streaming.md) · [StreamChunk](../subsystems/llm-streaming.md)
 
 Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
 
@@ -540,7 +540,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
+Types: [Scoped](../subsystems/scope.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
 
@@ -561,7 +561,7 @@ Emitted once when an announced session leaves the store, including publication r
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
+Types: [Scoped](../subsystems/scope.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
 
@@ -584,7 +584,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
+Types: [Scoped](../subsystems/scope.md) · [Session](../subsystems/session.md) · [SessionEvent](../subsystems/core.md)
 
 Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
 
@@ -604,7 +604,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
+Types: [Scoped](../subsystems/scope.md) · [Session](../subsystems/session.md)
 
 Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
 
@@ -629,7 +629,7 @@ One registered namespace's RAW user section changed, whether or not the resolved
 'settings/document-updated'(ns: SettingsNamespace, revision: number): void
 ```
 
-Types: [SettingsNamespace](../core-data-structures/settings.md)
+Types: [SettingsNamespace](../subsystems/settings.md)
 
 Source: [`packages/settings/settings/src/index.ts:170`](../../packages/settings/settings/src/index.ts)
 
@@ -656,7 +656,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
 ```
 
-Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
+Types: [SettingsNamespace](../subsystems/settings.md) · [SettingsUpdateSource](../subsystems/settings.md)
 
 Source: [`packages/settings/settings/src/index.ts:157`](../../packages/settings/settings/src/index.ts)
 
@@ -697,7 +697,7 @@ A published child settled. Scope-filtered dispatch uses the same delegating pare
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
+Types: [Scoped](../subsystems/scope.md) · [SubagentService](../subsystems/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:162`](../../packages/subagent/subagent/src/index.ts)
 
@@ -714,7 +714,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Types: [SubagentProvider](../core-data-structures/subagent.md)
+Types: [SubagentProvider](../subsystems/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:136`](../../packages/subagent/subagent/src/index.ts)
 
@@ -751,7 +751,7 @@ A provider established a published child. For in-process providers, `ctx.agents.
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
+Types: [Scoped](../subsystems/scope.md) · [SubagentService](../subsystems/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
 
@@ -775,7 +775,7 @@ Expert waterfall over the assembled sections, contexts, tools, and variables. Sc
 'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Types: [AssembleContext](../core-data-structures/system-prompt.md) · [Scoped](../core-data-structures/scope.md) · [SystemPrompt](../core-data-structures/system-prompt.md)
+Types: [AssembleContext](../subsystems/system-prompt.md) · [Scoped](../subsystems/scope.md) · [SystemPrompt](../subsystems/system-prompt.md)
 
 Source: [`packages/core/system-prompt/src/index.ts:29`](../../packages/core/system-prompt/src/index.ts)
 
@@ -865,7 +865,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
 ```
 
-Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [CodeDispatchLog](../subsystems/tools.md) · [ContentBlock](../subsystems/core.md) · [Scoped](../subsystems/scope.md) · [ToolRegistry](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:173`](../../packages/core/tools/src/index.ts)
 
@@ -887,7 +887,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [Scoped](../subsystems/scope.md) · [ToolDispatchExecution](../subsystems/tools.md) · [ToolExecutionResult](../subsystems/tools.md) · [ToolRegistry](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:148`](../../packages/core/tools/src/index.ts)
 
@@ -910,7 +910,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
-Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [PostToolDecision](../subsystems/tools.md) · [Scoped](../subsystems/scope.md) · [ToolExecution](../subsystems/tools.md) · [ToolExecutionResult](../subsystems/tools.md) · [ToolRegistry](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:160`](../../packages/core/tools/src/index.ts)
 
@@ -931,7 +931,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
 ```
 
-Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [PreToolDecision](../subsystems/tools.md) · [Scoped](../subsystems/scope.md) · [ToolExecution](../subsystems/tools.md) · [ToolRegistry](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:137`](../../packages/core/tools/src/index.ts)
 
@@ -950,7 +950,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [Scoped](../subsystems/scope.md) · [ToolExecution](../subsystems/tools.md) · [ToolExecutionResult](../subsystems/tools.md) · [ToolRegistry](../subsystems/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:181`](../../packages/core/tools/src/index.ts)
 
@@ -974,7 +974,7 @@ One `agent()` call settled (clean result, child failure, or run cancellation). P
 'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/workflow/src/index.ts)
 
@@ -995,7 +995,7 @@ One `agent()` call established a published child run. Paired with Events['workfl
 'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
 
@@ -1016,7 +1016,7 @@ A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves
 'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:91`](../../packages/workflow/workflow/src/index.ts)
 
@@ -1034,7 +1034,7 @@ The script emitted a narration line (a `log(message)` call).
 'workflow/log'(info: WorkflowRunInfo, message: string): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:60`](../../packages/workflow/workflow/src/index.ts)
 
@@ -1053,7 +1053,7 @@ The script entered a phase (a `phase(title)` call) — progress grouping for obs
 'workflow/phase'(info: WorkflowRunInfo, title: string): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:53`](../../packages/workflow/workflow/src/index.ts)
 
@@ -1071,7 +1071,7 @@ A workflow run started — the script's meta block validated, the body about to 
 'workflow/start'(info: WorkflowRunInfo): void
 ```
 
-Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+Types: [WorkflowRunInfo](../subsystems/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:45`](../../packages/workflow/workflow/src/index.ts)
 

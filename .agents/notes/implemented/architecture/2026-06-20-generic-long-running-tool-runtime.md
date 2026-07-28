@@ -23,7 +23,7 @@ Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into in
 
 ## Runtime contract
 
-The literal types live in the [task data-structure catalog](../../../../docs/core-data-structures/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, optional positive `outputLimitBytes`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
+The literal types live in the [task data-structure catalog](../../../../docs/subsystems/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, optional positive `outputLimitBytes`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
 
 `outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control surfaces apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing surface behavior, so the runtime does not impose a hidden default on unrelated producer families.
 

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-新增的 `docs/core-data-structures/` 目录对这些词汇编目，并配有新的 `verify-type-equiv` doc-sync（文档同步门禁），使每个粘贴的类型声明及其 JSDoc 与源码保持同步。
+新增的 `docs/subsystems/` 目录对这些词汇编目，并配有新的 `verify-type-equiv` doc-sync（文档同步门禁），使每个粘贴的类型声明及其 JSDoc 与源码保持同步。
 
 ### 何为「核心」——主干与 seam 的分界线
 
