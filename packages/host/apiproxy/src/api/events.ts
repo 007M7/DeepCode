@@ -8,7 +8,7 @@
 
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm/types'
+import type { Message } from '@deepseek-ai/dsh-llm/types'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -69,11 +69,11 @@ export type MuxFrame =
    * refresh-recovery baseline as pending questions); queue clearing on cancel
    * has no dedicated frame — clients fold it from the status flip.
    * `steering` is the host's acceptance-time queue classification and remains
-   * authoritative in reconnect snapshots. `source` carries the prompt's rpcId
+   * authoritative in reconnect snapshots. `message.source` carries the prompt's rpcId
    * when the message came over this wire (the client's provisional-echo
    * reconciliation key).
    */
-  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
+  | { type: 'session/queued'; sessionId: SessionId; message: Message; steering: boolean }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

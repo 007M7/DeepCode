@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -269,10 +269,10 @@ export class ApprovalService extends Service {
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return
       const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      agent.inject({
+      agent.inject(createUserMessage({
         content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
         source: { kind: 'plugin', plugin: 'user-approval' },
-      })
+      }))
     })
   }
 

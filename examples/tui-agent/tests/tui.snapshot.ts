@@ -379,7 +379,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(text).toContain('Full formatted result stored at:')
       expect(text).toContain('.spill')
     }
-    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
+    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.message.content[0].isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)
     if (scenario.name === 'dynamic-workflow' || scenario.name === 'cordis-dynamic-toolchain') {
       expect(workflowEvents).toEqual([

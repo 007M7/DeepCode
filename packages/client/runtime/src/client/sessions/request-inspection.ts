@@ -249,8 +249,8 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
         status: 'complete',
         resultSeq: sourceEvent.seq,
         provenance: {
-          provider: sourceEvent.data.provenance.provider,
-          model: sourceEvent.data.provenance.model,
+          provider: sourceEvent.data.message.source.provider,
+          model: sourceEvent.data.message.source.model,
         },
         ...(sourceEvent.data.usage === undefined ? {} : { usage: sourceEvent.data.usage }),
       })

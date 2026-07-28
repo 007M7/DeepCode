@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { inspectRequests } from '../src/client/sessions/request-inspection.ts'
 
@@ -35,8 +36,10 @@ describe('inspectRequests', () => {
       at(3, 'assistant/message', {
         turn: 1,
         step: 1,
-        content: [{ type: 'text', text: 'done' }],
-        provenance: { provider: 'fake', model: 'model' },
+        message: createAssistantMessage({
+          content: [{ type: 'text', text: 'done' }],
+          source: { provider: 'fake', model: 'model' },
+        }),
         usage: { inputTokens: 5, outputTokens: 2 },
       }),
       at(4, 'step/end', { turn: 1, step: 1 }),
@@ -51,10 +54,10 @@ describe('inspectRequests', () => {
         model: 'compact-model',
         usage: { inputTokens: 8, outputTokens: 3 },
       }),
-      at(7, 'user/message', {
+      at(7, 'user/message', createUserMessage({
         content: [{ type: 'text', text: 'checkpoint' }],
         source: { kind: 'plugin', plugin: 'compact' },
-      }),
+      })),
       at(8, 'compact/end', { turn: 1 }),
     ]
     const snapshot = inspectRequests(entriesOf(events))

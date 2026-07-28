@@ -17,6 +17,13 @@
   border-radius: 12px;
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
+  /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens. The
+     declaration sits on the card rather than on `.scrollable .viewport`
+     because the elevation is a property of this surface, and the custom
+     properties inherit down to whichever descendant actually scrolls (see
+     ui-theme styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Primary card is 218 wide in the design across both hosts. */

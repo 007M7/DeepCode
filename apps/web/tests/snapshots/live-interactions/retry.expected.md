@@ -1,12 +1,19 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Reply with a one-sentence description" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with a one-sentence description of event sourcing, then stop.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
+- button "▸ 上下文注入"
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
+  - img
   - img
   - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
 - paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
@@ -17,7 +24,7 @@
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]

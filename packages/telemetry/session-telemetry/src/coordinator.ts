@@ -251,7 +251,7 @@ function shutdownRecord(session: Session): TelemetryRecord {
 function severityOf(event: SessionEvent): TelemetrySeverity {
   switch (event.type) {
     case 'tool/result':
-      return event.data.isError ? 'error' : 'info'
+      return event.data.message.content[0].isError === true ? 'error' : 'info'
     case 'turn/end':
       return event.data.reason.kind === 'error' ? 'error' : 'info'
     default:

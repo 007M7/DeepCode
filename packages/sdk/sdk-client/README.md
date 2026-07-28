@@ -15,12 +15,13 @@ await using harness = new DeepSeekHarness({
   launch: { command: 'node', args: ['lib/bin.js', 'cordis.yml'] },
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
+  maxTokens: 49_152,
 })
 const result = await harness.run('say hi')
 console.log(result.status, result.finalResponse)
 ```
 
-The subprocess starts lazily on first use and stays owned by the instance across `run()` calls; `close()` (or `await using`) is required so the child is always reaped. `start()` memoizes the `initialize` handshake (the workspace cwd — resolved absolute before it crosses the wire — plus the provider/model route); a failed handshake reaps the runtime and swaps in a fresh client, so a later call retries with a new subprocess (until `close()`, which is terminal). `session(id?)` opens a named or fresh session handle; `run(input, { sessionId?, onNotification? })` sends one prompt turn and settles when the paired `session.finished` arrives, returning a `TurnResult`: `status` (`ok`/`error` as the deployment maps it), the structured `reason` (`TurnEndReason`), `finalResponse` (last assistant message text), root-session `events`, and raw `notifications` for that session plus descendants discovered from `subagent.started`, all in wire order. Model-level failure is a `status: 'error'` result, never a rejection; rejections mean transport loss, timeout, or protocol violation.
+The subprocess starts lazily on first use and stays owned by the instance across `run()` calls; `close()` (or `await using`) is required so the child is always reaped. `start()` memoizes the `initialize` handshake (the workspace cwd — resolved absolute before it crosses the wire — plus the provider/model route and optional positive `maxTokens` output cap); a failed handshake reaps the runtime and swaps in a fresh client, so a later call retries with a new subprocess (until `close()`, which is terminal). The cap applies to each root-agent request and is inherited by in-process descendants; compaction plugins own their separate summary limits. `session(id?)` opens a named or fresh session handle; `run(input, { sessionId?, onNotification? })` sends one prompt turn and settles when the paired `session.finished` arrives, returning a `TurnResult`: `status` (`ok`/`error` as the deployment maps it), the structured `reason` (`TurnEndReason`), `finalResponse` (last assistant message text), root-session `events`, and raw `notifications` for that session plus descendants discovered from `subagent.started`, all in wire order. Model-level failure is a `status: 'error'` result, never a rejection; rejections mean transport loss, timeout, or protocol violation.
 
 ## HarnessClient
 

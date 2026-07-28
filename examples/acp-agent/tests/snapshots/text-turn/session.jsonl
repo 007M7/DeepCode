@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"539aa64c-7f37-40ff-abd8-ed45b717be1b","createdAt":1783600629539,"cwd":"/var/folders/bn/vj1dvck95yd5jh3x4wskflxm0000gn/T/acp-snap-cwd-ka5r8w","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783600629541,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":1783600629541,"data":{"content":[{"type":"text","text":"Reply with exactly the word: PONG. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":1783600629541,"data":{"content":[{"type":"text","text":"Reply with exactly the word: PONG. Do not use any tools."}],"source":{"kind":"user"},"role":"user","id":"2da6fcd7-2410-460a-bb8f-bc6491f7b0b0"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783600629541,"data":{"title":"Reply with exactly the word:","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":1783600629542,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1783600629542,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
@@ -13,6 +13,6 @@
 {"type":"assistant/chunk","seq":30,"time":1783600631009,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"PONG"}}}}
 {"type":"assistant/chunk","seq":31,"time":1783600631009,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":3091,"outputTokens":23,"cacheReadTokens":0,"reasoningTokens":20}}}}
 {"type":"assistant/chunk","seq":32,"time":1783600631009,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":33,"time":1783600631011,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"PONG\" and not use any tools."},{"type":"text","text":"PONG"}],"provenance":{"provider":"deepseek","model":"deepseek-v4-flash"},"usage":{"inputTokens":3091,"outputTokens":23,"cacheReadTokens":0,"reasoningTokens":20}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"surfaceOp":"append"}
+{"type":"assistant/message","seq":33,"time":1783600631011,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"PONG\" and not use any tools."},{"type":"text","text":"PONG"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-flash"},"id":"f068f187-1ec4-4bc7-8e25-75eff64ba148"},"usage":{"inputTokens":3091,"outputTokens":23,"cacheReadTokens":0,"reasoningTokens":20}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"surfaceOp":"append"}
 {"type":"step/end","seq":34,"time":1783600631011,"data":{"turn":1,"step":1}}
 {"type":"turn/end","seq":35,"time":1783600631011,"data":{"turn":1,"reason":{"kind":"completed"}}}

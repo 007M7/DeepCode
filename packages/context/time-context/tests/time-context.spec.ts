@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -43,13 +43,12 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     status: 'running',
     acceptsNextStep: true,
     ctx: new Context(),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
+    followup: () => {},
+    steer: () => {},
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
-      return AgentMessageId('stub')
     },
-    send: () => AgentMessageId('stub'),
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -57,10 +56,10 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
 
 function openMessageTurn(session: Session, turn: number): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 function contextTexts(session: Session): string[] {
@@ -233,10 +232,10 @@ describe('durable step context', () => {
     const user = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'user')
     const reading = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     if (user === undefined || reading === undefined) throw new Error('missing source surface events')
-    original.append('user/message', {
+    original.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted history' }],
       source: { kind: 'plugin', plugin: 'compact-basic' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start: user.seq, end: reading.seq },
       sourceEventSeqs: [user.seq, reading.seq],
     })
@@ -371,7 +370,7 @@ describe('real agent-loop request history', () => {
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
     expect(laterSawReading).toBe(false)
@@ -397,7 +396,7 @@ describe('real agent-loop request history', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('loop'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)

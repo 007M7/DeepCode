@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -26,10 +27,10 @@ async function appendPersistedTitle(ctx: Context, id: ReturnType<typeof SessionI
     turn: 1,
     trigger: { kind: 'message', source: { kind: 'user' } },
   })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Persist this session title' }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   await ctx.sessionTitle.refresh(session)
 }

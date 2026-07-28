@@ -1,17 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SessionId,
   type SessionEvent,
   type TurnEndReason,
-  type UserMessageData,
+  type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, {
   type Agent,
-  type AgentMessage,
   type InboxPlacement,
   type PromptDecision,
   type SessionStartSource,
@@ -53,7 +52,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -67,8 +66,8 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const seen: string[] = []
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next) => {
-      seen.push(content.map(b => (b.type === 'text' ? b.text : '')).join(''))
+    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
+      seen.push(message.content.map(b => (b.type === 'text' ? b.text : '')).join(''))
       return next()
     })
 
@@ -80,13 +79,13 @@ describe('agent/prompt-submit', () => {
     expect(userMsg?.type === 'user/message' && userMsg.data.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
-  it('snapshots and freezes input before publishing or awaiting admission', async () => {
+  it('publishes frozen input without replacing its identity', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('owned-input'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
-    const observed: AgentMessage[] = []
+    const observed: UserMessage[] = []
     ctx.on('agent/inbox/enqueue', (subject, message) => {
       if (subject !== agent) return
       expect(Object.isFrozen(message)).toBe(true)
@@ -105,30 +104,32 @@ describe('agent/prompt-submit', () => {
       entered.resolve(undefined)
       return decision.promise
     })
-    const input: UserMessageData = {
+    const input: UserMessage = createUserMessage({
       content: [{ type: 'text', text: 'accepted text' }],
       source: { kind: 'plugin', plugin: 'accepted source' },
-    }
+    })
 
     const idle = waitForIdle(ctx, agent)
     agent.followup(input)
     await entered.promise
     const block = input.content[0]
-    if (block?.type === 'text') block.text = 'caller mutation'
-    if (input.source.kind === 'plugin') input.source.plugin = 'caller mutation'
+    expect(() => {
+      if (block?.type === 'text') block.text = 'caller mutation'
+    }).toThrow(TypeError)
+    expect(() => {
+      if (input.source.kind === 'plugin') input.source.plugin = 'caller mutation'
+    }).toThrow(TypeError)
     decision.resolve({ kind: 'allow' })
     await idle
 
     expect(observed).toHaveLength(1)
+    expect(observed[0]).toBe(input)
     expect(observed[0]).toMatchObject({
       content: [{ type: 'text', text: 'accepted text' }],
       source: { kind: 'plugin', plugin: 'accepted source' },
     })
     const userMsg = events(agent).find(event => event.type === 'user/message')
-    expect(userMsg?.type === 'user/message' && userMsg.data).toEqual({
-      content: [{ type: 'text', text: 'accepted text' }],
-      source: { kind: 'plugin', plugin: 'accepted source' },
-    })
+    expect(userMsg?.type === 'user/message' && userMsg.data).toEqual(input)
   })
 
   it('allow with content REWRITES the prompt before it is recorded', async () => {
@@ -157,10 +158,10 @@ describe('agent/prompt-submit', () => {
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
-        }],
+        })],
       }))
 
     send(agent, 'go')
@@ -185,7 +186,9 @@ describe('agent/prompt-submit', () => {
       ({
         kind: 'allow',
         content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContexts: [{ content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } }],
+        additionalContexts: [createUserMessage({
+          content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' },
+        })],
       }))
 
     let preStepDerived: string | undefined
@@ -213,7 +216,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.followup({ content: [{ type: 'text', text: 'do something' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do something' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
     // the model was never called
@@ -248,11 +251,11 @@ describe('agent/prompt-submit', () => {
     expect(agent.acceptsNextStep).toBe(true)
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
 
-    agent.inject({
+    agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'attached context' }],
       source: { kind: 'plugin', plugin: 'test' },
-    })
-    agent.steer({ content: [{ type: 'text', text: 'admission steering' }], source: { kind: 'user' } })
+    }))
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'admission steering' }], source: { kind: 'user' } }))
     expect(events(agent).some(event => event.type === 'user/message')).toBe(false)
     expect(placements).toEqual(['queued', 'steering'])
 
@@ -272,7 +275,7 @@ describe('agent/prompt-submit', () => {
       .toEqual([{ type: 'text', text: 'admitted prompt' }])
     expect(staged[2]?.type === 'user/message' && staged[2].data.content)
       .toEqual([{ type: 'text', text: 'attached context' }])
-    expect(staged[3]?.type === 'steering/message' && staged[3].data.content)
+    expect(staged[3]?.type === 'steering/message' && staged[3].data.message.content)
       .toEqual([{ type: 'text', text: 'admission steering' }])
     const request = JSON.stringify(adapter.requests[0]?.messages)
     expect(request).toContain('admitted prompt')
@@ -295,11 +298,11 @@ describe('agent/prompt-submit', () => {
     send(agent, 'blocked prompt')
     await entered.promise
     expect(agent.acceptsNextStep).toBe(true)
-    agent.inject({
+    agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'staged context' }],
       source: { kind: 'plugin', plugin: 'test' },
-    })
-    agent.steer({ content: [{ type: 'text', text: 'staged steering' }], source: { kind: 'user' } })
+    }))
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'staged steering' }], source: { kind: 'user' } }))
     decision.resolve({ kind: 'block', reason: 'policy' })
     await blockedIdle
 
@@ -330,22 +333,22 @@ describe('agent/prompt-submit', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next) => {
+    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
       const decision = await next()
-      return content.some(block => block.type === 'text' && block.text === 'blocked prompt')
+      return message.content.some(block => block.type === 'text' && block.text === 'blocked prompt')
         ? { kind: 'block', reason: 'policy' }
         : decision
     })
-    ctx.on('agent/prompt-submit', async (subject, content, _source, _signal, next) => {
-      if (content.some(block => block.type === 'text' && block.text === 'blocked prompt')) {
-        subject.inject({
+    ctx.on('agent/prompt-submit', async (subject, message, _signal, next) => {
+      if (message.content.some(block => block.type === 'text' && block.text === 'blocked prompt')) {
+        subject.inject(createUserMessage({
           content: [{ type: 'text', text: 'earlier state change' }],
           source: { kind: 'plugin', plugin: 'test' },
-        })
-        subject.steer({
+        }))
+        subject.steer(createUserMessage({
           content: [{ type: 'text', text: 'earlier steering' }],
           source: { kind: 'user' },
-        })
+        }))
       }
       return next()
     })
@@ -365,7 +368,7 @@ describe('agent/prompt-submit', () => {
     ])
     expect(staged[1]?.type === 'user/message' && staged[1].data.content)
       .toEqual([{ type: 'text', text: 'earlier state change' }])
-    expect(staged[2]?.type === 'steering/message' && staged[2].data.content)
+    expect(staged[2]?.type === 'steering/message' && staged[2].data.message.content)
       .toEqual([{ type: 'text', text: 'earlier steering' }])
     expect(staged[3]?.type === 'user/message' && staged[3].data.content)
       .toEqual([{ type: 'text', text: 'later prompt' }])
@@ -385,10 +388,10 @@ describe('agent/prompt-submit', () => {
     const idle = waitForIdle(ctx, agent)
     send(agent, 'blocked prompt')
     await entered.promise
-    agent.inject({
+    agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'independent context' }],
       source: { kind: 'plugin', plugin: 'test' },
-    })
+    }))
     decision.resolve({ kind: 'block', reason: 'policy' })
     await idle
 
@@ -417,12 +420,12 @@ describe('agent/prompt-submit', () => {
       return decision.promise
     })
 
-    agent.followup({ content: [{ type: 'text', text: 'blocked prompt' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'blocked prompt' }], source: { kind: 'user' } }))
     await entered.promise
-    agent.inject({
+    agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'retained context' }],
       source: { kind: 'plugin', plugin: 'test' },
-    })
+    }))
     decision.resolve({ kind: 'block', reason: 'policy' })
     await agent.whenIdle()
 
@@ -442,8 +445,8 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
-      const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
+    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next): Promise<PromptDecision> => {
+      const text = message.content.map(b => (b.type === 'text' ? b.text : '')).join('')
       return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
     })
 
@@ -525,7 +528,7 @@ describe('agent/session-start', () => {
     const ctx = await harness(adapter)
 
     ctx.on('agent/session-start', (agent) => {
-      agent.inject({ content: [{ type: 'text', text: 'session preamble' }], source: { kind: 'plugin', plugin: 'test' } })
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'session preamble' }], source: { kind: 'plugin', plugin: 'test' } }))
     })
 
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -579,10 +582,10 @@ describe('tool additionalContexts buffering across a step', () => {
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
       ({
         kind: 'accept',
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: `ctx-${exec.callId}` }],
           source: { kind: 'plugin', plugin: 'p' },
-        }],
+        })],
       }))
 
     send(agent, 'go')
@@ -611,8 +614,12 @@ describe('tool additionalContexts buffering across a step', () => {
     ctx.tools.register(defineContentToolFixture({
       name: 'composite', description: 'composite', parameters: {},
       async execute(_args, exec) {
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' } })
+        exec.deferContext(createUserMessage({
+          content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' },
+        }))
+        exec.deferContext(createUserMessage({
+          content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' },
+        }))
         return [{ type: 'text', text: 'outer result' }]
       },
     }))
@@ -654,9 +661,9 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
 
     expect(ran).toBe(false)
     const result = events(agent).find(e => e.type === 'tool/result')
-    expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
+    expect(result?.type === 'tool/result' && result.data.message.content[0].isError).toBe(true)
     expect(result?.type === 'tool/result'
-      && result.data.content.some(b => b.type === 'text' && b.text.includes('blocked dangerous tool'))).toBe(true)
+      && result.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('blocked dangerous tool'))).toBe(true)
   })
 })
 
@@ -669,11 +676,11 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     apply(ctx: Context) {
       // 1. SessionStart: seed a standing instruction.
       ctx.on('agent/session-start', (agent, source) => {
-        agent.inject({ content: [{ type: 'text', text: `policy active (started: ${source})` }], source: { kind: 'plugin', plugin: 'native-guard' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: `policy active (started: ${source})` }], source: { kind: 'plugin', plugin: 'native-guard' } }))
       })
       // 2. PromptSubmit: block a forbidden prompt, annotate the rest.
-      ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
-        const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
+      ctx.on('agent/prompt-submit', async (_agent, message, _signal, next): Promise<PromptDecision> => {
+        const text = message.content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (text.includes('rm -rf')) return { kind: 'block', reason: 'destructive prompt blocked' }
         return next()
       })
@@ -686,7 +693,9 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
         const decision = await next()
         if (decision.kind === 'accept') {
-          return { kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } }] }
+          return { kind: 'accept', additionalContexts: [createUserMessage({
+            content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' },
+          })] }
         }
         return decision
       })
@@ -713,7 +722,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     // prompt allowed → user-sourced user/message recorded
     expect(log.some(e => e.type === 'user/message' && e.data.source.kind === 'user')).toBe(true)
     // tool ran (echo allowed) and post-execute attached "audited" context
-    expect(log.some(e => e.type === 'tool/result' && !e.data.isError)).toBe(true)
+    expect(log.some(e => e.type === 'tool/result' && !e.data.message.content[0].isError)).toBe(true)
     expect(log.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin'
       && e.data.content.some(b => b.type === 'text' && b.text === 'audited'))).toBe(true)
     // NO hook/* events — a native plugin needs none

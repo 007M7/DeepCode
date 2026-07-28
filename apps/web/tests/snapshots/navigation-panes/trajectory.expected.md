@@ -1,7 +1,9 @@
 - toolbar "Trajectory toolbar":
-  - text: Trajectory
-  - button "Collapse calls"
-  - button "Collapse turns"
+  - button "Use actual duration": Duration
+  - button "Collapse turns": Turns
+  - button "Collapse calls": Calls
+  - img
+  - searchbox "Search trajectory"
 - region "Trajectory timeline"
 - table:
   - rowgroup:

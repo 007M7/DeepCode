@@ -122,7 +122,9 @@ interface ContentBlockMap {
 
 各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
 
-`Message` 由角色和块组成。由循环派生的 assistant 消息携带其持久提供方/模型标识，以及可选的适配器私有回放元数据：
+源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
+
+`Message` 是一个带标识且不可变的角色／来源／内容值。模型产生的 assistant 消息会在其来源中携带提供方／模型所有权与可选的适配器私有回放元数据：
 
 ```ts type-equiv
 /** Provider ownership and adapter-private replay data for an assistant message. */
@@ -141,15 +143,16 @@ interface AssistantProvenance {
 ```
 
 ```ts type-equiv
-/**
- * A single message in a conversation history. Loop-derived assistant messages
- * always carry provenance; callers may omit it on hand-built foreign history.
- */
+/** One immutable message representation shared by delivery, durable history, and model requests. */
 interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: ContentBlock[]
-  /** Present only on assistant messages produced by a routed adapter. */
-  provenance?: AssistantProvenance
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
 }
 ```
 
@@ -163,6 +166,8 @@ interface Message {
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
 }
 ```
 
@@ -456,32 +461,7 @@ interface SendOptions {
 }
 ```
 
-固定预设的别名方法自带 `target` 与 `wakeup`；其 `UserMessageData` 输入同时携带内容与 provenance。
-
-`send` 返回被接收消息的不透明 `AgentMessageId`，该 id 在这条消息的各个 `agent/inbox/*` 事件中保持稳定：
-
-```ts type-equiv
-/**
- * Opaque id assigned to one accepted {@link Agent.send} message; returned by
- * `send` and carried on its `agent/inbox/*` events for correlation.
- */
-type AgentMessageId = Branded<'AgentMessageId'>
-```
-
-`agent/inbox/*` 实时事件承载一条已接收的消息；注入绕过两个 FIFO，从不出现在这些事件中：
-
-```ts type-equiv
-/**
- * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
- * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. The agent snapshots and
- * freezes the accepted content and source before enqueue observers receive it.
- */
-interface AgentMessage extends UserMessageData {
-  /** The id `send` returned for this message. */
-  id: AgentMessageId
-}
-```
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。投递方法不会返回其 `MessageId`，但该 id 在这条消息的各个 `agent/inbox/*` 事件中保持稳定。注入绕过两个 FIFO，从不出现在这些事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -540,12 +520,11 @@ interface Agent {
    *   immediately without opening a turn. If admission closes without a turn,
    *   a context-only boundary appends immediately; context staged beside
    *   steering remains pending with it.
-   * The agent snapshots and freezes `input` before publishing or queueing it.
-   * @param input - model-facing content and its producer provenance.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
-   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(input: UserMessageData, options: SendOptions): AgentMessageId
+  send(message: UserMessage, options: SendOptions): void
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -565,10 +544,9 @@ interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param input - prompt content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified prompt content and its producer provenance.
    */
-  followup(input: UserMessageData): AgentMessageId
+  followup(message: UserMessage): void
 
   /**
    * Submit steering during prompt admission or an open turn — the
@@ -578,10 +556,9 @@ interface Agent {
    * or a later prompt takes it. Outside that window steering falls back to a
    * woken follow-up turn, while cancellation or disposal may discard pending
    * steering.
-   * @param input - steering content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified steering content and its producer provenance.
    */
-  steer(input: UserMessageData): AgentMessageId
+  steer(message: UserMessage): void
 
   /**
    * Append model-facing context without running the model — the
@@ -590,14 +567,13 @@ interface Agent {
    * immediately without opening a turn. If admission closes without a turn,
    * a context-only boundary appends immediately; context staged beside
    * steering remains pending with it.
-   * @param input - injected context and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified injected context and its producer provenance.
    */
-  inject(input: UserMessageData): AgentMessageId
+  inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时由提供方默认值控制。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
@@ -609,7 +585,7 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancella
 
 ## 拦截决策
 
-提示词决策与工具后决策使用与持久 user-role 输入相同的 `UserMessageData` content/source 形状。每个 `additionalContexts` 条目都会成为一条独立的 `user/message`，保留各自的 provenance。钩子桥接层把其原生决策字段映射到这些类型化结果上。
+提示词决策与工具后决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。每个 `additionalContexts` 条目都会成为一条独立的 `user/message`，保留各自的标识与 provenance。钩子桥接层把其原生决策字段映射到这些类型化结果上。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -623,7 +599,7 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancella
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
   | { kind: 'block'; reason: string }
 ```
 

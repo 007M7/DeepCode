@@ -1,3 +1,4 @@
+- button "New session"
 - button "Collapse sidebar":
   - img
 - button "New session":
@@ -30,8 +31,8 @@
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
 - text: 详情

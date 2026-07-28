@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import SessionStore, { Session, SessionId, type UserMessageData } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 
 interface Harness {
@@ -17,7 +17,7 @@ interface Harness {
 }
 
 /** Append one idle injection using the public Agent contract (idle inject wraps in a one-shot injection turn, per turn enclosure). */
-function appendInjection(session: Session, input: UserMessageData): void {
+function appendInjection(session: Session, input: UserMessage): void {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   const turn = (lastStart?.data.turn ?? 0) + 1
   session.append('turn/start', { turn, trigger: { kind: 'injection', source: input.source } })
@@ -37,10 +37,10 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     ctx: new Context(),
     get status() { return status },
     get acceptsNextStep() { return status === 'running' },
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject(input) { appendInjection(session, input); return AgentMessageId('stub') },
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject(input) { appendInjection(session, input) },
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }

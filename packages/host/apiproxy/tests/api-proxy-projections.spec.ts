@@ -12,6 +12,7 @@ import { Context } from 'cordis'
 import { z } from 'zod'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -61,7 +62,10 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
 /** Append `count` user messages so the log has paginable message boundaries. */
 function seedMessages(session: Session, count: number): void {
   for (let i = 0; i < count; i++) {
-    session.append('user/message', { content: [{ type: 'text', text: `m${i}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `m${i}` }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
   }
 }
 
