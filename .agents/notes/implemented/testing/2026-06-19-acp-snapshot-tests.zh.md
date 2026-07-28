@@ -57,7 +57,7 @@ Status: implemented
 
 两个表面互补：stdout 覆盖精简的自动化线协议，JSONL 覆盖线协议有意省略的 loop、工具和 boundary 结构。
 
-规范化会替换会话、cwd、协议 id、时间戳、路径和进程易变值，同时保留确定性序号。场景把真实 bash 使用限制在稳定命令上。stdout 预期输出仍是线协议形状的 JSONL，每个原始行都必须可解析为 JSON。Vitest 只更新 stdout 预期输出；规范化会话相等性检查从不覆盖重放 fixture。
+规范化会替换会话、cwd、协议 id、时间戳、路径和进程易变值，同时保留确定性序号。录制与刷新还会在回放 fixture 中将生成的 workspace 及其文件系统解析出的别名存储为 `{{cwd}}`，使平台临时根目录和随机 basename 不影响录制结果；手工编写的临时路径与显式 `workspaceParent` 下的 cwd 值仍保留字面值。场景把真实 bash 使用限制在稳定命令上。stdout 预期输出仍是线协议形状的 JSONL，每个原始行都必须可解析为 JSON。普通 Vitest 快照更新只写入 stdout 预期输出；回放 fixture 的写入由显式 `record` 和 `refresh` 模式负责。
 
 ### 隔离：当前靠归一化，后续可加沙箱
 

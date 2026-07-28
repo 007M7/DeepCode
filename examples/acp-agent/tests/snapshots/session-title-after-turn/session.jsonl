@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"session-title-after-turn","createdAt":0,"cwd":"/tmp/session-title-after-turn","delegationDepth":0}
+{"type":"session","version":0,"id":"session-title-after-turn","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785222848166,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785222848166,"data":{"content":[{"type":"text","text":"Reply with exactly TITLE_DONE. Do not use tools."}],"source":{"kind":"user"},"role":"user","id":"00000000-0000-4000-8000-000000000001"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785222848166,"data":{"title":"Reply with exactly TITLE_DONE. Do","messageSeqs":[1],"source":{"kind":"fallback"}}}
