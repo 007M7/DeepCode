@@ -1,0 +1,21 @@
+# Test-only composition: keep tmux-context opt-in while exercising its real Loader/app path.
+# A deterministic mock ctx.bash returns a fixed tmux reading, so the injected location
+# is stable without a real tmux server on the test host.
+- id: tmux-context-mock-llm
+  name: './tmux-context-mock-llm.ts'
+
+- id: bash
+  name: './tmux-context-mock-bash.ts'
+
+- id: tmux-context
+  name: '@deepseek-ai/dsh-tmux-context'
+
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
+  config:
+    provider: tmux-context-mock
+    model: tmux-context-mock
+    persona: 'Test the tmux-context plugin.'
+    persistenceRoot: './.sessions'
+    persistenceCompression: 'none'
+    workspaceContext: false
