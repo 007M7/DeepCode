@@ -28,4 +28,4 @@ Host 的 `backscanTodos`（以及 fixture 平行实现）从日志尾部向前�
 
 ## Consequences
 
-交互式宿主与 history 投影共用同一生命周期规则；重开会话仅在其后没有更新的 turn 启动时恢复计划。对 [web todo 展示](2026-07-23-web-todo-display.md) 与 [`todo_write` 工具](2026-06-29-todo-write-tool.md) 中「会话级站立计划」表述构成部分取代：事件溯源、后写覆盖与两个渲染面仍归那两份 Note；本 Note 拥有 turn 边界清空。覆盖：客户端 session 对实时清空 + 回放为空的用例、host 在写入后的 `turn/start` 之后的 history 投影，以及既有的 web todo-display 快照（fixture 第 65 轮仍是日志末端，计划条仍被钉住）。
+交互式宿主与 history 投影共用同一生命周期规则；重开会话仅在其后没有更新的 turn 启动时恢复计划。对 [web todo 展示](2026-07-23-web-todo-display.md) 与 [`todo_write` 工具](2026-06-29-todo-write-tool.md) 中「会话级站立计划」表述构成部分取代：事件溯源、后写覆盖与两个渲染面仍归那两份 Note；本 Note 拥有 turn 边界清空。覆盖：客户端 session 对实时清空 + 回放为空的用例、host 在写入后的 `turn/start` 之后的 history 投影、站立计划的 web todo-display 快照（fixture 第 65 轮仍是日志末端），以及开启下一 turn 并钉住计划条消失的 assembled web／TUI 快照。

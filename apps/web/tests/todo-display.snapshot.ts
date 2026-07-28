@@ -189,3 +189,31 @@ it('collapses the plan strip to the count summary and restores it', async () => 
   fireEvent.click(header)
   expect(panel.querySelectorAll('li')).toHaveLength(3)
 })
+
+it('hides the plan strip when the next turn starts', async () => {
+  boot()
+  await openFixtureSession()
+  expect(document.querySelector('[data-testid="todo-panel"]')).not.toBeNull()
+
+  const composer = await screen.findByPlaceholderText('Message the agent', {}, { timeout: 10_000 })
+  fireEvent.change(composer, { target: { value: '下一轮清空计划' } })
+  fireEvent.keyDown(composer, { key: 'Enter' })
+
+  await screen.findByText('下一轮清空计划', { exact: true }, { timeout: 10_000 })
+  await waitFor(() => {
+    expect(document.querySelector('[data-testid="todo-panel"]')).toBeNull()
+  }, { timeout: 10_000 })
+
+  expect({
+    promptVisible: screen.getByText('下一轮清空计划', { exact: true }).textContent,
+    panelGone: document.querySelector('[data-testid="todo-panel"]') === null,
+    // Historical todo_write row stays in the flow; only the dock strip clears.
+    rowStillPresent: document.querySelector('[data-sample="todo-row"]') !== null,
+  }).toMatchInlineSnapshot(`
+    {
+      "panelGone": true,
+      "promptVisible": "下一轮清空计划",
+      "rowStillPresent": true,
+    }
+  `)
+})

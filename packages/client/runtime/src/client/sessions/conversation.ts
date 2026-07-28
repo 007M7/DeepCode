@@ -243,7 +243,8 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
-   *  write (last write wins); empty = the log holds no plan. */
+  /** Standing plan strip: the latest `todo/write` with no later `turn/start`. Seeded from the
+   *  tail history page, overwritten by each live write, cleared on each live `turn/start`;
+   *  empty when no plan stands. */
   todos: readonly TodoItem[]
 }

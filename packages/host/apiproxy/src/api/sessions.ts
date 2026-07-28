@@ -149,10 +149,11 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
-   * The tail page (beforeSeq absent) also carries `todos` — the session's current todo
-   * projection (latest `todo/write` over the FULL log, independent of the page window) —
-   * so a paged client restores the plan without walking history; absent when the session
-   * never wrote one. Older pages omit it (the projection is session-level, not per-page).
+   * The tail page (beforeSeq absent) also carries `todos` — the standing plan over the
+   * FULL log (latest `todo/write` with no later `turn/start`), independent of the page
+   * window — so a paged client restores the plan without walking history. Absent when no
+   * plan stands (never wrote one, or a later `turn/start` retired it). Older pages omit
+   * it (the projection is session-level, not per-page).
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>

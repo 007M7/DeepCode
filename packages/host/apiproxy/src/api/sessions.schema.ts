@@ -139,7 +139,7 @@ export const historyEntrySchema = z.object({
   view: toolEventViewSchema.optional(),
 }) satisfies z.ZodType<Wire<HistoryEntry>>
 
-/** One todo item of the tail page's session-level projection (the todo/write payload shape). */
+/** One todo item of the tail page's standing-plan projection (the todo/write payload shape). */
 export const todoItemSchema = z.object({
   content: z.string(),
   status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
