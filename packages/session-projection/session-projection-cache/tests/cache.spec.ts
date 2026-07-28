@@ -58,7 +58,8 @@ function fakePersistence(logs: Map<string, SessionEvent[]>) {
 }
 
 /** Header shape for cachedSnapshot calls (fake logs stamp createdAt 0, no cwd). */
-const headerOf = (id: SessionId, createdAt = 0) => ({ version: 0, id, createdAt })
+const headerOf = (id: SessionId, createdAt = 0, cwd?: string) =>
+  ({ version: 0, id, createdAt, ...cwd === undefined ? {} : { cwd } })
 
 interface HarnessOptions {
   pool?: MemoryMediaPool
@@ -164,6 +165,39 @@ describe('SessionProjectionCache write policy', () => {
     await vi.advanceTimersByTimeAsync(1)
     await vi.runAllTicks()
     expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['slow'] })
+  })
+
+  it('write() on a never-dirty session checkpoints directly and rejects a non-JSON unit state', async () => {
+    const { ctx, pool } = await harness()
+    // Never dirtied: no events — write() still lands the init-derived cut.
+    const clean = ctx.sessions.create(SessionId('clean-write'))
+    await ctx.sessionProjectionCache.write(clean)
+    expect(storedRows(pool, clean.id)?.['cache-test/marks']).toEqual({ stateVersion: 1, observedSeq: -1, state: null })
+    // A unit whose state violates the plain-JSON contract fails the write loud.
+    ctx.sessionProjections.register({
+      key: 'cache-test/marks2' as never,
+      schema: { parse: (value: unknown) => value } as never,
+      init: () => new Map<string, string>(),
+      apply: (state: unknown) => state,
+      view: () => null as never,
+      stateVersion: 1,
+    } as never)
+    await expect(ctx.sessionProjectionCache.write(clean)).rejects.toThrow('not losslessly JSON-serializable')
+  })
+
+  it('plugin disposal clears armed interval timers and leaves cleaned sessions alone', async () => {
+    vi.useFakeTimers()
+    const { ctx, pool, fiber } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 5000 } })
+    const armed = ctx.sessions.create(SessionId('armed'))
+    const cleaned = ctx.sessions.create(SessionId('cleaned'))
+    mark(armed, ['pending']) // timer armed, no write yet
+    mark(cleaned, ['done'])
+    endTurn(cleaned) // mandatory write; markClean leaves {pending: 0, timer: undefined} in the map
+    await vi.runAllTicks()
+    await fiber.dispose()
+    // The armed timer died with the plugin: advancing time writes nothing.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(storedRows(pool, armed.id)).toBeUndefined()
   })
 
   it('contains a durable write failure: logs a warning, event path unharmed, next write self-heals', async () => {
@@ -279,6 +313,41 @@ describe('SessionProjectionCache cold read', () => {
     expect(snapshot.values['cache-test/marks']).toEqual({ marks: ['real'] })
     // The write-back rebinds the record to the actual log's identity.
     expect(storedRecord(samePool, SessionId('reborn'))?.identity).toEqual({ createdAt: 0 })
+  })
+
+  it('cachedSnapshot returns undefined when every stored row is version-mismatched', async () => {
+    const pool = new MemoryMediaPool()
+    seedRow(pool, 'all-stale', { stateVersion: 99, observedSeq: 4, state: { marks: ['old'] } })
+    const { cache } = await harness({ pool })
+    expect(cache.cachedSnapshot(headerOf(SessionId('all-stale')))).toBeUndefined()
+  })
+
+  it('binds identity on cwd too: a matching cwd serves, a moved session does not', async () => {
+    const pool = new MemoryMediaPool()
+    seedRow(pool, 'homed', { stateVersion: 1, observedSeq: 2, state: { marks: ['w'] } }, { createdAt: 0, cwd: '/work' })
+    const { cache } = await harness({ pool })
+    const id = SessionId('homed')
+    expect(cache.cachedSnapshot(headerOf(id, 0, '/work'))?.values['cache-test/marks']).toEqual({ marks: ['w'] })
+    expect(cache.cachedSnapshot(headerOf(id, 0, '/elsewhere'))).toBeUndefined()
+    expect(cache.cachedSnapshot(headerOf(id, 0))).toBeUndefined()
+  })
+
+  it('dates an empty stored log at -1 in the zero-units topology', async () => {
+    const pool = new MemoryMediaPool()
+    const logs = new Map([['empty', [] as SessionEvent[]]])
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
+    const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', facility)
+    ctx.provide('storageDomain', facility)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.provide('sessionPersistence', fakePersistence(logs) as never)
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    await expect(ctx.sessionProjectionCache.coldSnapshot(SessionId('empty')))
+      .resolves.toEqual({ asOfSeq: -1, values: {} })
   })
 
   it('cachedSnapshot serves identity-matching rows with the cut watermark and refuses unrelated ones', async () => {

@@ -186,9 +186,10 @@ export class SessionProjectionCache extends Service {
       restored = this.ctx.sessionProjections.restore(cached, tail.events, floor)
     } catch {
       // The recoverable restore failures: an unrelated record, or a row
-      // overreaching the stored log end (or predating the floor). All
-      // resolve identically — discard the cache and refold the full log.
-      const whole = floor === 0 && related ? tail : await persistence.readFrom(id, 0, signal)
+      // overreaching the stored log end (or predating the floor). Both imply
+      // floor > 0 (baseSeq-0 restores never throw and an unrelated record
+      // still carried a usable watermark), so the full log is a fresh read.
+      const whole = await persistence.readFrom(id, 0, signal)
       restored = this.ctx.sessionProjections.restore({}, whole.events, 0)
     }
     await this.putSoft(id, identityOf(tail.meta), restored.checkpoint, 'cold-read write-back')
@@ -237,11 +238,12 @@ export class SessionProjectionCache extends Service {
     }, 'sessionProjectionCache.timers')
   }
 
-  /** One fail-soft durable checkpoint: skip when clean, log on failure. */
+  /**
+   * One fail-soft durable checkpoint. Every caller has work by construction:
+   * the throttle triggers only fire dirty (markClean clears the timer with
+   * the counter) and the two mandatory points write unconditionally.
+   */
   private async flushSoft(session: Session, trigger: string): Promise<void> {
-    const state = this.dirty.get(session)
-    const mandatory = trigger === 'turn/end' || trigger === 'detach'
-    if (!mandatory && (state === undefined || state.pending === 0)) return
     try {
       await this.write(session)
     } catch (error) {
