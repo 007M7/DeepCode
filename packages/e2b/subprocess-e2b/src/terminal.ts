@@ -9,7 +9,7 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
-import { SENSITIVE_ENV_PATTERN, SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
+import { SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessOutcome,
   SubprocessTerminalForeground,
@@ -18,6 +18,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import { scrubRemoteEnvironment } from './environment.ts'
 
 const POLL_MS = 20
 
@@ -71,15 +72,7 @@ function serializeValues(values: readonly string[], kind: string): string {
 }
 
 function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
-  const environment = new Map<string, string>()
-  for (const entry of raw.split('\0')) {
-    if (entry.length === 0) continue
-    const separator = entry.indexOf('=')
-    if (separator <= 0) continue
-    const name = entry.slice(0, separator)
-    if (name.startsWith('DSH_') || SENSITIVE_ENV_PATTERN.test(name)) continue
-    environment.set(name, entry.slice(separator + 1))
-  }
+  const environment = scrubRemoteEnvironment(raw)
   for (const [name, value] of Object.entries(explicit ?? {})) {
     if (name.length === 0 || name.includes('=') || name.includes('\0') || value.includes('\0')) {
       throw new Error('subprocess-e2b: terminal environment entries require non-empty NUL-free names without = and NUL-free values')

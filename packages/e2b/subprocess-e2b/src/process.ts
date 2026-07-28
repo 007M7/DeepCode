@@ -8,7 +8,6 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
-import { SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessCollect,
   SubprocessHandle,
@@ -17,6 +16,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
+import { scrubRemoteEnvironment } from './environment.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
 
 const GROUP_POLL_MS = 20
@@ -74,15 +74,7 @@ interface RemotePaths {
 }
 
 function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
-  const environment = new Map<string, string>()
-  for (const entry of raw.split('\0')) {
-    if (entry.length === 0) continue
-    const separator = entry.indexOf('=')
-    if (separator <= 0) continue
-    const name = entry.slice(0, separator)
-    if (name.startsWith('DSH_') || SENSITIVE_ENV_PATTERN.test(name)) continue
-    environment.set(name, entry.slice(separator + 1))
-  }
+  const environment = scrubRemoteEnvironment(raw)
   for (const [name, value] of Object.entries(explicit ?? {})) environment.set(name, value)
   return [...environment].map(([name, value]) => `${name}=${value}\0`).join('')
 }
