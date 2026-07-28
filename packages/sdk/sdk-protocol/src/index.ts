@@ -8,5 +8,18 @@
  * @module @deepseek-ai/dsh-sdk-protocol
  */
 
-export * from './transport.ts'
-export * from './types.ts'
+export { JsonRpcLineTransport, JsonRpcResponseError } from './transport.ts'
+export type { JsonRpcTransportPeer } from './transport.ts'
+export type {
+  HarnessSdkNotificationMap,
+  HarnessSdkRequestMap,
+  InitializeParams,
+  InitializeResult,
+  SdkRunStatus,
+  SessionEventNotification,
+  SessionFinishedNotification,
+  SessionPromptParams,
+  SessionPromptResult,
+  SubagentFinishedNotification,
+  SubagentStartedNotification,
+} from './types.ts'
