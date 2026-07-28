@@ -1,6 +1,6 @@
 /* Full-bleed, fixed-height host for the trajectory ledger and waterfall. */
 .root {
-  --dsh-trajectory-toolbar-height: 48px;
+  --dsh-trajectory-toolbar-height: 40px;
 
   display: flex;
   flex-direction: column;
@@ -21,14 +21,6 @@
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-xs-13);
-}
-
-.contextLayout {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
 }
 
 .ledger {

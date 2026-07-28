@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { structuredPatch } from 'diff'
 import type {
   AssistantRequestConfig, ConversationPromptSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -16,8 +17,10 @@ import type { TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
+  system: 'SYSTEM',
   user: 'USER',
   context: 'CONTEXT',
+  compacted: 'COMPACTED',
   message: 'ASSISTANT',
   tool: 'TOOL',
   subtool: 'SUBTOOL',
@@ -40,12 +43,14 @@ type DetailTab =
   | 'overview'
   | 'rendered'
   | 'source'
+  | 'origin'
   | 'input'
   | 'output'
   | 'schema'
   | 'options'
   | 'usage'
   | 'timing'
+  | 'diff'
 type RecordState = 'complete' | 'running' | 'error'
 
 interface DetailTabItem {
@@ -86,10 +91,13 @@ const TOOL_REQUEST_MIN_WIDTH = 180
 const TOOL_REQUEST_MAX_WIDTH = 480
 const DEFAULT_TOOL_REQUEST_SHARE = 0.36
 const DEFAULT_TOOL_REQUEST_OFFSET = 56
-const SYSTEM_PROMPT_INDEX = 0
 const SYSTEM_PROMPT_TABS: readonly DetailTabItem[] = [
   { id: 'system-prompt', label: 'System Prompt' },
   { id: 'tools', label: 'Tools' },
+]
+const SYSTEM_UPDATE_TABS: readonly DetailTabItem[] = [
+  { id: 'diff', label: 'Diff' },
+  ...SYSTEM_PROMPT_TABS,
 ]
 const REQUEST_TABS: readonly DetailTabItem[] = [
   { id: 'overview', label: 'Summary' },
@@ -125,19 +133,40 @@ function formatDurationMs(milliseconds: number): string {
   return `${(milliseconds / 1_000).toFixed(milliseconds < 10_000 ? 2 : 1)} s`
 }
 
-function formatStartedAt(timestamp: number | null): { label: string; title?: string } {
-  if (timestamp === null || !Number.isFinite(timestamp)) return { label: 'Not available' }
+function formatStartedAt(timestamp: number | null): string {
+  if (timestamp === null || !Number.isFinite(timestamp)) return 'Not available'
   const date = new Date(timestamp)
   const two = (value: number) => String(value).padStart(2, '0')
   const three = (value: number) => String(value).padStart(3, '0')
   const time = `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}.${three(date.getMilliseconds())}`
   const day = `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
-  return { label: time, title: `${day} ${time}` }
+  return `${day} ${time}`
 }
 
 function StartedAtValue({ timestamp }: { timestamp: number | null }) {
-  const formatted = formatStartedAt(timestamp)
-  return <dd title={formatted.title}>{formatted.label}</dd>
+  const [showUnix, setShowUnix] = useState(false)
+  if (timestamp === null || !Number.isFinite(timestamp)) return <dd>Not available</dd>
+  return (
+    <dd>
+      <button
+        type="button"
+        className={css.timestampToggle}
+        title={showUnix ? 'Show local time' : 'Show Unix timestamp'}
+        onClick={(event) => {
+          const selection = window.getSelection()
+          if (
+            selection !== null
+            && !selection.isCollapsed
+            && selection.rangeCount > 0
+            && selection.getRangeAt(0).intersectsNode(event.currentTarget)
+          ) return
+          setShowUnix(current => !current)
+        }}
+      >
+        {showUnix ? (timestamp / 1_000).toFixed(3) : formatStartedAt(timestamp)}
+      </button>
+    </dd>
+  )
 }
 
 function totalTime(metrics: AssistantMetricDetail): string {
@@ -184,8 +213,6 @@ function AssistantTimingPanel({ metrics }: { metrics: AssistantMetricDetail }) {
 
 /** Props for the trajectory ledger. */
 export interface TrajectoryTableProps {
-  /** Latest model request header in force for the selected context. */
-  prompt?: ConversationPromptSnapshot
   /** Session-global request numbers for the request groups visible in this context. */
   requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
@@ -200,11 +227,23 @@ export interface TrajectoryTableProps {
   onToggleAssistant(index: number): void
 }
 
-/** One context-local request identity paired with its session-global number. */
+/** One request identity paired with its session-global number. */
 export interface TrajectoryRequestNumber {
+  /** Request anchor event sequence; absent for the currently streaming ordinary request. */
+  seq?: number
   turn: number
   step: number
+  group: string
   number: number
+  purpose?: 'compaction'
+  status?: 'complete' | 'running' | 'error'
+  startedAt?: number
+  completedAt?: number | null
+  error?: string
+  retry?: number
+  maxRetries?: number
+  retryDelayMs?: number
+  resultSeq?: number
   provider?: string
   model?: string
   requestConfig?: AssistantRequestConfig
@@ -226,7 +265,10 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
     let firstInTurn = true
     const records = turn.groups.flatMap((group) => {
       return group.cells.map((cell, index) => {
-        const turnStart = firstInTurn && index === 0
+        const turnStart = firstInTurn
+          && cell.requestOnly !== true
+          && cell.kind !== 'system'
+          && cell.kind !== 'compacted'
         if (turnStart) firstInTurn = false
         return {
           turn: turn.turn,
@@ -260,7 +302,7 @@ function indexRequestNumbers(
 ): ReadonlyMap<string, number> {
   const numbers = new Map<string, number>()
   for (const request of sessionNumbers ?? []) {
-    numbers.set(requestKey(request.turn, `Step ${request.step}`), request.number)
+    numbers.set(requestKey(request.turn, request.group), request.number)
   }
   let next = Math.max(0, ...numbers.values()) + 1
   const boundaries = records
@@ -274,14 +316,6 @@ function indexRequestNumbers(
 }
 
 function summarizeTurn(records: readonly TableRecord[]): string {
-  const userText = records
-    .filter(record => record.cell.kind === 'user')
-    .map(record => recordDisplayText(record.cell))
-    .find(text => text !== '')
-  const assistantText = records
-    .filter(record => record.cell.kind === 'message')
-    .map(record => recordDisplayText(record.cell))
-    .find(text => text !== '')
   const steps = new Set(
     records
       .map(record => record.group)
@@ -290,14 +324,10 @@ function summarizeTurn(records: readonly TableRecord[]): string {
   const toolCalls = records.filter(record =>
     record.cell.kind === 'tool' || record.cell.kind === 'subtool',
   ).length
-  const parts: string[] = []
-  const message = userText ?? assistantText
-  if (message !== undefined) parts.push(message)
-  parts.push(
+  return [
     `${steps} ${steps === 1 ? 'step' : 'steps'}`,
     `${toolCalls} tool ${toolCalls === 1 ? 'call' : 'calls'}`,
-  )
-  return parts.join(' · ')
+  ].join(' · ')
 }
 
 function collapseTurnRecords(
@@ -314,8 +344,11 @@ function collapseTurnRecords(
   return records.flatMap((record) => {
     if (!collapsedTurns.has(record.turn)) return [record]
     const turnRecords = recordsByTurn.get(record.turn) ?? [record]
-    if (turnRecords.length <= 1) return [record]
-    if (!record.turnStart) return []
+    if (record.cell.requestOnly === true || record.cell.kind === 'system') return [record]
+    const contentRecords = turnRecords.filter(candidate =>
+      candidate.cell.requestOnly !== true && candidate.cell.kind !== 'system')
+    if (contentRecords.length <= 1) return [record]
+    if (record.cell.index !== contentRecords[0]?.cell.index) return []
     return [
       { ...record, turnEnd: false },
       {
@@ -323,7 +356,7 @@ function collapseTurnRecords(
         groupStart: false,
         turnStart: false,
         turnEnd: true,
-        collapsedSummary: summarizeTurn(turnRecords.slice(1)),
+        collapsedSummary: summarizeTurn(contentRecords.slice(1)),
         collapsedSummaryKind: 'turn',
       },
     ]
@@ -395,6 +428,7 @@ function collapseAssistantRecords(
 
 function stateOf(record: TableRecord): RecordState {
   if (record.cell.isError) return 'error'
+  if (record.cell.kind === 'compacted' && record.cell.timeSeconds === null) return 'running'
   if (
     (record.cell.kind === 'tool' || record.cell.kind === 'subtool')
     && record.cell.outputDetail === undefined
@@ -437,6 +471,9 @@ function inputTotal(usage: TrajectoryUsage): number | undefined {
 function UsageRows({ usage }: { usage: TrajectoryUsage | undefined }) {
   if (usage === undefined) return <p className={css.noPayload}>Usage not reported</p>
   const totalInput = inputTotal(usage)
+  const otherOutput = usage.output !== undefined && usage.reasoning !== undefined
+    ? usage.output - usage.reasoning
+    : undefined
   return (
     <dl className={css.overview}>
       {totalInput !== undefined && (
@@ -467,6 +504,12 @@ function UsageRows({ usage }: { usage: TrajectoryUsage | undefined }) {
         <div className={css.requestTokenDetail}>
           <dt>Reasoning</dt>
           <dd>{usage.reasoning} tok</dd>
+        </div>
+      )}
+      {otherOutput !== undefined && (
+        <div className={css.requestTokenDetail}>
+          <dt>Content</dt>
+          <dd>{otherOutput} tok</dd>
         </div>
       )}
     </dl>
@@ -509,6 +552,46 @@ function RequestOptions({
       data={options}
       label="Request options JSON"
       className={preview ? css.jsonPreview! : css.jsonPayload!}
+    />
+  )
+}
+
+function messageOriginLabel(source: unknown): string {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    return 'Unknown'
+  }
+  const kind = Reflect.get(source, 'kind')
+  if (kind === 'user') return 'User'
+  if (kind === 'plugin') {
+    const plugin = Reflect.get(source, 'plugin')
+    return typeof plugin === 'string' && plugin !== ''
+      ? `Plugin · ${plugin}`
+      : 'Plugin'
+  }
+  if (kind === 'goal') {
+    const round = Reflect.get(source, 'round')
+    return typeof round === 'number' && round > 0
+      ? `Goal · Round ${round}`
+      : 'Goal'
+  }
+  if (typeof kind !== 'string' || kind === '') return 'Unknown'
+  return `${kind[0]?.toUpperCase() ?? ''}${kind.slice(1)}`
+}
+
+function MessageOrigin({ record }: { record: TableRecord }) {
+  const source = record.cell.messageSource
+  if (source === undefined) return <p className={css.noPayload}>Origin not recorded</p>
+  const sourceRoot = typeof source === 'object' && source !== null
+    ? source
+    : { value: source }
+  const data = record.cell.messageMeta === undefined
+    ? sourceRoot
+    : { source, meta: record.cell.messageMeta }
+  return (
+    <JsonTree
+      data={data}
+      label="Message origin JSON"
+      className={css.jsonPayload!}
     />
   )
 }
@@ -557,16 +640,32 @@ function markdownSource(record: TableRecord): string | undefined {
   if (record.cell.kind === 'user' || record.cell.kind === 'context') {
     return record.cell.inputDetail
   }
-  if (record.cell.kind === 'message') return record.cell.outputDetail
+  if (record.cell.kind === 'message' || record.cell.kind === 'compacted') {
+    return record.cell.outputDetail
+  }
   return undefined
 }
 
 function detailTabs(record: TableRecord): readonly DetailTabItem[] {
+  if (record.cell.kind === 'system') {
+    return record.cell.previousPromptDetail === undefined
+      ? SYSTEM_PROMPT_TABS
+      : SYSTEM_UPDATE_TABS
+  }
+  if (record.cell.kind === 'compacted') {
+    return [
+      { id: 'overview', label: 'Summary' },
+      { id: 'source', label: 'Raw Output' },
+    ]
+  }
   if (isMarkdownRecord(record)) {
     return [
       { id: 'overview', label: 'Summary' },
       { id: 'rendered', label: 'Preview' },
       { id: 'source', label: 'Source' },
+      ...(record.cell.messageSource === undefined
+        ? []
+        : [{ id: 'origin', label: 'Origin' } as const]),
     ]
   }
   return [
@@ -586,8 +685,7 @@ function recordDisplayText(cell: TrajectoryCellProps): string {
       ? cell.outputDetail ?? cell.thinkingDetail
       : undefined
   if (!markdown) return cell.text
-  const plainText = extractMarkdownPlainText(markdown)
-  return plainText.replace(/\s+/g, ' ').trim()
+  return extractMarkdownPlainText(markdown).replace(/\s+/g, ' ').trim()
 }
 
 function toolCallTextParts(
@@ -824,6 +922,83 @@ function ToolCatalog({ tools }: { tools: ConversationPromptSnapshot['tools'] }) 
   )
 }
 
+interface PromptDiffLine {
+  kind: 'meta' | 'context' | 'added' | 'removed'
+  text: string
+}
+
+function promptDiffLines(before: string, after: string): readonly PromptDiffLine[] {
+  const patch = structuredPatch('', '', before, after, undefined, undefined, { context: 3 })
+  return patch.hunks.flatMap((hunk, hunkIndex) => [
+    ...(hunkIndex === 0 ? [] : [{ kind: 'meta' as const, text: '' }]),
+    {
+      kind: 'meta' as const,
+      text: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+    },
+    ...hunk.lines.flatMap((line): PromptDiffLine[] => {
+      if (line.startsWith('\\')) return []
+      if (line.startsWith('+')) return [{ kind: 'added', text: line }]
+      if (line.startsWith('-')) return [{ kind: 'removed', text: line }]
+      return [{ kind: 'context', text: line }]
+    }),
+  ])
+}
+
+function PromptDiffSection({
+  title,
+  before,
+  after,
+}: {
+  title: string
+  before: string
+  after: string
+}) {
+  const lines = promptDiffLines(before, after)
+  if (lines.length === 0) return null
+  return (
+    <section className={css.promptDiffSection}>
+      <h3 className={css.promptDiffTitle}>{title}</h3>
+      <pre className={css.promptDiff}>
+        {lines.map((line, index) => (
+          <span className={css[`promptDiffLine${line.kind}`]} key={index}>
+            {line.text || ' '}
+            {'\n'}
+          </span>
+        ))}
+      </pre>
+    </section>
+  )
+}
+
+function SystemPromptDiff({
+  before,
+  after,
+}: {
+  before: ConversationPromptSnapshot
+  after: ConversationPromptSnapshot
+}) {
+  const toolsBefore = JSON.stringify(before.tools, null, 2)
+  const toolsAfter = JSON.stringify(after.tools, null, 2)
+  return (
+    <div className={css.promptDiffSections}>
+      {before.system !== after.system && (
+        <PromptDiffSection
+          title="System Prompt"
+          before={before.system}
+          after={after.system}
+        />
+      )}
+      {toolsBefore !== toolsAfter && (
+        <PromptDiffSection
+          title="Tools"
+          before={toolsBefore}
+          after={toolsAfter}
+        />
+      )}
+    </div>
+  )
+}
+
 function ToolOutputBlocks({
   blocks,
   preview,
@@ -862,7 +1037,7 @@ function MarkdownRecordContent({
   if (!rendered && record.cell.sourceBlocks && record.cell.sourceBlocks.length > 0) {
     return <SourceBlocks blocks={record.cell.sourceBlocks} onOpenCall={onOpenCall} />
   }
-  if (record.cell.kind === 'message' && record.cell.thinkingDetail) {
+  if (record.cell.thinkingDetail) {
     if (!rendered) {
       const source = [
         record.cell.thinkingDetail,
@@ -961,11 +1136,28 @@ function RecordTiming({ record }: { record: TableRecord }) {
 function RequestTiming({
   assistant,
   anchor,
+  request,
 }: {
   assistant: TableRecord | undefined
   anchor: TableRecord | undefined
+  request?: TrajectoryRequestNumber
 }) {
   if (assistant !== undefined) return <RecordTiming record={assistant} />
+  if (request?.startedAt !== undefined) {
+    const duration = request.completedAt === null || request.completedAt === undefined
+      ? null
+      : Math.max(0, (request.completedAt - request.startedAt) / 1000)
+    return (
+      <dl className={css.overview}>
+        <div><dt>Started</dt><StartedAtValue timestamp={request.startedAt} /></div>
+        <div><dt>Duration</dt><dd>{formatElapsedSeconds(duration)}</dd></div>
+        <div>
+          <dt>Timing source</dt>
+          <dd>{duration === null ? 'Session timestamps (running)' : 'Session timestamps'}</dd>
+        </div>
+      </dl>
+    )
+  }
   return (
     <dl className={css.overview}>
       <div>
@@ -992,7 +1184,11 @@ function RecordPayload({
     : 'No result captured'
   if (!value) return <p className={css.noPayload}>{missing}</p>
 
-  if (direction === 'output' && record.cell.outputBlocks && record.cell.outputBlocks.length > 0) {
+  if (
+    direction === 'output'
+    && record.cell.outputBlocks?.some(block =>
+      block.imageSrc !== undefined || block.content !== '') === true
+  ) {
     return (
       <ToolOutputBlocks
         blocks={record.cell.outputBlocks}
@@ -1029,6 +1225,7 @@ function RecordPayload({
       css.payload,
       preview ? css.payloadPreview : undefined,
       record.cell.isError ? css.error : undefined,
+      value === 'No output' ? css.noOutputText : undefined,
     ].filter((value): value is string => value !== undefined).join(' ')}
     >
       {value}
@@ -1141,7 +1338,6 @@ function OverviewSection({
  * @returns The ledger and an optional local record inspector.
  */
 export function TrajectoryTable({
-  prompt,
   requestNumbers: sessionRequestNumbers,
   turns,
   collapsedTurns,
@@ -1161,13 +1357,14 @@ export function TrajectoryTable({
   const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
   const turnRecords = collapseTurnRecords(allRecords, collapsedTurns)
   const records = collapseAssistantRecords(turnRecords, collapsedAssistants)
-  const systemPromptPreview = prompt === undefined
-    ? 'Request header not recorded'
-    : prompt.system === ''
-      ? 'No system prompt'
-      : extractMarkdownPlainText(prompt.system).replace(/\s+/g, ' ').trim()
-  const promptSelected = selectedIndex === SYSTEM_PROMPT_INDEX
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
+  const selectedPrompt = selected?.cell.kind === 'system'
+    ? selected.cell.promptDetail
+    : undefined
+  const selectedPreviousPrompt = selected?.cell.kind === 'system'
+    ? selected.cell.previousPromptDetail
+    : undefined
+  const promptSelected = selectedPrompt !== undefined
   const selectedState = selected === undefined ? undefined : stateOf(selected)
   const selectedRequestRecords = selectedRequest === null
     ? []
@@ -1179,23 +1376,27 @@ export function TrajectoryTable({
     record => record.cell.kind === 'message',
   )
   const selectedRequestAnchor = selectedRequestAssistant ?? selectedRequestRecords[0]
+  const selectedRequestInfo = selectedRequest === null
+    ? undefined
+    : sessionRequestNumbers?.find(request => request.number === selectedRequest.number)
   const selectedRequestState: RecordState | undefined = selectedRequest === null
     ? undefined
-    : selectedRequestAssistant?.cell.assistantMetrics?.completedTime === null
-      ? 'running'
-      : selectedRequestAssistant === undefined
-        && selectedRequestRecords.some(record => stateOf(record) === 'running')
+    : selectedRequestInfo?.status
+      ?? (selectedRequestAssistant?.cell.assistantMetrics?.completedTime === null
         ? 'running'
-        : 'complete'
+        : selectedRequestAssistant === undefined
+          && selectedRequestRecords.some(record => stateOf(record) === 'running')
+          ? 'running'
+          : 'complete')
   const selectedRequestToolCalls = selectedRequestRecords.filter(
     record => record.cell.kind === 'tool',
   ).length
   const selectedRequestSubtoolCalls = selectedRequestRecords.filter(
     record => record.cell.kind === 'subtool',
   ).length
-  const selectedRequestInfo = selectedRequest === null
-    ? undefined
-    : sessionRequestNumbers?.find(request => request.number === selectedRequest.number)
+  const selectedRequestResult = selectedRequestInfo?.resultSeq === undefined
+    ? selectedRequestAssistant
+    : allRecords.find(record => record.cell.sourceSeq === selectedRequestInfo.resultSeq)
   const selectedRequestUsage = selectedRequestInfo?.usage ?? (
     selectedRequestAssistant === undefined
       ? undefined
@@ -1223,9 +1424,7 @@ export function TrajectoryTable({
   const activeTurn = selectedRequest?.turn ?? selected?.turn
   const selectedTabs = selectedRequest !== null
     ? REQUEST_TABS.filter(tab => tab.id !== 'options' || selectedRequestOptions !== undefined)
-    : promptSelected
-      ? SYSTEM_PROMPT_TABS
-      : selected === undefined ? [] : detailTabs(selected)
+    : selected === undefined ? [] : detailTabs(selected)
   const selectedParents: ParentRecords = selected === undefined
     ? {}
     : parentRecords(allRecords, selected)
@@ -1260,15 +1459,10 @@ export function TrajectoryTable({
     setSelectedRequest(null)
     setSelectedIndex(index)
     if (record === undefined) return
-    const available = new Set(detailTabs(record).map(tab => tab.id))
+    const tabs = detailTabs(record)
+    const available = new Set(tabs.map(tab => tab.id))
     const recent = [...tabHistory.current].reverse().find(tab => available.has(tab))
-    setActiveTab(recent ?? 'overview')
-  }
-
-  const selectSystemPrompt = () => {
-    setSelectedRequest(null)
-    setSelectedIndex(SYSTEM_PROMPT_INDEX)
-    activateTab('system-prompt')
+    setActiveTab(recent ?? tabs[0]?.id ?? 'overview')
   }
 
   const selectRequest = (
@@ -1311,36 +1505,6 @@ export function TrajectoryTable({
             <col className={css.contentColumn} />
           </colgroup>
           <tbody>
-            <tr
-              tabIndex={0}
-              aria-label="System prompt and tool catalog"
-              aria-selected={promptSelected}
-              data-kind="system"
-              data-selected={promptSelected || undefined}
-              onClick={selectSystemPrompt}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return
-                event.preventDefault()
-                selectSystemPrompt()
-              }}
-            >
-              <td className={css.event}>
-                {promptSelected && <span className={css.selectionRail} aria-hidden="true" />}
-                <div className={css.eventInner}>
-                  <span className={`${css.kindSlot} ${css.kindSlotLeft}`}>
-                    <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
-                  </span>
-                </div>
-              </td>
-              <td className={css.content}>
-                <span
-                  className={css.contentText}
-                  title={prompt?.system || systemPromptPreview}
-                >
-                  {systemPromptPreview}
-                </span>
-              </td>
-            </tr>
             {records.map((record) => {
               const displayText = recordDisplayText(record.cell)
               const toolCallText = toolCallTextParts(record.cell.kind, displayText)
@@ -1348,20 +1512,38 @@ export function TrajectoryTable({
                 ? displayText
                 : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
               const isCollapsedSummary = record.collapsedSummary !== undefined
+              const isRequestOnly = record.cell.requestOnly === true
+              const isInitialSystem = record.cell.kind === 'system'
+                && record.cell.index === allRecords[0]?.cell.index
               const request = record.groupStart
                 && !isCollapsedSummary
                 && !collapsedTurns.has(record.turn)
                 ? requestNumbers.get(requestKey(record.turn, record.group))
                 : undefined
+              const requestInfo = request === undefined
+                ? undefined
+                : sessionRequestNumbers?.find(candidate => candidate.number === request)
+              const requestLabel = request === undefined
+                ? undefined
+                : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
+              const requestSelected = request !== undefined
+                && selectedRequest?.turn === record.turn
+                && selectedRequest.number === request
               return (
                 <tr
                   key={`${record.cell.index}:${record.collapsedSummaryKind ?? 'record'}`}
-                  tabIndex={0}
+                  tabIndex={isRequestOnly ? -1 : 0}
                   aria-label={isCollapsedSummary
                     ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
-                    : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
-                  aria-selected={!isCollapsedSummary && selectedIndex === record.cell.index}
+                    : isRequestOnly
+                      ? `Request ${request ?? ''}, compaction`
+                      : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
+                  aria-selected={!isCollapsedSummary && !isRequestOnly && selectedIndex === record.cell.index}
                   data-kind={record.cell.kind}
+                  data-record-index={!isCollapsedSummary && !isRequestOnly
+                    ? record.cell.index
+                    : undefined}
+                  data-request-only={isRequestOnly || undefined}
                   data-group-start={record.groupStart || undefined}
                   data-turn-start={record.turnStart || undefined}
                   data-error={record.cell.isError || undefined}
@@ -1369,14 +1551,16 @@ export function TrajectoryTable({
                   data-turn-end={record.turnEnd || undefined}
                   data-collapsed-summary={record.collapsedSummaryKind}
                   data-selected={!isCollapsedSummary && selectedIndex === record.cell.index || undefined}
-                  onClick={isCollapsedSummary
+                  onClick={isRequestOnly
+                    ? undefined
+                    : isCollapsedSummary
                     ? () => {
                         if (record.collapsedSummaryKind === 'turn') onToggleTurn(record.turn)
                         else onToggleAssistant(record.cell.index)
                       }
                     : () => { selectRecord(record.cell.index) }}
                   onDoubleClick={(event) => {
-                    if (isCollapsedSummary) return
+                    if (isCollapsedSummary || isRequestOnly) return
                     if (collapsedTurns.has(record.turn)) {
                       event.preventDefault()
                       onToggleTurn(record.turn)
@@ -1391,11 +1575,15 @@ export function TrajectoryTable({
                       return
                     }
                     if (!record.turnStart) return
-                    if (allRecords.filter(candidate => candidate.turn === record.turn).length <= 1) return
+                    if (allRecords.filter(candidate =>
+                      candidate.turn === record.turn
+                      && candidate.cell.requestOnly !== true
+                      && candidate.cell.kind !== 'system').length <= 1) return
                     event.preventDefault()
                     onToggleTurn(record.turn)
                   }}
                   onKeyDown={(event) => {
+                    if (isRequestOnly) return
                     if (event.key !== 'Enter' && event.key !== ' ') return
                     event.preventDefault()
                     if (isCollapsedSummary) {
@@ -1410,13 +1598,12 @@ export function TrajectoryTable({
                   {request !== undefined && (
                     <button
                       type="button"
-                      className={css.requestBoundaryControl}
-                      aria-label={`Request #${request}`}
-                      aria-pressed={
-                        selectedRequest?.turn === record.turn
-                        && selectedRequest.number === request
-                      }
-                      data-label={`Request #${request}`}
+                      className={requestSelected
+                        ? `${css.requestBoundaryControl} ${css.requestBoundaryControlActive}`
+                        : css.requestBoundaryControl}
+                      aria-label={requestLabel}
+                      aria-pressed={requestSelected}
+                      data-label={requestLabel}
                       onClick={(event) => {
                         event.stopPropagation()
                         selectRequest({
@@ -1428,26 +1615,35 @@ export function TrajectoryTable({
                       onDoubleClick={(event) => { event.stopPropagation() }}
                     />
                   )}
-                  {activeTurn === record.turn && (
+                  {activeTurn === record.turn && !isInitialSystem && (
                     <span className={css.turnRail} aria-hidden="true" />
                   )}
                   {!isCollapsedSummary && selectedIndex === record.cell.index && (
                     <span className={css.selectionRail} aria-hidden="true" />
                   )}
+                  {!isCollapsedSummary
+                    && !isRequestOnly
+                    && record.turnStart && (
+                    <span
+                      className={activeTurn === record.turn
+                        ? `${css.turnLabel} ${css.turnLabelActive}`
+                        : css.turnLabel}
+                    >
+                      Turn {record.turn}
+                    </span>
+                  )}
                   <div className={css.eventInner}>
-                    {!isCollapsedSummary && (
+                    {!isCollapsedSummary && !isRequestOnly && (
                       <span
-                        className={
-                          record.cell.kind === 'user'
-                            || record.cell.kind === 'context'
-                            || record.cell.kind === 'message'
-                            ? `${css.kindSlot} ${css.kindSlotLeft}`
-                            : `${css.kindSlot} ${css.kindSlotRight}`
-                        }
+                        className={css.kindSlot}
                       >
                         <span className={`${css.kindTag} ${
-                          record.cell.kind === 'context'
+                          record.cell.kind === 'system'
+                            ? css.systemNeutral
+                            : record.cell.kind === 'context'
                             ? css.contextGreen
+                            : record.cell.kind === 'compacted'
+                              ? css.compacted
                             : record.cell.kind === 'tool'
                               ? css.toolAmber
                               : record.cell.kind === 'message'
@@ -1459,21 +1655,14 @@ export function TrajectoryTable({
                         >
                           {KIND_LABEL[record.cell.kind]}
                         </span>
-                        {record.turnStart && record.cell.opensTurn && (
-                          <span
-                            className={activeTurn === record.turn
-                              ? `${css.turnLabel} ${css.turnLabelActive}`
-                              : css.turnLabel}
-                          >
-                            Turn {record.turn}
-                          </span>
-                        )}
                       </span>
                     )}
                   </div>
                 </td>
                 <td className={css.content}>
-                  {record.collapsedSummary !== undefined
+                  {isRequestOnly
+                    ? null
+                    : record.collapsedSummary !== undefined
                     ? (
                         <span className={css.collapsedTurnContent} title={record.collapsedSummary}>
                           <span className={css.collapsedTurnEllipsis}>…</span>
@@ -1508,7 +1697,12 @@ export function TrajectoryTable({
                           {record.cell.result !== undefined && (
                             <span className={record.cell.isError ? `${css.inlineResult} ${css.error}` : css.inlineResult}>
                               <span className={css.arrow}>→</span>
-                              <span className={css.inlineResultText}>{record.cell.result}</span>
+                              <span className={record.cell.result === 'No output'
+                                ? `${css.inlineResultText} ${css.noOutputText}`
+                                : css.inlineResultText}
+                              >
+                                {record.cell.result}
+                              </span>
                             </span>
                           )}
                         </span>
@@ -1611,18 +1805,27 @@ export function TrajectoryTable({
                       <span className={css.requestDetailsName}>
                         Request #{selectedRequest.number}
                       </span>
-                      <span className={css.detailsLocation}>Turn {selectedRequest.turn}</span>
+                      <span className={css.detailsLocation}>
+                        {selectedRequestInfo?.purpose === 'compaction'
+                          ? `Compaction · Turn ${selectedRequest.turn}`
+                          : `Turn ${selectedRequest.turn}`}
+                      </span>
                     </>
                   )
                 : promptSelected
                 ? (
-                    <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
+                    <>
+                      <span className={`${css.kindTag} ${css.systemNeutral}`}>SYSTEM</span>
+                      <span className={css.detailsLocation}>{selected?.cell.text}</span>
+                    </>
                   )
                 : selected !== undefined && (
                     <>
                       <span className={`${css.kindTag} ${
                         selected.cell.kind === 'context'
                           ? css.contextGreen
+                          : selected.cell.kind === 'compacted'
+                            ? css.compacted
                           : selected.cell.kind === 'tool'
                     ? css.toolAmber
                     : selected.cell.kind === 'message'
@@ -1634,7 +1837,11 @@ export function TrajectoryTable({
                       >
                         {KIND_LABEL[selected.cell.kind]}
                       </span>
-                      <span className={css.detailsLocation}>{`Turn ${selected.turn} · ${selected.group}`}</span>
+                      <span className={css.detailsLocation}>
+                        {selected.cell.kind === 'compacted'
+                          ? `Turn ${selected.turn}`
+                          : `Turn ${selected.turn} · ${selected.group}`}
+                      </span>
                     </>
                   )}
             </div>
@@ -1668,7 +1875,9 @@ export function TrajectoryTable({
           </div>
           <div
             id="trajectory-detail-panel"
-            className={css.detailBody}
+            className={activeTab === 'overview'
+              ? `${css.detailBody} ${css.detailBodySummary}`
+              : css.detailBody}
             role="tabpanel"
             aria-labelledby={`trajectory-detail-${activeTab}`}
           >
@@ -1681,6 +1890,12 @@ export function TrajectoryTable({
                     <dt>Status</dt>
                     <dd>{statusLabel(selectedRequestState)}</dd>
                   </div>
+                  {selectedRequestInfo?.purpose === 'compaction' && (
+                    <div>
+                      <dt>Purpose</dt>
+                      <dd>Compaction</dd>
+                    </div>
+                  )}
                   {(selectedRequestInfo?.provider
                     ?? selectedRequestInfo?.requestConfig?.provider) !== undefined && (
                     <div>
@@ -1711,7 +1926,30 @@ export function TrajectoryTable({
                       <dd>{selectedRequestSubtoolCalls}</dd>
                     </div>
                   )}
-                  {selectedRequestAssistant !== undefined && (
+                  {selectedRequestInfo?.error !== undefined && (
+                    <div>
+                      <dt>Error</dt>
+                      <dd>{selectedRequestInfo.error}</dd>
+                    </div>
+                  )}
+                  {selectedRequestInfo?.retry !== undefined && (
+                    <div>
+                      <dt>Retry</dt>
+                      <dd>
+                        Scheduled {selectedRequestInfo.retry}
+                        {selectedRequestInfo.maxRetries === undefined
+                          ? ''
+                          : ` of ${selectedRequestInfo.maxRetries}`}
+                      </dd>
+                    </div>
+                  )}
+                  {selectedRequestInfo?.retryDelayMs !== undefined && (
+                    <div>
+                      <dt>Retry delay</dt>
+                      <dd>{formatDurationMs(selectedRequestInfo.retryDelayMs)}</dd>
+                    </div>
+                  )}
+                  {selectedRequestResult !== undefined && (
                     <div>
                       <dt>Result</dt>
                       <dd className={css.overviewParentLinks}>
@@ -1719,10 +1957,14 @@ export function TrajectoryTable({
                           type="button"
                           className={css.overviewHierarchyNavLink}
                           onClick={() => {
-                            openRecordSummary(selectedRequestAssistant)
+                            openRecordSummary(selectedRequestResult)
                           }}
                         >
-                          <span>Assistant Message</span>
+                          <span>
+                            {selectedRequestInfo?.purpose === 'compaction'
+                              ? 'Compacted'
+                              : 'Assistant Message'}
+                          </span>
                           <IconChevronRightOutline14
                             className={css.overviewHierarchyJumpIconTight}
                             size={11}
@@ -1745,6 +1987,7 @@ export function TrajectoryTable({
                     <RequestTiming
                       assistant={selectedRequestAssistant}
                       anchor={selectedRequestAnchor}
+                      request={selectedRequestInfo}
                     />
                   </OverviewSection>
                 </div>
@@ -1763,30 +2006,93 @@ export function TrajectoryTable({
               <RequestTiming
                 assistant={selectedRequestAssistant}
                 anchor={selectedRequestAnchor}
+                request={selectedRequestInfo}
+              />
+            )}
+            {promptSelected
+              && selectedPreviousPrompt !== undefined
+              && activeTab === 'diff' && (
+              <SystemPromptDiff
+                before={selectedPreviousPrompt}
+                after={selectedPrompt}
               />
             )}
             {promptSelected && activeTab === 'system-prompt' && (
-              prompt === undefined
-                ? <p className={css.noPayload}>Request header not recorded</p>
-                : prompt.system === ''
+              selectedPrompt.system === ''
                   ? <p className={css.noPayload}>No system prompt in this request</p>
                   : (
                     <div className={`${css.markdownPayload} ${css.systemPrompt}`}>
-                      <MarkdownText text={prompt.system} />
+                      <MarkdownText text={selectedPrompt.system} />
                     </div>
                   )
             )}
             {promptSelected && activeTab === 'tools' && (
-              prompt === undefined
-                ? <p className={css.noPayload}>Request header not recorded</p>
-                : <ToolCatalog tools={prompt.tools} />
+              <ToolCatalog tools={selectedPrompt.tools} />
             )}
-            {!promptSelected && selected !== undefined && selectedState !== undefined && activeTab === 'overview' && (
+            {!promptSelected
+              && selected?.cell.kind === 'compacted'
+              && selectedState !== undefined
+              && activeTab === 'overview' && (
               <>
                 <dl className={css.overview}>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{statusLabel(selectedState)}</dd>
+                  </div>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
+                  </div>
+                  <div>
+                    <dt>Tokens</dt>
+                    <dd>{tokenSummary(selected.cell)}</dd>
+                  </div>
+                </dl>
+                {selected.cell.outputDetail !== undefined && (
+                  <div className={css.compactedSummary}>
+                    <MarkdownRecordContent
+                      record={selected}
+                      rendered
+                      thinkingExpanded={thinkingExpanded}
+                      onThinkingExpandedChange={setThinkingExpanded}
+                      onOpenCall={openCallSummary}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            {!promptSelected
+              && selected !== undefined
+              && selected.cell.kind !== 'compacted'
+              && selectedState !== undefined
+              && activeTab === 'overview' && (
+              <>
+                <dl className={css.overview}>
+                  {selected.cell.messageSource !== undefined && (
+                    <div>
+                      <dt>Origin</dt>
+                      <dd className={css.overviewParentLinks}>
+                        <button
+                          type="button"
+                          className={css.overviewHierarchyNavLink}
+                          onClick={() => { activateTab('origin') }}
+                        >
+                          <span>{messageOriginLabel(selected.cell.messageSource)}</span>
+                          <IconChevronRightOutline14
+                            className={css.overviewHierarchyJumpIconTight}
+                            size={11}
+                          />
+                        </button>
+                      </dd>
+                    </div>
+                  )}
                   {hasSelectedHierarchy && (
                     <div>
-                      <dt>Hierarchy</dt>
+                      <dt>
+                        {selectedAssistantRequestTarget !== undefined
+                          ? 'Origin'
+                          : 'Hierarchy'}
+                      </dt>
                       <dd className={css.overviewParentLinks}>
                         {selectedAssistantRequestTarget !== undefined && (
                           <button
@@ -1914,6 +2220,9 @@ export function TrajectoryTable({
                 onThinkingExpandedChange={setThinkingExpanded}
                 onOpenCall={openCallSummary}
               />
+            )}
+            {!promptSelected && selected !== undefined && activeTab === 'origin' && (
+              <MessageOrigin record={selected} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'input' && (
               <RecordPayload record={selected} direction="input" />

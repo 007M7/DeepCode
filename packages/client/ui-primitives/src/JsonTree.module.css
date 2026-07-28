@@ -49,7 +49,7 @@
 }
 
 .expandedTopLevelContainer {
-  padding: 0 0 0 calc(2ch - 12px);
+  padding: 0;
 }
 
 .row.topLevelBracket {
@@ -59,7 +59,7 @@
 
 .children {
   margin: 0;
-  padding: 0 0 0 4px;
+  padding: 0;
   list-style: none;
 }
 
@@ -69,7 +69,7 @@
   min-width: 100%;
   min-height: 16px;
   margin: 0;
-  padding: 0 0 0 12px;
+  padding: 0 0 0 10px;
   list-style: none;
 }
 
@@ -178,7 +178,7 @@
   left: 0;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   box-sizing: border-box;
   width: 8px;
   height: 16px;
@@ -196,7 +196,7 @@
   border-left: 6px solid currentColor;
   content: '';
   transform: scale(0.75);
-  transform-origin: center;
+  transform-origin: 33.333% center;
 }
 
 .collapseIcon::before {

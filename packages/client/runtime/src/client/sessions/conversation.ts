@@ -51,6 +51,7 @@ export interface UserMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  meta?: unknown
 }
 
 /** Recorded boundaries used to derive assistant latency and throughput. */
@@ -67,6 +68,7 @@ export interface AssistantTiming {
 export interface AssistantRequestConfig {
   provider: string
   model: string
+  purpose?: string
   thinking?: string
   reasoningEffort?: string
   temperature?: number
@@ -108,6 +110,7 @@ export interface SteeringMessageNode {
   turn: number
   content: readonly ContentBlock[]
   source: unknown
+  meta?: unknown
 }
 
 /** A context/system injection surfaced in the flow. */
@@ -241,6 +244,20 @@ export interface ConversationPromptSnapshot {
   tools: readonly ToolSchema[]
 }
 
+/** One system-prompt/tool-catalog state that became effective in the request timeline. */
+export interface ConversationPromptChange {
+  /** Sequence of the request/header event that introduced this state. */
+  seq: number
+  /** Unix epoch ms from the request/header event. */
+  time: number
+  /** How the model-visible system configuration differs from the prior recorded state. */
+  kind: 'initial' | 'system' | 'tools' | 'system-and-tools'
+  /** Complete state effective from this event onward. */
+  prompt: ConversationPromptSnapshot
+  /** State immediately before this change; absent for the initial header. */
+  previous?: ConversationPromptSnapshot
+}
+
 /** One immutable model-context generation reconstructed from surface replacements. */
 export interface ConversationContext {
   /** Zero-based generation within the session; stable across later appends. */
@@ -259,6 +276,46 @@ export interface ConversationContext {
   nodes: readonly ConversationNode[]
 }
 
+/** One auxiliary compaction model request reconstructed from its durable lifecycle events. */
+export interface CompactionRequestView {
+  startSeq: number
+  turn: number
+  startedAt: number
+  completedAt: number | null
+  status: 'running' | 'complete' | 'error'
+  error?: string
+  summarySeq?: number
+  replacementSeq?: number
+  summary?: readonly ContentBlock[]
+  rawOutput?: readonly ContentBlock[]
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  usage?: unknown
+}
+
+/** One ordinary provider-request attempt reconstructed from a durable step boundary. */
+export interface ModelRequestView {
+  /** Sequence of the step/start event that opened this attempt. */
+  startSeq: number
+  turn: number
+  step: number
+  /** Unix epoch ms from step/start. */
+  startedAt: number
+  /** Assistant completion time, or the failed step/end time when no response completed. */
+  completedAt: number | null
+  status: 'running' | 'complete' | 'error'
+  error?: string
+  /** Assistant/message sequence when this attempt completed successfully. */
+  resultSeq?: number
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  usage?: unknown
+  /** Retry ordinal scheduled after this failed attempt. */
+  retry?: number
+  maxRetries?: number
+  retryDelayMs?: number
+}
+
 /** Send/stop failure surfaced in the input error strip; op picks the user-facing copy (发送失败 vs 停止失败). */
 export interface PromptError {
   op: 'send' | 'stop'
@@ -272,6 +329,12 @@ export interface ConversationSnapshot {
   nodes: readonly ConversationNode[]
   /** Append-only context generations split at every model-surface replacement. */
   contexts?: readonly ConversationContext[]
+  /** Auxiliary compaction requests, including those without an assistant/message surface node. */
+  compactionRequests?: readonly CompactionRequestView[]
+  /** Ordinary provider requests, including failed attempts that produced no assistant message. */
+  requestAttempts?: readonly ModelRequestView[]
+  /** System-prompt/tool-catalog changes in request order. */
+  promptChanges?: readonly ConversationPromptChange[]
   /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
   foldDegraded: boolean
   partial: PartialAssistant | null

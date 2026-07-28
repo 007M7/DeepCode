@@ -32,36 +32,6 @@
   font: var(--dsw-font-xs-strong-13);
 }
 
-.separator {
-  flex: none;
-  color: var(--dsw-alias-label-caption);
-  user-select: none;
-}
-
-.context {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  font: var(--dsw-font-xs-13);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.contextCurrent,
-.contextFrozen {
-  flex: none;
-  font: 10px/16px var(--ds-font-family-code);
-  user-select: none;
-}
-
-.contextCurrent {
-  color: var(--dsw-alias-state-business-primary);
-}
-
-.contextFrozen {
-  color: var(--dsw-alias-label-caption);
-}
-
 .actions {
   display: flex;
   flex: none;
@@ -74,7 +44,7 @@
   flex: none;
   align-items: center;
   box-sizing: border-box;
-  height: 26px;
+  height: 24px;
   padding: 0 7px;
   gap: 6px;
   border: 0;

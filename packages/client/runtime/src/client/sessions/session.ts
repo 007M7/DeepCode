@@ -12,8 +12,9 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
-  PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, CompactionRequestView, ComposerPhase, ConversationNode,
+  ConversationPromptChange, ConversationPromptSnapshot, ConversationSnapshot,
+  ModelRequestView, OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -113,6 +114,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callSchemas = new Map<string, ToolSchema>()
   private callSchemasRev = 0
   private callSchemasCache: { rev: number; value: ReadonlyMap<string, ToolSchema> } | null = null
+  private promptChangesRev = 0
+  private promptChangesCache: {
+    rev: number
+    value: readonly ConversationPromptChange[]
+  } | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -671,6 +677,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
     switch (event.type) {
       case 'request/header': {
+        this.promptChangesRev++
         this.activeToolSchemas = new Map(
           (event.data.header.tools ?? []).map(schema => [schema.name, schema]),
         )
@@ -776,6 +783,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.activeToolSchemas = new Map()
     this.callSchemas = new Map()
     this.callSchemasRev++
+    this.promptChangesRev++
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -818,11 +826,23 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
       this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
     }
+    if (
+      this.promptChangesCache === null
+      || this.promptChangesCache.rev !== this.promptChangesRev
+    ) {
+      this.promptChangesCache = {
+        rev: this.promptChangesRev,
+        value: derivePromptChanges(this.events),
+      }
+    }
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
       nodes,
       contexts,
+      compactionRequests: deriveCompactionRequests(this.events),
+      requestAttempts: deriveModelRequests(this.events),
+      promptChanges: this.promptChangesCache.value,
       foldDegraded: degraded,
       partial,
       runningCalls: this.callsCache.value,
@@ -861,4 +881,239 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 function derivePhase(hasContent: boolean, promptAttempted: boolean): ComposerPhase {
   if (hasContent) return 'active'
   return promptAttempted ? 'engaging' : 'blank'
+}
+
+interface RetryEvent {
+  type: 'llm/retry'
+  seq: number
+  time: number
+  data: {
+    turn: number
+    step: number
+    retry: number
+    maxRetries: number
+    delayMs: number
+    failure: { message: string }
+  }
+}
+
+function modelRequestKey(turn: number, step: number): string {
+  return `${turn}\u0000${step}`
+}
+
+/** Project every durable step into one provider request, retaining failed retry attempts. */
+function deriveModelRequests(events: readonly SessionEvent[]): readonly ModelRequestView[] {
+  const requests: ModelRequestView[] = []
+  const byStep = new Map<string, number>()
+  let activeStep: string | undefined
+  let activeConfig: ConversationPromptSnapshot['config']
+
+  const update = (key: string, change: Partial<ModelRequestView>): void => {
+    const index = byStep.get(key)
+    if (index === undefined) return
+    const request = requests[index]
+    if (request !== undefined) requests[index] = { ...request, ...change }
+  }
+
+  for (const sourceEvent of events) {
+    if (sourceEvent.type === 'request/header') {
+      activeConfig = sourceEvent.data.header.config
+      if (activeStep !== undefined) update(activeStep, { requestConfig: activeConfig })
+      continue
+    }
+    if (sourceEvent.type === 'step/start') {
+      const { turn, step } = sourceEvent.data
+      const key = modelRequestKey(turn, step)
+      byStep.set(key, requests.length)
+      requests.push({
+        startSeq: sourceEvent.seq,
+        turn,
+        step,
+        startedAt: sourceEvent.time,
+        completedAt: null,
+        status: 'running',
+        ...(activeConfig === undefined ? {} : { requestConfig: activeConfig }),
+      })
+      activeStep = key
+      continue
+    }
+    if (sourceEvent.type === 'assistant/message') {
+      const key = modelRequestKey(sourceEvent.data.turn, sourceEvent.data.step)
+      update(key, {
+        completedAt: sourceEvent.time,
+        status: 'complete',
+        resultSeq: sourceEvent.seq,
+        provenance: {
+          provider: sourceEvent.data.provenance.provider,
+          model: sourceEvent.data.provenance.model,
+        },
+        ...(sourceEvent.data.usage === undefined ? {} : { usage: sourceEvent.data.usage }),
+      })
+      continue
+    }
+    if (sourceEvent.type === 'step/end') {
+      const key = modelRequestKey(sourceEvent.data.turn, sourceEvent.data.step)
+      const index = byStep.get(key)
+      const request = index === undefined ? undefined : requests[index]
+      if (request !== undefined && request.status === 'running') {
+        requests[index] = {
+          ...request,
+          completedAt: sourceEvent.time,
+          status: 'error',
+        }
+      }
+      if (activeStep === key) activeStep = undefined
+      continue
+    }
+    if ((sourceEvent.type as string) === 'llm/retry') {
+      const event = sourceEvent as unknown as RetryEvent
+      update(modelRequestKey(event.data.turn, event.data.step), {
+        status: 'error',
+        error: event.data.failure.message,
+        retry: event.data.retry,
+        maxRetries: event.data.maxRetries,
+        retryDelayMs: event.data.delayMs,
+      })
+      continue
+    }
+    if (sourceEvent.type !== 'turn/end' || sourceEvent.data.reason.kind !== 'error') continue
+    const reason = sourceEvent.data.reason
+    update(modelRequestKey(sourceEvent.data.turn, reason.step), {
+      status: 'error',
+      error: 'failure' in reason ? reason.failure.message : reason.message,
+    })
+  }
+  return requests
+}
+
+interface CompactionStartEvent {
+  type: 'compact/start'
+  seq: number
+  time: number
+  data: { turn: number }
+}
+
+interface CompactionSummaryEvent {
+  type: 'compact/summary'
+  seq: number
+  time: number
+  data: {
+    summary: readonly ContentBlock[]
+    rawOutput?: readonly ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: unknown
+  }
+}
+
+interface CompactionEndEvent {
+  type: 'compact/end'
+  seq: number
+  time: number
+  data: { turn: number; error?: string }
+}
+
+/** Project log-only compaction request brackets without coupling the client runtime to one backend package. */
+function deriveCompactionRequests(events: readonly SessionEvent[]): readonly CompactionRequestView[] {
+  const requests: CompactionRequestView[] = []
+  let active: CompactionRequestView | undefined
+  for (const sourceEvent of events) {
+    const type = sourceEvent.type as string
+    if (type === 'compact/start') {
+      const event = sourceEvent as unknown as CompactionStartEvent
+      active = {
+        startSeq: event.seq,
+        turn: event.data.turn,
+        startedAt: event.time,
+        completedAt: null,
+        status: 'running',
+      }
+      continue
+    }
+    if (type === 'compact/summary' && active !== undefined) {
+      const event = sourceEvent as unknown as CompactionSummaryEvent
+      active = {
+        ...active,
+        summarySeq: event.seq,
+        summary: event.data.summary,
+        ...(event.data.rawOutput === undefined ? {} : { rawOutput: event.data.rawOutput }),
+        provenance: {
+          provider: event.data.provider,
+          model: event.data.model,
+        },
+        requestConfig: {
+          provider: event.data.provider,
+          model: event.data.model,
+          purpose: 'compaction',
+          ...(event.data.maxTokens === undefined ? {} : { maxTokens: event.data.maxTokens }),
+        },
+        ...(event.data.usage === undefined ? {} : { usage: event.data.usage }),
+      }
+      continue
+    }
+    if (
+      sourceEvent.type === 'user/message'
+      && active?.summarySeq !== undefined
+      && isCompactionSource(sourceEvent.data.source)
+    ) {
+      active = { ...active, replacementSeq: sourceEvent.seq }
+      continue
+    }
+    if (type !== 'compact/end' || active === undefined) continue
+    const event = sourceEvent as unknown as CompactionEndEvent
+    active = {
+      ...active,
+      completedAt: event.time,
+      status: event.data.error === undefined ? 'complete' : 'error',
+      ...(event.data.error === undefined ? {} : { error: event.data.error }),
+    }
+    requests.push(active)
+    active = undefined
+  }
+  if (active !== undefined) requests.push(active)
+  return requests
+}
+
+/** Project request headers into model-visible system/tool changes only. */
+function derivePromptChanges(events: readonly SessionEvent[]): readonly ConversationPromptChange[] {
+  const changes: ConversationPromptChange[] = []
+  let previous: ConversationPromptSnapshot | undefined
+  for (const event of events) {
+    if (event.type !== 'request/header') continue
+    const prompt: ConversationPromptSnapshot = {
+      config: event.data.header.config,
+      system: event.data.header.system ?? '',
+      tools: event.data.header.tools ?? [],
+    }
+    const systemChanged = previous !== undefined && previous.system !== prompt.system
+    const toolsChanged = previous !== undefined
+      && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
+    if (previous === undefined || systemChanged || toolsChanged) {
+      changes.push({
+        seq: event.seq,
+        time: event.time,
+        kind: previous === undefined
+          ? 'initial'
+          : systemChanged && toolsChanged
+            ? 'system-and-tools'
+            : systemChanged
+              ? 'system'
+              : 'tools',
+        prompt,
+        ...(previous === undefined ? {} : { previous }),
+      })
+    }
+    previous = prompt
+  }
+  return changes
+}
+
+function isCompactionSource(source: unknown): boolean {
+  return typeof source === 'object'
+    && source !== null
+    && 'kind' in source
+    && source.kind === 'plugin'
+    && 'plugin' in source
+    && source.plugin === 'compact'
 }

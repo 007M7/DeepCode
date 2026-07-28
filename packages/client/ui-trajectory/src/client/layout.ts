@@ -6,7 +6,10 @@ import type {
   AssistantBlock,
   AssistantMessageNode,
   CodeSubCall,
+  CompactionRequestView,
+  ConversationPromptChange,
   ConversationSnapshot,
+  ModelRequestView,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -32,6 +35,9 @@ export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
+  compactionRequests?: readonly CompactionRequestView[]
+  requestAttempts?: readonly ModelRequestView[]
+  promptChanges?: readonly ConversationPromptChange[]
   callSchemas?: ConversationSnapshot['callSchemas']
   /** run_code sub-dispatches by parent callId (sub-cells nest under the parent Tool cell). */
   codeDispatches: ConversationSnapshot['codeDispatches']
@@ -62,13 +68,46 @@ interface TurnBucket {
   groups: LaidGroup[]
 }
 
+type OrderedLayoutEntry =
+  | {
+    kind: 'node'
+    seq: number
+    node: ConversationSnapshot['nodes'][number]
+    nodeIndex: number
+  }
+  | {
+    kind: 'compaction'
+    seq: number
+    request: CompactionRequestView
+  }
+  | {
+    kind: 'system'
+    seq: number
+    change: ConversationPromptChange
+  }
+  | {
+    kind: 'request'
+    seq: number
+    request: ModelRequestView
+  }
+
+function layoutEntryOrder(entry: OrderedLayoutEntry): number {
+  return entry.kind === 'system' && entry.change.kind === 'initial'
+    ? Number.NEGATIVE_INFINITY
+    : entry.seq
+}
+
 /**
  * Fold a snapshot into turn → Message/Step groups with expanded cells.
  * @param input - nodes plus in-flight partial/runningCalls.
  * @returns turns ordered by first appearance.
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
-  const { nodes, partial, runningCalls, callSchemas, codeDispatches } = input
+  const {
+    nodes, partial, runningCalls, compactionRequests = [], requestAttempts = [],
+    promptChanges = [],
+    callSchemas, codeDispatches,
+  } = input
   const resultByCall = indexResults(nodes)
   const callStartById = new Map<string, number>()
   for (const result of resultByCall.values()) {
@@ -114,10 +153,136 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     groups.push({ title, laid: [...laid] })
   }
 
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]
-    /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
-    if (node === undefined) continue
+  const representedRequests = new Set<string>()
+  for (const node of nodes) {
+    if (node.kind === 'assistant' && node.step > 0) {
+      representedRequests.add(`${node.turn}\u0000${node.step}`)
+    }
+  }
+  if (partial !== null && partial.step > 0) {
+    representedRequests.add(`${partial.turn}\u0000${partial.step}`)
+  }
+  for (const call of runningCalls) {
+    if (call.step > 0) representedRequests.add(`${call.turn}\u0000${call.step}`)
+  }
+
+  const entries: OrderedLayoutEntry[] = [
+    ...nodes.map((node, nodeIndex) => ({
+      kind: 'node' as const,
+      seq: node.seq,
+      node,
+      nodeIndex,
+    })),
+    ...compactionRequests.map(request => ({
+      kind: 'compaction' as const,
+      seq: request.startSeq,
+      request,
+    })),
+    ...promptChanges.map(change => ({
+      kind: 'system' as const,
+      seq: change.seq,
+      change,
+    })),
+    ...requestAttempts
+      .filter(request =>
+        !representedRequests.has(`${request.turn}\u0000${request.step}`),
+      )
+      .map(request => ({
+        kind: 'request' as const,
+        seq: request.startSeq,
+        request,
+      })),
+  ].sort((left, right) => layoutEntryOrder(left) - layoutEntryOrder(right))
+
+  for (const entry of entries) {
+    if (entry.kind === 'request') {
+      const { request } = entry
+      pushStep(request.turn, request.step, [{
+        absTime: finiteTime(request.startedAt),
+        cell: {
+          index: ++index,
+          kind: 'message',
+          text: '',
+          sourceSeq: request.startSeq,
+          requestOnly: true,
+          timeSeconds: request.completedAt === null
+            ? null
+            : durationSeconds(request.completedAt, request.startedAt),
+          startedAt: finiteTime(request.startedAt),
+          ...(request.status === 'error' ? { isError: true } : {}),
+        },
+      }])
+      prevAbsTime = finiteTime(request.completedAt)
+        ?? finiteTime(request.startedAt)
+        ?? prevAbsTime
+      continue
+    }
+    if (entry.kind === 'system') {
+      const { change } = entry
+      const turn = enclosingPromptTurn(nodes, change.seq, partial)
+      pushMessage(turn, {
+        absTime: finiteTime(change.time),
+        cell: {
+          index: ++index,
+          kind: 'system',
+          text: promptChangeLabel(change),
+          sourceSeq: change.seq,
+          promptDetail: change.prompt,
+          ...(change.previous === undefined
+            ? {}
+            : { previousPromptDetail: change.previous }),
+          timeSeconds: 0,
+          startedAt: finiteTime(change.time),
+        },
+      })
+      prevAbsTime = finiteTime(change.time) ?? prevAbsTime
+      continue
+    }
+    if (entry.kind === 'compaction') {
+      const request = entry.request
+      const rawOutput = request.rawOutput ?? request.summary
+      const thinkingDetail = rawOutput === undefined
+        ? ''
+        : detailReasoning(rawOutput)
+      const cell: TrajectoryCellProps = {
+        index: ++index,
+        kind: 'compacted',
+        text: request.status === 'running'
+          ? 'Compacting context…'
+          : request.status === 'error'
+            ? request.error ?? 'Compaction failed'
+            : request.summary === undefined
+              ? 'Context compacted'
+              : summarizeContent(request.summary),
+        sourceSeq: request.startSeq,
+        ...(request.summary === undefined
+          ? {}
+          : {
+            outputDetail: detailContent(request.summary),
+            outputBlocks: request.summary.map(block => sourceBlock(block)),
+          }),
+        ...(thinkingDetail === '' ? {} : { thinkingDetail }),
+        ...(rawOutput === undefined
+          ? {}
+          : { sourceBlocks: rawOutput.map(block => sourceBlock(block)) }),
+        ...(request.status === 'error' ? { isError: true } : {}),
+        timeSeconds: request.completedAt === null
+          ? null
+          : durationSeconds(request.completedAt, request.startedAt),
+        startedAt: finiteTime(request.startedAt),
+      }
+      attachUsage(cell, request.usage as UsageLike | undefined)
+      bucket(request.turn).groups.push({
+        title: `Compaction ${request.startSeq}`,
+        laid: [{
+          absTime: finiteTime(request.startedAt),
+          cell,
+        }],
+      })
+      prevAbsTime = finiteTime(request.completedAt) ?? finiteTime(request.startedAt) ?? prevAbsTime
+      continue
+    }
+    const { node, nodeIndex: i } = entry
     if (node.kind === 'user' || node.kind === 'steering') {
       // user/message has no turn on the wire; enclose it in the next assistant
       // (or partial) turn, else open the turn after the last assistant.
@@ -128,6 +293,9 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         absTime: finiteTime(node.time),
         cell: {
           index: ++index, kind: 'user', text: summarizeContent(node.content),
+          sourceSeq: node.seq,
+          messageSource: node.source,
+          ...(node.meta === undefined ? {} : { messageMeta: node.meta }),
           opensTurn: node.kind === 'user',
           inputDetail: detailContent(node.content),
           sourceBlocks: node.content.map(block => sourceBlock(block)),
@@ -159,6 +327,9 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           index: ++index,
           kind: 'context',
           text: summarizeContent(node.content),
+          sourceSeq: node.seq,
+          messageSource: node.source,
+          ...(node.meta === undefined ? {} : { messageMeta: node.meta }),
           inputDetail: detailContent(node.content),
           sourceBlocks: node.content.map(block => sourceBlock(block)),
           timeSeconds: 0,
@@ -178,6 +349,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           cell: {
             index: ++index,
             kind: 'tool',
+            sourceSeq: node.seq,
             text: node.call !== null
               ? summarizeCall(node.call.name, node.call.argsRaw)
               : summarizeResult(node),
@@ -241,7 +413,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       laidList.push(laid)
       index = laid.cell.index
     }
-    pushStep(call.turn, call.step > 0 ? call.step : 1, laidList)
+    if (call.step > 0) pushStep(call.turn, call.step, laidList)
+    else for (const laid of laidList) pushMessage(call.turn, laid)
   }
 
   // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
@@ -365,6 +538,7 @@ function expandAssistant(
   const message: TrajectoryCellProps = {
     index: ++index,
     kind: 'message',
+    sourceSeq: node.seq,
     text: messageText !== ''
       ? summarizeText(messageText)
       : thinkingText !== ''
@@ -430,6 +604,13 @@ function summarizeAssistantActivity(blocks: readonly AssistantBlock[]): string {
     return 'Tool call only'
   }
   return ''
+}
+
+function promptChangeLabel(change: ConversationPromptChange): string {
+  if (change.kind === 'initial') return 'Initial System Prompt'
+  if (change.kind === 'system') return 'System Prompt Updated'
+  if (change.kind === 'tools') return 'Tools Updated'
+  return 'System Prompt and Tools Updated'
 }
 
 function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
@@ -522,6 +703,17 @@ function enclosingUserTurn(
   if (partial !== null) return partial.turn
   if (lastAssistantTurn !== null) return lastAssistantTurn + 1
   return 1
+}
+
+function enclosingPromptTurn(
+  nodes: ConversationSnapshot['nodes'],
+  seq: number,
+  partial: ConversationSnapshot['partial'],
+): number {
+  const next = nodes.find(node =>
+    node.seq > seq && node.kind === 'assistant' && node.step > 0)
+  if (next?.kind === 'assistant') return next.turn
+  return partial?.turn ?? 1
 }
 
 /** Copy provider usage onto a Message cell when present. */
@@ -641,7 +833,7 @@ function summarizeResult(node: ToolResultNode): string {
       return summarizeText(block.text)
     }
   }
-  return node.call?.name ?? node.callId
+  return 'No output'
 }
 
 function detailResult(node: ToolResultNode): string {
@@ -655,12 +847,24 @@ function detailResult(node: ToolResultNode): string {
     .map(block => block.type === 'text' ? block.text : '')
     .join('\n')
   if (text !== '') return text
+  if (
+    node.content.length === 0
+    || node.content.every(block =>
+      block.type === 'text' && (typeof block.text !== 'string' || block.text === ''))
+  ) return 'No output'
   return JSON.stringify(node.content, null, 2)
 }
 
 function detailContent(content: readonly { type: string; text?: string }[]): string {
   return content
     .filter(block => block.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text ?? '')
+    .join('\n')
+}
+
+function detailReasoning(content: readonly { type: string; text?: string }[]): string {
+  return content
+    .filter(block => block.type === 'reasoning' && typeof block.text === 'string')
     .map(block => block.text ?? '')
     .join('\n')
 }

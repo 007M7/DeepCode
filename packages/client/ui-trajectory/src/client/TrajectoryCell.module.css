@@ -46,6 +46,11 @@
   white-space: nowrap;
 }
 
+.tagSystem {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
 .tagUser {
   color: var(--dsw-alias-state-success-primary);
   background: var(--dsw-alias-state-success-tertiary);

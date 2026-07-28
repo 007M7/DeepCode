@@ -16,6 +16,7 @@ export type {
 
 /** Display label per kind (matches the design tags). */
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
+  system: 'System',
   user: 'User',
   context: 'Context',
   message: 'Message',
@@ -24,6 +25,7 @@ const KIND_LABEL: Record<TrajectoryCellKind, string> = {
 }
 
 const TAG_CLASS: Record<TrajectoryCellKind, string> = {
+  system: css.tagSystem!,
   user: css.tagUser!,
   context: css.tagContext!,
   message: css.tagMessage!,
@@ -41,6 +43,8 @@ export function TrajectoryCell({
   kind,
   text,
   inputDetail: _inputDetail,
+  promptDetail: _promptDetail,
+  previousPromptDetail: _previousPromptDetail,
   outputDetail: _outputDetail,
   thinkingDetail: _thinkingDetail,
   sourceBlocks: _sourceBlocks,

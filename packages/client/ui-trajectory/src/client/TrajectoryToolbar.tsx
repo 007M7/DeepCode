@@ -3,10 +3,6 @@
 import css from './TrajectoryToolbar.module.css'
 
 export interface TrajectoryToolbarProps {
-  /** Selected context title when the session contains discontinuities. */
-  contextLabel?: string
-  /** Whether the selected context is the live tail. */
-  contextCurrent?: boolean
   /** Number of turns containing more than one row. */
   collapsibleTurns: number
   /** Whether every collapsible turn is currently folded. */
@@ -27,8 +23,6 @@ export interface TrajectoryToolbarProps {
  * @returns the toolbar element.
  */
 export function TrajectoryToolbar({
-  contextLabel,
-  contextCurrent,
   collapsibleTurns,
   allTurnsCollapsed,
   onToggleAllTurns,
@@ -41,15 +35,6 @@ export function TrajectoryToolbar({
       <div className={css.inner}>
         <div className={css.summary}>
           <span className={css.title}>Trajectory</span>
-          {contextLabel !== undefined && (
-            <>
-              <span className={css.separator}>/</span>
-              <span className={css.context}>{contextLabel}</span>
-              <span className={contextCurrent ? css.contextCurrent : css.contextFrozen}>
-                {contextCurrent ? 'Current' : 'Frozen'}
-              </span>
-            </>
-          )}
         </div>
         <div className={css.actions}>
           <button

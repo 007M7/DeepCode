@@ -30,7 +30,8 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
   AssistantTiming, CodeSubCall, ComposerPhase, ContextMessageNode,
-  ConversationContext, ConversationContextOriginKind, ConversationNode, ConversationPromptSnapshot,
+  CompactionRequestView, ConversationContext, ConversationContextOriginKind,
+  ConversationNode, ConversationPromptChange, ConversationPromptSnapshot, ModelRequestView,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'

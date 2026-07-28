@@ -3,9 +3,12 @@
 import { useMemo, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  AssistantMessageNode, ConversationContext,
+  AssistantMessageNode, CompactionRequestView, ConversationContext,
+  ConversationPromptChange, ModelRequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { ContextsPanel, contextLabel } from './ContextsPanel.tsx'
+import {
+  deriveTrajectoryContextBranches, trajectoryBranchContainsSeq,
+} from './context-branches.ts'
 import {
   TrajectoryTable,
   type TrajectoryRequestNumber,
@@ -16,6 +19,9 @@ import { deriveTrajectoryLayout } from './layout.ts'
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
+const EMPTY_COMPACTION_REQUESTS: readonly CompactionRequestView[] = []
+const EMPTY_MODEL_REQUESTS: readonly ModelRequestView[] = []
+const EMPTY_PROMPT_CHANGES: readonly ConversationPromptChange[] = []
 
 interface UsageLike {
   inputTokens?: number
@@ -61,22 +67,21 @@ function addUsage(
   }
 }
 
-function currentContextOf(contexts: readonly ConversationContext[]): ConversationContext {
-  const context = contexts.at(-1)
-  if (context === undefined) throw new Error('trajectory context projection must not be empty')
-  return context
-}
-
 export function TrajectoryView({ useSession }: ConvViewProps) {
-  const [selectedContextId, setSelectedContextId] = useState<number | null>(null)
-  const [collapsedTurnsByContext, setCollapsedTurnsByContext] = useState<
-    ReadonlyMap<number, ReadonlySet<number>>
-  >(() => new Map())
-  const [collapsedAssistantsByContext, setCollapsedAssistantsByContext] = useState<
-    ReadonlyMap<number, ReadonlySet<number>>
-  >(() => new Map())
+  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
+  const [collapsedAssistants, setCollapsedAssistants] =
+    useState<ReadonlySet<number>>(EMPTY_IDS)
   const nodes = useSession((s) => s.nodes)
   const projectedContexts = useSession((s) => s.contexts)
+  const compactionRequests = useSession(
+    (s) => s.compactionRequests ?? EMPTY_COMPACTION_REQUESTS,
+  )
+  const requestAttempts = useSession(
+    (s) => s.requestAttempts ?? EMPTY_MODEL_REQUESTS,
+  )
+  const promptChanges = useSession(
+    (s) => s.promptChanges ?? EMPTY_PROMPT_CHANGES,
+  )
   const partial = useSession((s) => s.partial)
   const runningCalls = useSession((s) => s.runningCalls)
   const callSchemas = useSession((s) => s.callSchemas)
@@ -87,95 +92,201 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
       : projectedContexts,
     [nodes, projectedContexts],
   )
-  const currentContext = currentContextOf(contexts)
-  const selectedContext = selectedContextId === null
-    ? currentContext
-    : contexts.find(context => context.id === selectedContextId) ?? currentContext
-  const viewingCurrent = selectedContext.id === currentContext.id
-  const selectedNodes = viewingCurrent ? nodes : selectedContext.nodes
-  const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
-    const requestsBySeq = new Map<number, AssistantMessageNode>()
+  const branches = useMemo(
+    () => deriveTrajectoryContextBranches(contexts),
+    [contexts],
+  )
+  const currentBranch = branches.at(-1)
+  if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
+  const selectedNodes = currentBranch.nodes
+  const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
+    const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
       for (const node of context.nodes) {
         if (node.kind !== 'assistant' || node.step <= 0) continue
-        requestsBySeq.set(node.seq, node)
+        assistantsByStep.set(`${node.turn}\u0000${node.step}`, node)
       }
     }
     for (const node of nodes) {
       if (node.kind !== 'assistant' || node.step <= 0) continue
-      requestsBySeq.set(node.seq, node)
+      assistantsByStep.set(`${node.turn}\u0000${node.step}`, node)
     }
-    const orderedRequests = [...requestsBySeq.values()]
-      .sort((left, right) => left.seq - right.seq)
-    const requestBySeq = new Map<number, TrajectoryRequestNumber>()
+    const attemptsByStep = new Map(
+      requestAttempts.map(request => [
+        `${request.turn}\u0000${request.step}`,
+        request,
+      ]),
+    )
+    const orderedRequests = [
+      ...requestAttempts.map(request => ({
+        seq: request.startSeq,
+        kind: 'ordinary' as const,
+        request,
+        node: assistantsByStep.get(`${request.turn}\u0000${request.step}`),
+      })),
+      ...[...assistantsByStep.entries()].flatMap(([key, node]) =>
+        attemptsByStep.has(key)
+          ? []
+          : [{
+              seq: node.seq,
+              kind: 'ordinary' as const,
+              request: undefined,
+              node,
+            }],
+      ),
+      ...compactionRequests.map(request => ({
+        seq: request.startSeq,
+        kind: 'compaction' as const,
+        request,
+        node: undefined,
+      })),
+    ].sort((left, right) => left.seq - right.seq)
+    const numbered: TrajectoryRequestNumber[] = []
     let cumulativeUsage: TrajectoryUsage | undefined
-    for (const [index, node] of orderedRequests.entries()) {
-      const usage = requestUsage(node.usage)
+    for (const [index, entry] of orderedRequests.entries()) {
+      const usage = requestUsage(
+        entry.kind === 'compaction'
+          ? entry.request.usage
+          : entry.request?.usage ?? entry.node?.usage,
+      )
       cumulativeUsage = addUsage(cumulativeUsage, usage)
-      requestBySeq.set(node.seq, {
-        turn: node.turn,
-        step: node.step,
+      if (entry.kind === 'ordinary') {
+        const request = entry.request
+        const node = entry.node
+        const turn = request?.turn ?? node?.turn
+        const step = request?.step ?? node?.step
+        if (turn === undefined || step === undefined) continue
+        const provider = request?.provenance?.provider ?? node?.provenance?.provider
+        const model = request?.provenance?.model ?? node?.provenance?.model
+        const requestConfig = request?.requestConfig ?? node?.requestConfig
+        numbered.push({
+          seq: entry.seq,
+          turn,
+          step,
+          group: `Step ${step}`,
+          number: index + 1,
+          ...(request?.status === undefined ? {} : { status: request.status }),
+          ...(request?.startedAt === undefined ? {} : { startedAt: request.startedAt }),
+          ...(request?.completedAt === undefined ? {} : { completedAt: request.completedAt }),
+          ...(request?.error === undefined ? {} : { error: request.error }),
+          ...(request?.resultSeq === undefined ? {} : { resultSeq: request.resultSeq }),
+          ...(request?.retry === undefined ? {} : { retry: request.retry }),
+          ...(request?.maxRetries === undefined ? {} : { maxRetries: request.maxRetries }),
+          ...(request?.retryDelayMs === undefined
+            ? {}
+            : { retryDelayMs: request.retryDelayMs }),
+          ...(provider === undefined ? {} : { provider }),
+          ...(model === undefined ? {} : { model }),
+          ...(requestConfig === undefined ? {} : { requestConfig }),
+          ...(usage === undefined ? {} : { usage }),
+          ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
+        })
+        continue
+      }
+      const request = entry.request
+      numbered.push({
+        seq: request.startSeq,
+        turn: request.turn,
+        step: 0,
+        group: `Compaction ${request.startSeq}`,
         number: index + 1,
-        ...(node.provenance?.provider === undefined
+        purpose: 'compaction',
+        status: request.status,
+        startedAt: request.startedAt,
+        completedAt: request.completedAt,
+        ...(request.error === undefined ? {} : { error: request.error }),
+        resultSeq: request.startSeq,
+        ...(request.provenance?.provider === undefined
           ? {}
-          : { provider: node.provenance.provider }),
-        ...(node.provenance?.model === undefined
+          : { provider: request.provenance.provider }),
+        ...(request.provenance?.model === undefined
           ? {}
-          : { model: node.provenance.model }),
-        ...(node.requestConfig === undefined ? {} : { requestConfig: node.requestConfig }),
+          : { model: request.provenance.model }),
+        ...(request.requestConfig === undefined ? {} : { requestConfig: request.requestConfig }),
         ...(usage === undefined ? {} : { usage }),
         ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
       })
     }
 
-    const selected: TrajectoryRequestNumber[] = []
-    const selectedKeys = new Set<string>()
-    for (const node of selectedNodes) {
-      if (node.kind !== 'assistant' || node.step <= 0) continue
-      const request = requestBySeq.get(node.seq)
-      if (request === undefined) continue
-      selected.push(request)
-      selectedKeys.add(`${node.turn}\u0000${node.step}`)
-    }
-    if (viewingCurrent && partial !== null && partial.step > 0) {
+    if (partial !== null && partial.step > 0) {
       const key = `${partial.turn}\u0000${partial.step}`
-      if (!selectedKeys.has(key)) {
-        selected.push({
+      const recorded = numbered.some(request =>
+        `${request.turn}\u0000${request.step}` === key,
+      )
+      if (!recorded) {
+        numbered.push({
           turn: partial.turn,
           step: partial.step,
+          group: `Step ${partial.step}`,
           number: orderedRequests.length + 1,
-          ...(currentContext.prompt?.config?.provider === undefined
+          ...(currentBranch.latest.prompt?.config?.provider === undefined
             ? {}
-            : { provider: currentContext.prompt.config.provider }),
-          ...(currentContext.prompt?.config?.model === undefined
+            : { provider: currentBranch.latest.prompt.config.provider }),
+          ...(currentBranch.latest.prompt?.config?.model === undefined
             ? {}
-            : { model: currentContext.prompt.config.model }),
-          ...(currentContext.prompt?.config === undefined
+            : { model: currentBranch.latest.prompt.config.model }),
+          ...(currentBranch.latest.prompt?.config === undefined
             ? {}
-            : { requestConfig: currentContext.prompt.config }),
+            : { requestConfig: currentBranch.latest.prompt.config }),
           ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
         })
       }
     }
-    return selected
-  }, [contexts, currentContext.prompt, nodes, partial, selectedNodes, viewingCurrent])
-  const collapsedTurns = collapsedTurnsByContext.get(selectedContext.id) ?? EMPTY_IDS
-  const collapsedAssistants = collapsedAssistantsByContext.get(selectedContext.id) ?? EMPTY_IDS
+    return numbered
+  }, [
+    compactionRequests, contexts, currentBranch.latest.prompt, nodes, partial,
+    requestAttempts,
+  ])
+  const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
+    return globalRequestNumbers.filter(request =>
+      request.seq === undefined
+      || trajectoryBranchContainsSeq(currentBranch, request.seq),
+    )
+  }, [currentBranch, globalRequestNumbers])
+  const visibleRequestAttempts = useMemo(
+    () => requestAttempts.filter(request =>
+      requestNumbers.some(number =>
+        number.purpose !== 'compaction' && number.seq === request.startSeq,
+      )),
+    [requestAttempts, requestNumbers],
+  )
+  const visibleCompactionRequests = useMemo(
+    () => compactionRequests.filter(request =>
+      requestNumbers.some(number =>
+        number.purpose === 'compaction' && number.seq === request.startSeq,
+      )),
+    [compactionRequests, requestNumbers],
+  )
+  const visiblePromptChanges = useMemo(
+    () => promptChanges.filter(change =>
+      trajectoryBranchContainsSeq(currentBranch, change.seq)),
+    [currentBranch, promptChanges],
+  )
   const turns = useMemo(
     () => deriveTrajectoryLayout({
       nodes: selectedNodes,
-      partial: viewingCurrent ? partial : null,
-      runningCalls: viewingCurrent ? runningCalls : [],
+      partial,
+      runningCalls,
+      compactionRequests: visibleCompactionRequests,
+      requestAttempts: visibleRequestAttempts,
+      promptChanges: visiblePromptChanges,
       callSchemas,
       codeDispatches,
     }),
     [
-      selectedNodes, viewingCurrent, partial, runningCalls, callSchemas, codeDispatches,
+      selectedNodes, partial, runningCalls, visibleCompactionRequests,
+      visibleRequestAttempts, visiblePromptChanges, callSchemas, codeDispatches,
     ],
   )
   const collapsibleTurnIds = useMemo(
     () => turns
-      .filter(turn => turn.groups.reduce((count, group) => count + group.cells.length, 0) > 1)
+      .filter(turn =>
+        turn.groups.reduce(
+          (count, group) =>
+            count + group.cells.filter(cell =>
+              cell.requestOnly !== true && cell.kind !== 'system').length,
+          0,
+        ) > 1)
       .map(turn => turn.turn),
     [turns],
   )
@@ -198,68 +309,50 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
 
   const toggleTurn = (turn: number) => {
-    setCollapsedTurnsByContext((current) => {
-      const next = new Map(current)
-      const collapsed = new Set(current.get(selectedContext.id) ?? EMPTY_IDS)
+    setCollapsedTurns((current) => {
+      const collapsed = new Set(current)
       if (collapsed.has(turn)) collapsed.delete(turn)
       else collapsed.add(turn)
-      next.set(selectedContext.id, collapsed)
-      return next
+      return collapsed
     })
   }
 
   const toggleAllTurns = () => {
-    setCollapsedTurnsByContext((current) => {
-      const next = new Map(current)
-      const collapsed = new Set(current.get(selectedContext.id) ?? EMPTY_IDS)
+    setCollapsedTurns((current) => {
+      const collapsed = new Set(current)
       if (allTurnsCollapsed) {
         for (const turn of collapsibleTurnIds) collapsed.delete(turn)
       } else {
         for (const turn of collapsibleTurnIds) collapsed.add(turn)
       }
-      next.set(selectedContext.id, collapsed)
-      return next
+      return collapsed
     })
   }
 
   const toggleAssistant = (index: number) => {
-    setCollapsedAssistantsByContext((current) => {
-      const next = new Map(current)
-      const collapsed = new Set(current.get(selectedContext.id) ?? EMPTY_IDS)
+    setCollapsedAssistants((current) => {
+      const collapsed = new Set(current)
       if (collapsed.has(index)) collapsed.delete(index)
       else collapsed.add(index)
-      next.set(selectedContext.id, collapsed)
-      return next
+      return collapsed
     })
   }
 
   const toggleAllAssistants = () => {
-    setCollapsedAssistantsByContext((current) => {
-      const next = new Map(current)
-      const collapsed = new Set(current.get(selectedContext.id) ?? EMPTY_IDS)
+    setCollapsedAssistants((current) => {
+      const collapsed = new Set(current)
       if (allAssistantsCollapsed) {
         for (const index of collapsibleAssistantIds) collapsed.delete(index)
       } else {
         for (const index of collapsibleAssistantIds) collapsed.add(index)
       }
-      next.set(selectedContext.id, collapsed)
-      return next
+      return collapsed
     })
-  }
-
-  const selectContext = (id: number) => {
-    setSelectedContextId(id === currentContext.id ? null : id)
   }
 
   return (
     <div className={css.root}>
       <TrajectoryToolbar
-        {...contexts.length > 1
-          ? {
-              contextLabel: contextLabel(selectedContext),
-              contextCurrent: viewingCurrent,
-            }
-          : {}}
         collapsibleTurns={collapsibleTurnIds.length}
         allTurnsCollapsed={allTurnsCollapsed}
         onToggleAllTurns={toggleAllTurns}
@@ -267,27 +360,16 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
         allAssistantsCollapsed={allAssistantsCollapsed}
         onToggleAllAssistants={toggleAllAssistants}
       />
-      <div className={css.contextLayout}>
-        {contexts.length > 1 && (
-          <ContextsPanel
-            contexts={contexts}
-            selectedId={selectedContext.id}
-            currentId={currentContext.id}
-            onSelect={selectContext}
-          />
-        )}
-        <div className={css.ledger}>
-          <TrajectoryTable
-            key={selectedContext.id}
-            {...selectedContext.prompt === undefined ? {} : { prompt: selectedContext.prompt }}
-            requestNumbers={requestNumbers}
-            turns={turns}
-            collapsedTurns={collapsedTurns}
-            onToggleTurn={toggleTurn}
-            collapsedAssistants={collapsedAssistants}
-            onToggleAssistant={toggleAssistant}
-          />
-        </div>
+      <div className={css.ledger}>
+        <TrajectoryTable
+          key={currentBranch.id}
+          requestNumbers={requestNumbers}
+          turns={turns}
+          collapsedTurns={collapsedTurns}
+          onToggleTurn={toggleTurn}
+          collapsedAssistants={collapsedAssistants}
+          onToggleAssistant={toggleAssistant}
+        />
       </div>
     </div>
   )

@@ -1,8 +1,7 @@
 /**
  * Markdown-to-plain-text projection for compact summaries and labels.
- * Parsing shares the renderer's GFM grammar; raw HTML is intentionally
- * omitted, links keep their labels, images keep alt text, and code keeps its
- * source text.
+ * Parsing shares the renderer's GFM grammar; raw HTML remains literal, links
+ * keep their labels, images keep alt text, and code keeps its source text.
  */
 
 import { fromMarkdown } from 'mdast-util-from-markdown'
@@ -37,6 +36,7 @@ function inlineText(node: MarkdownNode): string {
     case 'break':
       return '\n'
     case 'html':
+      return node.value ?? ''
     case 'thematicBreak':
     case 'definition':
       return ''
@@ -70,6 +70,7 @@ function blockText(node: MarkdownNode): string {
     case 'tableCell':
       return compactInline(inlineText(node))
     case 'html':
+      return node.value?.trim() ?? ''
     case 'thematicBreak':
     case 'definition':
       return ''

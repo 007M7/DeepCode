@@ -49,9 +49,7 @@
 }
 
 /* Drag handles are frame children (columns clip overflow): an 8px hit strip
-   centered on the column border via inline left, above column content. The
-   visible pill (12x32 r10, riding the border at vertical center) is the figma
-   Handle component; the hit strip stays wider than the pill. */
+   centered on the column border via inline left, above column content. */
 .handle {
   position: absolute;
   z-index: 6;
@@ -74,37 +72,4 @@
   .handle {
     transition: none;
   }
-}
-
-.handle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 12px;
-  height: 32px;
-  border-radius: 10px;
-  box-sizing: border-box;
-  background: var(--dsw-alias-button-floating-fill);
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  /* Hover affordance: the pill hides until the pointer is over the owning
-     column (data-side pairs handle and column), the strip itself, or a drag. */
-  opacity: 0;
-  transition:
-    opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
-}
-
-.sidebarCol:hover ~ .handle[data-side='sidebar']::after,
-.detailsCol:hover ~ .handle[data-side='details']::after,
-.handle:hover::after,
-.handle[data-dragging='true']::after {
-  opacity: 1;
-}
-
-.handle:hover::after,
-.handle[data-dragging='true']::after {
-  background: var(--dsw-alias-button-floating-hover);
-  border-color: var(--dsw-alias-border-l3);
 }

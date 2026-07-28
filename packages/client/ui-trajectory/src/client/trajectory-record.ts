@@ -1,9 +1,17 @@
 /** Shared trajectory record data and formatting contracts. */
 
 import type { HTMLAttributes } from 'react'
+import type { ConversationPromptSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Closed set of trajectory record kinds. */
-export type TrajectoryCellKind = 'user' | 'context' | 'message' | 'tool' | 'subtool'
+export type TrajectoryCellKind =
+  | 'system'
+  | 'user'
+  | 'context'
+  | 'compacted'
+  | 'message'
+  | 'tool'
+  | 'subtool'
 
 /** Recorded inputs needed to derive assistant TTFT and decode throughput. */
 export interface AssistantMetricDetail {
@@ -34,8 +42,20 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   text: string
   /** Whether this user record opens a new model turn. */
   opensTurn?: boolean
+  /** Source session-event seq for cross-record navigation. */
+  sourceSeq?: number
+  /** Producer provenance from a user-role message or context injection. */
+  messageSource?: unknown
+  /** Producer-owned model-hidden metadata carried beside the message source. */
+  messageMeta?: unknown
+  /** A separator-only anchor for an auxiliary request with no visible record. */
+  requestOnly?: boolean
   /** Full request/message content for the details panel. */
   inputDetail?: string
+  /** Complete system-prompt/tool-catalog state introduced by a SYSTEM record. */
+  promptDetail?: ConversationPromptSnapshot
+  /** System-prompt/tool-catalog state replaced by a SYSTEM update. */
+  previousPromptDetail?: ConversationPromptSnapshot
   /** Full assistant/tool result content for the details panel. */
   outputDetail?: string
   /** Full assistant reasoning content for the details panel. */

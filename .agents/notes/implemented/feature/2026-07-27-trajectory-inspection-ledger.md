@@ -12,12 +12,13 @@ Trajectory has to make prose, machine payloads, token usage, timing, and nested 
 
 **Render a compact, turn-aware event ledger with a local record inspector, using the existing DeepSeek design system.**
 
-- Turn boundaries are thick rules between record rows, while each Step appears as a compact inline marker on its first record. Individual User, Assistant, Tool, and Subtool events share stable columns for index, event kind, and content; token usage and duration stay in the inspector, a thin timeline rail preserves sequence, and nested subtools receive a small indentation.
-- Product prose continues to use the existing sans stack. Record indexes, token counts, durations, group summaries, tool calls, and raw payloads use the existing code stack because they are machine data.
-- Existing semantic theme tokens own both light and dark rendering. Neutral borders and surfaces form the structure; business blue is limited to Assistant identity, selection, links, and focus; warning is limited to running work; error is limited to failed work. User and Tool roles do not impersonate runtime states.
-- Entity surfaces stay flat and separated by hairline borders. Shadow appears only when the inspector becomes an overlay at narrow widths.
-- Selecting a record opens an inspector inside Trajectory with Overview, Input, Output, and Timing tabs. This state is deliberately independent from the conversation-wide Chat details column: it inspects a trajectory record without changing the user's Chat context.
-- The three-column ledger reserves its width for record content. At narrow widths the inspector overlays the ledger and remains dismissible by keyboard or pointer.
+- The ledger keeps session events in sequence within rewind-delimited branches. Turn boundaries use a slightly heavier rule, the raw Turn id, and a continuous left rail; Request boundaries appear as small points integrated into that structure and use one chronological numbering space across ordinary and compaction requests.
+- Event kind and content form the two stable columns. Role tags align toward the content, nested subtools receive a small indentation, and CSS truncation preserves the available preview width. Token usage and duration stay in the inspector.
+- Product prose uses the existing sans stack. Turn ids, token counts, durations, tool calls, raw payloads, and other machine data use the existing code stack.
+- Existing theme tokens own both light and dark rendering. Neutral borders and surfaces form the structure; distinct low-emphasis role hues support scanning without carrying success or failure meaning, while business blue identifies selection, links, and focus.
+- Selecting a record or Request opens an inspector inside Trajectory. Tabs and Summary sections follow the selected entity: Markdown messages expose rendered, source, provenance, and hierarchy views; tools add JSON payload/result and schema views; Requests add options, usage, timing, and result navigation. Images render as media rather than serialized data.
+- Turn folding removes all rows after its first record and replaces them with a compact step/tool-call count; Assistant folding applies the same interaction to its tool-call descendants. Global controls fold or expand both levels.
+- This local inspector remains independent from the conversation-wide Chat details column. At narrow widths it overlays the ledger and remains dismissible by keyboard or pointer.
 
 ## Alternatives considered
 
@@ -25,7 +26,7 @@ Trajectory has to make prose, machine payloads, token usage, timing, and nested 
 
 **Keep one card per Turn and Step.** Rejected: repeated card chrome reduced the number of visible records and made cross-step comparison slower.
 
-**Flatten every record without turn rules or step markers.** Rejected: a trajectory is not merely a log stream; Turn and Step boundaries are essential causal landmarks even when they do not consume dedicated rows.
+**Flatten every record without Turn or Request boundaries.** Rejected: a trajectory is not merely a log stream; those boundaries preserve the causal structure without consuming dedicated rows.
 
 **Reuse the global Chat details column.** Rejected: it would couple local inspection to conversation navigation and make a row click unexpectedly change another view's state.
 
@@ -33,4 +34,4 @@ Trajectory has to make prose, machine payloads, token usage, timing, and nested 
 
 ## Consequences
 
-Trajectory shows more useful records per viewport while retaining Turn and Step orientation. The main ledger omits token usage and duration so content receives the available width; the local inspector exposes those facts together with full payload and assistant timing. The inspector floats over the table only when a permanent split would make both panes unusable. Focused component tests pin the ledger, fold control, keyboard selection, payload tabs, timing facts, and running/error semantics; the assembled Web snapshot pins the real seeded session with the local inspector open.
+Trajectory shows more useful records per viewport while retaining Turn and Request orientation. Context rewrites and compactions remain inline with their surrounding history, while a rewind begins a successor branch that inherits only the retained prefix. The main ledger omits token usage and duration so content receives the available width; the local inspector exposes those facts together with full payloads, provenance, schemas, and request timing. Focused component tests pin projection, folding, selection, entity-specific tabs, and running/error semantics; the assembled Web snapshot pins the ledger and inspector through the real client composition.
