@@ -22,7 +22,7 @@ Status: implemented
 
 - `dsh-bash-local` 继续把 Bash 语义映射到普通的 `ctx.subprocess.spawn()`。
 - `dsh-lsp-local` 通过 `ctx.fs` 读取源文件并验证包含关系，通过 `ctx.subprocess` 解析和启动语言服务器，并让由提供方负责的文件 URI 贯穿初始化与结果渲染。其 JSON-RPC、池化、同步、取消和规范化保持不变。
-- `dsh-pty-local` 把持久 shell 语义映射到 `ctx.subprocess.spawnTerminal()`。本地 `node-pty` 与进程检查实现移入 `dsh-subprocess-local`；其他进程管理提供方则提供相同原语。分配信号会在发布前解除关联，而就绪初始化仍保留设置阶段的取消。异步写入超时，或在该写入期间取消时前台信号发送失败，都会保留发送预留，直至提供方将写入结算；陈旧检查完成后，会针对当前发送恢复轮询。
+- `dsh-pty-local` 把持久 shell 语义映射到 `ctx.subprocess.spawnTerminal()`。本地 `node-pty` 与进程检查实现移入 `dsh-subprocess-local`；其他进程管理提供方则提供相同原语。分配信号会在发布前解除关联，而就绪初始化仍保留设置阶段的取消。提供方开始写入时，系统会丢弃异步写入前检查期间收集的提示符与静默证据。异步写入超时，或在该写入期间取消时前台信号发送失败，都会保留发送预留，直至提供方将写入结算；陈旧检查完成后，会针对当前发送恢复轮询。
 - `dsh-code-runtime-subprocess` 通过 `ctx.fs` 物化无依赖 runner，并通过 `ctx.subprocess` 启动它，从而在本地或远程执行世界中保留代码运行时的绑定与输出契约。它通过非插件子路径 `dsh-code-runtime-worker/runtime-host` 共享宿主侧 worker 机制，而不是复制这些机制。准备阶段让同一个生命周期信号贯穿文件系统解析、物化和可执行文件查找，使资源释放能够中止停滞的提供方操作。受堆上限约束的 worker 会在传输前拒绝过大的绑定帧；每个外层转发环节都会在序列化前执行相同的上限检查；launcher 会在回收 controller 前发布已接纳的终态帧，使继承 controller 管道的后代进程无法阻止完成；宿主仍会等待进程组完全停稳。
 
 `dsh-code-runtime-worker` 仍是独立实现。它是较小的进程内后端，可用于无法假定已安装 Node 可执行文件的单文件分发。远程文件系统／进程组合选择 `dsh-code-runtime-subprocess`；它们不需要提供方专用的代码运行时包。

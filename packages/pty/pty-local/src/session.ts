@@ -227,10 +227,7 @@ export class LocalPtySession implements PtyBackendSession {
       () => { this.interrupt(operation) },
     )
     this.active = operation
-    this.lastOutputAt = Date.now()
-    this.promptSeen = false
-    this.promptTextSeen = false
-    this.promptTail = ''
+    this.resetReadinessEvidence()
 
     if (request.signal !== undefined) {
       const onAbort = (): void => { operation.cancel() }
@@ -251,6 +248,7 @@ export class LocalPtySession implements PtyBackendSession {
       operation.setInitialForeground(foreground)
       const input = `${request.text}${request.submit ? '\r' : ''}`
       if (input.length > 0 && !operation.cancelRequested) {
+        this.resetReadinessEvidence()
         this.writing = operation
         try {
           await this.terminal.write(Buffer.from(input, 'utf8'))
@@ -274,6 +272,13 @@ export class LocalPtySession implements PtyBackendSession {
         else this.failActive(error)
       }
     }
+  }
+
+  private resetReadinessEvidence(): void {
+    this.lastOutputAt = Date.now()
+    this.promptSeen = false
+    this.promptTextSeen = false
+    this.promptTail = ''
   }
 
   read(request: PtyReadRequest): PtyReadResult {

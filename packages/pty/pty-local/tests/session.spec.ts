@@ -168,6 +168,29 @@ describe('LocalPtySession readiness and output', () => {
     expect((await operation.done).waitReason).toBe('stdin_read')
   })
 
+  it('discards prompt readiness observed during asynchronous pre-write inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const operation = session.startSend({ text: 'long-running-command', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    inspection.resolve({ processGroupId: 456, inputWaiting: true })
+    await vi.advanceTimersByTimeAsync(20)
+    expect(terminal.writes).toEqual(['long-running-command\r'])
+    expect(settled).toBe(false)
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
   it('captures prompt MOTD, writes submit explicitly, and settles exact stdin waits', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
@@ -524,6 +547,8 @@ describe('LocalPtySession readiness and output', () => {
     const operation = session.startSend({ text: 'run', submit: true })
     let settled = false
     void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
     await vi.advanceTimersByTimeAsync(50)
@@ -545,6 +570,8 @@ describe('LocalPtySession readiness and output', () => {
     const operation = session.startSend({ text: 'run', submit: true })
     let settled = false
     void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
     // One poll past the silence bound would already have settled inferred_idle.
