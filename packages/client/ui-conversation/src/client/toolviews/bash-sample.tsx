@@ -3,10 +3,18 @@
 // Product chrome matches ToolRow / Think (figma: Bash · {description}).
 // Child sessions keep a scoped badge so session-dimension differentiation stays
 // observable inside the component (no parallel registry).
+//
+// A bash call declares the terminal render intent, so this row also renders
+// the command's own output through TerminalBlock. This row has no expand
+// control (a click goes to the details panel), so its terminal body is
+// resident rather than expand-gated as in ToolRow; the block's own height cap
+// (CHAT_TERMINAL_MAX_LINES) and internal expander keep a long output from
+// taking over the message flow.
 
 import type { Context } from 'cordis'
-import { IconApiOutline14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconApiOutline14, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
+import { CHAT_TERMINAL_MAX_LINES, terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
 import css from './bash-sample.module.css'
 
@@ -29,26 +37,37 @@ function stateStatus(state: ToolRowState): string | null {
   }
 }
 
-/** Bash row: icon + Bash · {description}, matching the shared ToolRow chrome. */
+/**
+ * Bash row: icon + Bash · {description} in the shared ToolRow chrome, with the
+ * command's terminal card below it. The summary row keeps its own click target
+ * (the details handoff); the terminal card sits outside that row, so its copy
+ * and expand controls do not open the details panel.
+ */
 export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
+  const terminal = terminalCardModel(block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(model.state)
   return (
-    <div
-      className={css.root}
-      data-sample={isChild ? 'bash-scoped' : 'bash-global'}
-      data-variant="bash"
-      data-state={model.state}
-      data-clickable
-      onClick={openDetails}
-    >
-      <span className={css.leading}>{leadingFor(model.state)}</span>
-      {status !== null && <span className={css.visuallyHidden}>{status}</span>}
-      {isChild && <span className={css.scopeBadge}>scoped</span>}
-      <span className={css.title}>{model.title}</span>
-      <span className={css.sep} aria-hidden />
-      <span className={css.summary}>{model.summary}</span>
+    <div className={css.card}>
+      <div
+        className={css.root}
+        data-sample={isChild ? 'bash-scoped' : 'bash-global'}
+        data-variant="bash"
+        data-state={model.state}
+        data-clickable
+        onClick={openDetails}
+      >
+        <span className={css.leading}>{leadingFor(model.state)}</span>
+        {status !== null && <span className={css.visuallyHidden}>{status}</span>}
+        {isChild && <span className={css.scopeBadge}>scoped</span>}
+        <span className={css.title}>{model.title}</span>
+        <span className={css.sep} aria-hidden />
+        <span className={css.summary}>{model.summary}</span>
+      </div>
+      {terminal !== null && (
+        <TerminalBlock {...terminal} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminal} />
+      )}
     </div>
   )
 }

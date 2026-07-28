@@ -1,0 +1,3 @@
+- text: $ echo NAVIGATION_OK
+- button "复制"
+- text: NAVIGATION_OK

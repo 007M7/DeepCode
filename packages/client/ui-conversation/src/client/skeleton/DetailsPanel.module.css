@@ -92,3 +92,9 @@
 .code[data-error] {
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* The terminal card sits directly under its section label, so it drops the
+   primitive's standalone vertical margin; the section owns the spacing. */
+.terminal {
+  margin: 0;
+}

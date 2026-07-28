@@ -46,6 +46,51 @@ const MARKDOWN_FIXTURE = [
 
 const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
 
+/**
+ * SGR wrapper for the terminal output sample below: authoring the escapes as
+ * `\u001b` keeps literal control bytes out of this source file.
+ * @param code - the SGR parameter (an ANSI color or attribute number).
+ * @param body - the text the attribute applies to.
+ * @returns the body wrapped in the attribute and a reset.
+ */
+function sgr(code: number, body: string): string {
+  return `\u001b[${code}m${body}\u001b[0m`
+}
+
+/**
+ * Terminal output sample for fixture turn 66, authored to carry every feature
+ * the terminal card draws that turn 60's three plain lines cannot reach:
+ * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
+ * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
+ * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
+ * height cap collapses the middle, and the trailing `[exit code: N]` marker the
+ * bash tool appends, from which the exit pill is recovered.
+ */
+const TERMINAL_OUTPUT_FIXTURE = [
+  sgr(1, 'Running 4 checks'),
+  `${sgr(32, '\u2713')} typecheck                                          1.82s`,
+  `${sgr(32, '\u2713')} lint                                               0.94s`,
+  `${sgr(32, '\u2713')} duplication                                        2.10s`,
+  `${sgr(31, '\u2717')} unit                                               8.41s`,
+  '',
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
+  '    expected 16 lines, received 24',
+  '',
+  'NAME                        LINES    BRANCHES    FUNCTIONS    UNCOVERED',
+  'TerminalBlock.tsx           100%     100%        100%         -',
+  'ansi.ts                     100%     100%        100%         -',
+  'clipboard.ts                100%     100%        100%         -',
+  'CodeBlock.tsx               98.4%    96.2%       100%         41-43',
+  'highlight.ts                100%     100%        100%         -',
+  'Pill.tsx                    100%     100%        100%         -',
+  'StateDot.tsx                100%     100%        100%         -',
+  'markdown/Markdown.tsx       100%     100%        100%         -',
+  '',
+  sgr(31, '1 of 4 checks failed'),
+  '[exit code: 1]',
+].join('\n')
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -124,7 +169,8 @@ function buildAlphaLog(): SessionEvent[] {
   }
   // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
   // turns 62-63 also exercise their dedicated generic-row icon/title/path summaries. `echo` above
-  // stays presenter-less as the unknown fallback.
+  // stays presenter-less as the unknown fallback. Turn 66 is the second terminal sample, carrying
+  // what turn 60's three plain lines cannot (see TERMINAL_OUTPUT_FIXTURE) through the keyed row.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -201,6 +247,13 @@ function buildAlphaLog(): SessionEvent[] {
   const callIndex = events.length - 4
   const callTime = events[callIndex]?.time as number
   events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
+  // Turn 66: the terminal sample turn 60's three clean lines cannot cover —
+  // ANSI SGR coloring, output past the terminal card's height cap, a nested
+  // cwd whose prompt label is its last segment, and a non-zero exit recovered
+  // from the trailing marker the bash tool appends. Named `bash`, so it also
+  // covers the keyed toolview row (turn 60's `fx-bash` covers the render-site
+  // fallback row) — the two chat-row shapes the terminal card renders in.
+  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
   events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
@@ -219,7 +272,11 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     return undefined
   }
   switch (name) {
+    // Both names present the same terminal card: `fx-bash` lands on the
+    // render-site fallback row, `bash` on the keyed BashRow registration, so
+    // the two chat-row shapes of one render intent are both reachable.
     case 'fx-bash':
+    case 'bash':
       return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
     case 'fx-write':
       return {
@@ -235,12 +292,24 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
   }
 }
 
+/**
+ * Recover the exit status from a trailing `[exit code: N]` marker, mirroring
+ * the real bash tool's `parseExitStatus` (this package must not depend on a
+ * tool package, so the marker contract is re-read rather than imported).
+ * @param text - the rendered result text.
+ * @returns the recovered exit code (0 when the marker is absent).
+ */
+function fixtureExitCode(text: string): number {
+  const marker = /\n\[exit code: (\d+)\]$/.exec(text)
+  return marker?.[1] === undefined ? 0 : Number(marker[1])
+}
+
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
   switch (call.card) {
     case 'terminal':
-      return { card: 'terminal', output: resultText, exitCode: 0 }
+      return { card: 'terminal', output: resultText, exitCode: fixtureExitCode(resultText) }
     case 'diff':
       return { card: 'diff', diffs: call.diffs }
     case 'generic':

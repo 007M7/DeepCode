@@ -1,0 +1,65 @@
+# Agent Note: Web terminal card — the bash render intent reaches the browser
+
+Status: implemented
+
+English | [中文](2026-07-28-web-terminal-card.zh.md)
+
+## Problem
+
+The bash tool declares `card: 'terminal'` for both its call and its result ([render-intent union](../architecture/2026-07-02-tool-render-intent-union.md)): the call view carries the command, an optional model-authored description, and the working directory; the result view carries the output, exit code, and terminating signal. That view already reaches the browser — host, connection, and runtime deliver it onto `ConversationSnapshot` as `callView`/`resultView` — and the TUI already renders it as a `$`-prompt card with an exit line and a head/tail height cap.
+
+The Web client ignored it. `packages/client/ui-conversation/src/client/contract/tool-call-model.ts` derived every row from raw tool args, and `skeleton/DetailsPanel.tsx` flattened every tool's content blocks into one `<pre>` with `white-space: pre-wrap; word-break: break-word`. Two defects followed from soft-wrapping and from having no height bound: multi-column output (`ls`, a table, box drawing) folded into a paragraph and lost the column alignment that is the whole point of that output, and a long single-column listing stretched the details panel to the length of the listing.
+
+## Decision
+
+`TerminalBlock` is a `ui-primitives` component that renders a shell command as a terminal surface, and both Web render sites for a bash call consume the terminal render intent through it: the chat tool row's expanded body and the details panel's Output section. `ui-conversation/src/client/contract/terminal-card-model.ts` is the single place that turns the snapshot's `callView`/`resultView` pair into the component's props, so the two sites cannot disagree about a command, its cwd, or its exit status. It returns null — the generic path — whenever neither side declares `card: 'terminal'`, including a `card` value this client version does not know, and whenever a settled call's result view is generic, which is how the bash tool's execution errors and background starts keep their existing rendering.
+
+The component's contract:
+
+- **Prompt line.** A shortened cwd label followed by the command verbatim. The label is the cwd's last path segment, or `~` when the cwd equals the `home` prop — a browser has no `$HOME`, so the caller supplies the absolute home directory and the collapse simply does not apply without it. A view with no cwd renders a plain `$`.
+- **No soft wrapping.** Output lines are `white-space: pre` inside a horizontally scrolling box. Column alignment survives; a long line scrolls instead of folding.
+- **Height cap with an expand control.** Output longer than `DEFAULT_TERMINAL_MAX_LINES` (16) lines shows `ceil(max/2)` head lines plus the remaining tail lines, with a button in between that reports the hidden count and expands. The count is of parsed lines after the trailing output terminator is dropped, so an N-line output ending in a newline is N lines. The split arithmetic is the same as the TUI transcript's collapsed tool card (`packages/ui/tui/src/components/transcript.ts`), so one command's head and tail slices agree between the two front ends.
+- **ANSI color.** `anser` splits the SGR runs; `ui-primitives/src/ansi.ts` resolves each run into an inline style rendered as React spans. A foreground-only run maps the basic 16 colors onto `--dsw-*` theme tokens so authored color stays legible under both themes; a run that paints its own background keeps anser's literal rgb for both so its intended contrast survives, as do 256-palette, truecolor, and the two basic colors this design system has no token for. Sequences that carry no color (OSC strings, non-CSI escapes, inert C0 controls) are stripped before parsing so they never reach the DOM as literal characters, and a carriage return reduces its line to the final redraw, which is what a terminal shows for progress output.
+- **Exit status and copy.** A non-zero exit code or a signal renders a status pill, matching the exit-status distinction the bash tool's own renderer draws; a clean exit renders none, and settled empty output renders a dimmed placeholder. The copy control copies the raw output text, not the rendered tree, so the prompt line and the pill stay out of the clipboard.
+
+Geometry, radius, and fonts mirror `CodeBlock`, so a terminal card and a fenced code block match visually; `white-space: pre` plus horizontal scroll is the deliberate divergence. The clipboard write both components need moved out of `CodeBlock` into a package-internal `src/clipboard.ts`, unexported so it stays an implementation detail of the two blocks.
+
+### Inline output in the chat row reverses a stated convention
+
+`chat/ToolRow.tsx` and `contract/tool-call-model.ts` asserted "no inline output ever — full results live in the details panel". Showing the terminal block in the row reverses that, on the owner's explicit decision.
+
+The reason the reversal holds: for a shell command the output *is* the result the user is reading, so routing it exclusively to a panel makes the common case a two-step interaction. A bounded, height-capped, non-wrapping terminal block in the row is what makes a bash-heavy transcript readable in one pass. The old rule's actual concern was a row whose height was unbounded by the length of the output, and the height cap plus expand control is what keeps that from returning.
+
+The remaining bound: the row caps at `CHAT_TERMINAL_MAX_LINES` (8), half the primitive's default, which the panel keeps — the message flow is a summary surface read across many calls, the panel is the single-call reading surface, so the panel stays the place for the full output. Only the terminal intent renders inline; a generic tool's content is still panel-only.
+
+## Alternatives considered
+
+**Render the terminal block only in the details panel.** This keeps the stated no-inline-output convention and needs no reversal to record. Rejected by the owner's explicit decision: a shell command's output is what the user came to read, and putting it one click away costs more than the convention buys. Recorded here as the owner's call, not as a conclusion derived from the codebase.
+
+**Reuse `CodeBlock` with a `console` language instead of a new primitive.** Rejected: `CodeBlock` soft-wraps, which is the defect being fixed, and it has no exit status, no cwd prompt line, no height cap, and no ANSI handling. Adding four terminal-specific concerns to the shared code-fence component would impose them on every markdown fence. The two components share their geometry and font tokens instead, which is the only part where one implementation is correct for both.
+
+**Hand-roll the SGR parser.** Rejected: an SGR parser is exactly the surface [prefer maintained dependencies over hand-rolling](../process/2026-07-26-dependencies-over-hand-rolling.md) says not to own — its edge cases (256-palette and truecolor forms, `reverse`, multi-parameter runs, unterminated sequences) each fail on output nobody produces in a test, so a hand-rolled version stays subtly wrong for a long time. Stated honestly against that policy's bar: `anser` does **not** delete existing owned code. It is a capability addition, which that note distinguishes from a net-deletion simplification; the health and boundary-fit halves of the bar are what it clears. What stays hand-rolled is the part `anser` does not cover: the theme-token color mapping, the non-CSI sanitizing, the carriage-return redraw, and the per-line span folding the height cap slices.
+
+## Consequences
+
+`anser` is a new runtime dependency of `packages/client/ui-primitives`, so every consumer of that package pays for it once. A bash row in the Web chat carries output, which is a deliberate density increase over a summary-only row; the cap is what keeps it bounded, and a tighter cap is a props change, not a redesign.
+
+`TerminalBlock` reads only the terminal view's fields, so it stays a pure function of what the render intent carries — no session lookups, replay-safe like the presenters that produce the view. A UI without the terminal capability still gets the bridge's fenced fallback; nothing about the tool's result shape changed.
+
+Inline rendering is licensed for the terminal intent alone. A future intent that wants it needs its own bound and its own decision, argued against the reason recorded here rather than against the panel-only convention on its own.
+
+## Testing
+
+`packages/client/ui-primitives/tests/ansi.spec.ts` pins the parse layer: token mapping for the basic colors, literal rgb for the values with no token, the background-run pair, every decoration and the `textDecoration` collision between two of them, the sanitizing of OSC strings and non-CSI escapes and inert controls, per-line carriage-return redraws, and CRLF preservation. `packages/client/ui-primitives/tests/terminal-block.spec.tsx` pins the component: cwd shortening, the running/empty/settled arms, signal outranking exit code, the trailing-newline terminator rule, the head/tail cap with its `aria-expanded` toggle, and the copy control asserting raw output on both the accepted and refused clipboard paths, plus `writeClipboard` directly.
+
+`packages/client/ui-conversation/tests/terminal-card.spec.tsx` pins the wiring at every render site: `terminalCardModel`'s derivation and each of its null arms, the chat row's expand-gated body against the panel's full-height one, `BashRow`'s resident card, and the panel's Output section including the run_code sub-dispatch and the out-of-window head. That file is written against no gate pressure — `packages/client/ui-conversation/src/*` sits on the coverage `exclude` list in `vitest.config.ts`, so a coverage run over this package measures none of these files.
+
+`apps/web/tests/terminal-card.snapshot.ts` pins the assembled application over the built client bundles: the same render intent at both conversation render sites and in both chat-row shapes, because a bash call reaches a resident card only through the keyed `BashRow` registration and every other terminal-declaring tool name lands on the render-site fallback row, whose body is expand-gated. Fixture turn 66 was named `bash` and turn 60 left as `fx-bash` so one fixture covers both shapes; that turn also carries what turn 60's three clean lines cannot — SGR runs resolved to `--dsw-*` tokens, output past the chat cap, a nested cwd, and a non-zero exit recovered from the trailing marker.
+
+`apps/web/tests/navigation-panes.e2e.ts` adds the real-browser scenario over its existing `echo NAVIGATION_OK` bash call, asserting what jsdom cannot compute: squeezing the output pane below its content width leaves the line at one row and gives the pane horizontal overflow, and the copy control reaches the page's own async Clipboard API rather than the `execCommand` fallback. Its `details-open.expected.md` golden was refreshed for the panel's new terminal card. That refresh also absorbed a stale `Input json` line and its copy button, which the shiki `CodeBlock` change already on master left behind — verified as failing on a clean rebuilt tree before this change, so it is a correction carried along, not an effect of this one.
+
+## Related
+
+- [Tagged render-intent union for tool-call presentation](../architecture/2026-07-02-tool-render-intent-union.md) — the `card`-tagged vocabulary this consumes; the Web client is now a full consumer of the `terminal` arm rather than of args alone.
+- [Web client syntax highlighting](../process/2026-07-26-web-syntax-highlighting-shiki.md) — owns `CodeBlock` and its shiki arm, and records why tool output deliberately stays unhighlighted; ANSI color here is authored color, not guessed grammar.
+- [Web client architecture](../architecture/2026-07-19-gui-web-client-architecture.md) — the slot and snapshot layering the two render sites sit in.

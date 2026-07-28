@@ -26,6 +26,7 @@ const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
 const WATERFALL_EXPECTED = join(SNAPSHOT_DIR, 'waterfall.expected.md')
 const DETAILS_EXPECTED = join(SNAPSHOT_DIR, 'details-open.expected.md')
+const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
 
@@ -170,9 +171,11 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await bashRow.click()
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 10_000 }).toBeNull()
     // The open panel shows the selected call's name, arguments, and durable
-    // result (NAVIGATION_OK appears in the chat row too, hence >= 2 total).
+    // result. The chat row carries its own terminal card, so NAVIGATION_OK
+    // appears there too — in the prompt line and in the output.
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
-    // Golden of the open panel: tool name header, Input args, Output result.
+    // Golden of the open panel: tool name header, Input args, and the Output
+    // section's terminal card (prompt line + captured output).
     const snapshot = (await captureStableAria(page, '[class*="detailsCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(DETAILS_EXPECTED, snapshot, MODE)
@@ -180,11 +183,50 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 10_000 }).not.toBeNull()
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-terminal'))
+    await page.getByRole('tab', { name: 'Chat' }).click()
+    // The card is resident in the keyed bash row (no expand gesture): the
+    // recorded command's own output sits in the message flow, derived from the
+    // logged call/result presentations alone.
+    const card = page.locator('[data-sample="bash-global"] ~ [data-terminal], [data-sample="bash-global"] [data-terminal]').first()
+    await card.waitFor({ timeout: 15_000 })
+    // Real layout, not jsdom's stub (which computes no geometry at all):
+    // squeeze the output pane below its content width and the line must keep
+    // its single row and overflow sideways instead of folding. Soft-wrapping
+    // here is what shredded the column alignment this card exists to hold.
+    const layout = await card.locator('[class*="_output_"]').first().evaluate((node) => {
+      const pane = node as HTMLElement
+      const row = pane.querySelector<HTMLElement>('[class*="_line_"]')
+      if (row === null) throw new Error('output pane has no line')
+      const before = row.offsetHeight
+      const restore = pane.style.width
+      pane.style.width = '8px'
+      const squeezed = { wrapped: row.offsetHeight > before, scrollsSideways: pane.scrollWidth > pane.clientWidth }
+      pane.style.width = restore
+      return { whiteSpace: getComputedStyle(row).whiteSpace, overflowX: getComputedStyle(pane).overflowX, ...squeezed }
+    })
+    expect(layout).toEqual({ whiteSpace: 'pre', overflowX: 'auto', wrapped: false, scrollsSideways: true })
+    // Golden of the card at rest — captured before the copy click, whose
+    // confirmation label self-reverts on a timer and would not hold still.
+    const snapshot = (await captureStableAria(page, '[data-terminal]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(TERMINAL_EXPECTED, snapshot, MODE)
+    // Copy writes the raw output through the browser's own clipboard, which in
+    // a real page is the async Clipboard API rather than the jsdom fallback.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await card.locator('[class*="_copyButton_"]').first().click()
+    await expect.poll(() => card.locator('[class*="_copyButton_"]').first().textContent(), { timeout: 5_000 })
+      .toBe('复制成功')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md', 'details-open.expected.md',
+      'terminal-card.expected.md',
     ])
   })
 })

@@ -71,6 +71,11 @@ describe('tool-call-model', () => {
     expect(toolRowModel('bash', result({ call: null })).body).toBeNull()
   })
 
+  it('a code row with an empty program falls back to the args JSON envelope', () => {
+    expect(toolRowModel('run_code', running({ name: 'run_code', argsRaw: '{"code":""}' })).body)
+      .toBe('{\n  "code": ""\n}')
+  })
+
   it('gives Cordis lifecycle tools action titles over their generic variants', () => {
     expect(toolRowModel('cordis_inspect', running({
       name: 'cordis_inspect',
@@ -137,6 +142,22 @@ describe('ToolRow', () => {
     const view = render(<ToolRow {...rowProps} body={null} />)
     expect(view.container.querySelector('button')).toBeNull()
     expect(view.queryByTestId('tool-icon')).not.toBeNull()
+  })
+
+  it('an expandOnRowClick row toggles from Enter and Space, ignoring other keys', () => {
+    const view = render(<ToolRow {...rowProps} expandOnRowClick />)
+    const row = view.getByRole('button')
+    fireEvent.keyDown(row, { key: 'Tab' })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a non-expandable expandOnRowClick row exposes no row button', () => {
+    const view = render(<ToolRow {...rowProps} body={null} expandOnRowClick />)
+    expect(view.queryByRole('button')).toBeNull()
   })
 
   it('row click hands off to onOpenDetails; the expand toggle does not', () => {
