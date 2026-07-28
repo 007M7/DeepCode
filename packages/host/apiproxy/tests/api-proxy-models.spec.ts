@@ -4,7 +4,7 @@
  * models, and the prompt-assembly boundary for a running selection change.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents, installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentLlmTargetRef } from '@deepseek-ai/dsh-agent'
@@ -13,8 +13,8 @@ import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
   LlmResolvedModelInfo, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -60,6 +60,33 @@ class CatalogAdapter extends LlmAdapter {
 
   override async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     // Catalog tests never enter provider streaming.
+  }
+}
+
+class DeferredCatalogAdapter extends CatalogAdapter {
+  readonly pending: PromiseWithResolvers<LlmResolvedModelInfo>[] = []
+
+  constructor() {
+    super('Deferred', [
+      { provider: 'deferred', id: 'lifecycle-model', name: 'Lifecycle model' },
+    ])
+  }
+
+  override resolveModel(_provider: string, _model: string): Promise<LlmResolvedModelInfo> {
+    const result = Promise.withResolvers<LlmResolvedModelInfo>()
+    this.pending.push(result)
+    return result.promise
+  }
+
+  resolve(index: number, contextWindow: number): void {
+    const pending = this.pending[index]
+    if (pending === undefined) throw new Error(`no pending resolution at index ${String(index)}`)
+    pending.resolve({
+      provider: 'deferred',
+      id: 'lifecycle-model',
+      name: 'Lifecycle model',
+      context: { contextWindow },
+    })
   }
 }
 
@@ -132,6 +159,46 @@ async function nextMetrics(
     if (next.done) throw new Error('mux ended before a metrics frame')
     if (next.value.payload.type === 'session/metrics') return next.value.payload.metrics
   }
+}
+
+function attachLifecycleSession(
+  ctx: Context,
+  sessionId: SessionId,
+  withMarker = false,
+): { session: Session; detach: () => void } {
+  const session = ctx.sessions.prepare(sessionId)
+  session.append('request/header', {
+    header: { config: { provider: 'deferred', model: 'lifecycle-model' } },
+    reason: 'initial',
+  })
+  if (withMarker) {
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'replacement marker' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }, { surfaceOp: 'append' })
+  }
+  const detach = ctx.sessions.enter(session)
+  ctx.sessions.announce(session)
+  return { session, detach }
+}
+
+function attachLifecycleAgent(
+  ctx: Context,
+  session: Session,
+): () => void {
+  const agent = {
+    id: session.id,
+    session,
+    status: 'running',
+    ctx,
+  } as Agent
+  const detach = ctx.agents.enter(agent, undefined)
+  ctx.agents.announce(agent)
+  return detach
+}
+
+function settleCapacityCompletion(): Promise<void> {
+  return new Promise<void>((resolve) => { setImmediate(resolve) })
 }
 
 describe('Web session model selection', () => {
@@ -320,6 +387,71 @@ describe('Web session model selection', () => {
 
     controller.abort()
     await iterator.return?.()
+    await ctx.fiber.dispose()
+  })
+
+  it('drops capacity completion from a replaced agent that retains the exact session', async () => {
+    const ctx = await hostContext()
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-agent-lifecycle'))
+    const retire = attachLifecycleAgent(ctx, lifecycle.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    retire()
+    const detachLive = attachLifecycleAgent(ctx, lifecycle.session)
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(2) })
+
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    deferred.resolve(1, 128_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+
+    controller.abort()
+    await iterator.return?.()
+    detachLive()
+    lifecycle.detach()
+    await ctx.fiber.dispose()
+  })
+
+  it('drops capacity completion from a replaced session while its old agent remains live', async () => {
+    const ctx = await hostContext()
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const sessionId = SessionId('capacity-session-lifecycle')
+    const retiredSession = attachLifecycleSession(ctx, sessionId)
+    const retireAgent = attachLifecycleAgent(ctx, retiredSession.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    retiredSession.detach()
+    const liveSession = attachLifecycleSession(ctx, sessionId, true)
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    retireAgent()
+    const detachLiveAgent = attachLifecycleAgent(ctx, liveSession.session)
+    const scheduled = await nextMetrics(iterator)
+    expect(scheduled.logRevision).toBe(2)
+    expect(scheduled.contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(2) })
+    deferred.resolve(1, 128_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+
+    controller.abort()
+    await iterator.return?.()
+    detachLiveAgent()
+    liveSession.detach()
     await ctx.fiber.dispose()
   })
 })

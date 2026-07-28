@@ -438,7 +438,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const metricsProjector = new SessionMetricsProjector(
     ctx,
     metricsRouteFor,
-    (agent) => { scheduleMetrics(agent.session) },
+    (agent) => {
+      if (metricsDisposed) return
+      if (ctx.agents.get(agent.id) !== agent) return
+      if (ctx.sessions.get(agent.id) !== agent.session) return
+      scheduleMetrics(agent.session)
+    },
   )
 
   /** Queue one full-log metrics publication after synchronous session listeners drain. */
