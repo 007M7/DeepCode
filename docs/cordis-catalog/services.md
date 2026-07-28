@@ -859,13 +859,19 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next request boundary.
- * Repeated selection of the current or already-pending state is a no-op.
+ * Select whether plan mode should be active. An idle agent commits the
+ * change immediately (no boundary would arrive until the next prompt); a
+ * running agent holds it as pending intent for the next in-turn request
+ * boundary. Repeated selection of the current or already-pending state is
+ * a no-op.
  *
  * @param agent The agent to switch.
  * @param active Whether plan mode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next boundary), `cancelled` (an opposite pending selection was cleared;
+ * the logged state already matches), or `noop` (already in that state).
  */
-set(agent: Agent, active: boolean): void
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
 ```
 
 Types: [Agent](../core-data-structures/core.md)

@@ -149,6 +149,16 @@ const planProjectionSchema: ZodType<PlanProjection> = zod.object({
   pending: zod.boolean(),
 })
 
+/** Whether the log holds an opened turn without its closing `turn/end`. */
+function hasOpenTurn(events: readonly SessionEvent[]): boolean {
+  let open = false
+  for (const event of events) {
+    if (event.type === 'turn/start') open = true
+    else if (event.type === 'turn/end') open = false
+  }
+  return open
+}
+
 /** Plan state at the last logged request header, or `undefined` before the first header. */
 function planModeAtLastHeader(events: readonly SessionEvent[]): boolean | undefined {
   let lastHeader = -1
@@ -364,9 +374,12 @@ export class PlanModeService extends Service {
   }
 
   /**
-   * Select whether plan mode should be active. An idle agent commits the
-   * change immediately (no boundary would arrive until the next prompt); a
-   * running agent holds it as pending intent for the next in-turn request
+   * Select whether plan mode should be active. Between turns the change
+   * commits immediately — no request boundary would arrive until the next
+   * prompt, so a queued intent would hang (the open-turn fold is the idle
+   * signal: agent status stays `running` through post-turn checkpointing,
+   * where a boundary equally never comes). During an open turn the
+   * selection is held as pending intent for the next in-turn request
    * boundary. Repeated selection of the current or already-pending state is
    * a no-op.
    *
@@ -381,12 +394,12 @@ export class PlanModeService extends Service {
     const pending = this.pendingIntents.get(session)
     const target = pending?.active ?? foldPlanMode(session.events)
     if (active === target) return 'noop'
-    if (agent.status === 'running') {
+    if (hasOpenTurn(session.events)) {
       this.pendingIntents.set(session, { active, narrate: true })
       return foldPlanMode(session.events) === active ? 'cancelled' : 'queued'
     }
-    // Idle: commit now. Delete only after append succeeds so a failed durable
-    // write leaves the selection retryable rather than silently dropped.
+    // No open turn: commit now. Delete only after append succeeds so a
+    // failed durable write leaves the selection retryable, not dropped.
     if (active === foldPlanMode(session.events)) {
       this.pendingIntents.delete(session)
       return 'cancelled'
