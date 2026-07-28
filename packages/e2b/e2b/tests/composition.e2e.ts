@@ -11,7 +11,7 @@ const configPath = join(fixtureRoot, 'cordis.yml')
 const tsconfigPath = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
-  it('shares remote state across FS and Bash without creating host workspace files', async () => {
+  it('runs FS, Bash, PTY, LSP, and Code Runtime in one sandbox and deletes it', async () => {
     const { stdout, stderr } = await runLoaderSmoke({
       label: 'E2B composition',
       tempDirPrefix: 'dsh-e2b-composition-',
@@ -19,10 +19,14 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       libBinScript: binScript,
       configPath,
       tsconfigPath,
-      processTimeoutMs: 90_000,
+      env: {
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      processTimeoutMs: 120_000,
       inspect: async (cwd) => {
-        await expect(access(join(cwd, 'from-fs.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
-        await expect(access(join(cwd, 'from-bash.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+        for (const name of ['from-fs.txt', 'from-bash.txt', 'multibyte.ts', 'fixture-lsp.mjs']) {
+          await expect(access(join(cwd, name))).rejects.toMatchObject({ code: 'ENOENT' })
+        }
       },
     })
 
@@ -31,9 +35,37 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     expect(output).toMatchObject({
       bashRead: 'written-by-fs\n',
       fsRead: 'written-by-bash\n',
+      hover: {
+        kind: 'hover',
+        hover: { contents: '**remote hover** 你好 café' },
+      },
+      definition: {
+        kind: 'locations',
+        locations: [{ range: { start: { line: 0, character: 6 }, end: { line: 0, character: 10 } } }],
+      },
+      terminal: {
+        echo: { waitReason: 'stdin_read', sessionStatus: { kind: 'running' } },
+        signal: { delivered: true },
+        interrupted: { sessionStatus: { kind: 'running' } },
+      },
+      hostileOutput: { error: { kind: 'output-limit' } },
+      timedOut: { error: { kind: 'timeout' } },
+      aborted: { error: { kind: 'abort', message: 'live abort' } },
+      lingeringCodeRunners: 0,
+    })
+    expect((output.terminal as { motd: string }).motd.length).toBeGreaterThan(0)
+    expect((output.terminal as { echo: { viewport: string } }).echo.viewport).toContain('PTY-你好')
+    expect((output.terminal as { scrollback: string }).scrollback).toContain('PTY-你好')
+    expect((output.terminal as { signal: { targetPgid: number } }).signal.targetPgid).toBeGreaterThan(0)
+    expect(['stdin_read', 'inferred_idle']).toContain(
+      (output.terminal as { interrupted: { waitReason: string } }).interrupted.waitReason,
+    )
+    expect(output.code).toEqual({
+      value: { doubled: 42, typed: true },
+      logs: ['remote-log 你好 42', 'post-mutation'],
     })
     const apiKey = process.env.E2B_API_KEY
     if (apiKey === undefined) throw new Error('E2B_API_KEY disappeared during the live composition test')
     await expect(Sandbox.getInfo(String(output.sandboxId), { apiKey })).rejects.toBeInstanceOf(SandboxNotFoundError)
-  }, 105_000)
+  }, 135_000)
 })

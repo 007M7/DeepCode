@@ -10,6 +10,8 @@ import z from 'schemastery'
 import { Sandbox } from 'e2b'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
+export { E2BFrameDecoder, encodeE2BFrame } from './frame.ts'
+
 export {
   CommandExitError,
   FileNotFoundError,
@@ -19,7 +21,7 @@ export {
   SandboxNotFoundError,
   TimeoutError,
 } from 'e2b'
-export type { CommandHandle, CommandResult, EntryInfo } from 'e2b'
+export type { CommandHandle, CommandResult, EntryInfo, ProcessInfo, PtyOutput } from 'e2b'
 
 /** Opaque E2B sandbox identity used for reconnecting a later harness process. */
 export type E2BSandboxId = Branded<'E2BSandboxId'>
@@ -40,6 +42,26 @@ export function E2BSandboxId(value: string): E2BSandboxId {
  */
 export function quoteE2BShellArg(value: string): string {
   return `'${value.replaceAll('\'', "'\"'\"'")}'`
+}
+
+/**
+ * Resolve one executable inside an E2B sandbox and require an absolute result.
+ * @param sandbox - Sandbox whose PATH and filesystem own the executable.
+ * @param command - Absolute path or bare executable name.
+ * @returns Verified absolute remote executable path.
+ */
+export async function resolveE2BExecutable(sandbox: Sandbox, command: string): Promise<string> {
+  if (command.length === 0) throw new Error('E2B executable name must be non-empty')
+  if (posix.isAbsolute(command)) {
+    await sandbox.commands.run(`test -f ${quoteE2BShellArg(command)} -a -x ${quoteE2BShellArg(command)}`)
+    return command
+  }
+  const result = await sandbox.commands.run(`command -v -- ${quoteE2BShellArg(command)}`)
+  const executable = result.stdout.trim()
+  if (!posix.isAbsolute(executable) || executable.includes('\n')) {
+    throw new Error(`E2B executable ${JSON.stringify(command)} did not resolve to one absolute path`)
+  }
+  return executable
 }
 
 /** Action taken on the owned sandbox when the Cordis service is disposed. */

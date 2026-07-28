@@ -1,15 +1,19 @@
-# POC overlay: keep the headless agent and model-facing tools, but place its
-# filesystem and managed Bash process world in one short-lived E2B sandbox.
+# POC overlay: keep the advanced headless agent and model-facing tools, but
+# place its filesystem, processes, terminals, language servers, and Code Mode
+# execution in one short-lived E2B sandbox.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
-    path: ./cordis.yml
+    path: ./advanced.cordis.yml
     patches:
       - id: subprocess
         name: '@deepseek-ai/dsh-subprocess-local'
         disabled: true
       - id: fs-local
         name: '@deepseek-ai/dsh-fs-local'
+        disabled: true
+      - id: code-runtime
+        name: '@deepseek-ai/dsh-code-runtime-worker'
         disabled: true
       - id: bash
         name: '@deepseek-ai/dsh-bash-local'
@@ -28,3 +32,27 @@
             name: '@deepseek-ai/dsh-subprocess-e2b'
           - id: fs-e2b
             name: '@deepseek-ai/dsh-fs-e2b'
+          - id: code-runtime-e2b
+            name: '@deepseek-ai/dsh-code-runtime-e2b'
+          - id: pty
+            name: '@deepseek-ai/dsh-pty'
+          - id: pty-e2b
+            name: '@deepseek-ai/dsh-pty-e2b'
+          - id: tool-pty
+            name: '@deepseek-ai/dsh-tool-pty'
+          - id: lsp
+            name: '@deepseek-ai/dsh-lsp'
+          - id: lsp-e2b
+            name: '@deepseek-ai/dsh-lsp-e2b'
+            config:
+              servers:
+                typescript:
+                  command: npx
+                  args: [--yes, typescript-language-server@5.0.0, --stdio]
+                  extensionToLanguage:
+                    .ts: typescript
+                    .tsx: typescriptreact
+                    .js: javascript
+                    .jsx: javascriptreact
+          - id: tool-lsp
+            name: '@deepseek-ai/dsh-tool-lsp'

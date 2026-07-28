@@ -10,6 +10,7 @@ This package is the interface third of the LSP capability:
 |---|---|
 | `@deepseek-ai/dsh-lsp` (this) | the interface: the service, provider registry keyed by branded id + extension mapping, per-query selection, request/result vocabulary, the `LspError` taxonomy |
 | `@deepseek-ai/dsh-lsp-local` | a generic local backend that registers configured stdio language-server providers |
+| `@deepseek-ai/dsh-lsp-e2b` | a generic E2B backend that registers configured remote stdio providers |
 | `@deepseek-ai/dsh-tool-lsp` | the model-facing `lsp` tool over `ctx.lsp` |
 
 The seam exposes exactly four semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover` — and no generic JSON-RPC escape hatch, so no protocol payload or unreviewed command/mutation reaches a provider through `ctx.lsp`.

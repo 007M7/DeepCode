@@ -43,10 +43,12 @@
     "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-loader-smoke": "workspace:*",
     "@deepseek-ai/dsh-lsp": "workspace:*",
+    "@deepseek-ai/dsh-lsp-e2b": "workspace:*",
     "@deepseek-ai/dsh-lsp-local": "workspace:*",
     "@deepseek-ai/dsh-permission": "workspace:*",
     "@deepseek-ai/dsh-plan-mode": "workspace:*",
     "@deepseek-ai/dsh-pty": "workspace:*",
+    "@deepseek-ai/dsh-pty-e2b": "workspace:*",
     "@deepseek-ai/dsh-pty-local": "workspace:*",
     "@deepseek-ai/dsh-pwsh-local": "workspace:*",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:*",
@@ -54,7 +56,10 @@
     "@deepseek-ai/dsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
+<<<<<<< HEAD
     "@deepseek-ai/dsh-scope": "workspace:*",
+=======
+>>>>>>> 3f6c905d5e (Add E2B PTY, LSP, and code runtime providers)
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-checkpoint-policy": "workspace:*",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",

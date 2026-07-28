@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Shared lifecycle owner for one E2B sandbox. Filesystem and subprocess adapters inject `ctx.e2b`, await its single SDK handle, and therefore inhabit the same remote Linux working tree and process world. The package pins `e2b@2.29.1`.
+Shared lifecycle owner for one E2B sandbox. Capability adapters inject `ctx.e2b`, await its single SDK handle, and therefore inhabit the same remote Linux working tree and process world. The package pins `e2b@2.29.1`; the [family map](../README.md) lists the opt-in adapters.
 
 ## Configuration
 

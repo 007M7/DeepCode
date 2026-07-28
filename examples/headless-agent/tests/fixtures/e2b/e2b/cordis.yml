@@ -17,3 +17,43 @@
 
 - id: fs-e2b
   name: '@deepseek-ai/dsh-fs-e2b'
+
+- id: agents
+  name: '@deepseek-ai/dsh-agent'
+
+- id: pty
+  name: '@deepseek-ai/dsh-pty'
+
+- id: pty-e2b
+  name: '@deepseek-ai/dsh-pty-e2b'
+  config:
+    pollIntervalMs: 25
+    idleSilenceMs: 2000
+    timeoutMs: 5000
+    disposeGraceMs: 1000
+
+- id: lsp
+  name: '@deepseek-ai/dsh-lsp'
+
+- id: lsp-e2b
+  name: '@deepseek-ai/dsh-lsp-e2b'
+  config:
+    servers:
+      fixture:
+        command: node
+        args:
+          - !!js process.cwd() + '/fixture-lsp.mjs'
+        extensionToLanguage:
+          .ts: typescript
+        shutdownTimeoutMs: 1000
+        killGraceMs: 500
+
+- id: code-runtime-e2b
+  name: '@deepseek-ai/dsh-code-runtime-e2b'
+  config:
+    computeMs: 500
+    maxWallMs: 5000
+    maxOutputBytes: 4096
+    maxOldGenerationSizeMb: 128
+    maxFrameBytes: 4194304
+    killGraceMs: 500

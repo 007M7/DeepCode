@@ -41,6 +41,15 @@ export type {
   PtyWaitReason,
 } from './types.ts'
 export { PtyBackendCleanupError } from './types.ts'
+export {
+  normalizePtyTerminalText,
+  PTY_PROMPT_MARKER_PREFIX,
+  PtyTerminalSanitizer,
+  PtyTextBuffer,
+  ptySignalName,
+  ptyUtf8Tail,
+} from './terminal.ts'
+export type { PtySanitizedChunk } from './terminal.ts'
 
 /** Opaque identity minted by {@link PtyService} for one live PTY session. */
 export type PtySessionId = PtySessionIdValue

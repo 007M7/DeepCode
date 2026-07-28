@@ -1,0 +1,20 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cosmokit" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../e2b/e2b" },
+    { "path": "../lsp" },
+    { "path": "../lsp-local" },
+    { "path": "../../subprocess/subprocess" },
+    { "path": "../../subprocess/subprocess-e2b" },
+    { "path": "../../util/timeout" },
+    { "path": "../../support/invariants" }
+  ]
+}

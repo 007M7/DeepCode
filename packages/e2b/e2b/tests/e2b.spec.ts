@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Sandbox as SandboxType } from 'e2b'
 import E2BSandboxService, {
+  E2BFrameDecoder,
   E2BSandboxId,
+  encodeE2BFrame,
   quoteE2BShellArg,
+  resolveE2BExecutable,
 } from '@deepseek-ai/dsh-e2b'
 import * as E2BInvariant from '../src/invariant.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -207,6 +210,49 @@ describe('E2BSandboxService', () => {
 describe('E2B helpers and invariant companion', () => {
   it('quotes opaque shell arguments without interpolation', () => {
     expect(quoteE2BShellArg("a'b $HOME")).toBe("'a'\"'\"'b $HOME'")
+  })
+
+  it('resolves absolute and PATH executables inside the sandbox', async () => {
+    const run = vi.fn()
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '/usr/bin/node\n', stderr: '' })
+    const sandbox = { commands: { run } } as unknown as SandboxType
+    await expect(resolveE2BExecutable(sandbox, '/bin/bash')).resolves.toBe('/bin/bash')
+    await expect(resolveE2BExecutable(sandbox, 'node')).resolves.toBe('/usr/bin/node')
+    expect(run).toHaveBeenNthCalledWith(1, "test -f '/bin/bash' -a -x '/bin/bash'")
+    expect(run).toHaveBeenNthCalledWith(2, "command -v -- 'node'")
+  })
+
+  it('rejects empty or non-absolute executable resolutions', async () => {
+    const sandbox = {
+      commands: { run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'relative\npath\n', stderr: '' }) },
+    } as unknown as SandboxType
+    await expect(resolveE2BExecutable(sandbox, '')).rejects.toThrow('non-empty')
+    await expect(resolveE2BExecutable(sandbox, 'tool')).rejects.toThrow('did not resolve')
+  })
+
+  it('round-trips split and adjacent ASCII/base64 JSON frames', () => {
+    const decoder = new E2BFrameDecoder(128)
+    const encoded = encodeE2BFrame({ text: '你好' }) + encodeE2BFrame([1, true])
+    expect(decoder.push(encoded.slice(0, 5))).toEqual([])
+    expect(decoder.push(encoded.slice(5))).toEqual([{ text: '你好' }, [1, true]])
+    expect(() => { decoder.finish() }).not.toThrow()
+    expect(() => encodeE2BFrame(undefined)).toThrow('not JSON-serializable')
+  })
+
+  it('rejects malformed, oversized, and truncated frame streams', () => {
+    expect(() => new E2BFrameDecoder(0)).toThrow('positive safe integer')
+    expect(() => new E2BFrameDecoder(1.5)).toThrow('positive safe integer')
+    expect(() => new E2BFrameDecoder(4).push('é')).toThrow('non-ASCII')
+    expect(() => new E2BFrameDecoder(3).push('AAAAA')).toThrow('byte limit')
+    expect(() => new E2BFrameDecoder(8).push('\n')).toThrow('invalid base64')
+    expect(() => new E2BFrameDecoder(8).push('abc!\n')).toThrow('invalid base64')
+    expect(() => new E2BFrameDecoder(2).push(`${Buffer.from('abc').toString('base64')}\n`)).toThrow('byte limit')
+    expect(() => new E2BFrameDecoder(8).push('/w==\n')).toThrow('invalid UTF-8')
+    expect(() => new E2BFrameDecoder(16).push(`${Buffer.from('not-json').toString('base64')}\n`)).toThrow('invalid JSON')
+    const truncated = new E2BFrameDecoder(8)
+    truncated.push('YQ==')
+    expect(() => { truncated.finish() }).toThrow('mid-frame')
   })
 
   it('registers the package-owned empty invariant installer', async () => {
