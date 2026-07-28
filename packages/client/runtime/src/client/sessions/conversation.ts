@@ -17,7 +17,7 @@ export type { TodoItem }
  * connection overlaid for presentation.
  */
 export interface ConversationMetrics extends SessionMetrics {
-  /** Latest dispatched-request capacity; absent until observed or after reset/clear. */
+  /** Latest observed request-attempt capacity; absent until observed or after reset/clear. */
   contextWindow?: number
 }
 

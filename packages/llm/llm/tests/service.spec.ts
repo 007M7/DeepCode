@@ -1070,11 +1070,14 @@ describe('LlmService', () => {
           provider,
           id: model,
           name: model,
+          description: 'Resolved model',
           context: source,
-          reasoning: {
-            efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
-            defaultEffort: ReasoningEffortId('high'),
-          },
+          reasoning: model === 'no-default'
+            ? { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] }
+            : {
+              efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+              defaultEffort: ReasoningEffortId('high'),
+            },
         })
       }
     }(SCRIPT)
@@ -1090,6 +1093,11 @@ describe('LlmService', () => {
       messages: [],
     })) { /* drain */ }
     expect(resolutions).toBe(1)
+
+    const noDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'no-default' })
+    expect(noDefault.config).toEqual({ provider: 'route', model: 'no-default' })
+    expect(noDefault.context).toEqual({ contextWindow: 64_000 })
+    expect(resolutions).toBe(2)
   })
 
   it('passes cancellation through exact-model resolution', async () => {

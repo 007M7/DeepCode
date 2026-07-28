@@ -60,11 +60,11 @@ export type MuxFrame =
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
   | { type: 'session/metrics'; sessionId: SessionId; metrics: SessionMetrics }
   /**
-   * One model request observed by this already-open mux connection after its
-   * final route and stream handle were resolved. This frame is transient: mux
-   * baselines, reconnects, and session history never replay it. An absent
-   * `contextWindow` explicitly clears a capacity observed from an earlier
-   * request on the same connection.
+   * One request attempt observed by this already-open mux connection after its
+   * final route and outer `llm/stream` handle were obtained. This does not prove
+   * provider I/O began. The frame is transient: mux baselines, reconnects, and
+   * session history never replay it. An absent `contextWindow` explicitly clears
+   * a capacity observed from an earlier request on the same connection.
    */
   | {
     type: 'session/model-request'

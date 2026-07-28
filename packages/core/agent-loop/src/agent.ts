@@ -487,24 +487,21 @@ export class ReactLoopAgent implements Agent {
 
     const assembler = new BlockAssembler()
     const chunkSeqs: number[] = []
-    const onDispatched = (): void => {
-      emitAgentEvent(
-        this.loopCtx,
-        this,
-        'agent/model-request',
-        turn,
-        step,
-        {
-          provider: request.provider,
-          model: request.model,
-          ...preparedCall?.context === undefined
-            ? {}
-            : { contextWindow: preparedCall.context.contextWindow },
-        },
-      )
-    }
-    const stream = preparedCall?.stream(request, onDispatched)
-      ?? this.loopCtx.llm.stream(request, onDispatched)
+    const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
+    emitAgentEvent(
+      this.loopCtx,
+      this,
+      'agent/model-request',
+      turn,
+      step,
+      {
+        provider: request.provider,
+        model: request.model,
+        ...preparedCall?.context === undefined
+          ? {}
+          : { contextWindow: preparedCall.context.contextWindow },
+      },
+    )
     try {
       for await (const chunk of stream) {
         signal.throwIfAborted()

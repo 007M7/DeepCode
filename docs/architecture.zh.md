@@ -92,7 +92,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare reasoning/default + context under turn signal -> log request/header -> construct llm/stream (frozen, registration-bound) -> agent/model-request (live, contained) -> iterate
+      agent/request (config only) -> prepare reasoning/default + context under turn signal -> log request/header -> obtain outer llm/stream handle (frozen request; prepared calls registration-bound) -> agent/model-request (live, contained attempt) -> iterate
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -151,7 +151,7 @@ idle inject:
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](core-data-structures/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。最终流构造完成后，循环会发出 `agent/model-request` 元数据；该通知的失败会被收容，元数据不会持久化或回放。适配器会规范化故障；`agent/request-error` 可以重试。远程适配器使用逐次读取空闲看门狗。回放仅通过共用适配器跨路由传递（[契约](core-data-structures/llm-streaming.md)）。
+流式输出使用分片和 `BlockAssembler`。外层 `llm/stream` 返回句柄时，AgentLoop 会发出 `agent/model-request` 尝试元数据；该通知的失败会被收容，元数据不会持久化或回放，但这并不能证明提供方 I/O 已开始。`agent/request-error` 可以重试。回放仅通过共用适配器跨路由传递（[契约](core-data-structures/llm-streaming.md)）。
 
 ## 扩展与组合
 

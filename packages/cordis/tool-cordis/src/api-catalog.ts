@@ -397,8 +397,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve one call under its current adapter registration. The returned\n * one-shot handle keeps that registration across header logging and dispatch,\n * so HMR cannot combine one adapter\'s capability result with another adapter.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a prepared config and its registration-bound stream entry point.\n */',
       },
       {
-        signature: 'stream(options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk>',
-        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection remains fixed through asynchronous exact-model resolution\n * and dispatch. Selection, dispatch, and iteration failures retain their\n * original Error identity and are tagged in a call-local scope for narrow\n * agent-loop request recovery; middleware and nested-call failures remain\n * untagged for the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @param onDispatched - contained Agent-loop notification hook invoked after\n *   a stream handle is constructed and before its adapter is iterated.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+        signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection remains fixed through asynchronous exact-model resolution\n * and dispatch. Selection, dispatch, and iteration failures retain their\n * original Error identity and are tagged in a call-local scope for narrow\n * agent-loop request recovery; middleware and nested-call failures remain\n * untagged for the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
     ],
   },
@@ -1052,8 +1052,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/model-request',
     mode: 'emit',
     signature: '\'agent/model-request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, request: AgentModelRequest): void',
-    jsDoc: '/**\n * One model request constructed its final stream handle and is about to\n * iterate it. This live notification is not durable or replayed; failed or\n * aborted iteration still has a dispatch, while preparation and\n * synchronous stream-construction failures do not. Listener failures are\n * contained and cannot affect the request.\n * @param agent - the agent dispatching the model request.\n * @param turn - the open turn number.\n * @param step - the request\'s step number.\n * @param request - final route plus registration-bound context capacity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One model request constructed its final stream handle and is about to iterate it.',
+    jsDoc: '/**\n * One model request obtained its outer `llm/stream` handle and is about to\n * iterate it. This observes an Agent-loop request attempt, not proof that\n * provider I/O began. The notification is live, contained, and not replayed.\n * Preparation or a synchronous outer waterfall failure emits nothing;\n * failures or abortion after the handle returns still count.\n * @param agent - the agent dispatching the model request.\n * @param turn - the open turn number.\n * @param step - the request\'s step number.\n * @param request - final route plus registration-bound context capacity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One model request obtained its outer `llm/stream` handle and is about to iterate it.',
   },
   {
     name: 'agent/prompt-submit',
@@ -1810,7 +1810,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PreparedLlmCall',
-    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly context?: LlmModelContext;\n    stream(options: GenerateOptions, onDispatched?: () => void): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly context?: LlmModelContext;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',

@@ -25,7 +25,7 @@
 
 确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型，缺少 `context` 或 `reasoning` 字段只表示相应能力不可用。无效的身份、上下文或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT` 或 `INVALID_MODEL_REASONING` 失败。
 
-推理标识符是由适配器持有的不透明字符串，而非核心枚举。适配器会公布有序可选列表；模型能力 API 提供 `off` id 时，列表也会包含它。`resolveCallConfig()` 只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速完成结算。`prepareCall()` 还会公开同一次查询得到的脱耦上下文元数据，并让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。其分派观察器在最终流句柄构造完成后、适配器开始迭代前运行。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+推理标识符是由适配器持有的不透明字符串，而非核心枚举。适配器会公布有序可选列表；模型能力 API 提供 `off` id 时，列表也会包含它。`resolveCallConfig()` 只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速完成结算。`prepareCall()` 还会公开同一次查询得到的脱耦上下文元数据，并让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 ### 事件
 

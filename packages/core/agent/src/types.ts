@@ -116,13 +116,13 @@ export type PromptDecision =
 /** Model-request failure with an optional machine-routable provider code. */
 export type RequestError = Error & { code?: string }
 
-/** Live metadata for one model request that reached adapter dispatch. */
+/** Live metadata for one model request whose outer stream handle was obtained. */
 export interface AgentModelRequest {
-  /** Final registered provider route. */
+  /** Final request provider route; a short-circuit listener may own it. */
   readonly provider: string
-  /** Final adapter-owned model id. */
+  /** Final request model id; a short-circuit listener may own it. */
   readonly model: string
-  /** Registration-bound context capacity when the adapter exposed one. */
+  /** Registration-bound context capacity when preparation exposed one. */
   readonly contextWindow?: number
 }
 
@@ -371,11 +371,11 @@ declare module 'cordis' {
     */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
-     * One model request constructed its final stream handle and is about to
-     * iterate it. This live notification is not durable or replayed; failed or
-     * aborted iteration still has a dispatch, while preparation and
-     * synchronous stream-construction failures do not. Listener failures are
-     * contained and cannot affect the request.
+     * One model request obtained its outer `llm/stream` handle and is about to
+     * iterate it. This observes an Agent-loop request attempt, not proof that
+     * provider I/O began. The notification is live, contained, and not replayed.
+     * Preparation or a synchronous outer waterfall failure emits nothing;
+     * failures or abortion after the handle returns still count.
      * @param agent - the agent dispatching the model request.
      * @param turn - the open turn number.
      * @param step - the request's step number.

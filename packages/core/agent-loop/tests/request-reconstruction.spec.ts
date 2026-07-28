@@ -293,6 +293,7 @@ describe('request stability across the loop', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     let observed: GenerateOptions | undefined
+    let observedRequest: { provider: string; model: string; contextWindow?: number } | undefined
     ctx.on('llm/stream', (options) => {
       observed = options
       return (async function* () {
@@ -303,11 +304,15 @@ describe('request stability across the loop', () => {
       provider: 'listener',
       model: 'virtual',
     })
+    ctx.on('agent/model-request', (subject, _turn, _step, request) => {
+      if (subject === agent) observedRequest = { ...request }
+    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     expect(observed).toMatchObject({ provider: 'listener', model: 'virtual' })
+    expect(observedRequest).toEqual({ provider: 'listener', model: 'virtual' })
     expect(agent.session.requestHeader()?.config).toEqual({
       provider: 'listener',
       model: 'virtual',
@@ -318,7 +323,7 @@ describe('request stability across the loop', () => {
     })
   })
 
-  it('notifies one contained live model-request edge only after successful stream construction', async () => {
+  it('notifies one contained request attempt after the outer stream handle returns', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(SessionStore)
@@ -341,7 +346,9 @@ describe('request stability across the loop', () => {
       }
 
       override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-        if (options.model === 'sync-failure') throw new LlmError('construction failed', 'CONSTRUCTION')
+        if (options.model === 'lazy-sync-failure') {
+          throw new LlmError('lazy construction failed', 'CONSTRUCTION')
+        }
         if (options.model === 'async-failure') {
           return {
             [Symbol.asyncIterator]: () => ({
@@ -359,6 +366,22 @@ describe('request stability across the loop', () => {
       provider: 'mock',
       model: 'capacity',
     })
+    const returnedHandles = new Set<string>()
+    ctx.on('llm/stream', (options, next) => {
+      if (options.model === 'outer-failure') {
+        throw new Error('outer waterfall failed before returning a handle')
+      }
+      if (options.model === 'lazy-sync-failure') {
+        const stream = (async function* () {
+          yield* next()
+        })()
+        returnedHandles.add(options.model)
+        return stream
+      }
+      const stream = next()
+      returnedHandles.add(options.model)
+      return stream
+    })
     const observed: {
       turn: number
       step: number
@@ -366,18 +389,27 @@ describe('request stability across the loop', () => {
       model: string
       contextWindow?: number
     }[] = []
+    const observedBeforeHandleReturn: string[] = []
     ctx.on('agent/model-request', (subject) => {
       if (subject === agent) throw new Error('observer failed')
     })
     ctx.on('agent/model-request', (subject, turn, step, request) => {
-      if (subject === agent) observed.push({ turn, step, ...request })
+      if (subject !== agent) return
+      if (!returnedHandles.has(request.model)) observedBeforeHandleReturn.push(request.model)
+      observed.push({ turn, step, ...request })
     })
     ctx.on('agent/request', async (_subject, turn, _step, _signal, next) => ({
       ...await next(),
-      model: ['capacity', 'unknown', 'async-failure', 'sync-failure'][turn - 1]!,
+      model: [
+        'capacity',
+        'unknown',
+        'async-failure',
+        'lazy-sync-failure',
+        'outer-failure',
+      ][turn - 1]!,
     }))
 
-    for (const prompt of ['one', 'two', 'three', 'four']) {
+    for (const prompt of ['one', 'two', 'three', 'four', 'five']) {
       send(agent, prompt)
       await waitForIdle(ctx, agent)
     }
@@ -402,8 +434,16 @@ describe('request stability across the loop', () => {
         provider: 'mock',
         model: 'async-failure',
       },
+      {
+        turn: 4,
+        step: 1,
+        provider: 'mock',
+        model: 'lazy-sync-failure',
+      },
     ])
-    expect(resolutions).toBe(4)
+    expect(resolutions).toBe(5)
+    expect(observedBeforeHandleReturn).toEqual([])
+    expect(returnedHandles.has('outer-failure')).toBe(false)
   })
 
   it('a compaction replace rewrites the resend, and the log explains it', async () => {

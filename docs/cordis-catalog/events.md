@@ -166,15 +166,15 @@ Source: [`packages/core/agent/src/types.ts:286`](../../packages/core/agent/src/t
 
 ### `agent/model-request` — emit
 
-One model request constructed its final stream handle and is about to iterate it. This live notification is not durable or replayed; failed or aborted iteration still has a dispatch, while preparation and synchronous stream-construction failures do not. Listener failures are contained and cannot affect the request.
+One model request obtained its outer `llm/stream` handle and is about to iterate it. This observes an Agent-loop request attempt, not proof that provider I/O began. The notification is live, contained, and not replayed. Preparation or a synchronous outer waterfall failure emits nothing; failures or abortion after the handle returns still count.
 
 ```ts cordis-catalog
 /**
- * One model request constructed its final stream handle and is about to
- * iterate it. This live notification is not durable or replayed; failed or
- * aborted iteration still has a dispatch, while preparation and
- * synchronous stream-construction failures do not. Listener failures are
- * contained and cannot affect the request.
+ * One model request obtained its outer `llm/stream` handle and is about to
+ * iterate it. This observes an Agent-loop request attempt, not proof that
+ * provider I/O began. The notification is live, contained, and not replayed.
+ * Preparation or a synchronous outer waterfall failure emits nothing;
+ * failures or abortion after the handle returns still count.
  * @param agent - the agent dispatching the model request.
  * @param turn - the open turn number.
  * @param step - the request's step number.
