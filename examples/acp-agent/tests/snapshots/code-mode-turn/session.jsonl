@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"cafeb691-a146-424a-8016-52f51b0aaaa4","createdAt":1785014439563,"cwd":"/tmp/acp-snap-cwd-as7fsu","delegationDepth":0}
+{"type":"session","version":0,"id":"cafeb691-a146-424a-8016-52f51b0aaaa4","createdAt":1785014439563,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785014439576,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785014439577,"data":{"content":[{"type":"text","text":"Using ONE run_code program: call the bash tool twice — exactly `echo CODE_ONE` then exactly `echo CODE_TWO`. Inside that same program, console.log exactly `captured output`, then return the two outputs joined with a plus sign. Reply with that joined string only and stop."}],"source":{"kind":"user"},"role":"user","id":"41779665-2808-4d84-a0a6-0ee5cb76fb06"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785014439584,"data":{"title":"Using ONE run_code program: call","messageSeqs":[1],"source":{"kind":"fallback"}}}
