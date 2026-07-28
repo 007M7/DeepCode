@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-用于 [`ctx.pty`](../pty/README.md) 的 E2B 字节 PTY 后端。它在共享的 `ctx.e2b` 沙箱内创建持久交互式 shell；PTY 注册表则在宿主侧维护会话身份、精确的 Agent 所有权和清理策略。
+用于 [`ctx.pty`](../../pty/pty/README.md) 的 E2B 字节 PTY 后端。它在共享的 `ctx.e2b` 沙箱内创建持久交互式 shell；PTY 注册表则在宿主侧维护会话身份、精确的 Agent 所有权和清理策略。
 
 ## 插件与配置
 

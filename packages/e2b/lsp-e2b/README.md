@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Generic E2B language-server backend for [`ctx.lsp`](../lsp/README.md). It runs configured stdio servers and reads their source documents inside the shared `ctx.e2b` sandbox; the provider registry, normalized query results, queues, and protocol connection state remain on the host.
+Generic E2B language-server backend for [`ctx.lsp`](../../lsp/lsp/README.md). It runs configured stdio servers and reads their source documents inside the shared `ctx.e2b` sandbox; the provider registry, normalized query results, queues, and protocol connection state remain on the host.
 
 ## Plugin and configuration
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`@deepseek-ai/dsh-fs`](../fs/README.md) 提供方 seam 的 E2B 实现。它没有配置：先加载 [`@deepseek-ai/dsh-e2b`](../../e2b/e2b/README.md)，再用本服务取代 `dsh-fs-local`。该提供方使用所有者的远程 cwd 和 SDK 句柄，因此文件工具观察到的环境与 E2B 后端 Bash 进程相同。
+[`@deepseek-ai/dsh-fs`](../../fs/fs/README.md) 提供方 seam 的 E2B 实现。它没有配置：先加载 [`@deepseek-ai/dsh-e2b`](../e2b/README.md)，再用本服务取代 `dsh-fs-local`。该提供方使用所有者的远程 cwd 和 SDK 句柄，因此文件工具观察到的环境与 E2B 后端 Bash 进程相同。
 
 ## 行为
 
@@ -15,7 +15,7 @@
 
 ## 模型体验
 
-通过 [`dsh-tool-fs`](../tool-fs/README.md) 间接影响模型；该工具会渲染远程 UTF-8 内容、目录结果、变更确认和提供方错误，而 E2B 身份及传输保持内部实现。
+通过 [`dsh-tool-fs`](../../fs/tool-fs/README.md) 间接影响模型；该工具会渲染远程 UTF-8 内容、目录结果、变更确认和提供方错误，而 E2B 身份及传输保持内部实现。
 
 #### KV Cache 影响
 

@@ -8,6 +8,6 @@
 |---|---|---|
 | `code-runtime/` | 抽象代码执行 seam（接口 + 词汇） | `ctx.codeRuntime` |
 | [`code-runtime-worker/`](code-runtime-worker/README.md) | worker 线程后端：每次运行使用全新 worker，由宿主侧剥离 TypeScript 类型（类型注解仅供参考，绝不执行类型检查）、端口桥接绑定、预算／堆隔离 | 注册 `ctx.codeRuntime` |
-| [`code-runtime-e2b/`](code-runtime-e2b/README.md) | E2B 后端：宿主侧类型剥离与绑定、全新远程 runner／worker、分帧桥、远程进程组清理 | 注册 `ctx.codeRuntime` |
+| [`e2b/code-runtime-e2b`](../e2b/code-runtime-e2b/README.md) | E2B 后端：宿主侧类型剥离与绑定、全新远程 runner／worker、分帧桥、远程进程组清理 | 注册 `ctx.codeRuntime` |
 
-不同后端的执行基底和源语言各异，二者都是服务上的只读描述符；后端注册 `ctx.codeRuntime`，无需修改接口或消费方。E2B 所有权拆分记录在[远程扩展 Agent Note](../../.agents/notes/implemented/feature/2026-07-28-e2b-interactive-semantic-code-runtime-poc.md) 中。
+不同后端的执行基底和源语言各异，二者都是服务上的只读描述符；后端注册 `ctx.codeRuntime`，无需修改接口或消费方。E2B 所有权拆分记录在[共享 E2B 运行时 Agent Note](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md) 中。

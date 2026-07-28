@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`ctx.codeRuntime`](../code-runtime/README.md) 的 E2B 实现。每次运行都会在全新的远程 Node worker 中执行一段模型编写的 TypeScript 程序；绑定函数、类型剥离、输出记账和生命周期编排仍保留在宿主侧。
+[`ctx.codeRuntime`](../../code-runtime/code-runtime/README.md) 的 E2B 实现。每次运行都会在全新的远程 Node worker 中执行一段模型编写的 TypeScript 程序；绑定函数、类型剥离、输出记账和生命周期编排仍保留在宿主侧。
 
 ## 配置
 

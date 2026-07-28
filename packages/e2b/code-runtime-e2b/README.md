@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-E2B implementation of [`ctx.codeRuntime`](../code-runtime/README.md). Each run executes one model-written TypeScript program in a fresh remote Node worker while binding functions, type stripping, output accounting, and lifecycle orchestration remain on the host.
+E2B implementation of [`ctx.codeRuntime`](../../code-runtime/code-runtime/README.md). Each run executes one model-written TypeScript program in a fresh remote Node worker while binding functions, type stripping, output accounting, and lifecycle orchestration remain on the host.
 
 ## Configuration
 

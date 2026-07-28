@@ -9,11 +9,11 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
-    { "path": "../code-runtime" },
-    { "path": "../code-runtime-worker" },
-    { "path": "../../e2b/e2b" },
-    { "path": "../../core/session" },
-    { "path": "../../subprocess/subprocess-e2b" },
+    { "path": "../e2b" },
+    { "path": "../../lsp/lsp" },
+    { "path": "../../lsp/lsp-local" },
+    { "path": "../../subprocess/subprocess" },
+    { "path": "../subprocess-e2b" },
     { "path": "../../util/timeout" },
     { "path": "../../support/invariants" }
   ]

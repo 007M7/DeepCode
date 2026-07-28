@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-E2B byte-PTY backend for [`ctx.pty`](../pty/README.md). It creates persistent interactive shells inside the shared `ctx.e2b` sandbox while the PTY registry keeps session identity, exact-Agent ownership, and cleanup policy on the host.
+E2B byte-PTY backend for [`ctx.pty`](../../pty/pty/README.md). It creates persistent interactive shells inside the shared `ctx.e2b` sandbox while the PTY registry keeps session identity, exact-Agent ownership, and cleanup policy on the host.
 
 ## Plugin and configuration
 

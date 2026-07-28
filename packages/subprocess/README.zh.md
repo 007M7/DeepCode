@@ -8,6 +8,6 @@ spawn 受管子进程树的共用归属位置：完全显式的 spawn spec，其
 |---|---|---|
 | [`subprocess`](subprocess/README.md)（`@deepseek-ai/dsh-subprocess`） | `ctx.subprocess` | seam 本体：抽象的 `SubprocessService.spawn(spec)`、完全显式且带按流划分 stdio 处置方式的 `SubprocessSpawnSpec`、`SubprocessHandle`（流、基于偏移量的读取器、terminate/waitForExit/dispose），以及共享的凭据清除 + `DSH_*`/`CollectedOutput` 词汇 |
 | [`subprocess-local`](subprocess-local/README.md)（`@deepseek-ai/dsh-subprocess-local`） | 无 | 本地实现：detached 进程树、按处置方式接线的流、附带有界私有 spill 文件的尾部保留截断、`DSH_*` 合并次序、带升级的进程树信号发送、dispose 阶梯，以及先终止再等待退出的 dispose |
-| [`subprocess-e2b`](subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | 无 | 实验性 E2B 实现：远程 Linux 进程组和共享 `ctx.e2b` 沙箱中的 spill 状态，但 PID 异步获取，且受 SDK 缓冲限制 |
+| [`e2b/subprocess-e2b`](../e2b/subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | 无 | 实验性 E2B 实现：远程 Linux 进程组和共享 `ctx.e2b` 沙箱中的 spill 状态，但 PID 异步获取，且受 SDK 缓冲限制 |
 
 服务拥有跨消费方重载的进程存续期；消费方拥有一个进程的含义（一条 bash 命令、未来的非 shell 运行器）以及塑造它的每一项默认值。

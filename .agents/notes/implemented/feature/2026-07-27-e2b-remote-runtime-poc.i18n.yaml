@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md
-2026-07-27-e2b-remote-runtime-poc.md: 730e6f0e1958ccab43a5a6a11931f9407b38ef16
-2026-07-27-e2b-remote-runtime-poc.zh.md: 5f1ae07b985787a7dc1bd61f2a5b7ff0512d85c1
+2026-07-27-e2b-remote-runtime-poc.md: a713cca3fd9e7ee11a2c487bf6ed2c3a205dc502
+2026-07-27-e2b-remote-runtime-poc.zh.md: 7afd54f72622d51a3d71719b3b4975ccd7f83e3a

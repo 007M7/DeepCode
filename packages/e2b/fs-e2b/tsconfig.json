@@ -13,10 +13,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../e2b/e2b"
+      "path": "../e2b"
     },
     {
-      "path": "../fs"
+      "path": "../../fs/fs"
     },
     {
       "path": "../../support/invariants"
