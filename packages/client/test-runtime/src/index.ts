@@ -311,7 +311,7 @@ export class SlotTestRuntime {
     }
     const install = (next: object): void => {
       // Synchronous cell write inside act: the frame re-renders through uSES.
-      act(() => { 
+      act(() => {
         this.ownerCell.set(key, next)
       })
     }
