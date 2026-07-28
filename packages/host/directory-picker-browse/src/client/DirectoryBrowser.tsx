@@ -342,13 +342,19 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   }
                   if (event.key === 'Escape') {
                     event.stopPropagation()
+                    // Cancel also withdraws a navigation the editor already
+                    // launched: its late success must not jump to the
+                    // cancelled path, so the pending request is superseded
+                    // and the view leaves the loading state.
+                    requestSeq.current += 1
+                    setLoading(false)
                     setPathDraft(null)
                     setError(null)
                     // Editing may have superseded the selection's preview
-                    // request; a selection with no preview and nothing in
-                    // flight would render a half-empty two-pane view, so
-                    // cancel falls back to the single-pane level.
-                    if (child === null && !loading) setSelected(null)
+                    // request; a selection with no preview would render a
+                    // half-empty two-pane view, so cancel falls back to the
+                    // single-pane level.
+                    if (child === null) setSelected(null)
                   }
                 }}
               />

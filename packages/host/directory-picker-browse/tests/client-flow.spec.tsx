@@ -92,6 +92,43 @@ describe('directory-picker-browse client half', () => {
     }
   })
 
+  it('rolls back wholesale and reports loudly when a rival provider wins after deferred activation', async () => {
+    const b = await bench()
+    const rejections: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    process.on('uncaughtException', onUnhandled)
+    try {
+      // This provider activates BEFORE any hole exists: both deferrals wait.
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      b.declare()
+      // A rival occupies both holes ahead of the pending microtask flush.
+      b.slots.register({ name: HOLES[0] } as never, () => null)
+      b.slots.register({ name: HOLES[1] } as never, () => null)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      // The rival keeps both holes; this provider rolled back wholesale and
+      // surfaced the conflict on the fail-loud channel — no partial mix.
+      for (const hole of HOLES) expect(b.slots.entries(hole)).toHaveLength(1)
+      expect(rejections.map(String).join('\n')).toContain('already has a registration')
+
+      // Non-Error conflicts wrap before the loud rethrow (same channel).
+      const c = await bench()
+      await c.ctx.plugin({ inject: [...inject], apply }).await()
+      const original = c.slots.register.bind(c.slots)
+      const slotsAny = c.slots as { register: typeof original }
+      slotsAny.register = ((options: never, component: never) => {
+        if ((options as { name?: string }).name === HOLES[0]) throw 'string conflict'
+        return original(options, component)
+      }) as typeof original
+      c.declare()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(rejections.map(String).join('\n')).toContain('string conflict')
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      process.off('uncaughtException', onUnhandled)
+    }
+  })
+
   it('registers the dialog dictionaries and binds this package namespace', async () => {
     const b = await bench()
     b.declare()

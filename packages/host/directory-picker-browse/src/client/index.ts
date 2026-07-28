@@ -7,7 +7,7 @@
  * cordis.yml row; no client code branches on a capability kind. The dialog's
  * copy is locale-registered here — the flow package owns its own strings.
  */
-import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferGroupRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the SlotMap merge declaring the directory-flow holes.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -65,19 +65,15 @@ export function apply(ctx: ClientContext): void {
     t: ctx.locale.bind(LOCALE_NS),
   })
   ctx.effect(() => {
-    // Constructing the pair can throw halfway (a declared hole already
-    // occupied registers synchronously): roll the earlier deferral back so
-    // no live subscription outlives the failed fiber.
-    const deferred: ReturnType<typeof deferRegistration>[] = []
-    try {
-      deferred.push(deferRegistration(ctx.slots, 'conversation.hero.workspace.directoryFlow', BrowseDirectoryFlow, () =>
-        ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, BrowseDirectoryFlow)))
-      deferred.push(deferRegistration(ctx.slots, 'sidebar.workspaces.directoryFlow', BrowseDirectoryFlow, () =>
-        ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, BrowseDirectoryFlow)))
-    } catch (error) {
-      for (const entry of deferred) entry.dispose()
-      throw error
-    }
-    return () => { for (const entry of deferred) entry.dispose() }
+    // One occupant, both holes, as a unit: construction or late conflicts
+    // (holes declared after rival providers activated) roll the whole pair
+    // back and fail loud — semantics owned by deferGroupRegistration.
+    const group = deferGroupRegistration(
+      ctx.slots,
+      ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const,
+      BrowseDirectoryFlow,
+      name => ctx.slots.register({ name, inject: injected }, BrowseDirectoryFlow),
+    )
+    return () => { group.dispose() }
   }, 'directory-picker-browse: flow registrations')
 }

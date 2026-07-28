@@ -352,6 +352,24 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByLabelText('browser.editPath')).toBeTruthy()
   })
 
+  it('ignores a pending navigation that settles after Escape cancelled the editor', async () => {
+    const pending: ((listing: DirectoryListing) => void)[] = []
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText('browser.editPath')
+    b.listDirectory.mockImplementation(() =>
+      new Promise<DirectoryListing>((settle) => { pending.push(settle) }))
+    fireEvent.change(input, { target: { value: DOCS } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    // The cancelled navigation settling late must not jump the view to DOCS.
+    await act(async () => { pending.shift()!(listingFor(DOCS)) })
+    expect(screen.queryByText('harness')).toBeNull()
+    expect(screen.getByText('Documents')).toBeTruthy()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('keeps a newer path edit when an older slow navigation settles', async () => {
     const pending: ((listing: DirectoryListing) => void)[] = []
     const b = mount()
