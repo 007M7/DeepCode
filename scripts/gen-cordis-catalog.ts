@@ -217,6 +217,12 @@ const FOUNDATION_TYPE_NAMES = new Set([
 /** Project types deliberately documented outside the core-data catalog. */
 const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
+  SettingsNamespace: 'settings seam vocabulary is owned by packages/settings/settings/README.md',
+  SettingsUpdateSource: 'settings seam vocabulary is owned by packages/settings/settings/README.md',
+  SettingsRegisterOptions: 'settings seam vocabulary is owned by packages/settings/settings/README.md',
+  SettingsScope: 'settings seam vocabulary is owned by packages/settings/settings/README.md',
+  SettingsDescriptor: 'settings seam vocabulary is owned by packages/settings/settings/README.md',
+  z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',

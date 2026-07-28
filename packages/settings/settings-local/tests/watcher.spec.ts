@@ -1,0 +1,118 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import z from 'schemastery'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsLocal } from '../src/index.ts'
+
+// chokidar is the nondeterministic OS boundary: faking it lets these tests
+// drive the event pipeline (error events, races with unreadable files)
+// deterministically. Real end-to-end watching stays covered by local.spec.ts.
+vi.mock('chokidar', async () => {
+  const { EventEmitter } = await import('node:events')
+  class FakeWatcher extends EventEmitter {
+    close = vi.fn(() => Promise.resolve())
+  }
+  const instances: Array<{ path: string; options: unknown; watcher: InstanceType<typeof FakeWatcher> }> = []
+  return {
+    watch: vi.fn((path: string, options: unknown) => {
+      const watcher = new FakeWatcher()
+      instances.push({ path, options, watcher })
+      return watcher
+    }),
+    __instances: instances,
+  }
+})
+
+interface FakeChokidar {
+  __instances: Array<{
+    path: string
+    options: { awaitWriteFinish: { stabilityThreshold: number; pollInterval: number } }
+    watcher: import('node:events').EventEmitter
+  }>
+}
+
+async function fakeInstances(): Promise<FakeChokidar['__instances']> {
+  const chokidar = await import('chokidar') as unknown as FakeChokidar
+  return chokidar.__instances
+}
+
+const ThemeSchema: z<{ theme: string }> = z.object({
+  theme: z.string().default('dark'),
+})
+
+const cleanups: Array<() => Promise<void>> = []
+
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()!()
+  ;(await fakeInstances()).length = 0
+})
+
+async function tempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-settings-watch-'))
+  cleanups.push(() => rm(dir, { recursive: true, force: true }))
+  return dir
+}
+
+async function boot(config: ConstructorParameters<typeof SettingsLocal>[1]): Promise<Context> {
+  const ctx = new Context()
+  const fiber = ctx.plugin(SettingsLocal, config)
+  cleanups.push(async () => { await fiber.dispose() })
+  await fiber
+  return ctx
+}
+
+describe('watcher pipeline', () => {
+  it('clamps the write-settle poll interval for a zero debounce', async () => {
+    const dir = await tempDir()
+    await boot({ path: join(dir, 'settings.yaml'), debounceMs: 0 })
+    const [instance] = await fakeInstances()
+    expect(instance!.options.awaitWriteFinish).toEqual({ stabilityThreshold: 0, pollInterval: 1 })
+  })
+
+  it('survives a watcher error and keeps publishing later edits', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const ctx = await boot({ path, debounceMs: 5 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const [instance] = await fakeInstances()
+
+    instance!.watcher.emit('error', new Error('watch backend failure'))
+    expect(scope.get()).toEqual({ theme: 'dark' })
+
+    await writeFile(path, 'ui-theme:\n  theme: light\n')
+    instance!.watcher.emit('all', 'change', path)
+    await vi.waitFor(() => {
+      expect(scope.get()).toEqual({ theme: 'light' })
+    })
+  })
+
+  it('keeps the last good document when the file turns unreadable at runtime', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, 'ui-theme:\n  theme: light\n')
+    const ctx = await boot({ path, debounceMs: 5 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+
+    await chmod(path, 0o000)
+    cleanups.push(() => chmod(path, 0o600))
+    const [instance] = await fakeInstances()
+    instance!.watcher.emit('all', 'change', path)
+    // The warn-and-keep path is asynchronous; give the serialized refresh a turn.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(scope.get()).toEqual({ theme: 'light' })
+  })
+
+  it('treats an event for a still-absent file as a no-op', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const ctx = await boot({ path, debounceMs: 5 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const [instance] = await fakeInstances()
+    instance!.watcher.emit('all', 'add', path)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(scope.get()).toEqual({ theme: 'dark' })
+  })
+})

@@ -640,6 +640,28 @@ Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-stru
 
 Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
 
+## `settings/*`
+
+### `settings/updated` — emit
+
+Committed change to one registered namespace's resolved value. Emitted after the provider persisted (for `update`) or published (`provider`) the change; never emitted when the resolved value is deep-equal.
+
+```ts cordis-catalog
+/**
+ * Committed change to one registered namespace's resolved value. Emitted
+ * after the provider persisted (for `update`) or published (`provider`)
+ * the change; never emitted when the resolved value is deep-equal.
+ * @param ns - the namespace whose resolved value changed.
+ * @param next - the new resolved value.
+ * @param prev - the previous resolved value.
+ * @param source - whether the change entered through `update()` or the provider.
+ * @mode emit
+ */
+'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
+```
+
+Source: [`packages/settings/settings/src/index.ts:90`](../../packages/settings/settings/src/index.ts)
+
 ## `slash/*`
 
 ### `slash/input-begin-command` — bail
