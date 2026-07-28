@@ -2,12 +2,15 @@
  * Browser-trust fence for every /api request. Defends the two confused-deputy
  * paths a browser opens against a local HTTP API — DNS rebinding (Host names
  * the attacker's domain while the socket reaches this server) and cross-site
- * requests fired from a malicious page — without blocking non-browser clients
- * (no browser markers → no deputy to confuse, and a native client forges Host
- * freely anyway) or legitimately remote browsers (their authority is declared
- * via `trustedHosts`, or derived by the composing app for IP-literal LAN
- * serving). Network reachability and authentication stay out of scope: binding
- * policy belongs to the webserver config, and this fence is not an auth layer.
+ * requests fired from a malicious page. The Host fence binds every request,
+ * browser-looking or not: over plain HTTP a browser attaches neither Origin
+ * nor Fetch-Metadata to reads (EventSource, images, navigations — those
+ * headers go only to trustworthy destinations), so an unmarked request may
+ * still be a rebound browser read and Host is the one header rebinding cannot
+ * forge. Non-browser and remote clients pass the same fence via loopback, the
+ * CLI-derived LAN IP literals, or a declared `trustedHosts` authority.
+ * Network reachability and authentication stay out of scope: binding policy
+ * belongs to the webserver config, and this fence is not an auth layer.
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
@@ -94,19 +97,16 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
  * Decide whether one /api request may reach the RPC bridge.
  * @param request - node HTTP request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @returns true for requests without browser markers, and for browser requests whose Host is ours and whose markers are same-origin.
+ * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
  */
 export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
-  // Marker gate: Origin and sec-fetch-site exist only when a browser is the
-  // sender's deputy. Absent both, the sender is the principal itself (curl,
-  // tests, native shells) and could forge every header below — fencing it
-  // would add nothing and would break non-browser LAN automation.
-  const origin = header(request.headers, 'origin')
-  const secFetchSite = header(request.headers, 'sec-fetch-site')
-  if (origin === undefined && secFetchSite === undefined) return true
-  // Host fence (DNS-rebinding defense): the browser fills Host from the URL it
-  // believes it is talking to, so a rebound page carries the attacker's domain
-  // here even though the socket lands on this server.
+  // Host fence (DNS-rebinding defense), applied to every request: the browser
+  // fills Host from the URL it believes it is talking to, so a rebound page
+  // carries the attacker's domain here even though the socket lands on this
+  // server. There is no marker shortcut — a browser read over plain HTTP
+  // (EventSource, images, navigations) arrives with neither Origin nor
+  // Fetch-Metadata, indistinguishable from curl, and its response is readable
+  // by the rebound page.
   const host = header(request.headers, 'host')
   if (host === undefined) return false
   const hostUrl = parseAuthority(host)
@@ -114,10 +114,12 @@ export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: read
   if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false
   // Cross-site fence: modern browsers label the initiator relationship on
   // every fetch; an explicit cross-site marker is refused regardless of Origin.
-  if (secFetchSite === 'cross-site') return false
+  if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false
   // Origin fence: when a browser attaches an Origin it must be exactly this
-  // authority (compared through the same normalization as the Host). The
+  // authority (compared through the same normalization as the Host). Absent
+  // Origin is fine — the Host fence above already bound the request. The
   // literal "null" (sandboxed iframes, file: pages) is an opaque origin, refused.
+  const origin = header(request.headers, 'origin')
   if (origin === undefined) return true
   try {
     return new URL(origin).host === hostUrl.host
