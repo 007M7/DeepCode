@@ -82,9 +82,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private openState: OpenState = 'cold'
   private openError: RpcError | null = null
   private openPromise: Promise<void> | null = null
-  /** Bumped by resync to invalidate an in-flight doOpen: a reconnect must rebuild, never adopt
-   *  a pre-disconnect open whose history request is already doomed (audit S4). Stale doOpen
-   *  passes drop all writes once the generation moves on. */
+  /** Bumped at disconnect and resync to invalidate in-flight history work: a reconnect must
+   *  rebuild, never adopt a pre-disconnect response (audit S4). */
   private openGeneration = 0
   private loadingOlder = false
   private readonly foldAdapter = new FoldAdapter()
@@ -270,12 +269,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
   async loadOlder(): Promise<void> {
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
+    const generation = this.openGeneration
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
       const { result } = await this.api.sessions.history({
         sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
       })
+      if (generation !== this.openGeneration) return
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -299,8 +300,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     } catch (error) {
       console.error('[web-runtime] loadOlder failed:', error)
     } finally {
-      this.loadingOlder = false
-      this.notifier.markDirty()
+      if (generation === this.openGeneration) {
+        this.loadingOlder = false
+        this.notifier.markDirty()
+      }
     }
   }
 
@@ -321,6 +324,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
+    this.loadingOlder = false
+    this.stitching = false
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
     this.pending.clear()
@@ -483,6 +488,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /** Connection-loss boundary: clear values that are not replayed before the next stream starts. */
   handleReconnecting(): void {
+    this.openGeneration++
     if (this.metrics === null && this.contextWindow === undefined) return
     this.metrics = null
     this.contextWindow = undefined
@@ -649,7 +655,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
     } finally {
-      this.stitching = false
+      if (generation === this.openGeneration) this.stitching = false
     }
   }
 

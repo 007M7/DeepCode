@@ -392,6 +392,27 @@ describe('paging', () => {
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
+
+  it('drops an older page from the disconnected generation', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'), true)
+    await session.open()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const loading = session.loadOlder()
+
+    session.handleReconnecting()
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
+      hasMore: false,
+    }))
+    await loading
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
+
+    api.onHistory = () => histResponse(plainTurn(12, 2, '重连问', '重连答'))
+    await session.resync()
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([13, 15])
+  })
 })
 
 describe('prompt and cancel errors', () => {
@@ -733,22 +754,49 @@ describe('remaining branches', () => {
     expect(session.getSnapshot().openState).toBe('open')
   })
 
-  it('drops a gap repair superseded by a full resync while its pull was in flight', async () => {
+  it('drops a stale gap repair without clearing a newer generation repair', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
-    const repairPull = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => repairPull.promise
+    const staleRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => staleRepair.promise
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
+    session.handleReconnecting()
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
-    const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({
+    await session.resync()
+
+    const freshRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    let freshRepairCalls = 0
+    api.onHistory = () => {
+      freshRepairCalls++
+      return freshRepair.promise
+    }
+    session.handleMuxEnvelope('fresh-gap' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.user(15, '新洞'),
+    })
+    expect(freshRepairCalls).toBe(1)
+
+    staleRepair.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '页')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'stale' },
     })) // repair result: stale, dropped
-    await resynced
-    expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
+    await Promise.resolve()
+    session.handleMuxEnvelope('fresh-buffer' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.user(16, '继续缓存'),
+    })
+    expect(freshRepairCalls).toBe(1) // stale finally did not clear the newer stitching owner
+
+    freshRepair.resolve(ok({
+      events: entries([...plainTurn(6, 1, 'c', 'd'), ...plainTurn(12, 2, 'e', 'f')]) as never[],
+      hasMore: false,
+    }))
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9, 13, 15])
+    })
   })
 
   it('successful cancel leaves no promptError; tool/result for an unknown callId is a no-op', async () => {
@@ -813,6 +861,53 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
+  it('fences pre-disconnect history behind a fresh mux metrics baseline', async () => {
+    const { api, session } = makeSession()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const opening = session.open()
+    const oldLiveMetrics = metrics(8, 10)
+    session.handleMuxEnvelope('old-metrics' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: oldLiveMetrics,
+    })
+    session.handleMuxEnvelope('old-capacity' as never, {
+      type: 'session/model-request',
+      sessionId: SID,
+      turn: 1,
+      step: 1,
+      provider: 'test',
+      model: 'old',
+      contextWindow: 128_000,
+    })
+
+    session.handleReconnecting()
+    expect(session.getSnapshot().metrics).toBeNull()
+    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    const freshMetrics = metrics(0, 1, { contextTokens: 20 })
+    session.handleMuxEnvelope('fresh-metrics' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: freshMetrics,
+    })
+
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
+      hasMore: false,
+      metrics: metrics(99, 99, { contextTokens: 999 }),
+    }))
+    await opening
+    expect(session.getSnapshot().nodes).toEqual([])
+    expect(session.getSnapshot().metrics).toBe(freshMetrics)
+
+    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'))
+    await session.resync()
+    expect(session.getSnapshot().openState).toBe('open')
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
+    expect(session.getSnapshot().metrics).toBe(freshMetrics)
+  })
+
   it('preserves fresh-generation metrics that arrive before a failing history refresh', async () => {
     const { api, session } = makeSession()
     const oldMetrics = metrics(8, 10)
