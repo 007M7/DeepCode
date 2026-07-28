@@ -45,8 +45,6 @@ function scriptedApi(overrides: {
       }),
       prompt: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
-      planMode: r => ok(r, null),
-      setPlanMode: r => ok(r, null),
       ...overrides.sessions,
     },
     host: {

@@ -145,16 +145,6 @@ export interface SessionSummary {
   cwd?: string
 }
 
-/**
- * Plan collaboration state exposed to clients. `active` is the logged state
- * shaping the current request; `pending`, when present, is the user's
- * next-boundary selection and differs from `active`.
- */
-export interface PlanModeState {
-  active: boolean
-  pending?: boolean
-}
-
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
@@ -204,33 +194,10 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
-  /**
-   * Sends a message. `content` is core's ContentBlock[] verbatim and `mode`
-   * maps 1:1 — queue→send, steer→steer. An optional `planMode` target is
-   * admitted atomically with the prompt.
-   */
-  prompt(request: RpcRequest<{
-    sessionId: SessionId
-    mode: 'queue' | 'steer'
-    content: ContentBlock[]
-    planMode?: boolean
-  }>):
+  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
-
-  /**
-   * Reads plan collaboration state. `null` means the host did not compose the
-   * optional plan-mode service; it is distinct from inactive state.
-   */
-  planMode(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<PlanModeState | null>>
-
-  /**
-   * Selects plan collaboration state for the next model-request boundary.
-   * The returned state exposes the still-committed value and pending target;
-   * `null` means plan mode is unavailable on this host.
-   */
-  setPlanMode(request: RpcRequest<{ sessionId: SessionId; active: boolean }>):
-  Promise<RpcResponse<PlanModeState | null>>
 }

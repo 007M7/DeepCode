@@ -91,7 +91,6 @@ describe('apply wiring', () => {
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
     expect(b.slots.spec('conversation.chat.toolview')).toEqual({ kind: 'keyed', scope: 'session' })
-    expect(b.slots.spec('conversation.composer.controls')).toEqual({ kind: 'list', scope: 'session' })
   })
 
   it('occupies the slots + the ring; session entries share one store handle', async () => {
@@ -133,7 +132,6 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.view')).toHaveLength(0)
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
-    expect(b.slots.spec('conversation.composer.controls')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
     expect(b.ctx.get('conversation')).toBeUndefined()
   })

@@ -48,59 +48,6 @@ describe('createFixtureApi', () => {
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
   })
 
-  it('queues fixture plan selections, commits them at prompt boundaries, and preserves pending state on cancel', async () => {
-    const client = new FixtureApiClient()
-    expect((await client.sessions.planMode({ sessionId: sid('fx-alpha') })).result).toEqual({
-      ok: true, value: { active: false },
-    })
-    expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: true })).result).toEqual({
-      ok: true, value: { active: false, pending: true },
-    })
-    expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: true })).result).toEqual({
-      ok: true, value: { active: false, pending: true },
-    })
-    expect((await client.sessions.cancel({ sessionId: sid('fx-alpha') })).result).toEqual({
-      ok: true, value: { accepted: true },
-    })
-    expect((await client.sessions.planMode({ sessionId: sid('fx-alpha') })).result).toEqual({
-      ok: true, value: { active: false, pending: true },
-    })
-    await client.sessions.prompt({
-      sessionId: sid('fx-alpha'), mode: 'queue', content: [{ type: 'text', text: 'commit plan' }],
-    })
-    expect((await client.sessions.planMode({ sessionId: sid('fx-alpha') })).result).toEqual({
-      ok: true, value: { active: true },
-    })
-    expect((await client.sessions.setPlanMode({ sessionId: sid('fx-alpha'), active: false })).result).toEqual({
-      ok: true, value: { active: true, pending: false },
-    })
-    expect((await client.sessions.planMode({ sessionId: sid('missing') })).result).toMatchObject({
-      ok: false, error: { code: 'session-not-found' },
-    })
-    expect((await client.sessions.setPlanMode({ sessionId: sid('missing'), active: true })).result).toMatchObject({
-      ok: false, error: { code: 'session-not-found' },
-    })
-
-    const created = await client.sessions.create({})
-    if (!created.result.ok) throw new Error('create failed')
-    const createdId = created.result.value.sessionId
-    await client.sessions.setPlanMode({ sessionId: createdId, active: true })
-    expect((await client.sessions.setPlanMode({ sessionId: createdId, active: false })).result).toEqual({
-      ok: true, value: { active: false },
-    })
-    // Selecting the committed target clears pending immediately, and repeating
-    // that selection remains a no-op without a redundant plan/mode event.
-    expect((await client.sessions.setPlanMode({ sessionId: createdId, active: false })).result).toEqual({
-      ok: true, value: { active: false },
-    })
-    await client.sessions.prompt({
-      sessionId: createdId, mode: 'queue', content: [{ type: 'text', text: 'remain default' }],
-    })
-    expect((await client.sessions.planMode({ sessionId: createdId })).result).toEqual({
-      ok: true, value: { active: false },
-    })
-  })
-
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
