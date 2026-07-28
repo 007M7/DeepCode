@@ -377,7 +377,7 @@ export function InputBar({
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
-            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
+            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <button
               type="button"
               className={css.primary}
