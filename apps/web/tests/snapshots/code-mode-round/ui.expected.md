@@ -13,6 +13,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
@@ -34,4 +35,7 @@
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
 - button "Send message" [disabled]

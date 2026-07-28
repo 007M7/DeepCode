@@ -13,6 +13,7 @@
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
 | [`goal/`](goal/README.md) | 持久化的同会话 goal 状态与生命周期 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
+| [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
 | [`pty/`](pty/README.md) | 持久 PTY 能力系列：按所有者隔离的会话、本地实现和面向模型的工具 | 产品：稳定表面 |
 | [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：面向模型所写程序的运行时 seam + worker 线程后端 | 产品：稳定表面 |
@@ -36,6 +37,7 @@
 | [`session-persistence/`](session-persistence/README.md) | 持久化能力系列：seam + JSONL/SQLite 后端 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务、共享 LLM 策略和选用提供方 | 产品：稳定表面 |
+| [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
 | [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |

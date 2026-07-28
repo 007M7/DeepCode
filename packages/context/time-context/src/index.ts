@@ -156,7 +156,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
-  ctx.on('agent/pre-step', (
+  ctx.on('agent/step', (
     agent: Agent,
     turn: number,
     step: number,
@@ -173,9 +173,6 @@ export function apply(ctx: Context, config: Config): void {
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
-    agent.inject(
-      [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }],
-      { source: { kind: 'plugin', plugin: name } },
-    )
+    agent.inject({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } })
   }, { prepend: true })
 }

@@ -183,7 +183,7 @@ describe('TokenMeterService pricing', () => {
     expect(snapshot.nodes).toHaveLength(1)
   })
 
-  it('prices header, prefix, tools, and surface when no reusable usage exists', () => {
+  it('prices header, tools, and surface when no reusable usage exists', () => {
     const service = meter()
     const session = new Session(SessionId('heuristic'))
     session.append('user/message', {
@@ -192,7 +192,6 @@ describe('TokenMeterService pricing', () => {
     }, { surfaceOp: 'append' })
     appendHeader(session, header('deepseek-v4-flash', {
       system: 'system',
-      messagePrefix: [textMessage('prefix')],
       tools: [{ name: 'read', description: 'read', parameters: { type: 'object' } }],
     }))
     const result = service.measure(session)
@@ -353,10 +352,6 @@ describe('replay anchors and surface folds', () => {
     expect(service.measure(session, {
       ...anchoredHeader,
       config: { ...anchoredHeader.config, temperature: 0.2 },
-    }).baseline.kind).toBe('estimated')
-    expect(service.measure(session, {
-      ...anchoredHeader,
-      messagePrefix: [textMessage('prefix')],
     }).baseline.kind).toBe('estimated')
     expect(service.measure(session, {
       ...anchoredHeader,

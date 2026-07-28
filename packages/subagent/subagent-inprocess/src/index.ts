@@ -141,7 +141,7 @@ export async function startInProcessRun(
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(request.prompt)
+      child.followup({ content: request.prompt, source: { kind: 'user' } })
       await child.whenIdle()
       return readResult(
         child,

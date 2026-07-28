@@ -13,6 +13,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - paragraph: partial
 - text: 已停止 0 tokens · 1 turns · 1 steps
 - textbox "Message the agent"
@@ -21,4 +22,7 @@
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
 - button "Send message" [disabled]

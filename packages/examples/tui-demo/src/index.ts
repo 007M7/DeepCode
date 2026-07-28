@@ -131,6 +131,7 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') })
   ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
+  ctx.plugin(uiTui.TuiPromptService)
   ctx.plugin(uiTui, {
     ...config.ui,
     ...config.welcome === undefined ? {} : { welcome: config.welcome },

@@ -31,12 +31,28 @@ function scriptedApi(overrides: {
       list: r => ok(r, { items: [] }),
       search: r => ok(r, { items: [], hasMore: false }),
       create: r => ok(r, { sessionId: sid('s-new') }),
-      history: r => ok(r, { events: [], hasMore: false }),
+      history: r => ok(r, {
+        events: [],
+        hasMore: false,
+        modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      }),
+      models: r => ok(r, {
+        current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        groups: [],
+        failures: [],
+      }),
+      selectModel: r => ok(r, {
+        selected: { provider: r.payload.provider, model: r.payload.model },
+      }),
       prompt: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
     },
-    host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },
+    host: {
+      describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
+      pickDirectory: r => ok(r, { path: null }),
+      ...overrides.host,
+    },
     workspace: {
       list: r => ok(r, { items: [] }),
       create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),

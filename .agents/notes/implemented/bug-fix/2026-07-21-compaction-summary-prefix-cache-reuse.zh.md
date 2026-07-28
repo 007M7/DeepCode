@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-自动压缩（compaction）在对话中途触发，恰好在循环用最后一个已路由请求（`system` + `tools` + `messagePrefix` + 派生历史）预热了提供方的 KV 缓存之后。随后默认摘要器发出一个*独立的*辅助请求，其前缀与那个已预热请求没有任何共享部分：一个专门的摘要器 `system` 提示词，后接被拍平成单个渲染后 transcript（文本记录）字符串的较早历史。提供方基于请求起始的 token 序列做缓存，因此第一个 token 只要不同（即一个不同的系统提示词），整个已缓存前缀就会失效。于是每次压缩都要为整段回放的历史付出两次完整的提示词处理成本：一次用于触发压力的对话请求，另一次用于摘要调用，恰好在对话最大时让缓存失去作用。
+自动压缩（compaction）在对话中途触发，恰好在循环用最后一个已路由请求（`system` + `tools` + 派生历史）预热了提供方的 KV 缓存之后。随后默认摘要器发出一个*独立的*辅助请求，其前缀与那个已预热请求没有任何共享部分：一个专门的摘要器 `system` 提示词，后接被拍平成单个渲染后 transcript（文本记录）字符串的较早历史。提供方基于请求起始的 token 序列做缓存，因此第一个 token 只要不同（即一个不同的系统提示词），整个已缓存前缀就会失效。于是每次压缩都要为整段回放的历史付出两次完整的提示词处理成本：一次用于触发压力的对话请求，另一次用于摘要调用，恰好在对话最大时让缓存失去作用。
 
 ## Decision
 
@@ -14,7 +14,7 @@ Status: implemented
 
 ### `SummarizationInput` 携带回放的前缀，而非渲染后的字符串
 
-`summarize()`（以及内部的 `summarizeWithLlm`）接受一个 `SummarizationInput`（`{ system?, tools?, messages }`）而不是一个扁平的 transcript 字符串。`region.ts` 用 `session.requestHeader()`（持久的 `system`、`tools` 和 `messagePrefix`）加上经 `session.deriveEventMessage` 映射的被遮蔽区域来构建它，后者产出与 `deriveMessages()` 折叠进已路由请求的内容字节级一致的 `Message` 对象。`summarizeWithLlm` 把 `system` 和 `tools` 转发到 `GenerateOptions`，并发送 `[...input.messages, { role: 'user', content: COMPACTION_INSTRUCTION }]`。`tools` 会一同带上，即便摘要器从不调用任何工具：丢弃它们会缩短 token 序列，破坏与已缓存请求的对齐。
+`summarize()`（以及内部的 `summarizeWithLlm`）接受一个 `SummarizationInput`（`{ system?, tools?, messages }`）而不是一个扁平的 transcript 字符串。`region.ts` 用 `session.requestHeader()`（持久的 `system` 和 `tools`）加上经 `session.deriveEventMessage` 映射的被遮蔽区域来构建它，后者产出与 `deriveMessages()` 折叠进已路由请求的内容字节级一致的 `Message` 对象。`summarizeWithLlm` 把 `system` 和 `tools` 转发到 `GenerateOptions`，并发送 `[...input.messages, { role: 'user', content: COMPACTION_INSTRUCTION }]`。`tools` 会一同带上，即便摘要器从不调用任何工具：丢弃它们会缩短 token 序列，破坏与已缓存请求的对齐。
 
 ### 指令是一条尾部 user 消息
 
@@ -27,7 +27,7 @@ Status: implemented
 ## Alternatives considered
 
 - **保留摘要器系统提示词但复用其余部分**——否决：system 槽位正是提供方最先做缓存的 token 区域，因此一个不同的摘要器系统提示词无论后面跟着什么都会使整个前缀失效。只有把指令移离前端才能恢复缓存。
-- **只发送被遮蔽区域而不带 `system`/`tools`/`messagePrefix` 头部**——否决：更短或头部不同的序列在第一个 token 处仍然与已缓存请求分叉，因此缓存效果并不更好，反而丢失了摘要所需的框架。
+- **只发送被遮蔽区域而不带 `system`/`tools` 头部**——否决：头部不同的序列在第一个 token 处仍然与已缓存请求分叉，因此缓存效果并不更好，反而丢失了摘要所需的框架。
 - **从摘要请求中省略 `tools`**（模型从不调用任何工具）——否决：工具 schema 是已缓存 token 序列的一部分；省略它们会让后续每个 token 失去对齐，破坏复用。
 - **为快照回放专门建立一个发出 `assistant/chunk` 的摘要子会话**——此处超出范围；该回放缺口早于本次改动，记录在 [compaction-seam Agent Note](../feature/2026-06-18-compaction-capability-seam.md) 中。
 

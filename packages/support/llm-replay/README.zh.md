@@ -25,7 +25,7 @@ Fixture 就是持久化会话日志（`<scenario>/session.jsonl`）。其 `assis
 | `file` | string | `$DSH_SNAPSHOT_FILE` | 主（父）`session.jsonl` fixture 的路径。必需（配置或 env）。 |
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | 主会话的可选 `ReplayOverrideDoc` sidecar：裸 `ReplayEntry[]` 替换其派生脚本，`{ patches }` 则按调用索引增补该脚本。 |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES` (path-delimited) | 嵌套场景中已记录的 subagent 子会话日志；单会话场景为空。 |
-| `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个模型可以发布 `contextWindow`；已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
+| `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个提供方可以设置 `retryPolicy`，每个模型可以发布 `contextWindow`；已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
 | `paceMs` | number | 无（突发） | 可选的每分片毫秒延迟，使下游传输（例如真实浏览器观察的 web SSE mux）看到真正的增量传递。它只是仿真开关，测试不得依赖它保证正确性。值必须是非负整数；pace 等待期间中止会迅速取消流。 |
 
 ```yaml
@@ -35,6 +35,12 @@ Fixture 就是持久化会话日志（`<scenario>/session.jsonl`）。其 `assis
     providers:
       - id: deepseek
         name: DeepSeek
+        retryPolicy:
+          mode: normal
+          backoff:
+            initialDelayMs: 1
+            maxDelayMs: 1
+            jitterRatio: 0
         models:
           - id: deepseek-v4-flash
             contextWindow: 128000

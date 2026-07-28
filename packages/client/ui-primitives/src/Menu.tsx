@@ -158,63 +158,63 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
       // (open/toggle) after onSelect.
       onClick={(e) => { e.stopPropagation() }}
     >
-          {items.map(entry => {
-            if (isSeparator(entry)) {
-              return <div key={entry.id} className={css.separator} role="separator" />
-            }
-            if (isLabel(entry)) {
-              return <div key={entry.id} className={css.label} role="presentation">{entry.text}</div>
-            }
-            const hasSub = entry.submenu !== undefined && entry.submenu.length > 0
-            const subOpen = hasSub && openSubmenuId === entry.id
-            return (
-              <div
-                key={entry.id}
-                className={css.itemWrap}
-                onMouseEnter={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
-                onMouseLeave={() => { setOpenSubmenuId(null) }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={clsx(css.item, entry.id === selectedId && css.selected, entry.danger === true && css.danger)}
-                  disabled={entry.disabled}
-                  aria-haspopup={hasSub ? 'menu' : undefined}
-                  aria-expanded={hasSub ? subOpen : undefined}
-                  onFocus={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
-                  onClick={() => {
-                    if (hasSub) {
-                      setOpenSubmenuId(entry.id)
-                      return
-                    }
-                    onSelect(entry.id)
-                  }}
-                >
-                  {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
-                  <span className={css.itemLabel}>{entry.label}</span>
-                  {/* Selection marker is a trailing check (figma .Menu_cell), not a fill. */}
-                  {entry.id === selectedId && <IconCheckOutline16 className={css.check} />}
-                </button>
-                {subOpen && entry.submenu !== undefined && (
-                  <div className={css.submenu} role="menu">
-                    {entry.submenu.map(sub => (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        role="menuitem"
-                        className={css.item}
-                        disabled={sub.disabled}
-                        onClick={() => { onSelect(sub.id) }}
-                      >
-                        {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
-                        <span className={css.itemLabel}>{sub.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+      {items.map((entry) => {
+        if (isSeparator(entry)) {
+          return <div key={entry.id} className={css.separator} role="separator" />
+        }
+        if (isLabel(entry)) {
+          return <div key={entry.id} className={css.label} role="presentation">{entry.text}</div>
+        }
+        const hasSub = entry.submenu !== undefined && entry.submenu.length > 0
+        const subOpen = hasSub && openSubmenuId === entry.id
+        return (
+          <div
+            key={entry.id}
+            className={css.itemWrap}
+            onMouseEnter={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
+            onMouseLeave={() => { setOpenSubmenuId(null) }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={clsx(css.item, entry.id === selectedId && css.selected, entry.danger === true && css.danger)}
+              disabled={entry.disabled}
+              aria-haspopup={hasSub ? 'menu' : undefined}
+              aria-expanded={hasSub ? subOpen : undefined}
+              onFocus={() => { setOpenSubmenuId(hasSub ? entry.id : null) }}
+              onClick={() => {
+                if (hasSub) {
+                  setOpenSubmenuId(entry.id)
+                  return
+                }
+                onSelect(entry.id)
+              }}
+            >
+              {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
+              <span className={css.itemLabel}>{entry.label}</span>
+              {/* Selection marker is a trailing check (figma .Menu_cell), not a fill. */}
+              {entry.id === selectedId && <IconCheckOutline16 className={css.check} />}
+            </button>
+            {subOpen && entry.submenu !== undefined && (
+              <div className={css.submenu} role="menu">
+                {entry.submenu.map(sub => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    role="menuitem"
+                    className={css.item}
+                    disabled={sub.disabled}
+                    onClick={() => { onSelect(sub.id) }}
+                  >
+                    {sub.icon !== undefined && <span className={css.itemIcon}>{sub.icon}</span>}
+                    <span className={css.itemLabel}>{sub.label}</span>
+                  </button>
+                ))}
               </div>
-            )
-          })}
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 

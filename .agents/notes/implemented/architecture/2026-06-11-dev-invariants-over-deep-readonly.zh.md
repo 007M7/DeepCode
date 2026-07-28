@@ -40,7 +40,7 @@ TypeScript readonly 类型不是充分的运行时边界。它们在程序运行
 
 ### 全面的 deep-readonly 类型
 
-[被否决的不可变公共表面提案](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md)会在公共日志和消息表面上应用递归 readonly 类型。这能提供编辑器反馈，但无法提供运行时保证：TypeScript 类型在运行时被擦除，插件代码可以通过类型转换绕过。它还会将 readonly 类型推入有意进行修改的消费方。在 `Session` 边界处的运行时所有权保护所有调用方，无需这种类型传播。
+一个被否决的姊妹提案会在公共日志和消息表面上应用递归 `DeepReadonly<T>` 类型，将会话读取路径（`events`、`session/event` 监听器、`deriveMessages()`）翻转为深只读，同时保持进行中的 waterfall 可变。这能提供编辑器反馈，但无法提供运行时保证：TypeScript 类型在运行时被擦除，插件代码可以通过类型转换绕过。它还会将 readonly 类型推入有意进行修改的消费方。在 `Session` 边界处的运行时所有权保护所有调用方，无需这种类型传播。
 
 ### 仅在开发模式冻结
 

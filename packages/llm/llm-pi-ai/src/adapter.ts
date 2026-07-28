@@ -26,6 +26,7 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   ReasoningEffortId as ReasoningEffortIdType,
+  ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -44,7 +45,10 @@ export interface PiAiAdapterOptions {
  * Resolve a catalog model dynamically and apply only the configured endpoint
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
-function resolvePiModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
+function resolvePiModel(
+  profile: Omit<PiAiProviderProfile, 'retryPolicy'>,
+  modelId: string,
+): Model<Api> {
   const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
   if (model === undefined) {
     throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
@@ -54,7 +58,7 @@ function resolvePiModel(profile: PiAiProviderProfile, modelId: string): Model<Ap
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
-  profile: PiAiProviderProfile,
+  profile: Omit<PiAiProviderProfile, 'retryPolicy'>,
   reasoning: ModelThinkingLevel | undefined,
 ): SimpleStreamOptions {
   const enabledReasoning: ThinkingLevel | undefined = reasoning === 'off' ? undefined : reasoning
@@ -105,6 +109,10 @@ export class PiAiAdapter extends LlmAdapter {
   constructor(options: PiAiAdapterOptions) {
     super()
     this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
+  }
+
+  override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
+    return this.profiles.get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {

@@ -15,7 +15,7 @@ Status: implemented
 - `dsh-llm` 在 `CONTEXT_WINDOW_EXCEEDED_CODE`/`QUOTA_EXCEEDED_CODE` 之外，导出规范代码 `EMPTY_RESPONSE_CODE`（`'EMPTY_RESPONSE'`）。
 - `dsh-llm-pi-ai`（`mapStopReason`）：当终止性 `stop` 所对应的 assistant 消息没有内容块时，它会变成一个携带该代码的 `finish {kind: 'error'}`。上下文溢出检测在其适用场景中仍然优先（它先被检查，也是更具可操作性的归类）。
 - `dsh-llm-deepseek`（`translate`）：在 `[DONE]` 处，若 `stop`（或缺失）结束且没有打开过任何块，则同样变成该错误结束。仅含 reasoning 的流算作有内容，仍视为成功。
-- `dsh-llm-retry` 把 `EMPTY_RESPONSE` 加入 `DEFAULT_RETRYABLE_CODES`：这次尝试没有产生任何持久内容，因此重复它是安全的；部署方仍可通过 `retryableCodes` 将其移除。
+- 提供方拥有的 normal 重试默认策略包含 `EMPTY_RESPONSE`：这次尝试没有产生任何持久内容，因此重复它是安全的；部署方仍可通过 `retryableCodes` 将其移除，而 `dsh-llm-retry` 会执行解析后的策略。
 
 检测仅限于 `stop` 结束。内容为空的 `max-tokens` 保持其既有含义（pi-ai 已经把零输出的溢出场景归一化处理），`tool-calls` 在实践中不可能是空块，而 error／aborted 结束本身已经算失败。
 

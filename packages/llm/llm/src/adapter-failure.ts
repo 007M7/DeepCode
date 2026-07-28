@@ -6,9 +6,15 @@
 
 import { HarnessError } from './error.ts'
 import type { LlmFailure, StreamChunk } from './types.ts'
+import type { ResolvedRetryPolicy } from './retry-policy.ts'
 
-/** Errors and normalized facts proven to originate in one model call's final adapter boundary. */
-export type AdapterFailureScope = WeakMap<Error, LlmFailure>
+/** Call-local facts captured when one model call enters its final adapter boundary. */
+export interface AdapterFailureScope {
+  /** Errors and normalized facts proven to originate in this call's final adapter boundary. */
+  readonly failures: WeakMap<Error, LlmFailure>
+  /** Immutable policy of the exact adapter registration selected for this call. */
+  retryPolicy?: ResolvedRetryPolicy
+}
 
 /** Call-local failure scopes keyed by the exact stream handle returned to a consumer. */
 const adapterFailureScopes = new WeakMap<AsyncIterable<StreamChunk>, AdapterFailureScope>()
@@ -54,7 +60,7 @@ export function markLlmAdapterFailure(
     message: errorMessage(error),
     code: harnessErrorCode(error),
   })
-  failures.set(error, failure)
+  failures.failures.set(error, failure)
   return error
 }
 
@@ -136,7 +142,7 @@ export function isLlmAdapterFailure(
   value: unknown,
 ): value is Error & { code?: string } {
   const failures = adapterFailureScopes.get(stream)
-  return value instanceof Error && failures !== undefined && failures.has(value)
+  return value instanceof Error && failures !== undefined && failures.failures.has(value)
 }
 
 /**
@@ -151,5 +157,18 @@ export function llmFailureOf(
   value: unknown,
 ): LlmFailure | undefined {
   const failures = adapterFailureScopes.get(stream)
-  return value instanceof Error ? failures?.get(value) : undefined
+  return value instanceof Error ? failures?.failures.get(value) : undefined
+}
+
+/**
+ * Read the retry policy of the exact registration selected at this call's
+ * final adapter boundary. The policy remains available after that registration
+ * is disposed or replaced; absence means no final adapter served the call.
+ * @param stream - the exact stream returned by the model call.
+ * @returns the immutable serving-registration policy, or `undefined`.
+ */
+export function llmRetryPolicyOf(
+  stream: AsyncIterable<StreamChunk>,
+): ResolvedRetryPolicy | undefined {
+  return adapterFailureScopes.get(stream)?.retryPolicy
 }

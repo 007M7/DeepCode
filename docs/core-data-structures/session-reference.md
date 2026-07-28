@@ -38,15 +38,15 @@ interface SessionReferenceCandidate {
 
 ## Prepared messages
 
-Preparation preserves readable current-message content and returns at most one aggregated context. The host binds `contexts` to that exact `followup()` or `steer()` call.
+Preparation preserves readable current-message content and returns at most one aggregated context.
 
 ```ts type-equiv
-/** Message payload and the zero-or-one durable snapshot contexts bound to it. */
+/** Direct message content and optional referenced-session context. */
 interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
-  /** Empty without references; otherwise one aggregated untrusted context. */
-  contexts: HookContext[]
+  /** Aggregated untrusted snapshot, absent when the message has no references. */
+  additionalContext?: UserMessageData
 }
 ```
 

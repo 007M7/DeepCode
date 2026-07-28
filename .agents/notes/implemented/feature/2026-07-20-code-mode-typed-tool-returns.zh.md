@@ -69,7 +69,7 @@ Code Mode 通过运行时请求中的 `{ name: "ToolCallError", memberNameProper
 
 后台 producer 返回类型化的规范句柄，例如 `{ kind: 'background', taskId }`，同时保留既有的 Native 语句。已预先中止的后台调用仍是失败，因为成功输出承诺返回 id，而此时并未创建任务。`ctx.tasks.start()` 发布 id 后，工作由任务自有的取消机制控制：外围 `run_code` 调用完成，或随后被取消，都不会终止该任务。后续程序可以把返回的 id 传给 `task_output`；取消则由 `task_kill`、owner dispose 或服务 teardown 负责。前台执行仍与本次调用的信号耦合。任务生命周期契约由[后台任务运行时 Agent Note](../architecture/2026-06-20-generic-long-running-tool-runtime.md)定义。
 
-动态 Cordis 挂载遵循同一规则：`cordis_mount` 返回 `{ id, pluginName, state, provides, waitingFor }`，因此程序可以直接读取 `mounted.id`，检查 active 或 pending 状态，并把该 id 传给 `cordis_unmount`，无需解析稳定的 Native 语句。
+临时 Cordis Plugin 遵循同一规则：`cordis_mount` 返回 `{ id, pluginName, state, provides, waitingFor }`，因此程序可以直接读取 `mounted.id`，检查 active 或 pending 状态，并把该 id 传给 `cordis_unmount`，无需解析稳定的 Native 语句。
 
 ### 持久化、元数据与输出落盘
 

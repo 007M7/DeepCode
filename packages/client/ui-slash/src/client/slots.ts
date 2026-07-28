@@ -34,5 +34,5 @@ export interface MenuViewInjected {
    * @param source - source (group) name.
    * @param index - candidate index within the group.
    */
-  onPick(source: string, index: number): void
+  onPick: (source: string, index: number) => void
 }

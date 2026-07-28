@@ -16,7 +16,7 @@ function stubRect(row: HTMLElement): void {
   row.getBoundingClientRect = () => ({
     top: 100, bottom: 134, left: 0, right: 200, width: 200, height: 34,
     x: 0, y: 100, toJSON: () => ({}),
-  } as DOMRect)
+  })
 }
 
 function dragProps(overrides: Partial<RowDragProps> = {}): RowDragProps {

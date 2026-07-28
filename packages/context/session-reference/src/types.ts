@@ -1,8 +1,31 @@
 /** Public session-reference request, candidate, and preparation records. */
 
-import type { HookContext } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
+
+/** Durable provenance for one prepared cross-session context. */
+export interface SessionReferenceSource {
+  kind: 'session-reference'
+  version: 1
+  references: {
+    sessionId: string
+    label: string
+    capturedThroughSeq: number | null
+    compacted: boolean
+    originalMessages: number
+    retainedMessages: number
+    omittedMessages: number
+    omittedBytes: number
+    truncated: boolean
+    inputIndex: number
+  }[]
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'session-reference': SessionReferenceSource
+  }
+}
 
 /** One source session selected by a host. */
 export interface SessionReferenceInput {
@@ -24,12 +47,12 @@ export interface SessionReferenceCandidate {
   createdAt: number
 }
 
-/** Message payload and the zero-or-one durable snapshot contexts bound to it. */
+/** Direct message content and optional referenced-session context. */
 export interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
-  /** Empty without references; otherwise one aggregated untrusted context. */
-  contexts: HookContext[]
+  /** Aggregated untrusted snapshot, absent when the message has no references. */
+  additionalContext?: UserMessageData
 }
 
 /** Text-only projected conversation item. */

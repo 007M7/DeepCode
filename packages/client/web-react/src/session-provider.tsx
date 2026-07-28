@@ -73,11 +73,14 @@ const absentSource: HostObservable<undefined> = {
 /** Bind a source that disappears with the current session to an optional selector hook. */
 export function maybeObservableHook<T>(source: HostObservable<T> | undefined): MaybeSnapshotSelectorHook<T> {
   if (source !== undefined) return observableHook(source)
-  return useAbsentSnapshot as MaybeSnapshotSelectorHook<T>
+  return useAbsentSnapshot
 }
 
 function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S, b: S) => boolean): S | undefined {
-  return observableHook(absentSource)(() => undefined)
+  // The uSES subscription must still run (hook-order stability); the absent
+  // source always snapshots undefined, returned explicitly.
+  observableHook(absentSource)(() => undefined)
+  return undefined
 }
 
 /**
@@ -87,7 +90,7 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
  */
 export function SessionMaybeProvider({ children }: { children: ReactNode }) {
   const host = useHost()
-  const id = observableHook(host.sessions.current)((s) => s)
+  const id = observableHook(host.sessions.current)(s => s)
   return (
     <BindingContext.Provider value={host.sessions.maybeProvideInfo(id)}>
       {children}
@@ -112,7 +115,7 @@ export interface SessionProviderProps {
  */
 export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()
-  const id = observableHook(host.sessions.current)((s) => s)
+  const id = observableHook(host.sessions.current)(s => s)
   const info = id === undefined ? undefined : host.sessions.provideInfo(id)
   if (id === undefined || info === undefined) return <>{empty?.() ?? null}</>
   return (

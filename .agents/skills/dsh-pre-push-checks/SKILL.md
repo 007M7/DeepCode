@@ -16,14 +16,13 @@ git status --short --branch
 git rev-parse --show-toplevel
 ```
 
-2. Inspect the diff against its actual base.
+2. Verify the live PR base or stack parent, fetch that ref, and inspect the complete scope against it.
 
 ```sh
-git diff --stat
-git diff --name-only origin/$(git branch --show-current)...HEAD
+pnpm run change-scope --base <verified-base-ref>
 ```
 
-If the branch has no upstream or that range is not meaningful for the stack, compare with the PR base branch. After merging a changed base, reassess which behavior the combined diff can affect and rerun only checks invalidated by the merge.
+The command never guesses or fetches a base. Supply the ref verified from current remote or stack state; use `--head <ref>` when inspecting a commit other than `HEAD`, and `--json` when another tool consumes the report. Its committed paths are relative to the resolved merge base, while staged, unstaged, and untracked paths describe the current worktree. After merging a changed base, rerun the report, reassess which behavior the combined scope can affect, and rerun only checks invalidated by the merge.
 
 ## Select relevant evidence
 

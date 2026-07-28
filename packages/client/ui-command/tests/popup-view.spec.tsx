@@ -45,7 +45,7 @@ async function mountOpen(overrides: Partial<PopupSpec<string>> = {}, consumeResu
 }
 
 function rowLabels(): string[] {
-  return screen.getAllByRole('option').map(o => o.querySelector('span')!.textContent!)
+  return screen.getAllByRole('option').map(o => o.querySelector('span')!.textContent)
 }
 
 describe('PopupSelectView', () => {
