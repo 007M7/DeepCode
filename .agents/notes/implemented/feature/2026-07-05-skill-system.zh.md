@@ -12,9 +12,9 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 ## 决策
 
-`@deepseek-ai/dsh-skill` 是纯提供方注册表（`ctx.skills`），`@deepseek-ai/dsh-skill-local` 是随附的本地文件系统提供方，`@deepseek-ai/dsh-tool-skill` 负责会话前缀目录与面向模型的 loader 工具。`dsh-agent-spine-demo` 默认加载注册表、本地提供方和消费方，使 TUI、headless 与 ACP（Agent Client Protocol）应用获得相同行为，同时嵌入式或远程提供方可在不修改注册表或消费方的前提下贡献 skill。其 `skills` 配置将 `registry`、`local` 和 `tool` 分支分别转发给对应的所有者。
+`@deepseek-ai/dsh-skill` 是纯提供方注册表（`ctx.skills`），`@deepseek-ai/dsh-skill-local` 是随附的本地文件系统提供方，`@deepseek-ai/dsh-tool-skill` 负责持久化会话目录与面向模型的 loader 工具。`dsh-agent-spine-demo` 默认加载注册表、本地提供方和消费方，使 TUI、headless 与 ACP（Agent Client Protocol）应用获得相同行为，同时嵌入式或远程提供方可在不修改注册表或消费方的前提下贡献 skill。其 `skills` 配置将 `registry`、`local` 和 `tool` 分支分别转发给对应的所有者。
 
-提供方插件在 `apply()` 期间同步注册。提供方成员资格是由直接 effect 持有的状态：注册与 dispose（资源释放）同步地使已完成的目录失效，发现操作按需读取当前提供方映射而非监听注册表变更事件。提供方目录从等待的 `list()` 调用返回排序后的候选项，远程提供方在此过程中执行初始化、认证和发现，同时遵守查找的 abort 信号。注册表校验每个候选项，按排名、提供方注册顺序和提供方内部顺序以先到先得方式解决同名 skill 冲突，然后按 skill 名称排序摘要以保证消费方获得确定性结果。它仅缓存已完成的目录快照，并在发现过程中提供方/运行时修订版本发生变化时重试，因此卸载操作不会将一个陈旧且不可解析的 skill 冻结到会话前缀中。运行时 `ctx.skills.register(...)` 仍作为嵌入式进程内 skill 的便捷方式保留，使用 project 优先于 user 的优先级；`runtime` 保留为注册表拥有的提供方名称。
+提供方插件在 `apply()` 期间同步注册。提供方成员资格是由直接 effect 持有的状态：注册与 dispose（资源释放）同步地使已完成的目录失效，发现操作按需读取当前提供方映射而非监听注册表变更事件。提供方目录从等待的 `list()` 调用返回排序后的候选项，远程提供方在此过程中执行初始化、认证和发现，同时遵守查找的 abort 信号。注册表校验每个候选项，按排名、提供方注册顺序和提供方内部顺序以先到先得方式解决同名 skill 冲突，然后按 skill 名称排序摘要以保证消费方获得确定性结果。它仅缓存已完成的目录快照，并在发现过程中提供方/运行时修订版本发生变化时重试，因此卸载操作不会将一个陈旧且不可解析的 skill 冻结到会话目录中。运行时 `ctx.skills.register(...)` 仍作为嵌入式进程内 skill 的便捷方式保留，使用 project 优先于 user 的优先级；`runtime` 保留为注册表拥有的提供方名称。
 
 本地提供方按先到先得的排名顺序扫描 cwd 敏感的项目根目录、自定义根目录和用户根目录：项目 `.dsh`、项目 `.agents`、`customSkillDirs`、用户 `.dsh`，然后是用户 `.agents`。用户 `.dsh/skills` 扫描跳过 `.system`，以免系统拥有的目录被当作普通用户内容处理。DeepSeek Harness 不随附内置系统 skill；嵌入式或远程提供方在配置后提供额外 skill。
 
@@ -22,7 +22,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 本地 skill 的文件系统 I/O 在加载了文件系统服务时通过 `ctx.fs` 进行：项目根目录查找使用 `resolve` 和 `stat` 探测 `.git`，根目录发现使用 `listDir`，skill 读取使用 `readText`。Node 文件系统作为后备，供在不挂载 fs seam 的最小上下文中加载 `dsh-skill-local` 时使用。缺失的根目录、不可读或格式错误的 skill 文件、以及提供方 `list()` 的瞬态失败均降级为警告并跳过，使一个坏源不会导致所有 agent 请求失败；格式错误的候选项仍然快速失败，因为它们违反了提供方契约。
 
-`dsh-tool-skill` 通过 [`agent/session-prefix`](2026-07-07-session-prefix.md) 贡献一个 user-role `<system-reminder>` 目录。该目录仅包含排序后的 skill 名称与描述；不包含正文、路径、来源、提供方和路由提示。描述经过空白规范化、XML 转义，并受 `catalogDescriptionMaxLength` 上限约束，其默认值为 `500`，最小值为 `3`。session-prefix seam 将仅用于请求的目录按 loop 实例冻结，并记录在请求头中，在不将其加入持久化历史的前提下保持可重建性。完整的 skill 正文从不包含在目录中。
+`dsh-tool-skill` 在会话的第一个 `agent/step` 注入一个持久化的 user-role `<system-reminder>` 目录，作为带来源的 `user/message`，且仅当该 agent 的工具视图解析到本插件精确的 `skill` 注册时才注入。该目录仅包含排序后的 skill 名称与描述；不包含正文、路径、来源、提供方和路由提示。描述经过空白规范化、XML 转义，并受 `catalogDescriptionMaxLength` 上限约束，其默认值为 `500`，最小值为 `3`。完整的 skill 正文从不包含在目录中。（目录最初通过仅请求的[会话前缀 seam](../../archived/feature/2026-07-07-session-prefix.md)（已归档）传递；[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)将其移入持久化历史。）
 
 `skill({ name })` 工具为当前 agent cwd 加载一个完整 skill，返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 提供一个目录、URL 或不透明的提供方管理的基路径，用于显式引用的脚本、参考资料和资产；资源仅按需加载，不进行目录枚举。无法解析的名称报告该 skill 未知或不再可用；无效名称和标记了 `disableModelInvocation` 的 skill 保留不同的工具错误。工具结果是面向模型的可见披露路径。
 
@@ -36,7 +36,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 **将本地文件系统扫描直接放入 `ctx.skills`。** 否决，因为编码 agent、Web agent 和未来的插件生态需要不同的 skill 来源。提供方注册表与 subagent seam 镜像：注册表拥有冲突解决和消费方，实现拥有加载。
 
-**使用系统提示词段落。** 否决，因为渲染后的系统提示词是单一字符串，而目录是一条具有仅请求生命周期要求的 user-role `<system-reminder>` 消息。[`agent/session-prefix`](2026-07-07-session-prefix.md) 是选定的机制：它将目录置于派生历史之前，并将组合后的消息记录在请求头中。
+**使用系统提示词段落。** 否决，因为渲染后的系统提示词是单一字符串，而目录是一条 user-role `<system-reminder>` 消息。[仅请求的会话前缀 seam](../../archived/feature/2026-07-07-session-prefix.md)（已归档）是最初的机制；统一带来源消息的决策移除该 seam 后，目录改为具有相同消息形状的持久化带来源注入。
 
 **在 `~/.dsh/skills/.system` 下物化内置 DSH 编写 skill。** 否决，因为打包的 skill 不应在启动时写入用户主目录，嵌入式或远程提供方在配置后提供 skill。
 
@@ -46,7 +46,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 ## 后果
 
-agent-core 主干包含一个 session-prefix 贡献者、一个本地提供方和一个面向模型的工具。Skill 发现是 cwd 敏感的，因此以不同会话 cwd 值创建 agent 的调用方可以按设计观察到不同的项目 skill 覆盖。
+agent-core 主干包含一个目录贡献者、一个本地提供方和一个面向模型的工具。Skill 发现是 cwd 敏感的，因此以不同会话 cwd 值创建 agent 的调用方可以按设计观察到不同的项目 skill 覆盖。
 
 目录对于固定的根目录集合和运行时注册修订版本是确定性的，但不监视磁盘变化；发现结果被缓存，直到运行时注册使缓存失效或进程重启。
 

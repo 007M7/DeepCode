@@ -30,3 +30,6 @@ apps/web/dist/
 .artifacts/
 .playwright-mcp/
 .orig
+.worktrees/
+worktrees/
+.agents/worktrees/

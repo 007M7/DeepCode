@@ -97,6 +97,7 @@ function workspaceManifests(): WorkspaceManifest[] {
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-helper': ['lib/assets'],
+  '@deepseek-ai/dsh-tui': ['lib/prompt.js'],
   '@deepseek-ai/dsh-scripts': [
     'lib/dev/tsdown-config.js',
     'lib/local-plugin-loader-hooks.js',

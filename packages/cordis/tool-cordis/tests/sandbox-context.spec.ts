@@ -186,7 +186,7 @@ describe('sandbox context façade — inject gate on services', () => {
       `,
     })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('state: active')
+    expect(text(result)).toContain('is running')
   })
 
   it('a cross-mount consumer must declare the provider — the undeclared path is refused, not left as a zombie tool', async () => {

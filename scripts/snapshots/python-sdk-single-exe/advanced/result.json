@@ -35,8 +35,22 @@
       "surfaceOp": "append"
     },
     {
-      "type": "step/start",
+      "type": "session/title",
       "seq": 2,
+      "time": 0,
+      "data": {
+        "title": "Run the advanced packaged-runtime snapsh",
+        "messageSeqs": [
+          1
+        ],
+        "source": {
+          "kind": "fallback"
+        }
+      }
+    },
+    {
+      "type": "step/start",
+      "seq": 3,
       "time": 0,
       "data": {
         "turn": 1,
@@ -45,25 +59,31 @@
     },
     {
       "type": "request/header",
-      "seq": 3,
+      "seq": 4,
       "time": 0,
       "data": {
         "header": {
           "config": {
-            "model": "smoke-model"
+            "provider": "deepseek",
+            "model": "smoke-model",
+            "reasoningEffort": "high"
           },
           "system": "{{system}}",
           "tools": [
             "bash",
-            "bash_kill",
-            "bash_output",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
             "run_code",
             "skill",
             "subagent",
+            "task_kill",
+            "task_list",
+            "task_output",
             "workflow"
+          ],
+          "messagePrefix": [
+            "{{messagePrefix}}"
           ]
         },
         "reason": "initial"
@@ -71,7 +91,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 4,
+      "seq": 5,
       "time": 0,
       "data": {
         "turn": 1,
@@ -85,7 +105,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 5,
+      "seq": 6,
       "time": 0,
       "data": {
         "turn": 1,
@@ -95,26 +115,7 @@
           "index": 0,
           "id": "advanced-mount",
           "name": "cordis_mount",
-          "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
-        }
-      }
-    },
-    {
-      "type": "assistant/chunk",
-      "seq": 6,
-      "time": 0,
-      "data": {
-        "turn": 1,
-        "step": 1,
-        "chunk": {
-          "type": "block-end",
-          "index": 0,
-          "block": {
-            "type": "tool-call",
-            "id": "advanced-mount",
-            "name": "cordis_mount",
-            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
-          }
+          "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
         }
       }
     },
@@ -126,10 +127,13 @@
         "turn": 1,
         "step": 1,
         "chunk": {
-          "type": "usage",
-          "usage": {
-            "inputTokens": 3,
-            "outputTokens": 3
+          "type": "block-end",
+          "index": 0,
+          "block": {
+            "type": "tool-call",
+            "id": "advanced-mount",
+            "name": "cordis_mount",
+            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         }
       }
@@ -142,6 +146,22 @@
         "turn": 1,
         "step": 1,
         "chunk": {
+          "type": "usage",
+          "usage": {
+            "inputTokens": 3,
+            "outputTokens": 3
+          }
+        }
+      }
+    },
+    {
+      "type": "assistant/chunk",
+      "seq": 9,
+      "time": 0,
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "chunk": {
           "type": "finish",
           "reason": {
             "kind": "tool-calls"
@@ -151,7 +171,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 9,
+      "seq": 10,
       "time": 0,
       "data": {
         "turn": 1,
@@ -161,38 +181,42 @@
             "type": "tool-call",
             "id": "advanced-mount",
             "name": "cordis_mount",
-            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
+            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        4,
         5,
         6,
         7,
-        8
+        8,
+        9
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 10,
+      "seq": 11,
       "time": 0,
       "data": {
         "turn": 1,
         "step": 1,
         "callId": "advanced-mount",
         "name": "cordis_mount",
-        "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
+        "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
       }
     },
     {
       "type": "tool/result",
-      "seq": 11,
+      "seq": 12,
       "time": 0,
       "data": {
         "turn": 1,
@@ -201,19 +225,19 @@
         "content": [
           {
             "type": "text",
-            "text": "mounted dyn-1 (plugin \"<anonymous>\", state: active)"
+            "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
           }
         ],
         "isError": false
       },
       "sourceEventSeqs": [
-        10
+        11
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 12,
+      "seq": 13,
       "time": 0,
       "data": {
         "turn": 1,
@@ -222,7 +246,7 @@
     },
     {
       "type": "step/start",
-      "seq": 13,
+      "seq": 14,
       "time": 0,
       "data": {
         "turn": 1,
@@ -231,18 +255,18 @@
     },
     {
       "type": "request/header",
-      "seq": 14,
+      "seq": 15,
       "time": 0,
       "data": {
         "header": {
           "config": {
-            "model": "smoke-model"
+            "provider": "deepseek",
+            "model": "smoke-model",
+            "reasoningEffort": "high"
           },
           "system": "{{system}}",
           "tools": [
             "bash",
-            "bash_kill",
-            "bash_output",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
@@ -250,7 +274,13 @@
             "skill",
             "snapshot_double",
             "subagent",
+            "task_kill",
+            "task_list",
+            "task_output",
             "workflow"
+          ],
+          "messagePrefix": [
+            "{{messagePrefix}}"
           ]
         },
         "reason": "change"
@@ -258,7 +288,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 15,
+      "seq": 16,
       "time": 0,
       "data": {
         "turn": 1,
@@ -272,7 +302,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 16,
+      "seq": 17,
       "time": 0,
       "data": {
         "turn": 1,
@@ -282,13 +312,13 @@
           "index": 0,
           "id": "advanced-code",
           "name": "run_code",
-          "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+          "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
         }
       }
     },
     {
       "type": "assistant/chunk",
-      "seq": 17,
+      "seq": 18,
       "time": 0,
       "data": {
         "turn": 1,
@@ -300,14 +330,14 @@
             "type": "tool-call",
             "id": "advanced-code",
             "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
           }
         }
       }
     },
     {
       "type": "assistant/chunk",
-      "seq": 18,
+      "seq": 19,
       "time": 0,
       "data": {
         "turn": 1,
@@ -323,7 +353,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 19,
+      "seq": 20,
       "time": 0,
       "data": {
         "turn": 1,
@@ -338,7 +368,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 20,
+      "seq": 21,
       "time": 0,
       "data": {
         "turn": 1,
@@ -348,38 +378,55 @@
             "type": "tool-call",
             "id": "advanced-code",
             "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        15,
         16,
         17,
         18,
-        19
+        19,
+        20
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 21,
+      "seq": 22,
       "time": 0,
       "data": {
         "turn": 1,
         "step": 2,
         "callId": "advanced-code",
         "name": "run_code",
-        "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+        "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+      }
+    },
+    {
+      "type": "tool/code-dispatch-start",
+      "seq": 23,
+      "time": 0,
+      "data": {
+        "parentCallId": "advanced-code",
+        "subCallId": "advanced-code:code:1",
+        "name": "snapshot_double",
+        "arguments": {
+          "value": 21
+        }
       }
     },
     {
       "type": "tool/code-dispatch",
-      "seq": 22,
+      "seq": 24,
       "time": 0,
       "data": {
         "parentCallId": "advanced-code",
@@ -389,12 +436,17 @@
           "value": 21
         },
         "isError": false,
-        "resultSummary": "42"
+        "content": [
+          {
+            "type": "text",
+            "text": "42"
+          }
+        ]
       }
     },
     {
       "type": "tool/result",
-      "seq": 23,
+      "seq": 25,
       "time": 0,
       "data": {
         "turn": 1,
@@ -406,19 +458,16 @@
             "text": "42"
           }
         ],
-        "isError": false,
-        "meta": {
-          "logs": []
-        }
+        "isError": false
       },
       "sourceEventSeqs": [
-        21
+        22
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 24,
+      "seq": 26,
       "time": 0,
       "data": {
         "turn": 1,
@@ -427,7 +476,7 @@
     },
     {
       "type": "step/start",
-      "seq": 25,
+      "seq": 27,
       "time": 0,
       "data": {
         "turn": 1,
@@ -436,7 +485,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 26,
+      "seq": 28,
       "time": 0,
       "data": {
         "turn": 1,
@@ -450,7 +499,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 27,
+      "seq": 29,
       "time": 0,
       "data": {
         "turn": 1,
@@ -466,7 +515,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 28,
+      "seq": 30,
       "time": 0,
       "data": {
         "turn": 1,
@@ -485,7 +534,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 29,
+      "seq": 31,
       "time": 0,
       "data": {
         "turn": 1,
@@ -501,7 +550,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 30,
+      "seq": 32,
       "time": 0,
       "data": {
         "turn": 1,
@@ -516,7 +565,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 31,
+      "seq": 33,
       "time": 0,
       "data": {
         "turn": 1,
@@ -529,23 +578,27 @@
             "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        26,
-        27,
         28,
         29,
-        30
+        30,
+        31,
+        32
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 32,
+      "seq": 34,
       "time": 0,
       "data": {
         "turn": 1,
@@ -557,7 +610,7 @@
     },
     {
       "type": "tool/result",
-      "seq": 33,
+      "seq": 35,
       "time": 0,
       "data": {
         "turn": 1,
@@ -572,13 +625,13 @@
         "isError": false
       },
       "sourceEventSeqs": [
-        32
+        34
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 34,
+      "seq": 36,
       "time": 0,
       "data": {
         "turn": 1,
@@ -587,7 +640,7 @@
     },
     {
       "type": "step/start",
-      "seq": 35,
+      "seq": 37,
       "time": 0,
       "data": {
         "turn": 1,
@@ -596,7 +649,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 36,
+      "seq": 38,
       "time": 0,
       "data": {
         "turn": 1,
@@ -610,7 +663,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 37,
+      "seq": 39,
       "time": 0,
       "data": {
         "turn": 1,
@@ -626,7 +679,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 38,
+      "seq": 40,
       "time": 0,
       "data": {
         "turn": 1,
@@ -645,7 +698,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 39,
+      "seq": 41,
       "time": 0,
       "data": {
         "turn": 1,
@@ -661,7 +714,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 40,
+      "seq": 42,
       "time": 0,
       "data": {
         "turn": 1,
@@ -676,7 +729,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 41,
+      "seq": 43,
       "time": 0,
       "data": {
         "turn": 1,
@@ -689,23 +742,27 @@
             "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        36,
-        37,
         38,
         39,
-        40
+        40,
+        41,
+        42
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 42,
+      "seq": 44,
       "time": 0,
       "data": {
         "turn": 1,
@@ -717,7 +774,7 @@
     },
     {
       "type": "tool/result",
-      "seq": 43,
+      "seq": 45,
       "time": 0,
       "data": {
         "turn": 1,
@@ -732,13 +789,13 @@
         "isError": false
       },
       "sourceEventSeqs": [
-        42
+        44
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 44,
+      "seq": 46,
       "time": 0,
       "data": {
         "turn": 1,
@@ -747,7 +804,7 @@
     },
     {
       "type": "step/start",
-      "seq": 45,
+      "seq": 47,
       "time": 0,
       "data": {
         "turn": 1,
@@ -756,7 +813,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 46,
+      "seq": 48,
       "time": 0,
       "data": {
         "turn": 1,
@@ -770,7 +827,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 47,
+      "seq": 49,
       "time": 0,
       "data": {
         "turn": 1,
@@ -786,7 +843,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 48,
+      "seq": 50,
       "time": 0,
       "data": {
         "turn": 1,
@@ -805,7 +862,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 49,
+      "seq": 51,
       "time": 0,
       "data": {
         "turn": 1,
@@ -821,7 +878,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 50,
+      "seq": 52,
       "time": 0,
       "data": {
         "turn": 1,
@@ -836,7 +893,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 51,
+      "seq": 53,
       "time": 0,
       "data": {
         "turn": 1,
@@ -849,23 +906,27 @@
             "arguments": "{\"id\": \"dyn-1\"}"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        46,
-        47,
         48,
         49,
-        50
+        50,
+        51,
+        52
       ],
       "surfaceOp": "append"
     },
     {
       "type": "tool/call",
-      "seq": 52,
+      "seq": 54,
       "time": 0,
       "data": {
         "turn": 1,
@@ -877,7 +938,7 @@
     },
     {
       "type": "tool/result",
-      "seq": 53,
+      "seq": 55,
       "time": 0,
       "data": {
         "turn": 1,
@@ -886,19 +947,19 @@
         "content": [
           {
             "type": "text",
-            "text": "unmounted dyn-1 (plugin \"<anonymous>\")"
+            "text": "Temporary Plugin dyn-1 was unmounted and removed."
           }
         ],
         "isError": false
       },
       "sourceEventSeqs": [
-        52
+        54
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 54,
+      "seq": 56,
       "time": 0,
       "data": {
         "turn": 1,
@@ -907,7 +968,7 @@
     },
     {
       "type": "step/start",
-      "seq": 55,
+      "seq": 57,
       "time": 0,
       "data": {
         "turn": 1,
@@ -916,25 +977,31 @@
     },
     {
       "type": "request/header",
-      "seq": 56,
+      "seq": 58,
       "time": 0,
       "data": {
         "header": {
           "config": {
-            "model": "smoke-model"
+            "provider": "deepseek",
+            "model": "smoke-model",
+            "reasoningEffort": "high"
           },
           "system": "{{system}}",
           "tools": [
             "bash",
-            "bash_kill",
-            "bash_output",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
             "run_code",
             "skill",
             "subagent",
+            "task_kill",
+            "task_list",
+            "task_output",
             "workflow"
+          ],
+          "messagePrefix": [
+            "{{messagePrefix}}"
           ]
         },
         "reason": "change"
@@ -942,7 +1009,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 57,
+      "seq": 59,
       "time": 0,
       "data": {
         "turn": 1,
@@ -956,7 +1023,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 58,
+      "seq": 60,
       "time": 0,
       "data": {
         "turn": 1,
@@ -970,7 +1037,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 59,
+      "seq": 61,
       "time": 0,
       "data": {
         "turn": 1,
@@ -987,7 +1054,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 60,
+      "seq": 62,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1003,7 +1070,7 @@
     },
     {
       "type": "assistant/chunk",
-      "seq": 61,
+      "seq": 63,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1018,7 +1085,7 @@
     },
     {
       "type": "assistant/message",
-      "seq": 62,
+      "seq": 64,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1029,23 +1096,27 @@
             "text": "ADVANCED_EXECUTABLE_OK"
           }
         ],
+        "provenance": {
+          "provider": "deepseek",
+          "model": "smoke-model"
+        },
         "usage": {
           "inputTokens": 3,
           "outputTokens": 3
         }
       },
       "sourceEventSeqs": [
-        57,
-        58,
         59,
         60,
-        61
+        61,
+        62,
+        63
       ],
       "surfaceOp": "append"
     },
     {
       "type": "step/end",
-      "seq": 63,
+      "seq": 65,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1054,7 +1125,7 @@
     },
     {
       "type": "turn/end",
-      "seq": 64,
+      "seq": 66,
       "time": 0,
       "data": {
         "turn": 1,
@@ -1113,8 +1184,28 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
-          "type": "step/start",
+          "type": "session/title",
           "seq": 2,
+          "time": 0,
+          "data": {
+            "title": "Run the advanced packaged-runtime snapsh",
+            "messageSeqs": [
+              1
+            ],
+            "source": {
+              "kind": "fallback"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "step/start",
+          "seq": 3,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1129,25 +1220,31 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "request/header",
-          "seq": 3,
+          "seq": 4,
           "time": 0,
           "data": {
             "header": {
               "config": {
-                "model": "smoke-model"
+                "provider": "deepseek",
+                "model": "smoke-model",
+                "reasoningEffort": "high"
               },
               "system": "{{system}}",
               "tools": [
                 "bash",
-                "bash_kill",
-                "bash_output",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
                 "skill",
                 "subagent",
+                "task_kill",
+                "task_list",
+                "task_output",
                 "workflow"
+              ],
+              "messagePrefix": [
+                "{{messagePrefix}}"
               ]
             },
             "reason": "initial"
@@ -1161,7 +1258,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 4,
+          "seq": 5,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1181,7 +1278,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 5,
+          "seq": 6,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1191,32 +1288,7 @@
               "index": 0,
               "id": "advanced-mount",
               "name": "cordis_mount",
-              "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
-            }
-          }
-        }
-      }
-    },
-    {
-      "method": "session.event",
-      "payload": {
-        "sessionId": "{{parent}}",
-        "event": {
-          "type": "assistant/chunk",
-          "seq": 6,
-          "time": 0,
-          "data": {
-            "turn": 1,
-            "step": 1,
-            "chunk": {
-              "type": "block-end",
-              "index": 0,
-              "block": {
-                "type": "tool-call",
-                "id": "advanced-mount",
-                "name": "cordis_mount",
-                "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
-              }
+              "argumentsDelta": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
             }
           }
         }
@@ -1234,10 +1306,13 @@
             "turn": 1,
             "step": 1,
             "chunk": {
-              "type": "usage",
-              "usage": {
-                "inputTokens": 3,
-                "outputTokens": 3
+              "type": "block-end",
+              "index": 0,
+              "block": {
+                "type": "tool-call",
+                "id": "advanced-mount",
+                "name": "cordis_mount",
+                "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
               }
             }
           }
@@ -1256,6 +1331,28 @@
             "turn": 1,
             "step": 1,
             "chunk": {
+              "type": "usage",
+              "usage": {
+                "inputTokens": 3,
+                "outputTokens": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 9,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
               "type": "finish",
               "reason": {
                 "kind": "tool-calls"
@@ -1271,7 +1368,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 9,
+          "seq": 10,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1281,20 +1378,24 @@
                 "type": "tool-call",
                 "id": "advanced-mount",
                 "name": "cordis_mount",
-                "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
+                "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            4,
             5,
             6,
             7,
-            8
+            8,
+            9
           ],
           "surfaceOp": "append"
         }
@@ -1306,14 +1407,14 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 10,
+          "seq": 11,
           "time": 0,
           "data": {
             "turn": 1,
             "step": 1,
             "callId": "advanced-mount",
             "name": "cordis_mount",
-            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    async execute(args) {\\n      return [{ type: 'text', text: String(args.value * 2) }]\\n    }\\n  }))\\n}\\n\"}"
+            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
           }
         }
       }
@@ -1324,7 +1425,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 11,
+          "seq": 12,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1333,13 +1434,13 @@
             "content": [
               {
                 "type": "text",
-                "text": "mounted dyn-1 (plugin \"<anonymous>\", state: active)"
+                "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
               }
             ],
             "isError": false
           },
           "sourceEventSeqs": [
-            10
+            11
           ],
           "surfaceOp": "append"
         }
@@ -1351,7 +1452,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 12,
+          "seq": 13,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1366,7 +1467,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 13,
+          "seq": 14,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1381,18 +1482,18 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "request/header",
-          "seq": 14,
+          "seq": 15,
           "time": 0,
           "data": {
             "header": {
               "config": {
-                "model": "smoke-model"
+                "provider": "deepseek",
+                "model": "smoke-model",
+                "reasoningEffort": "high"
               },
               "system": "{{system}}",
               "tools": [
                 "bash",
-                "bash_kill",
-                "bash_output",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
@@ -1400,7 +1501,13 @@
                 "skill",
                 "snapshot_double",
                 "subagent",
+                "task_kill",
+                "task_list",
+                "task_output",
                 "workflow"
+              ],
+              "messagePrefix": [
+                "{{messagePrefix}}"
               ]
             },
             "reason": "change"
@@ -1414,7 +1521,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 15,
+          "seq": 16,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1434,7 +1541,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 16,
+          "seq": 17,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1444,32 +1551,7 @@
               "index": 0,
               "id": "advanced-code",
               "name": "run_code",
-              "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
-            }
-          }
-        }
-      }
-    },
-    {
-      "method": "session.event",
-      "payload": {
-        "sessionId": "{{parent}}",
-        "event": {
-          "type": "assistant/chunk",
-          "seq": 17,
-          "time": 0,
-          "data": {
-            "turn": 1,
-            "step": 2,
-            "chunk": {
-              "type": "block-end",
-              "index": 0,
-              "block": {
-                "type": "tool-call",
-                "id": "advanced-code",
-                "name": "run_code",
-                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
-              }
+              "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
             }
           }
         }
@@ -1482,6 +1564,31 @@
         "event": {
           "type": "assistant/chunk",
           "seq": 18,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 2,
+            "chunk": {
+              "type": "block-end",
+              "index": 0,
+              "block": {
+                "type": "tool-call",
+                "id": "advanced-code",
+                "name": "run_code",
+                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 19,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1503,7 +1610,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 19,
+          "seq": 20,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1524,7 +1631,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 20,
+          "seq": 21,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1534,20 +1641,24 @@
                 "type": "tool-call",
                 "id": "advanced-code",
                 "name": "run_code",
-                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            15,
             16,
             17,
             18,
-            19
+            19,
+            20
           ],
           "surfaceOp": "append"
         }
@@ -1559,14 +1670,33 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 21,
+          "seq": 22,
           "time": 0,
           "data": {
             "turn": 1,
             "step": 2,
             "callId": "advanced-code",
             "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\"}"
+            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "tool/code-dispatch-start",
+          "seq": 23,
+          "time": 0,
+          "data": {
+            "parentCallId": "advanced-code",
+            "subCallId": "advanced-code:code:1",
+            "name": "snapshot_double",
+            "arguments": {
+              "value": 21
+            }
           }
         }
       }
@@ -1577,7 +1707,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/code-dispatch",
-          "seq": 22,
+          "seq": 24,
           "time": 0,
           "data": {
             "parentCallId": "advanced-code",
@@ -1587,7 +1717,12 @@
               "value": 21
             },
             "isError": false,
-            "resultSummary": "42"
+            "content": [
+              {
+                "type": "text",
+                "text": "42"
+              }
+            ]
           }
         }
       }
@@ -1598,7 +1733,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 23,
+          "seq": 25,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1610,13 +1745,10 @@
                 "text": "42"
               }
             ],
-            "isError": false,
-            "meta": {
-              "logs": []
-            }
+            "isError": false
           },
           "sourceEventSeqs": [
-            21
+            22
           ],
           "surfaceOp": "append"
         }
@@ -1628,7 +1760,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 24,
+          "seq": 26,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1643,7 +1775,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 25,
+          "seq": 27,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1658,7 +1790,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 26,
+          "seq": 28,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1678,7 +1810,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 27,
+          "seq": 29,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1700,7 +1832,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 28,
+          "seq": 30,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1725,7 +1857,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 29,
+          "seq": 31,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1747,7 +1879,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 30,
+          "seq": 32,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1768,7 +1900,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 31,
+          "seq": 33,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1781,17 +1913,21 @@
                 "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            26,
-            27,
             28,
             29,
-            30
+            30,
+            31,
+            32
           ],
           "surfaceOp": "append"
         }
@@ -1803,7 +1939,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 32,
+          "seq": 34,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1823,10 +1959,302 @@
       }
     },
     {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "turn/start",
+          "seq": 0,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "trigger": {
+              "kind": "message",
+              "source": {
+                "kind": "user"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "user/message",
+          "seq": 1,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly DIRECT_CHILD_OK and nothing else."
+              }
+            ],
+            "source": {
+              "kind": "user"
+            }
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "session/title",
+          "seq": 2,
+          "time": 0,
+          "data": {
+            "title": "Reply with exactly DIRECT_CHILD_OK and",
+            "messageSeqs": [
+              1
+            ],
+            "source": {
+              "kind": "fallback"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "step/start",
+          "seq": 3,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "request/header",
+          "seq": 4,
+          "time": 0,
+          "data": {
+            "header": {
+              "config": {
+                "provider": "deepseek",
+                "model": "smoke-model",
+                "reasoningEffort": "high"
+              },
+              "system": "{{system}}",
+              "tools": [
+                "bash",
+                "cordis_inspect",
+                "cordis_mount",
+                "cordis_unmount",
+                "run_code",
+                "skill",
+                "snapshot_double",
+                "subagent",
+                "task_kill",
+                "task_list",
+                "task_output",
+                "workflow"
+              ],
+              "messagePrefix": [
+                "{{messagePrefix}}"
+              ]
+            },
+            "reason": "initial"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 5,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "block-start",
+              "index": 0,
+              "blockType": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 6,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "text-delta",
+              "index": 0,
+              "text": "DIRECT_CHILD_OK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 7,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "block-end",
+              "index": 0,
+              "block": {
+                "type": "text",
+                "text": "DIRECT_CHILD_OK"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 8,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "usage",
+              "usage": {
+                "inputTokens": 3,
+                "outputTokens": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 9,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "finish",
+              "reason": {
+                "kind": "stop"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "assistant/message",
+          "seq": 10,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "content": [
+              {
+                "type": "text",
+                "text": "DIRECT_CHILD_OK"
+              }
+            ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
+            "usage": {
+              "inputTokens": 3,
+              "outputTokens": 3
+            }
+          },
+          "sourceEventSeqs": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "step/end",
+          "seq": 11,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-1}}",
+        "event": {
+          "type": "turn/end",
+          "seq": 12,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "reason": {
+              "kind": "completed"
+            }
+          }
+        }
+      }
+    },
+    {
       "method": "subagent.finished",
       "payload": {
         "provider": "spawn",
-        "agentId": "{{agent-1}}",
+        "agentId": "{{child-1}}",
         "parentSessionId": "{{parent}}",
         "childSessionId": "{{child-1}}",
         "status": "ok",
@@ -1845,7 +2273,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 33,
+          "seq": 35,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1860,7 +2288,7 @@
             "isError": false
           },
           "sourceEventSeqs": [
-            32
+            34
           ],
           "surfaceOp": "append"
         }
@@ -1872,7 +2300,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 34,
+          "seq": 36,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1887,7 +2315,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 35,
+          "seq": 37,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1902,7 +2330,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 36,
+          "seq": 38,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1922,7 +2350,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 37,
+          "seq": 39,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1944,7 +2372,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 38,
+          "seq": 40,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1969,7 +2397,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 39,
+          "seq": 41,
           "time": 0,
           "data": {
             "turn": 1,
@@ -1991,7 +2419,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 40,
+          "seq": 42,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2012,7 +2440,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 41,
+          "seq": 43,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2025,17 +2453,21 @@
                 "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            36,
-            37,
             38,
             39,
-            40
+            40,
+            41,
+            42
           ],
           "surfaceOp": "append"
         }
@@ -2047,7 +2479,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 42,
+          "seq": 44,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2067,10 +2499,302 @@
       }
     },
     {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "turn/start",
+          "seq": 0,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "trigger": {
+              "kind": "message",
+              "source": {
+                "kind": "user"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "user/message",
+          "seq": 1,
+          "time": 0,
+          "data": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with exactly WORKFLOW_CHILD_OK and nothing else."
+              }
+            ],
+            "source": {
+              "kind": "user"
+            }
+          },
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "session/title",
+          "seq": 2,
+          "time": 0,
+          "data": {
+            "title": "Reply with exactly WORKFLOW_CHILD_OK and",
+            "messageSeqs": [
+              1
+            ],
+            "source": {
+              "kind": "fallback"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "step/start",
+          "seq": 3,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "request/header",
+          "seq": 4,
+          "time": 0,
+          "data": {
+            "header": {
+              "config": {
+                "provider": "deepseek",
+                "model": "smoke-model",
+                "reasoningEffort": "high"
+              },
+              "system": "{{system}}",
+              "tools": [
+                "bash",
+                "cordis_inspect",
+                "cordis_mount",
+                "cordis_unmount",
+                "run_code",
+                "skill",
+                "snapshot_double",
+                "subagent",
+                "task_kill",
+                "task_list",
+                "task_output",
+                "workflow"
+              ],
+              "messagePrefix": [
+                "{{messagePrefix}}"
+              ]
+            },
+            "reason": "initial"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 5,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "block-start",
+              "index": 0,
+              "blockType": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 6,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "text-delta",
+              "index": 0,
+              "text": "WORKFLOW_CHILD_OK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 7,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "block-end",
+              "index": 0,
+              "block": {
+                "type": "text",
+                "text": "WORKFLOW_CHILD_OK"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 8,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "usage",
+              "usage": {
+                "inputTokens": 3,
+                "outputTokens": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/chunk",
+          "seq": 9,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "chunk": {
+              "type": "finish",
+              "reason": {
+                "kind": "stop"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "assistant/message",
+          "seq": 10,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1,
+            "content": [
+              {
+                "type": "text",
+                "text": "WORKFLOW_CHILD_OK"
+              }
+            ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
+            "usage": {
+              "inputTokens": 3,
+              "outputTokens": 3
+            }
+          },
+          "sourceEventSeqs": [
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "surfaceOp": "append"
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "step/end",
+          "seq": 11,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "step": 1
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child-2}}",
+        "event": {
+          "type": "turn/end",
+          "seq": 12,
+          "time": 0,
+          "data": {
+            "turn": 1,
+            "reason": {
+              "kind": "completed"
+            }
+          }
+        }
+      }
+    },
+    {
       "method": "subagent.finished",
       "payload": {
         "provider": "spawn",
-        "agentId": "{{agent-2}}",
+        "agentId": "{{child-2}}",
         "parentSessionId": "{{parent}}",
         "childSessionId": "{{child-2}}",
         "status": "ok",
@@ -2089,7 +2813,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 43,
+          "seq": 45,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2104,7 +2828,7 @@
             "isError": false
           },
           "sourceEventSeqs": [
-            42
+            44
           ],
           "surfaceOp": "append"
         }
@@ -2116,7 +2840,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 44,
+          "seq": 46,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2131,7 +2855,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 45,
+          "seq": 47,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2146,7 +2870,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 46,
+          "seq": 48,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2166,7 +2890,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 47,
+          "seq": 49,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2188,7 +2912,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 48,
+          "seq": 50,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2213,7 +2937,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 49,
+          "seq": 51,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2235,7 +2959,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 50,
+          "seq": 52,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2256,7 +2980,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 51,
+          "seq": 53,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2269,17 +2993,21 @@
                 "arguments": "{\"id\": \"dyn-1\"}"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            46,
-            47,
             48,
             49,
-            50
+            50,
+            51,
+            52
           ],
           "surfaceOp": "append"
         }
@@ -2291,7 +3019,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/call",
-          "seq": 52,
+          "seq": 54,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2309,7 +3037,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "tool/result",
-          "seq": 53,
+          "seq": 55,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2318,13 +3046,13 @@
             "content": [
               {
                 "type": "text",
-                "text": "unmounted dyn-1 (plugin \"<anonymous>\")"
+                "text": "Temporary Plugin dyn-1 was unmounted and removed."
               }
             ],
             "isError": false
           },
           "sourceEventSeqs": [
-            52
+            54
           ],
           "surfaceOp": "append"
         }
@@ -2336,7 +3064,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 54,
+          "seq": 56,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2351,7 +3079,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/start",
-          "seq": 55,
+          "seq": 57,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2366,25 +3094,31 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "request/header",
-          "seq": 56,
+          "seq": 58,
           "time": 0,
           "data": {
             "header": {
               "config": {
-                "model": "smoke-model"
+                "provider": "deepseek",
+                "model": "smoke-model",
+                "reasoningEffort": "high"
               },
               "system": "{{system}}",
               "tools": [
                 "bash",
-                "bash_kill",
-                "bash_output",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
                 "skill",
                 "subagent",
+                "task_kill",
+                "task_list",
+                "task_output",
                 "workflow"
+              ],
+              "messagePrefix": [
+                "{{messagePrefix}}"
               ]
             },
             "reason": "change"
@@ -2398,7 +3132,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 57,
+          "seq": 59,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2418,7 +3152,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 58,
+          "seq": 60,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2438,7 +3172,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 59,
+          "seq": 61,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2461,7 +3195,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 60,
+          "seq": 62,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2483,7 +3217,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/chunk",
-          "seq": 61,
+          "seq": 63,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2504,7 +3238,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "assistant/message",
-          "seq": 62,
+          "seq": 64,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2515,17 +3249,21 @@
                 "text": "ADVANCED_EXECUTABLE_OK"
               }
             ],
+            "provenance": {
+              "provider": "deepseek",
+              "model": "smoke-model"
+            },
             "usage": {
               "inputTokens": 3,
               "outputTokens": 3
             }
           },
           "sourceEventSeqs": [
-            57,
-            58,
             59,
             60,
-            61
+            61,
+            62,
+            63
           ],
           "surfaceOp": "append"
         }
@@ -2537,7 +3275,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "step/end",
-          "seq": 63,
+          "seq": 65,
           "time": 0,
           "data": {
             "turn": 1,
@@ -2552,7 +3290,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "turn/end",
-          "seq": 64,
+          "seq": 66,
           "time": 0,
           "data": {
             "turn": 1,

@@ -1,7 +1,7 @@
 terminal 96x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=4 bufferRow=4
+cursor hidden column=7 viewportRow=8 bufferRow=8
 viewport
 0| " DEEPSEEK HARNESS"
   style 1-1 fg=#4d6bfe bold
@@ -15,15 +15,22 @@ viewport
   style 10-16 bold
 1| " Snapshot agent ready."
   style 1-21 fg=bright-black
-2| " deepseek-v4-flash  •  main-session"
-  style 1-34 dim
-3| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-4| "                                                                                                "
-  style 1-1 inverse
-5| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-6| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
-  style 0-43 dim
-  style 69-95 dim
-7-35| <blank>
+2| " main-session"
+  style 1-12 dim
+3| <blank>
+4| "Assistant                                                                                       "
+  style 0-8 fg=bright-magenta bold underline
+5| "Model wait 0.0s                                                                                 "
+  style 0-14 dim
+6| <blank>
+7| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
+  style 0-17 fg=bright-blue bold
+  style 18-31 fg=bright-black
+  style 34-50 fg=bright-black
+  style 53-57 fg=bright-black
+  style 60-69 fg=bright-black
+8| " dsh >                                                                                          "
+  style 1-3 fg=bright-blue bold
+  style 5-6 fg=bright-black
+  style 7-7 inverse
+9-35| <blank>

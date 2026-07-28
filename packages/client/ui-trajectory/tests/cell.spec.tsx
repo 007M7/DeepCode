@@ -58,7 +58,7 @@ describe('TrajectoryCell', () => {
     expect(screen.getByText('381')).toBeTruthy()
     expect(screen.getByText('155')).toBeTruthy()
     expect(screen.getByText('+235.2s')).toBeTruthy()
-    const texts = [...container.querySelectorAll('span')].map((el) => el.textContent)
+    const texts = [...container.querySelectorAll('span')].map(el => el.textContent)
     expect(texts.indexOf('136')).toBeLessThan(texts.indexOf('381'))
     expect(texts.indexOf('381')).toBeLessThan(texts.indexOf('155'))
     expect(texts.indexOf('155')).toBeLessThan(texts.indexOf('+235.2s'))
