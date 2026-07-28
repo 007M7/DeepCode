@@ -42,30 +42,35 @@ function parseAuthority(authority: string): URL | undefined {
 
 /**
  * Assert one configured `trustedHosts` entry is a bare authority (`host` or
- * `host:port`) and nothing else. WHATWG parsing would quietly read a hostname
- * out of `harness.internal/path` or `user@harness.internal` — a typo must fail
- * the load loudly instead of authorizing its hostname or being ignored until
- * requests 403. The character test refuses every URL part beyond the authority
- * (path, backslash path, query, fragment, userinfo) and all whitespace, which
- * WHATWG trimming would otherwise strip silently; IPv6 brackets use none of
- * them.
+ * `host:port`) in canonical form: it must survive WHATWG parsing unchanged
+ * (case aside). Anything parsing would silently rewrite is refused as a typo
+ * that must fail the load loudly instead of being ignored until requests 403
+ * or quietly changing the grant: URL parts beyond the authority
+ * (`harness.internal/path`, `user@harness.internal` — which would authorize
+ * the embedded hostname), stripped whitespace, a dangling colon or
+ * zero-padded port (which would broaden an intended exact-port grant to every
+ * port), and non-canonical host spellings (`0x7f.0.0.1`, percent-encoding,
+ * unbracketed IPv6; IDN hosts are declared in punycode, the form the wire
+ * carries).
  * @param entry - the configured value, verbatim.
  */
 export function assertTrustedAuthority(entry: string): void {
-  if (parseAuthority(entry) !== undefined && !/[/\\?#@\s]/.test(entry)) return
+  const entryUrl = parseAuthority(entry)
+  if (entryUrl !== undefined && canonicalAuthority(entry, entryUrl) === entry.toLowerCase()) return
   throw new Error(`client-connection: trustedHosts entry ${JSON.stringify(entry)} is not a bare host[:port] authority`)
 }
 
 /**
- * Whether the parsed authority carries an explicit port: judged from URL
- * parses under both special schemes (their default ports differ, so `:80` and
- * `:443` still count as explicit), never from the raw string, where WHATWG
- * trimming of stray whitespace would misread `host:port ` as port-less and
- * broaden an exact-port grant to every port.
+ * Canonical form of a parsed authority: `hostname` when no port was written,
+ * else `hostname:port`. The port is judged from URL parses under both special
+ * schemes (their default ports differ, so `:80` and `:443` still count as
+ * explicit), never from the raw string, where WHATWG trimming would misread
+ * shapes like `host:port ` as port-less.
  */
-function hasExplicitPort(entry: string, entryUrl: URL): boolean {
+function canonicalAuthority(entry: string, entryUrl: URL): string {
   // An authority that parsed under http cannot fail under https.
-  return entryUrl.port !== '' || new URL(`https://${entry}`).port !== ''
+  const port = entryUrl.port !== '' ? entryUrl.port : new URL(`https://${entry}`).port
+  return port === '' ? entryUrl.hostname : `${entryUrl.hostname}:${port}`
 }
 
 /**
@@ -79,9 +84,9 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry)
     if (entryUrl === undefined) return false
-    return hasExplicitPort(entry, entryUrl)
-      ? entryUrl.host === hostUrl.host
-      : entryUrl.hostname === hostUrl.hostname
+    return canonicalAuthority(entry, entryUrl) === entryUrl.hostname
+      ? entryUrl.hostname === hostUrl.hostname
+      : entryUrl.host === hostUrl.host
   })
 }
 

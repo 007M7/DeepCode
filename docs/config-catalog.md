@@ -283,7 +283,7 @@ export interface ConnectionConfig {
    * browser request whose Host is neither loopback nor listed here, so a
    * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
    * by (the dsh CLI derives the machine's LAN IP literals itself). An entry
-   * that is not a bare authority fails the plugin load.
+   * that is not a bare, canonical authority fails the plugin load.
    */
   trustedHosts?: string[]
 }

@@ -79,6 +79,12 @@ describe('isTrustedApiRequest', () => {
     for (const entry of ['harness.internal:3080 ', ' harness.internal', 'harness.internal:30\t80']) {
       expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
     }
+    // WHATWG parsing would silently rewrite these — a dangling colon or
+    // zero-padded port would broaden an intended exact-port grant to every
+    // port, and non-canonical host spellings would not read back as written.
+    for (const entry of ['harness.internal:', '[::1]:', 'harness.internal:0080', '0x7f.0.0.1', '[0:0:0:0:0:0:0:1]']) {
+      expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
+    }
   })
 
   it('never lets stray whitespace broaden an exact-port entry to every port', () => {
