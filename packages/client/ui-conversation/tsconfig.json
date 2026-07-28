@@ -27,6 +27,9 @@
       "path": "../../session-projection/session-projection"
     },
     {
+      "path": "../../plan/plan-mode"
+    },
+    {
       "path": "../../todo/tool-todo"
     },
     {

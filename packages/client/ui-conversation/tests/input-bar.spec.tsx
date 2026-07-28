@@ -30,6 +30,8 @@ function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): Conversation
 
 interface BenchOptions {
   planEntry?: React.ReactNode
+  /** The `plan` projection value the standard-kit useProjection serves. */
+  plan?: { active: boolean; pending: boolean }
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
@@ -89,7 +91,8 @@ function bench(over?: BenchOptions) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
-    useProjection: ((key: string) => (key === 'permissions' ? over?.permissions : undefined)),
+    useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
+      (selector ?? (v => v))(key === 'permissions' ? over?.permissions : key === 'plan' ? over?.plan : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -232,6 +235,20 @@ describe('running and lock semantics (queue cut 1)', () => {
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
   })
+
+  it('the plan projection swaps the placeholder while its effective target is plan mode', () => {
+    const active = bench({ plan: { active: true, pending: false } })
+    expect(active.textarea.placeholder).toBe('describe your task to generate plan')
+    // /plan just ran: pending entry already reads as the plan target.
+    const entering = bench({ plan: { active: false, pending: true } })
+    expect(entering.textarea.placeholder).toBe('describe your task to generate plan')
+    // Pending exit: target is default again.
+    const leaving = bench({ plan: { active: true, pending: true } })
+    expect(leaving.textarea.placeholder).toBe('Message the agent')
+    // Owner placeholder outranks the plan swap.
+    const custom = bench({ plan: { active: true, pending: false }, placeholder: 'Custom placeholder' })
+    expect(custom.textarea.placeholder).toBe('Custom placeholder')
+  })
 })
 
 describe('machine pending lock', () => {
@@ -252,7 +269,6 @@ describe('machine pending lock', () => {
     expect(shell.snapshot.phase).toBe('submitting')
     const textarea = view.container.querySelector('textarea')!
     expect(textarea.readOnly).toBe(true)
-    expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true)
   })
 })

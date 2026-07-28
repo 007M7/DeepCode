@@ -392,7 +392,7 @@ describe('ChatView', () => {
     expect(lv.getByText('载入历史…')).toBeTruthy()
   })
 
-  it('question waits render placeholder cards; approvals leave the flow (composer takeover)', () => {
+  it('pending waits leave the flow entirely — questions and approvals both take over the composer', () => {
     const h = makeHarness({
       pending: [
         new PendingWait('approval', RpcId('r1'), SID,
@@ -402,7 +402,7 @@ describe('ChatView', () => {
       ],
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByText(/等待回答（1 题）/)).toBeTruthy()
+    expect(view.queryByText(/等待回答/)).toBeNull()
     expect(view.queryByText(/等待审批/)).toBeNull()
   })
 
