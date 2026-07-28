@@ -83,9 +83,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.composer.bar': { kind: 'single'; scope: 'session'; owner: ComposerBarOwnerProps }
     /**
-     * The Plan-mode control seat in the composer tool row (left group).
-     * Declared by the composer-bar entry; empty until a plan plugin
-     * registers (B ruling: no placeholder fallback).
+     * The Plan-mode status seat in the composer tool row (left group,
+     * right of the access-mode control). Declared by the composer-bar
+     * entry; empty until a plan plugin registers (B ruling: no placeholder
+     * fallback).
      */
     'conversation.input.plan': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
     /**

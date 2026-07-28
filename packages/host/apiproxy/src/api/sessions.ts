@@ -132,11 +132,13 @@ export interface SessionSummary {
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
   /**
-   * Derived emptiness bit: true while the session log holds zero events (no
-   * user message yet). Clients hide blank sessions from lists and reuse them
-   * for New Session on the same workspace. Always false for cold sessions —
-   * lazy persistence keeps a never-appended session out of the store, so a
-   * listed cold session necessarily has events.
+   * Derived conversation-not-started bit: true while no turn has run (no
+   * prompt was accepted yet). Standalone plugin events — command lifecycle
+   * records, plan/mode, titles, goals — do not open a turn and therefore do
+   * not clear it. Clients hide blank sessions from lists and reuse them for
+   * New Session on the same workspace. Always false for cold sessions —
+   * lazy persistence keeps a never-appended session out of the store, and a
+   * listed cold session's log holds its turns.
    */
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
@@ -206,9 +208,16 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  /**
+   * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
+   * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
+   * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
+   * successful command returns ok with the command slot (its success text, when the command produced
+   * one — carried for future rendering; the state change is the feedback). A usage/state error is an
+   * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
+   */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
-  Promise<RpcResponse<{ accepted: true }>>
+  Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>

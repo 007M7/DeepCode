@@ -218,12 +218,14 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
       return result
     }
-    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
-    // its user/message on the host (events.length > 0 is fact, not
-    // optimism), while a rejected first prompt must keep the session blank
-    // — the client-side blank mirror only ever lowers, so flipping early on
-    // a failure would surface the session forever and strip its
-    // connectWorkspace reuse eligibility against the host's authority.
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
+    // conversation's first turn on the host (the host criterion — a logged
+    // turn/start — is fact, not optimism; standalone command and projection
+    // events never flip it), while a rejected first prompt must keep the
+    // session blank — the client-side blank mirror only ever lowers, so
+    // flipping early on a failure would surface the session forever and
+    // strip its connectWorkspace reuse eligibility against the host's
+    // authority.
     if (this.blankBit) {
       this.blankBit = false
       this.options.onEngaged?.(this)
