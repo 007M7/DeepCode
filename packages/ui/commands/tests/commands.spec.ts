@@ -314,10 +314,9 @@ describe('CommandService', () => {
     expect(ids[0]).toBe(ids[1])
     // The execution's pairing id is the logged one (RPC-level correlation).
     expect(execution?.commandId).toBe(ids[0])
-    // Zero-step wrap: the pair stays turn-enclosed on an idle log.
+    // Direct log-only appends: no turn is opened for the pair on an idle log.
     expect(agent.session.events.map(event => event.type)).toEqual([
-      'turn/start', 'command/run', 'turn/end',
-      'turn/start', 'command/done', 'turn/end',
+      'command/run', 'command/done',
     ])
   })
 

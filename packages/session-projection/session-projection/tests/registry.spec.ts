@@ -26,10 +26,6 @@ declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     'test/mark': { marks: string[] }
   }
-
-  interface OutOfBandSessionEventMap {
-    'test/mark': true
-  }
 }
 
 /** Whole-value unit: latest test/mark event wins; unrelated events return the same reference. */

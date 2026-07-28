@@ -414,13 +414,15 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 /**
  * Parse and execute a known command without sending it to the model.
  *
- * A resolved command's lifecycle is durably logged: `command/run` is
- * appended before the handler is invoked and `command/done` after
- * settlement (a thrown or aborted handler settles as `kind: 'error'`).
- * Admission misses (syntax or unknown name) log nothing — they never
- * entered a handler. A `command/run` append failure fails the execution
- * loud; a `command/done` append failure on the handler-failure path is
- * contained so the handler's own error stays the reported failure.
+ * A resolved command's lifecycle is logged: `command/run` is appended
+ * before the handler is invoked and `command/done` after settlement (a
+ * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+ * log-only appends — no turn wraps them, and persistence drains them at
+ * ordinary checkpoints. Admission misses (syntax or unknown name) log
+ * nothing — they never entered a handler. A `command/run` append failure
+ * fails the execution loud; a `command/done` append failure on the
+ * handler-failure path is contained so the handler's own error stays the
+ * reported failure.
  *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
@@ -433,7 +435,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:288`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -1434,7 +1436,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:232`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

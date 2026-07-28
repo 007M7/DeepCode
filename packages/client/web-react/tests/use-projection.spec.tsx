@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionMaybeProvideInfo, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSlotRenderer, type SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
 
 function observable<T>(initial: T) {
@@ -25,7 +25,8 @@ function observable<T>(initial: T) {
 type UseProjectionProp = (key: string, selector?: (v: unknown) => unknown) => unknown
 
 function makeHost() {
-  const current = observable<string | undefined>(undefined)
+  const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
+  const provide = observable<SessionMaybeProvideInfo>(absentInfo)
   const cells = new Map<string, ReturnType<typeof observable<unknown>>>()
   /** Store-parallel face: always defined per key; an unseen key snapshots undefined. */
   const absent = { getSnapshot: () => undefined, subscribe: () => () => {} }
@@ -37,7 +38,7 @@ function makeHost() {
     options: {},
     children: { 'k.session': { kind: 'single', scope: 'session' } },
   }
-  const info = (id: string) => ({
+  const info = (id: string): SessionMaybeProvideInfo => ({
     sessionId: id,
     hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
     props: {},
@@ -52,16 +53,16 @@ function makeHost() {
     storeOf: () => undefined,
     sessions: {
       list: observable<unknown>({ ids: [] }),
-      current,
-      provideInfo: id => info(id),
-      maybeProvideInfo: id => (id === undefined
-        ? { sessionId: undefined, hooks: { session: undefined }, props: {} }
-        : info(id)),
+      provideInfo: provide,
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }
   return {
-    host, current, cells,
+    host,
+    cells,
+    // Same driver surface as before the atomic provide source: set(id)
+    // publishes the resolved bundle (or the absent projection) through it.
+    current: { set: (id: string | undefined) => { provide.set(id === undefined ? absentInfo : info(id)) } },
     dropFace: () => { withFace = false },
     registerSession: (entry: StoredEntry) => { sessionEntries.push(entry) },
   }

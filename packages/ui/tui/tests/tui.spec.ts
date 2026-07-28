@@ -2182,8 +2182,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('untitled')
     expect(result.terminal.output).toContain('unset (effort unset; reasoning blocks shown)')
-    // An empty log gains the /status invocation's zero-step wrap: turn/start + command/run + turn/end.
-    expect(result.terminal.output).toContain('idle · 3 events · 1 turn · 0 steps · 0 tool calls')
+    // The /status invocation's command/run lands directly on the empty log — no turn wraps it.
+    expect(result.terminal.output).toContain('idle · 1 event · 0 turns · 0 steps · 0 tool calls')
     expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
     expect(result.terminal.output).toContain('7 used · capacity unknown')
     expect(result.terminal.output).toContain('2026-07-22 10:11:12 UTC')

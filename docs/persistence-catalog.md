@@ -181,7 +181,7 @@ Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/
 'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:143`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -198,7 +198,7 @@ Source: [`packages/ui/commands/src/index.ts:143`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:137`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -405,7 +405,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:88`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
