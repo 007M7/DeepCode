@@ -79,6 +79,13 @@
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
   color: var(--dsw-alias-label-primary);
+  /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens.
+     Declared here rather than on the scrolling `.groups` child so the
+     elevation choice sits with the surface; the custom properties inherit
+     down to whichever descendant actually scrolls (see ui-theme
+     styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .status,

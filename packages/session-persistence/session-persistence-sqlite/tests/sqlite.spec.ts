@@ -1,3 +1,4 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
@@ -294,7 +295,9 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // A first turn that NEVER completed: turn/start + user/message, no turn/end.
     await b1.ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+      { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
+        content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+      }) },
     ])
     await b1.dispose()
 
@@ -813,8 +816,20 @@ describe('surface field round-trip', () => {
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('assistant/message', {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [2] })
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
@@ -835,7 +850,13 @@ describe('surface field round-trip', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('surface-noseq'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('steering/message', { turn: 1, content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('steering/message', {
+      turn: 1,
+      message: createUserMessage({
+        content: [],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))

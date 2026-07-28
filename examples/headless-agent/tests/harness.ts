@@ -94,7 +94,7 @@ export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 export function finalText(events: SessionEvent[]): string {
   const message = events.findLast(event => event.type === 'assistant/message')
   if (message?.type !== 'assistant/message') return ''
-  return message.data.content
+  return message.data.message.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')

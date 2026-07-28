@@ -18,7 +18,7 @@ harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结�
 
 ### 状态在会话日志上，而非服务
 
-列表作为 `todo/write` 事件追加到日志，携带完整的 `{ todos }` 快照。harness 是事件溯源的——LLM（大语言模型）历史、工具调用和轮次结构都在日志上——所以 todo 列表也在那里。这免费获得了持久性、回放和恢复重建：重新打开的会话从最新的 `todo/write` 重新推导当前列表，无需独立的持久化后端、无需重新注水的内存服务、无需额外接线。一个内存中的 `ctx.todos` 服务需要重新发明以上所有。（全量 log 消费者直接获得这份重建；web 客户端的分页窗口则从尾页 history 携带的 host 计算投影获得——见 [web todo 展示 Note](2026-07-23-web-todo-display.md)。）
+列表作为 `todo/write` 事件追加到日志，携带完整的 `{ todos }` 快照。harness 是事件溯源的——LLM（大语言模型）历史、工具调用和轮次结构都在日志上——所以 todo 列表也在那里。这免费获得了持久性、回放和恢复重建：重新打开的会话从「其后没有更晚 `turn/start`」的最近一次 `todo/write` 重新推导站立计划（[计划条生命周期](2026-07-28-todo-plan-clears-on-next-turn.md)），无需独立的持久化后端、无需重新注水的内存服务、无需额外接线。一个内存中的 `ctx.todos` 服务需要重新发明以上所有。（全量 log 消费者直接获得这份重建；web 客户端的分页窗口则从尾页 history 携带的 host 计算投影获得——见 [web todo 展示 Note](2026-07-23-web-todo-display.md)。）
 
 ### 不是 surface 事件
 

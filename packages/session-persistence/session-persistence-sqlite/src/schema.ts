@@ -213,10 +213,12 @@ export function rowToEvent(row: EventRow): SessionEvent {
  * the committed region rejects.
  *
  * @param rows - one session's event rows, ordered by seq ascending.
+ * @param base - the seq the first row is expected to carry; `0` for a whole
+ *   log, the requested `fromSeq` for a suffix read (`loadStoredFrom`).
  * @returns the preserved event prefix, plus `tornFrom` — the seq the physical
  *   delete starts at — when a torn tail exists.
  */
-export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]; tornFrom?: number } {
+export function scanRows(rows: readonly EventRow[], base = 0): { preserved: SessionEvent[]; tornFrom?: number } {
   // Pass 1: parse each row's data; a row whose data is not valid JSON is a hole.
   // (The seq/type COLUMNS are always present even when `data` is corrupt.)
   interface Parsed { ok: boolean; event?: SessionEvent }
@@ -244,8 +246,8 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
       if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at seq ${rows[i]?.seq}`)
       break // torn tail fragment after the last turn/end — stop, tolerate
     }
-    if (p.event.seq !== i) {
-      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region (expected ${i}, got ${p.event.seq})`)
+    if (p.event.seq !== base + i) {
+      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region (expected ${base + i}, got ${p.event.seq})`)
       break // gap after the last turn/end — torn tail, stop
     }
     preserved.push(p.event)
@@ -253,5 +255,5 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
 
   // Any rows past the preserved prefix are a never-committed torn tail; their
   // first seq is the deletion point for load's physical repair.
-  return preserved.length < rows.length ? { preserved, tornFrom: preserved.length } : { preserved }
+  return preserved.length < rows.length ? { preserved, tornFrom: base + preserved.length } : { preserved }
 }

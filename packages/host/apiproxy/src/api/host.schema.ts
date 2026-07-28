@@ -25,3 +25,13 @@ export const hostPickDirectoryRequestSchema = z.object({}) satisfies z.ZodType<W
 export const hostPickDirectoryValueSchema = z.object({
   path: z.string().nullable(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.pickDirectory'>>>
+
+/** host.openPath request payload. */
+export const hostOpenPathRequestSchema = z.object({
+  path: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'host.openPath'>>>
+
+/** host.openPath response value. */
+export const hostOpenPathValueSchema = z.object({
+  opened: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'host.openPath'>>>

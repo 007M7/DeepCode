@@ -53,7 +53,7 @@ Status: implemented
 快照运行断言**两个**归一化后的表面，因为 harness 的外部表面是不同的：
 
 1. **stdout transcript**——自动化客户端收到的、经过 framing 的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输契约的回归，与已提交的 `stdout.expected.jsonl` 比较。
-2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词文本会被清理；按照[请求头固定 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)所述，每种请求头类别由一个场景固定可读提示词与工具内容。Override 场景仅从其 sidecar 派生模型行为。
+2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为重放来源和预期日志。提示词与工具的主体内容会被清理；每种请求头类别由一个场景固定余下的请求头序列。该 pin 默认拥有可读的提示词与工具 schema sidecar；当完整的对应序列相同时，也可将另一个 pin 指定为其中任一来源，因此每个不同的 sidecar 版本只提交一次。fixture 保护会拒绝重复的 sidecar 内容，录制/刷新会拒绝生成不同字节的共享引用方。最初的请求头固定理由保留在[请求头固定 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)中。Override 场景仅从其 sidecar 派生模型行为。
 
 两个表面互补：stdout 覆盖精简的自动化线协议，JSONL 覆盖线协议有意省略的 loop、工具和 boundary 结构。
 
@@ -76,9 +76,10 @@ Status: implemented
 - **手工编写包含模型分片的 `llm.json`**——早期草案；复用真实会话日志，使 fixture 成为系统的真实产物而非手工构建的 mock，并让它同时充当行为预期输出。
 - **字节级 HTTP 录制库（Polly/nock/MSW）**：否决。与适配器耦合，处理流式 SSE（Server-Sent Events）时笨拙，且层级低于被测对象。
 - **从 `turn/end {kind:'error'|'aborted'}` 合成抛错/取消条目**：否决。这会将 `llm-replay` 耦合到 loop 内部的轮次关闭语义，且 `turn/end` 原因是有损的（无法区分抛出的 401 与 finish-error）；显式的 `replay.override.json` 伴随文件是更清晰的 seam。
+- **在每个类别 pin 旁复制两个请求头 sidecar**：否决。提示词与工具 schema 的组合各自独立变化，因此一个共享组件发生变更，就会使不相关类别 pin 中字节完全相同的文件产生无意义改动。显式的分组件来源可在不重复内容的情况下，为每个类别保留一个结构性 pin。
 
 ## 后果
 
-该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture。记录与重放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，并把向传输无关 headless 套件的任何迁移推迟为一项独立的测试变更（套件级 FIXME 标记了这一点）。
+该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture，并为每个不同的已固定提示词序列、每个不同的已固定工具 schema 序列各增加一个文件。记录与重放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，并把向传输无关 headless 套件的任何迁移推迟为一项独立的测试变更（套件级 FIXME 标记了这一点）。
 
 本 Agent Note 与[拟议的确定性 Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md)相关，但不取代它：该提案的“通用重放 fixture”在每次测试后重新派生会话*消息历史*（内部一致性不变量），而这些快照固定组装后的行为与外部自动化输出。在后端语料迁出 ACP 之前，两者相互补充。

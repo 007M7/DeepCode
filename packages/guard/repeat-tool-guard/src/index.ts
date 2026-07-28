@@ -9,8 +9,9 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
-import type { UserMessageData } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 export const name = 'repeat-tool-guard'
@@ -143,7 +144,7 @@ function validateThresholds(values: number[]): number[] {
  * Prepend the guard's reminder while preserving every downstream context's
  * source and metadata.
  */
-function prependContext(ours: UserMessageData, theirs: UserMessageData[] | undefined): UserMessageData[] {
+function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
   return [ours, ...theirs ?? []]
 }
 
@@ -185,7 +186,7 @@ export function apply(ctx: Context, config: Config): void {
    * same pipeline), and a model hammering a denied call is exactly the loop
    * worth breaking.
    */
-  function observe(exec: ToolExecution): UserMessageData | undefined {
+  function observe(exec: ToolExecution): UserMessage | undefined {
     // A direct `ctx.tools.execute()` caller has no model to remind and no id
     // to key on; only agent-loop calls participate.
     if (!exec.agent) return undefined
@@ -199,7 +200,7 @@ export function apply(ctx: Context, config: Config): void {
     const text = count === thresholds[0]
       ? GENTLE_REMINDER
       : detailedReminder(exec.name, count, previewArguments(canonical, argumentsPreviewChars))
-    return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE }
+    return createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
   }
 
   // Observe-and-enrich, never veto: count first (state advances regardless of
@@ -222,7 +223,7 @@ export function apply(ctx: Context, config: Config): void {
   // A user interjection changes the context; repetition across it is not a
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
-  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', (agent, _message, _signal, next): Promise<PromptDecision> => {
     chains.delete(agent)
     return next()
   })

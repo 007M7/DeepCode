@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -15,15 +16,20 @@ async function setup(): Promise<Context> {
   return ctx
 }
 
-function event(text: string, time = SECOND + 456, content?: unknown[]): SessionEvent {
+function event(
+  text: string,
+  time = SECOND + 456,
+  content?: unknown[],
+  plugin = 'time-context',
+): SessionEvent<'user/message'> {
   return {
     type: 'user/message',
     seq: 0,
     time,
-    data: {
+    data: createUserMessage({
       content: (content ?? [{ type: 'text', text }]) as ContentBlock[],
-      source: { kind: 'plugin', plugin: 'time-context' },
-    },
+      source: { kind: 'plugin', plugin },
+    }),
   }
 }
 
@@ -44,10 +50,10 @@ function preparing(turn: number, step: number): Session {
     session.append('turn/end', { turn: priorTurn, reason: { kind: 'completed' } })
   }
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   for (let priorStep = 1; priorStep < step; priorStep += 1) {
     session.append('step/start', { turn, step: priorStep })
     session.append('step/end', { turn, step: priorStep })
@@ -56,10 +62,10 @@ function preparing(turn: number, step: number): Session {
 }
 
 function appendReading(session: Session, text: string): void {
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'plugin', plugin: 'time-context' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 describe('time-context invariants', () => {
@@ -82,10 +88,10 @@ describe('time-context invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-valid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     appendReading(session, reading())
     session.append('step/start', { turn: 1, step: 1 })
 
@@ -98,10 +104,10 @@ describe('time-context invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-invalid'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     appendReading(session, reading('1', '2', 'step context'))
 
     await ctx.plugin(InvariantService, { enabled: true })
@@ -162,11 +168,16 @@ describe('time-context invariants', () => {
 
   it('ignores context messages owned by another package', async () => {
     const ctx = await setup()
-    const other = event('unrelated') as SessionEvent<'user/message'>
-    other.data.source = { kind: 'plugin', plugin: 'other' }
+    const other = event('unrelated', SECOND + 456, undefined, 'other')
     expect(() => { ctx.emit('session/event', preparing(1, 1), other) }).not.toThrow()
-    other.data.source = { kind: 'user' }
-    expect(() => { ctx.emit('session/event', preparing(1, 1), other) }).not.toThrow()
+    const user: SessionEvent<'user/message'> = {
+      ...event('unrelated'),
+      data: createUserMessage({
+        content: [{ type: 'text', text: 'unrelated' }],
+        source: { kind: 'user' },
+      }),
+    }
+    expect(() => { ctx.emit('session/event', preparing(1, 1), user) }).not.toThrow()
     expect(() => {
       ctx.emit('session/event', preparing(1, 1), {
         type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },

@@ -62,6 +62,12 @@ export interface ToolRowModel {
   variant: ToolRowVariant
   title: string
   summary: string
+  /**
+   * Filesystem path from args (`path` / `file_path`) when the row is a file
+   * tool; absent for URL reads and non-file tools. The chat view resolves
+   * relative values against the session cwd before opening.
+   */
+  filePath: string | undefined
   /** Expanded-body text (pretty args); null = row not expandable. */
   body: string | null
   state: ToolRowState
@@ -121,6 +127,35 @@ function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
   return firstLine(argsRaw)
 }
 
+/** Path keys only — never `url` (web_fetch lands on the read variant). */
+const FILE_PATH_KEYS = ['path', 'file_path'] as const
+
+/** File-tool variants whose summary may be an openable workspace path. */
+const FILE_PATH_VARIANTS: ReadonlySet<ToolRowVariant> = new Set(['read', 'write', 'edit'])
+
+function deriveFilePath(variant: ToolRowVariant, argsRaw: string): string | undefined {
+  if (!FILE_PATH_VARIANTS.has(variant)) return undefined
+  const parsed = parseArgs(argsRaw)
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const picked = pickString(parsed as Record<string, unknown>, FILE_PATH_KEYS)
+  return picked === undefined ? undefined : firstLine(picked)
+}
+
+/**
+ * Resolve a tool-arg path against the session cwd for host.openPath.
+ * Absolute POSIX/Windows paths pass through; relative paths join under cwd.
+ * @param cwd - session working directory (may be absent for ungrouped sessions).
+ * @param path - path as carried in tool args.
+ * @returns a host-facing path string.
+ */
+export function resolveToolPath(cwd: string | undefined, path: string): string {
+  if (path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')) return path
+  if (cwd === undefined || cwd === '') return path
+  const base = cwd.replace(/[/\\]+$/, '')
+  const rel = path.replace(/^[/\\]+/, '')
+  return `${base}/${rel}`
+}
+
 function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
   if (argsRaw === '') return null
   const parsed = parseArgs(argsRaw)
@@ -159,6 +194,7 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],
     summary,
+    filePath: deriveFilePath(variant, argsRaw),
     body: deriveBody(variant, argsRaw),
     state,
   }

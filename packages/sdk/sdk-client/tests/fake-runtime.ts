@@ -95,7 +95,16 @@ function runTurn(sessionId: string): void {
   event(sessionId, 'turn/start', { turn: 0 })
   event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text } })
   if (env.FAKE_MALFORMED_MESSAGE !== undefined) {
-    event(sessionId, 'assistant/message', { turn: 0, step: 0, content: 'not-an-array' })
+    event(sessionId, 'assistant/message', {
+      turn: 0,
+      step: 0,
+      message: {
+        id: 'fake-malformed-message',
+        role: 'assistant',
+        content: 'not-an-array',
+        source: { kind: 'model', provider: 'fake', model: 'fake' },
+      },
+    })
     return
   }
   if (env.FAKE_MESSAGE_WITHOUT_DATA !== undefined) {
@@ -105,8 +114,12 @@ function runTurn(sessionId: string): void {
   event(sessionId, 'assistant/message', {
     turn: 0,
     step: 0,
-    content: [{ type: 'text', text }],
-    provenance: { provider: 'fake', model: 'fake' },
+    message: {
+      id: `fake-assistant-${seq}`,
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      source: { kind: 'model', provider: 'fake', model: 'fake' },
+    },
   })
   const reasonKind = env.FAKE_REASON_KIND ?? 'completed'
   event(sessionId, 'turn/end', { turn: 0, reason: { kind: reasonKind } })

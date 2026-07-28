@@ -5,6 +5,7 @@
  * pre-instantiation buffering, and snapshot reference stability.
  */
 import { describe, expect, it } from 'vitest'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
@@ -19,8 +20,12 @@ const rid = (id: string): RpcId => id as RpcId
 /** session/queued frame with the wire-sourced rpcId key (the host prompt path). */
 function queuedFrame(body: string, rpcId: string, steering = false): MuxFrame {
   return {
-    type: 'session/queued', sessionId: SID, content: text(body),
-    source: { kind: 'user', rpcId: rid(rpcId) } as never,
+    type: 'session/queued',
+    sessionId: SID,
+    message: createUserMessage({
+      content: text(body),
+      source: { kind: 'user', rpcId: rid(rpcId) } as never,
+    }),
     steering,
   }
 }
@@ -40,9 +45,12 @@ describe('queue intake', () => {
   it('falls back to the envelope rpcId when the source carries none, and tags non-text blocks', () => {
     const session = makeSession()
     session.handleMuxEnvelope(rid('env-2'), {
-      type: 'session/queued', sessionId: SID,
-      content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
-      source: { kind: 'plugin', plugin: 'loop' },
+      type: 'session/queued',
+      sessionId: SID,
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
+        source: { kind: 'plugin', plugin: 'loop' },
+      }),
       steering: false,
     })
     expect(session.getSnapshot().queue).toEqual([{ key: 'f:env-2', preview: 'hi [image]' }])
@@ -93,14 +101,26 @@ describe('queue retirement (host queuedMirror rules)', () => {
     const foreignSteering = {
       seq: 0, time: 1,
       type: 'steering/message', surfaceOp: 'append',
-      data: { turn: 0, content: text('loop'), source: { kind: 'plugin', plugin: 'loop' } },
+      data: {
+        turn: 0,
+        message: createUserMessage({
+          content: text('loop'),
+          source: { kind: 'plugin', plugin: 'loop' },
+        }),
+      },
     } as never
     session.handleMuxEnvelope(rid('e4'), { type: 'session/event', sessionId: SID, event: foreignSteering })
     expect(session.getSnapshot().queue).toHaveLength(2)
     const matchedSteering = {
       seq: 1, time: 2,
       type: 'steering/message', surfaceOp: 'append',
-      data: { turn: 0, content: text('插话'), source: { kind: 'user', rpcId: rid('p-2') } },
+      data: {
+        turn: 0,
+        message: createUserMessage({
+          content: text('插话'),
+          source: { kind: 'user', rpcId: rid('p-2') },
+        }),
+      },
     } as never
     session.handleMuxEnvelope(rid('e5'), { type: 'session/event', sessionId: SID, event: matchedSteering })
     expect(session.getSnapshot().queue.map(r => r.key)).toEqual(['p-1'])
@@ -154,7 +174,13 @@ describe('queue reconnect semantics', () => {
     const committed = {
       seq: 6, time: 2,
       type: 'steering/message', surfaceOp: 'append',
-      data: { turn: 1, content: text('重连插话'), source: { kind: 'user', rpcId: rid('p-steer') } },
+      data: {
+        turn: 1,
+        message: createUserMessage({
+          content: text('重连插话'),
+          source: { kind: 'user', rpcId: rid('p-steer') },
+        }),
+      },
     } as never
     session.handleMuxEnvelope(rid('e3'), { type: 'session/event', sessionId: SID, event: committed })
     expect(session.getSnapshot().queue).toEqual([])

@@ -29,7 +29,7 @@ const balanceCacheBySession = new WeakMap<Session, BalanceCache>()
 function eventDelta(event: SessionEvent): number {
   switch (event.type) {
     case 'assistant/message':
-      return event.data.content.filter(block => block.type === 'tool-call').length
+      return event.data.message.content.filter(block => block.type === 'tool-call').length
     case 'tool/result':
       return -1
     default:

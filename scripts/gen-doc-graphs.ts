@@ -237,6 +237,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
   },
   {
+    key: 'sessionProjections',
+    pkg: 'session-projection',
+    title: 'Session projection units',
+    mode: 'core',
+    consumers: ['tool-todo', 'session-title', 'host-apiproxy'],
+    note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
+  },
+  {
+    key: 'sessionProjectionCache',
+    pkg: 'session-projection-cache',
+    title: 'Persisted projection cache',
+    mode: 'core',
+    consumers: ['host-apiproxy'],
+    note: 'Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs.',
+  },
+  {
     key: 'tui',
     pkg: 'tui',
     title: 'Mounted-terminal interaction service',

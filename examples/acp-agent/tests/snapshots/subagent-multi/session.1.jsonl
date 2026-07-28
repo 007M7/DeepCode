@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"553f8e92-aac1-4df3-8657-eacbb58f9581","createdAt":1783352127669,"cwd":"/tmp/acp-snap-cwd-28z5Of","parentSession":"14dda109-5728-45ba-a002-7db9543fe50e","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1783352127670,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":1783352127670,"data":{"content":[{"type":"text","text":"Reply with exactly the word ALPHA and nothing else."}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":1783352127670,"data":{"content":[{"type":"text","text":"Reply with exactly the word ALPHA and nothing else."}],"source":{"kind":"user"},"role":"user","id":"4088c6ea-4806-4d0a-a5a7-b430ba9fcb7e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783352127670,"data":{"title":"Reply with exactly the word","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":1783352127671,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1783352127671,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
@@ -12,6 +12,6 @@
 {"type":"assistant/chunk","seq":30,"time":1783352128365,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"ALPHA"}}}}
 {"type":"assistant/chunk","seq":31,"time":1783352128365,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":49,"outputTokens":23,"cacheReadTokens":2816,"reasoningTokens":19}}}}
 {"type":"assistant/chunk","seq":32,"time":1783352128365,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":33,"time":1783352128365,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"ALPHA\" and nothing else."},{"type":"text","text":"ALPHA"}],"provenance":{"provider":"deepseek","model":"deepseek-v4-flash"},"usage":{"inputTokens":49,"outputTokens":23,"cacheReadTokens":2816,"reasoningTokens":19}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"surfaceOp":"append"}
+{"type":"assistant/message","seq":33,"time":1783352128365,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"ALPHA\" and nothing else."},{"type":"text","text":"ALPHA"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-flash"},"id":"bb0e1208-f1eb-4e92-8ab5-b8f93e2f14a6"},"usage":{"inputTokens":49,"outputTokens":23,"cacheReadTokens":2816,"reasoningTokens":19}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"surfaceOp":"append"}
 {"type":"step/end","seq":34,"time":1783352128365,"data":{"turn":1,"step":1}}
 {"type":"turn/end","seq":35,"time":1783352128366,"data":{"turn":1,"reason":{"kind":"completed"}}}
