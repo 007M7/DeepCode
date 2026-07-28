@@ -81,23 +81,20 @@ describe('Tooltip', () => {
     expect(screen.getByRole('tooltip')).toBeTruthy()
   })
 
-  it('keeps the bubble while either hover or focus is still active', () => {
+  it('mouse leave hides the bubble immediately, even while the anchor stays focused', () => {
     render(
       <Tooltip label="Sticky">
         <button type="button">anchor</button>
       </Tooltip>,
     )
     const anchor = screen.getByText('anchor')
-    // Focused AND hovered: leaving with the mouse must not drop the bubble.
+    // Focused AND hovered: leaving with the mouse drops the bubble at once.
     fireEvent.focus(anchor)
     fireEvent.mouseEnter(anchor)
     fireEvent.mouseLeave(anchor)
-    expect(screen.getByRole('tooltip')).toBeTruthy()
-    fireEvent.blur(anchor)
     expect(screen.queryByRole('tooltip')).toBeNull()
-    // Symmetric: blurring while still hovered keeps it, mouseleave ends it.
+    // Re-entering shows it again; blurring while still hovered keeps it.
     fireEvent.mouseEnter(anchor)
-    fireEvent.focus(anchor)
     fireEvent.blur(anchor)
     expect(screen.getByRole('tooltip')).toBeTruthy()
     fireEvent.mouseLeave(anchor)

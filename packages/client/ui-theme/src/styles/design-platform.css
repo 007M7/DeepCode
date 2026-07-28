@@ -1,3 +1,6 @@
+/* Figma font-weight 510 (an SF Pro variable-font weight) always renders as
+   font-weight: 500 in this UI — non-variable webfonts snap intermediate
+   weights unpredictably across platforms. */
 body {
   --dsw-static-amber-100: rgb(254, 245, 231);
   --dsw-static-amber-400: rgb(247, 173, 49);
@@ -20,7 +23,7 @@ body {
   --dsw-static-deepseek-300: rgb(183, 200, 254);
   --dsw-static-deepseek-400: rgb(103, 158, 254);
   --dsw-static-deepseek-450: rgb(86, 134, 254);
-  --dsw-static-deepseek-500: rgb(57, 100, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
   --dsw-static-deepseek-50: rgb(237, 243, 254);
   --dsw-static-deepseek-600: rgb(72, 104, 178);
   --dsw-static-deepseek-700-delete: rgb(47, 76, 143);
@@ -95,7 +98,7 @@ body[data-ds-dark-theme] {
   --dsw-static-deepseek-300: rgb(183, 200, 254);
   --dsw-static-deepseek-400: rgb(103, 158, 254);
   --dsw-static-deepseek-450: rgb(86, 134, 254);
-  --dsw-static-deepseek-500: rgb(57, 100, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
   --dsw-static-deepseek-50: rgb(237, 243, 254);
   --dsw-static-deepseek-600: rgb(72, 104, 178);
   --dsw-static-deepseek-700-delete: rgb(47, 76, 143);
@@ -302,7 +305,7 @@ body[data-ds-dark-theme] {
   --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);
   --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);
   --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);
-  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
+  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);
   --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);
   --dsw-alias-state-error-primary: var(--dsw-static-red-400);
   --dsw-alias-state-error-secondary: var(--dsw-static-red-400);

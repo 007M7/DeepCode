@@ -61,10 +61,17 @@ export function SidebarRoot({
       style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
     >
       <div className={css.logoRow}>
+        {/* Expanded, the wordmark doubles as a New Session shortcut; the
+            collapsed rail's logo is the expand toggle below instead. */}
         {wide && (
-          <span className={clsx(css.brand, css.wide)}>
+          <button
+            type="button"
+            className={clsx(css.brand, css.wide)}
+            aria-label="New session"
+            onClick={() => { startSession() }}
+          >
             <BrandWordmark />
-          </span>
+          </button>
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}

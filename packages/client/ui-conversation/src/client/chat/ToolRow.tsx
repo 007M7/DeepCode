@@ -1,8 +1,10 @@
 // ToolRow: the single-line tool summary row (figma component set 122:9479) —
-// 16px leading slot (state dot / tool icon, chevron when expanded) + title +
+// 16px leading slot (state dot / tool icon, chevron on hover or expanded) + title +
 // separator dot + FILL-truncated summary. Expanded body is indented gray text;
 // no inline output (full results live in the details panel). Expand state is
 // component-local view state; row click hands the selection off to the owner.
+// TODO(ux): converge every chat-tab tool row on in-place expansion for its
+// expandable content, retiring the details-panel handoff where feasible.
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -28,11 +30,11 @@ export interface ToolRowProps {
   onOpenDetails?: (() => void) | undefined
 }
 
-/** Leading-slot state substitution: the tool icon yields to the state semantic
- *  (running = blue ring, error = red, interrupted = amber halo; ok = icon). */
+/** Leading-slot state substitution: the tool icon yields to the terminal state
+ *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
+ *  the row sweep (CSS on data-state) carries the in-flight signal. */
 function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
   switch (state) {
-    case 'running': return <StateDot state="ongoing" />
     case 'error': return <StateDot state="error" />
     case 'stopped': return <StateDot state="warning" />
     default: return icon
@@ -66,6 +68,19 @@ export function ToolRow({
     event.preventDefault()
     toggleExpand()
   }
+  // Expandable rows preview the toggle on hover: the tool icon yields to a
+  // down chevron (CSS swap on .row:hover); state dots still take precedence.
+  const collapsedIcon = expandable
+    ? (
+      <>
+        <span className={css.iconIdle}>{icon}</span>
+        <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
+      </>
+    )
+    : icon
+  const leading = open
+    ? <IconChevronDownOutline14 className={css.chevron} />
+    : leadingFor(state, collapsedIcon)
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
       <div
@@ -84,11 +99,11 @@ export function ToolRow({
             aria-expanded={open}
             onClick={toggleFromLeading}
           >
-            {open ? <IconChevronDownOutline14 className={clsx(css.chevron)} /> : leadingFor(state, icon)}
+            {leading}
           </button>
         ) : (
           <span className={css.leading}>
-            {open ? <IconChevronDownOutline14 className={clsx(css.chevron)} /> : leadingFor(state, icon)}
+            {leading}
           </span>
         )}
         <span className={css.title}>{title}</span>

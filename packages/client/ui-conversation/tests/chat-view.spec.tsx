@@ -131,6 +131,22 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(items)).toBe('n1|n2|g3|n5|g6')
     expect(flowKeys(deriveChatFlow([...nodes, toolResult(7, 'd')]))).toBe('n1|n2|g3|n5|g6')
   })
+
+  it('skips render-nothing assistant nodes so tool runs stay one group', () => {
+    // A tool-call-only step message (and blank text/reasoning) renders nothing:
+    // it must not split the run into two groups with an empty line between.
+    const headsOnly: AssistantMessageNode = {
+      kind: 'assistant', seq: 4, time: 4_000, turn: 1, step: 2,
+      blocks: [{ kind: 'tool-call', callId: 'b', name: 'read', argsRaw: '{}' }, { kind: 'text', text: ' \n' }, { kind: 'reasoning', text: '' }],
+    }
+    const items = deriveChatFlow([toolResult(3, 'a'), headsOnly, toolResult(5, 'b')])
+    expect(flowKeys(items)).toBe('g3')
+    const group = items[0]!
+    expect(group.kind === 'tool-group' && group.results.map(r => r.callId)).toEqual(['a', 'b'])
+    // Interrupted and visible-content nodes still render (已停止 marker / prose).
+    expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), { ...headsOnly, interrupted: true }, toolResult(5, 'b')]))).toBe('g3|n4|g5')
+    expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
+  })
 })
 
 describe('ChatView', () => {
