@@ -143,6 +143,31 @@ async function initialize(session: LocalPtySession, terminal: FakeTerminal): Pro
 }
 
 describe('LocalPtySession readiness and output', () => {
+  it('lets queued terminal output run before the first post-write readiness poll', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const inspect = terminal.inspectForeground.bind(terminal)
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      return await inspect()
+    }
+    const operation = session.startSend({ text: 'true', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(inspections).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspections).toBe(1)
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
   it('captures prompt MOTD, writes submit explicitly, and settles exact stdin waits', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()

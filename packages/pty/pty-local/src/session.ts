@@ -266,7 +266,7 @@ export class LocalPtySession implements PtyBackendSession {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (this.active === operation && !this.closing) {
         this.pollingReady = operation
-        this.schedulePoll(operation, 0)
+        this.schedulePoll(operation)
       }
     } catch (error: unknown) {
       if (this.active === operation) {
