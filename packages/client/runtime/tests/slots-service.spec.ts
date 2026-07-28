@@ -231,7 +231,7 @@ describe('host face', () => {
     const bench = await boot()
     const host = captureHost(bench)
     expect(host.sessions.list.getSnapshot()).toMatchObject({ ids: [] })
-    expect(host.sessions.provide.getSnapshot()).toMatchObject({ sessionId: undefined })
+    expect(host.sessions.provideInfo.getSnapshot()).toMatchObject({ sessionId: undefined })
   })
 
   it('exposes the independent Workspace list source', async () => {

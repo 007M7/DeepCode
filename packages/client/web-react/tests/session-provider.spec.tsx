@@ -26,7 +26,7 @@ function observable<T>(initial: T) {
 }
 
 /**
- * Minimal host: SessionProvider only reads sessions.provide, but it must
+ * Minimal host: SessionProvider only reads sessions.provideInfo, but it must
  * render inside the renderer tree (HostContext), so the harness mounts a real
  * root entry whose body is the test's render-prop provider.
  */
@@ -51,7 +51,7 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     storeOf: () => undefined,
     sessions: {
       list: observable<unknown>({ ids: [] }),
-      provide,
+      provideInfo: provide,
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }

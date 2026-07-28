@@ -112,7 +112,7 @@ export interface SlotRendererHost {
      * obsolete hook/prop schema. Carries the static roster with sessionId
      * undefined while no current session resolves.
      */
-    provide: HostObservable<SessionMaybeProvideInfo>
+    provideInfo: HostObservable<SessionMaybeProvideInfo>
   }
   /** Workspace-side standard-kit sources. */
   workspaces: {

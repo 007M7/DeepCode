@@ -90,7 +90,7 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
  */
 export function SessionMaybeProvider({ children }: { children: ReactNode }) {
   const host = useHost()
-  const info = observableHook(host.sessions.provide)(s => s)
+  const info = observableHook(host.sessions.provideInfo)(s => s)
   return (
     <BindingContext.Provider value={info}>
       {children}
@@ -115,7 +115,7 @@ export interface SessionProviderProps {
  */
 export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()
-  const info = observableHook(host.sessions.provide)(s => s)
+  const info = observableHook(host.sessions.provideInfo)(s => s)
   const id = info.sessionId
   if (id === undefined) return <>{empty?.() ?? null}</>
   return (

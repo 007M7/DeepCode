@@ -126,7 +126,7 @@ function makeHost() {
     },
     sessions: {
       list,
-      provide,
+      provideInfo: provide,
     },
     workspaces: { list: workspaces },
   }

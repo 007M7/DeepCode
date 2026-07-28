@@ -36,7 +36,7 @@ function hostOver(core: SlotCore): SlotRendererHost {
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-      provide: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
+      provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     },
     workspaces: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
