@@ -47,6 +47,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/code-runtime/code-runtime-worker': { kind: 'indirect', reason: 'The worker backend delegates model rendering to Code Mode in dsh-tools.' },
   'packages/client/hmr': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/modules': { kind: 'none', reason: 'Browser-side module-loading kernel machinery; registers no model surface.' },
+  'packages/client/test-runtime': { kind: 'none', reason: 'Browser-side test infrastructure (jsdom bench); registers no model surface.' },
   'packages/client/ui-slots': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-primitives': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/web-react': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
