@@ -120,12 +120,15 @@ class HarnessClient:
         cwd: str,
         provider: str,
         model: str,
+        max_tokens: int | None = None,
     ) -> InitializeResponse:
         payload: JsonObject = {
             "cwd": str(Path(cwd).resolve()),
             "provider": provider,
             "model": model,
         }
+        if max_tokens is not None:
+            payload["maxTokens"] = max_tokens
         try:
             return self.request("initialize", payload, response_model=InitializeResponse)
         except BaseException:

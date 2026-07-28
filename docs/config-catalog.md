@@ -108,7 +108,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:147`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:155`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -1397,6 +1397,8 @@ export interface Config {
   provider: string
   /** Model the child runtime initializes with (default `deepseek-v4-flash`). */
   model: string
+  /** Optional per-request output-token cap for the child runtime. */
+  maxTokens?: number
   /**
    * Extra environment variables for the child process — e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG` naming its

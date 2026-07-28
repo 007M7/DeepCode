@@ -577,11 +577,16 @@ export class ReactLoopAgent implements Agent {
       && persistedConfig.model === route.model
       ? persistedConfig.reasoningEffort
       : undefined
+    const maxTokens = this.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the instance logged the header it now folds
         ? persistedConfig!
-        : { ...route, ...reasoningEffort === undefined ? {} : { reasoningEffort } },
+        : {
+          ...route,
+          ...reasoningEffort === undefined ? {} : { reasoningEffort },
+          ...maxTokens === undefined ? {} : { maxTokens },
+        },
     ))
     const proposedConfig = await this.loopCtx.waterfall(
       agentCarrier(this), 'agent/request', this, turn, step, signal,
