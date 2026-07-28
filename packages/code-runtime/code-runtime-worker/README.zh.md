@@ -46,7 +46,7 @@ SDK 接口是默认／具名 `WorkerCodeRuntime` 类与 `Config`。可操作的 
 
 ## 已知限制与暂缓工作
 
-- **程序 spawn 的 OS 进程在该后端终止后仍会存活**：`worker.terminate()` 只结束线程；需要清理远程进程组的部署可以选择 E2B 后端，但该后端自身的限制仍然适用。
+- **程序 spawn 的 OS 进程在终止后仍会存活**：`worker.terminate()` 只结束线程；需要清理进程树的部署应选择 `dsh-code-runtime-subprocess`，由其挂载的子进程提供方负责该清理。
 - **类型剥离依赖 Node 的实验性 `stripTypeScriptTypes` API**：依赖的行为由单元测试固定；如其发生变化，amaro／sucrase 是已经点名的直接替代品。
 - **`computeMs` 到期最多可能超过一个轮询间隔**：系统每 25 ms 采样一次忙碌时间（内部常量，有意不做成配置）。
 - **程序获得一个含 5 种方法的 `console` shim**（`log`／`info`／`warn`／`error`／`debug`）：有意不提供 Node 的完整 console 接口。

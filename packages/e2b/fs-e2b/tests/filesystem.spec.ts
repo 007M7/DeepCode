@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { dirname, posix } from 'node:path'
 import { Context } from 'cordis'
 import {
@@ -8,7 +9,7 @@ import {
   type Sandbox,
 } from '@deepseek-ai/dsh-e2b'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { FsVersion } from '@deepseek-ai/dsh-fs'
+import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import E2BFileSystem from '@deepseek-ai/dsh-fs-e2b'
 import * as E2BFsInvariant from '../src/invariant.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -46,6 +47,10 @@ class FakeRemote {
   nextReadError: unknown
   nextRenameError: unknown
   nextRemoveError: unknown
+  boundedOutput: string | undefined
+  boundedError: unknown
+  nodeExecutable = '/usr/bin/node\n'
+  abortAfterBoundedCommand: AbortController | undefined
   abortAfterRename: AbortController | undefined
   disappearOnInfo = new Set<string>()
   private clock = 1
@@ -221,6 +226,14 @@ class FakeRemote {
           const node = this.nodes.get(input)
           return { exitCode: 0, stdout: `${node?.symlinkTarget ?? input}\n`, stderr: '' }
         }
+        if (command === 'command -v -- node') {
+          return { exitCode: 0, stdout: this.nodeExecutable, stderr: '' }
+        }
+        if (command.includes('dsh-e2b-bounded-reader')) {
+          if (this.boundedError !== undefined) throw this.boundedError
+          this.abortAfterBoundedCommand?.abort('after bounded read')
+          return { exitCode: 0, stdout: this.boundedOutput ?? '{"kind":"ok","data":""}', stderr: '' }
+        }
         const chmod = /^chmod ([0-7]+) -- '([^']+)'$/.exec(command)
         if (chmod !== null) this.required(chmod[2]!).mode = Number.parseInt(chmod[1]!, 8)
         const move = /^mv -f -- '([^']+)' '([^']+)'$/.exec(command)
@@ -287,6 +300,26 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
       target: { targetKey: '/workspace/a.txt', displayPath: '/workspace/link.txt' },
     })
     expect(listed.some(entry => entry.name === 'nested.txt')).toBe(false)
+  })
+
+  it('projects canonical process paths, file URLs, and containment', async () => {
+    const remote = new FakeRemote()
+    remote.dir('/workspace/nested')
+    remote.file('/workspace/nested/multibyte # file.ts', 'text')
+    remote.file('/outside.ts', 'outside')
+    const { fs } = await setup(remote)
+    const workspace = await fs.resolve('/workspace')
+    const nested = await fs.resolve('/workspace/nested/multibyte # file.ts')
+    const outside = await fs.resolve('/outside.ts')
+
+    expect(fs.processPath(nested)).toBe('/workspace/nested/multibyte # file.ts')
+    expect(fs.fileUrl(nested)).toBe('file:///workspace/nested/multibyte%20%23%20file.ts')
+    expect(fs.contains(workspace, workspace)).toBe(true)
+    expect(fs.contains(workspace, nested)).toBe(true)
+    expect(fs.contains(nested, workspace)).toBe(false)
+    expect(fs.contains(workspace, outside)).toBe(false)
+    expect(() => fs.fileUrl({ targetKey: FsTargetKey('relative'), displayPath: 'relative' }))
+      .toThrow('expected an absolute process path')
   })
 
   it('reads whole and streamed UTF-8 across chunk boundaries', async () => {
@@ -371,6 +404,78 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
     await expectCode(fs.stat(await fs.resolve('a'), AbortSignal.abort()), 'FS_ABORTED')
     remote.nextReadError = new DOMException('aborted', 'AbortError')
     await expectCode(fs.readText(await fs.resolve('a')), 'FS_ABORTED')
+  })
+
+  it('performs stable bounded reads through the remote no-follow reader', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/a', 'unused')
+    const { fs } = await setup(remote)
+    const target = await fs.resolve('a')
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: Buffer.from('hello 你好').toString('base64') })
+    await expect(fs.readTextBounded(target, 64)).resolves.toBe('hello 你好')
+    expect(remote.commands.some(command => command.includes('dsh-e2b-bounded-reader'))).toBe(true)
+
+    await expect(fs.readTextBounded(target, 0)).rejects.toThrow('positive safe integer')
+    await expect(fs.readTextBounded(target, 1.5)).rejects.toThrow('positive safe integer')
+    await expect(fs.readTextBounded(target, 64, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('maps bounded-reader file, size, and open failures', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/a', 'unused')
+    const { fs } = await setup(remote)
+    const target = await fs.resolve('a')
+    const cases: Array<[unknown, string]> = [
+      [{ kind: 'not-file' }, 'FS_NOT_REGULAR_FILE'],
+      [{ kind: 'oversize', size: 65 }, 'FS_IO_ERROR'],
+      [{ kind: 'grew' }, 'FS_IO_ERROR'],
+      [{ kind: 'open-error', message: 'ENOENT: no such file' }, 'FS_NOT_FOUND'],
+      [{ kind: 'open-error', message: 'EACCES: permission denied' }, 'FS_PERMISSION_DENIED'],
+      [{ kind: 'open-error', message: 'ELOOP: symbolic link' }, 'FS_IO_ERROR'],
+      [{ kind: 'oversize', size: 'large' }, 'FS_IO_ERROR'],
+      [{ kind: 'open-error', message: 7 }, 'FS_IO_ERROR'],
+      [{ kind: 'unknown' }, 'FS_IO_ERROR'],
+    ]
+    for (const [response, code] of cases) {
+      remote.boundedOutput = JSON.stringify(response)
+      await expectCode(fs.readTextBounded(target, 64), code)
+    }
+  })
+
+  it('rejects malformed bounded-reader transports and bytes', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/a', 'unused')
+    const { fs } = await setup(remote)
+    const target = await fs.resolve('a')
+
+    remote.boundedOutput = 'not-json'
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: '!!!!' })
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: Buffer.from('12345').toString('base64') })
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: Buffer.from([0]).toString('base64') })
+    await expectCode(fs.readTextBounded(target, 4), 'FS_NOT_TEXT')
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: Buffer.from([0xff]).toString('base64') })
+    await expectCode(fs.readTextBounded(target, 4), 'FS_NOT_TEXT')
+
+    remote.nodeExecutable = 'node\n'
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+    remote.nodeExecutable = '/usr/bin/node\n/other\n'
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+    remote.nodeExecutable = '/usr/bin/node\n'
+    remote.boundedError = new Error('reader transport failed')
+    await expectCode(fs.readTextBounded(target, 4), 'FS_IO_ERROR')
+  })
+
+  it('does not turn a post-read abort into successful source text', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/a', 'unused')
+    const controller = new AbortController()
+    remote.abortAfterBoundedCommand = controller
+    remote.boundedOutput = JSON.stringify({ kind: 'ok', data: Buffer.from('text').toString('base64') })
+    const { fs } = await setup(remote)
+    await expectCode(fs.readTextBounded(await fs.resolve('a'), 4, controller.signal), 'FS_ABORTED')
   })
 
   it('rejects empty paths and directory-listing type errors', async () => {

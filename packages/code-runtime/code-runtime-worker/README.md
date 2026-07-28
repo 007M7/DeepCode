@@ -46,7 +46,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **OS processes a program spawns survive this backend's termination** — `worker.terminate()` ends only the thread; deployments needing remote process-group cleanup can select the E2B backend, whose separate limitations still apply.
+- **OS processes a program spawns survive termination** — `worker.terminate()` ends the thread only; deployments requiring process-tree cleanup select `dsh-code-runtime-subprocess`, whose mounted subprocess provider owns that cleanup.
 - **Type-strip rides Node's experimental `stripTypeScriptTypes` API** — the relied-on behavior is pinned by unit tests, with amaro/sucrase as named drop-in replacements if it shifts.
 - **`computeMs` expiry can overshoot by up to one poll interval** — busy time is sampled every 25 ms (an internal constant, deliberately not config).
 - **Programs get a five-method `console` shim** (`log`/`info`/`warn`/`error`/`debug`) — deliberately not Node's full console surface.

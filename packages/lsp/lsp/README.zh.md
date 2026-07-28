@@ -10,7 +10,6 @@
 |---|---|
 | `@deepseek-ai/dsh-lsp`（本包） | 接口：服务、以品牌化 id + 扩展名映射为 key 的提供方注册表、逐查询选择、请求／结果词汇、`LspError` 分类体系 |
 | `@deepseek-ai/dsh-lsp-local` | 通用本地后端，注册已配置的 stdio 语言服务器提供方 |
-| `@deepseek-ai/dsh-lsp-e2b` | 通用 E2B 后端，注册已配置的远程 stdio 提供方 |
 | `@deepseek-ai/dsh-tool-lsp` | 面向模型的 `lsp` 工具，基于 `ctx.lsp` |
 
 该 seam 恰好公开四种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`，且没有通用 JSON-RPC 逃生口，因此任何协议载荷或未经评审的命令／修改都无法通过 `ctx.lsp` 到达提供方。

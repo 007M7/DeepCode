@@ -21,22 +21,33 @@
 - id: agents
   name: '@deepseek-ai/dsh-agent'
 
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.cwd()
+
 - id: pty
   name: '@deepseek-ai/dsh-pty'
 
-- id: pty-e2b
-  name: '@deepseek-ai/dsh-pty-e2b'
+- id: pty-local
+  name: '@deepseek-ai/dsh-pty-local'
   config:
     pollIntervalMs: 25
+    exactProbeAfterMs: 150
     idleSilenceMs: 2000
+    handoffGraceMs: 500
     timeoutMs: 5000
     disposeGraceMs: 1000
 
 - id: lsp
   name: '@deepseek-ai/dsh-lsp'
 
-- id: lsp-e2b
-  name: '@deepseek-ai/dsh-lsp-e2b'
+- id: lsp-local
+  name: '@deepseek-ai/dsh-lsp-local'
   config:
     servers:
       fixture:
@@ -48,8 +59,8 @@
         shutdownTimeoutMs: 1000
         killGraceMs: 500
 
-- id: code-runtime-e2b
-  name: '@deepseek-ai/dsh-code-runtime-e2b'
+- id: code-runtime-subprocess
+  name: '@deepseek-ai/dsh-code-runtime-subprocess'
   config:
     computeMs: 500
     maxWallMs: 5000

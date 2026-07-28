@@ -1,15 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import { posix, resolve } from 'node:path'
 import { boot } from '@deepseek-ai/dsh-app-boot'
-import { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-code-runtime-e2b'
+import type {} from '@deepseek-ai/dsh-code-runtime-subprocess'
 import { quoteE2BShellArg } from '@deepseek-ai/dsh-e2b'
 import type {} from '@deepseek-ai/dsh-fs-e2b'
 import type {} from '@deepseek-ai/dsh-bash-local'
-import type {} from '@deepseek-ai/dsh-lsp-e2b'
-import type {} from '@deepseek-ai/dsh-pty-e2b'
+import type {} from '@deepseek-ai/dsh-lsp-local'
+import type {} from '@deepseek-ai/dsh-pty-local'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('usage: bin.ts <cordis.yml>')
@@ -24,10 +23,10 @@ const owner: Agent = {
   status: 'idle',
   acceptsNextStep: false,
   ctx: ownerFiber.ctx,
-  followup: () => AgentMessageId('unused'),
-  steer: () => AgentMessageId('unused'),
-  inject: () => AgentMessageId('unused'),
-  send: () => AgentMessageId('unused'),
+  followup() {},
+  steer() {},
+  inject() {},
+  send() {},
   cancel() {},
   whenIdle: () => Promise.resolve(),
 }
@@ -159,7 +158,7 @@ try {
   const runRemoteCommand = remoteCommands.run.bind(sandbox.commands)
   let containmentFaultInjected = false
   remoteCommands.run = async (command, options) => {
-    if (!containmentFaultInjected && command.includes('dsh-e2b-source-reader') && command.includes('swapped-parent/source.ts')) {
+    if (!containmentFaultInjected && command.includes('dsh-e2b-bounded-reader') && command.includes('swapped-parent/source.ts')) {
       containmentFaultInjected = true
       await runRemoteCommand(
         `rm -rf -- ${quoteE2BShellArg(swappedParentPath)} && ln -s -- ${quoteE2BShellArg(swappedOutsidePath)} ${quoteE2BShellArg(swappedParentPath)}`,
@@ -194,7 +193,7 @@ try {
       workspaceRoot: process.cwd(),
     })
   } catch (error: unknown) {
-    lspDocumentBound = String(error).includes('over the 4000000-byte limit')
+    lspDocumentBound = String(error).includes('exceeds the 4000000-byte limit')
     if (!lspDocumentBound) throw error
   }
   if (!lspDocumentBound) throw new Error('E2B LSP accepted an oversized remote source')

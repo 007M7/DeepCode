@@ -15,7 +15,6 @@
  * - LSP_FAKE_REPLY_DELAY_MS: delays each textDocument/* response by this many milliseconds.
  * - LSP_FAKE_OPEN_MARKER: appends each didOpen document text as one JSON line to this path.
  * - LSP_FAKE_INITIALIZED_MARKER: records when the initialized notification is received.
- * - LSP_FAKE_EXPECT_PROCESS_ID: expected JSON `initialize.processId`; mismatch exits nonzero.
  * - LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED: "1" stops consuming stdin after initialized.
  * - LSP_FAKE_EXIT_DELAY_MS / LSP_FAKE_EXIT_MARKER: delay protocol exit and record exit/termination.
  * - LSP_FAKE_NO_SHUTDOWN: "1" ignores the shutdown request (forces kill escalation).
@@ -38,7 +37,6 @@ const exitAfterReply = process.env.LSP_FAKE_EXIT_AFTER_REPLY === '1'
 const replyDelayMs = Number(process.env.LSP_FAKE_REPLY_DELAY_MS ?? 0)
 const openMarker = process.env.LSP_FAKE_OPEN_MARKER
 const initializedMarker = process.env.LSP_FAKE_INITIALIZED_MARKER
-const expectedProcessId = process.env.LSP_FAKE_EXPECT_PROCESS_ID
 const pauseStdinAfterInitialized = process.env.LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED === '1'
 const exitDelayMs = Number(process.env.LSP_FAKE_EXIT_DELAY_MS ?? 0)
 const exitMarker = process.env.LSP_FAKE_EXIT_MARKER
@@ -104,10 +102,6 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
     return
   }
   if (method === 'initialize') {
-    if (expectedProcessId !== undefined) {
-      const params = message.params as { processId?: unknown } | undefined
-      if (JSON.stringify(params?.processId) !== expectedProcessId) process.exit(2)
-    }
     if (garbage) process.stdout.write('this is not a framed message\r\n')
     send({
       id,

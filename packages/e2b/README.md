@@ -2,15 +2,14 @@
 
 English | [中文](README.zh.md)
 
-An experimental provider-composition POC that places the mutable coding world in one E2B Linux sandbox. The shared owner is separate from capability adapters so every remote provider awaits the same sandbox identity and lifecycle.
+An experimental provider-composition POC that places one filesystem/process execution world in an E2B Linux sandbox. E2B supplies only sandbox lifecycle and the two fundamental OS adapters; provider-neutral consumers build higher capabilities above them.
 
 | Package | ctx key | Role |
 |---|---|---|
 | [`e2b`](e2b/README.md) (`@deepseek-ai/dsh-e2b`) | `ctx.e2b` | Create or reconnect one sandbox, create its working/runtime directories, expose the shared SDK handle, and apply the configured kill/pause/leave disposition |
 | [`fs-e2b`](fs-e2b/README.md) (`@deepseek-ai/dsh-fs-e2b`) | `ctx.fs` | Implement the filesystem seam over E2B Filesystem APIs |
-| [`subprocess-e2b`](subprocess-e2b/README.md) (`@deepseek-ai/dsh-subprocess-e2b`) | `ctx.subprocess` | Implement managed process groups, stdio projection, and remote spill files over E2B Commands |
-| [`pty-e2b`](pty-e2b/README.md) (`@deepseek-ai/dsh-pty-e2b`) | `ctx.pty` backend | Run persistent interactive shells through E2B's byte PTY API |
-| [`lsp-e2b`](lsp-e2b/README.md) (`@deepseek-ai/dsh-lsp-e2b`) | `ctx.lsp` provider | Run configured language servers and read query sources inside E2B |
-| [`code-runtime-e2b`](code-runtime-e2b/README.md) (`@deepseek-ai/dsh-code-runtime-e2b`) | `ctx.codeRuntime` | Run model-written programs remotely while bridging bindings to the host |
+| [`subprocess-e2b`](subprocess-e2b/README.md) (`@deepseek-ai/dsh-subprocess-e2b`) | `ctx.subprocess` | Implement executable lookup, managed process groups and stdio, remote spill files, and terminal sessions over E2B Commands and PTY APIs |
 
-The existing [`dsh-bash-local`](../bash/bash-local/README.md) needs no E2B-specific fork: it delegates process mechanics to `ctx.subprocess`, so replacing that provider places Bash in the same remote world. This boundary does not move the harness process, Cordis objects, model calls, agent/session state, session persistence, skills, protocol state, or E2B SDK buffers. The [shared-runtime decision](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md) owns the POC boundary.
+The existing [`dsh-bash-local`](../bash/bash-local/README.md), [`dsh-pty-local`](../pty/pty-local/README.md), [`dsh-lsp-local`](../lsp/lsp-local/README.md), and [`dsh-code-runtime-subprocess`](../code-runtime/code-runtime-subprocess/README.md) need no E2B-specific forks. They delegate every execution-world operation to `ctx.fs` and `ctx.subprocess`, so mounting the two E2B adapters places their mutable work in the same sandbox.
+
+This boundary does not move the harness process, Cordis objects, model calls, agent/session state, session persistence, skills, higher-level protocol state, or E2B SDK buffers. The [shared-runtime decision](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md) owns the POC boundary; the [portable-consumer decision](../../.agents/notes/implemented/architecture/2026-07-28-portable-execution-world-consumers.md) owns the generic composition.

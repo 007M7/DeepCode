@@ -5,6 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 import { posix } from 'node:path'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -24,9 +25,17 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { EntryInfo, Sandbox } from '@deepseek-ai/dsh-e2b'
+import { BOUNDED_READER_SOURCE } from './source-reader.ts'
 
 const VERSION_METADATA_KEY = 'dsh-version'
 const BINARY_SAMPLE_BYTES = 8192
+
+type BoundedReadResponse =
+  | { kind: 'ok'; data: string }
+  | { kind: 'not-file' }
+  | { kind: 'oversize'; size: number }
+  | { kind: 'grew' }
+  | { kind: 'open-error'; message: string }
 
 function assertNotAborted(signal: AbortSignal | undefined, operation: string): void {
   if (signal?.aborted === true) throw new FsError(`${operation} aborted`, 'FS_ABORTED')
@@ -141,6 +150,21 @@ export class E2BFileSystem extends FileSystem {
     }
   }
 
+  override processPath(target: FsTarget): string {
+    return String(target.targetKey)
+  }
+
+  override fileUrl(target: FsTarget): string {
+    const path = this.processPath(target)
+    if (!posix.isAbsolute(path)) throw new Error(`fs-e2b: expected an absolute process path: ${JSON.stringify(path)}`)
+    return `file://${path.split('/').map(segment => encodeURIComponent(segment)).join('/')}`
+  }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    const relative = posix.relative(this.processPath(parent), this.processPath(child))
+    return relative === '' || (relative !== '..' && !relative.startsWith('../') && !posix.isAbsolute(relative))
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     assertNotAborted(signal, 'stat')
     const entry = await this.probe(String(target.targetKey), target.displayPath, signal)
@@ -178,6 +202,69 @@ export class E2BFileSystem extends FileSystem {
     try {
       const bytes = await sandbox.files.read(String(target.targetKey), { format: 'bytes', ...signalOpts(signal) })
       assertNotAborted(signal, 'read')
+      return decodeText(bytes, target.displayPath, BINARY_SAMPLE_BYTES)
+    } catch (error: unknown) {
+      throw mapError(error, 'read', target.displayPath, signal)
+    }
+  }
+
+  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+      throw new Error('bounded read maxBytes must be a positive safe integer')
+    }
+    assertNotAborted(signal, 'read')
+    const sandbox = await this.ctx.e2b.getSandbox()
+    try {
+      const node = await sandbox.commands.run('command -v -- node', signalOpts(signal))
+      const executable = node.stdout.trim()
+      if (!posix.isAbsolute(executable) || executable.includes('\n')) {
+        throw new Error('fs-e2b: bounded reader requires one absolute Node executable')
+      }
+      const command = [
+        quoteE2BShellArg(executable),
+        '--input-type=commonjs',
+        '-e',
+        quoteE2BShellArg(BOUNDED_READER_SOURCE),
+        quoteE2BShellArg(this.processPath(target)),
+        String(maxBytes),
+      ].join(' ')
+      const result = await sandbox.commands.run(command, signalOpts(signal))
+      assertNotAborted(signal, 'read')
+      const response = this.parseBoundedRead(result.stdout, target)
+      if (response.kind === 'not-file') {
+        throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+      }
+      if (response.kind === 'oversize' && Number.isSafeInteger(response.size)) {
+        throw new FsError(
+          `cannot read "${target.displayPath}": ${response.size} bytes exceeds the ${maxBytes}-byte limit`,
+          'FS_IO_ERROR',
+        )
+      }
+      if (response.kind === 'grew') {
+        throw new FsError(
+          `cannot read "${target.displayPath}": file grew past the ${maxBytes}-byte limit while reading`,
+          'FS_IO_ERROR',
+        )
+      }
+      if (response.kind === 'open-error' && typeof response.message === 'string') {
+        if (/ENOENT|no such file/i.test(response.message)) {
+          throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+        }
+        if (/EACCES|EPERM|permission denied|operation not permitted/i.test(response.message)) {
+          throw new FsError(`cannot read "${target.displayPath}": permission denied`, 'FS_PERMISSION_DENIED')
+        }
+        throw new FsError(
+          `cannot read "${target.displayPath}" safely: ${response.message}`,
+          'FS_IO_ERROR',
+        )
+      }
+      if (response.kind !== 'ok' || typeof response.data !== 'string') {
+        throw new FsError(`cannot read "${target.displayPath}": bounded reader returned an invalid response`, 'FS_IO_ERROR')
+      }
+      const bytes = Buffer.from(response.data, 'base64')
+      if (bytes.toString('base64') !== response.data || bytes.length > maxBytes) {
+        throw new FsError(`cannot read "${target.displayPath}": bounded reader returned invalid bytes`, 'FS_IO_ERROR')
+      }
       return decodeText(bytes, target.displayPath, BINARY_SAMPLE_BYTES)
     } catch (error: unknown) {
       throw mapError(error, 'read', target.displayPath, signal)
@@ -333,6 +420,18 @@ export class E2BFileSystem extends FileSystem {
     } catch (error: unknown) {
       if (error instanceof CommandExitError) throw new Error(error.stderr || error.message, { cause: error })
       throw error
+    }
+  }
+
+  private parseBoundedRead(stdout: string, target: FsTarget): BoundedReadResponse {
+    try {
+      return JSON.parse(stdout) as BoundedReadResponse
+    } catch (error: unknown) {
+      throw new FsError(
+        `cannot read "${target.displayPath}": bounded reader returned invalid JSON`,
+        'FS_IO_ERROR',
+        { cause: error },
+      )
     }
   }
 

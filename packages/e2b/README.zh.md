@@ -2,15 +2,14 @@
 
 [English](README.md) | 中文
 
-这是一个实验性提供方组合 POC，把可变的编码环境放进同一个 E2B Linux 沙箱。共享所有者与功能适配器分离，使每个远程提供方都等待同一个沙箱身份和生命周期。
+这是一个实验性提供方组合 POC，把一个文件系统／进程执行环境放进 E2B Linux 沙箱。E2B 只提供沙箱生命周期与两个基础 OS 适配器；提供方无关的消费方在其上构建更高层能力。
 
 | 包（package） | ctx 键 | 职责 |
 |---|---|---|
 | [`e2b`](e2b/README.md)（`@deepseek-ai/dsh-e2b`） | `ctx.e2b` | 创建或重新连接一个沙箱，创建其工作目录与运行时目录，公开共享 SDK 句柄，并应用配置的 kill/pause/leave 处置方式 |
 | [`fs-e2b`](fs-e2b/README.md)（`@deepseek-ai/dsh-fs-e2b`） | `ctx.fs` | 通过 E2B Filesystem API 实现文件系统 seam |
-| [`subprocess-e2b`](subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | `ctx.subprocess` | 通过 E2B Commands 实现受管进程组、stdio 投影与远程 spill 文件 |
-| [`pty-e2b`](pty-e2b/README.md)（`@deepseek-ai/dsh-pty-e2b`） | `ctx.pty` 后端 | 通过 E2B 的字节 PTY API 运行持久交互式 shell |
-| [`lsp-e2b`](lsp-e2b/README.md)（`@deepseek-ai/dsh-lsp-e2b`） | `ctx.lsp` 提供方 | 在 E2B 内运行已配置的语言服务器并读取查询源代码 |
-| [`code-runtime-e2b`](code-runtime-e2b/README.md)（`@deepseek-ai/dsh-code-runtime-e2b`） | `ctx.codeRuntime` | 远程运行模型编写的程序，同时把绑定桥接到宿主 |
+| [`subprocess-e2b`](subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | `ctx.subprocess` | 通过 E2B Commands 与 PTY API 实现可执行文件查找、受管进程组与 stdio、远程 spill 文件及终端会话 |
 
-现有的 [`dsh-bash-local`](../bash/bash-local/README.md) 无需 E2B 专用 fork：它把进程机制委托给 `ctx.subprocess`，因此替换该提供方即可让 Bash 进入同一个远程环境。该边界不会迁移 harness 进程、Cordis 对象、模型调用、agent（智能体）／会话状态、会话持久化、skill（技能）、协议状态或 E2B SDK 缓冲。[共享运行时决策](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md)界定 POC 边界。
+现有的 [`dsh-bash-local`](../bash/bash-local/README.md)、[`dsh-pty-local`](../pty/pty-local/README.md)、[`dsh-lsp-local`](../lsp/lsp-local/README.md) 及 [`dsh-code-runtime-subprocess`](../code-runtime/code-runtime-subprocess/README.md) 无需 E2B 专用 fork。它们把执行环境中的所有操作委托给 `ctx.fs` 和 `ctx.subprocess`，因此挂载这两个 E2B 适配器后，它们执行的可变操作都发生在同一个沙箱内。
+
+该边界不会迁移 harness 进程、Cordis 对象、模型调用、agent（智能体）／会话状态、会话持久化、skill（技能）、更高层协议状态或 E2B SDK 缓冲。[共享运行时决策](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md)界定 POC 边界；[可移植消费方决策](../../.agents/notes/implemented/architecture/2026-07-28-portable-execution-world-consumers.md)界定通用组合。

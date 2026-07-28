@@ -111,11 +111,6 @@ const RESPONDING_SERVER =
 const locJson = () => JSON.stringify({ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } })
 
 describe('LspInstance server-request handling', () => {
-  it('advertises a null process id across process namespaces', async () => {
-    const instance = makeInstance({ LSP_FAKE_EXPECT_PROCESS_ID: 'null', LSP_FAKE_DEF: 'null' }, { clientProcessId: null })
-    await expect(run(instance, 'goToDefinition')).resolves.toMatchObject({ kind: 'locations' })
-  })
-
   it('answers workspace/configuration with the static config per item', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'configuration', LSP_FAKE_DEF: locJson() })
     // The query drives didOpen, which makes the fake emit workspace/configuration; a healthy answer

@@ -2,16 +2,18 @@
 
 English | [中文](README.zh.md)
 
-E2B implementation of the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam. It has no config: load [`@deepseek-ai/dsh-e2b`](../e2b/README.md) first, then this service in place of `dsh-subprocess-local`. Existing consumers such as [`dsh-bash-local`](../../bash/bash-local/README.md) then execute in the shared remote sandbox without an E2B-specific Bash adapter.
+E2B implementation of the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam. It has no config: load [`@deepseek-ai/dsh-e2b`](../e2b/README.md) first, then this service in place of `dsh-subprocess-local`. Existing Bash, PTY, LSP, and subprocess Code Runtime consumers then execute in the shared remote sandbox without E2B-specific capability packages.
 
 ## Behavior
 
 - **Asynchronous remote start** — the synchronous seam returns a handle immediately while `Sandbox.commands.run(..., { background: true })` starts remotely. `pid` is `-1` until the wrapper publishes and the adapter validates its process-group id; `done`, stdin, termination, and `waitForExit()` wait for readiness internally.
+- **Execution-world coordinates** — `cwd` and private `runtimeRoot` come from the shared owner; executable lookup verifies absolute paths or resolves a bare name against the sandbox PATH plus explicit overrides.
 - **Linux process groups** — a quoted wrapper starts each argv under `exec setsid --wait` and records its actual process-group id plus private status files beneath `ctx.e2b.runtimeRoot/processes`. The handle waits for that file instead of treating the SDK command PID as its published identity. Termination signals the negative recorded id with `SIGTERM`, waits the caller's `graceMs`, then escalates to `SIGKILL` and the SDK kill fallback. If publication fails, the SDK PID remains the provisional `exec setsid` group id; rollback kills and verifies that group before startup rejects. Service disposal terminates and joins every retained handle before the sandbox owner disposes.
 - **Environment boundary** — the wrapper starts from the sandbox command environment, removes ambient `DSH_*` and credential-shaped (`*KEY*`, `*SECRET*`, `*TOKEN*`) names, then restores every `spec.env` entry as an explicit caller opt-in. Host ambient variables never enter the sandbox implicitly.
 - **Stdio projection** — pipe mode forwards E2B callbacks into host Node streams; inherit mode forwards them to the harness process streams; collect mode retains a bounded host tail with offset reads. Optional complete spill files are written remotely and advertised only while within their cap. Batch and streaming stdin use the SDK handle.
+- **Terminal sessions** — `spawnTerminal()` uses E2B's byte PTY API, installs the exact argv and scrubbed environment through private mode-`0600` files, reports the foreground process group, sends real signals, and tears down every group in the remote terminal session before settlement. Prompt detection, scrollback, readiness, and owner policy remain in `dsh-pty-local`.
 
-The base E2B image supplies the Bash/GNU utilities this adapter invokes: `bash`, `setsid`, `ps`, `tr`, `env`, `chmod`, `tee`, `head`, and `kill`. A custom template must retain compatible commands.
+The base E2B image supplies the Bash/GNU utilities this adapter invokes: `bash`, `setsid`, `ps`, `awk`, `tr`, `env`, `chmod`, `tee`, `head`, and `kill`. A custom template must retain compatible commands and E2B PTY support.
 
 ## Model Experience
 
@@ -24,9 +26,10 @@ No direct invalidation; the named consumers own any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **The SDK still retains complete command output in host memory** — E2B `CommandHandle.stdout` and `.stderr` accumulate even when this adapter exposes bounded tails, so the subprocess seam's normal host-memory bound is not achieved.
-- **Pipe output is not byte-faithful** — E2B delivers separately decoded strings rather than raw bytes, so split multibyte sequences and arbitrary binary protocols can be corrupted; LSP and other framed byte-stream consumers are unsupported.
+- **Command-pipe output is text-decoded by the SDK** — valid UTF-8 protocol traffic, including the exercised LSP composition and Code Runtime's ASCII/base64 frames, is supported; arbitrary binary protocols and invalid UTF-8 are not byte-faithful.
 - **Synchronous-PID consumers are unsupported** — `pid` remains `-1` during remote startup; consumers that require a positive PID immediately, including the ACP child backend, cannot use this provider unchanged.
 - **Reconnect does not reconstruct handles** — remote PID/status/spill files survive a retained sandbox, but a new harness process does not rebuild live `SubprocessHandle` objects or output cursors from them.
 - **Remote state accumulates when retained** — process directories and valid spill files remain under `.dsh-e2b`; this POC supplies no retention sweep.
 - **Signal attribution is inferred** — when termination was requested and E2B reports a nonzero exit code, the adapter reports the last requested signal because the SDK result does not identify the terminating signal.
-- **Linux utility and E2B transport semantics are assumed** — there is no PTY, Windows, arbitrary-template, or network-partition fidelity layer.
+- **Exact terminal stdin-wait inspection is unavailable** — E2B exposes the foreground process group but not the syscall evidence needed to prove it is waiting on fd 0, so the generic PTY backend falls back to controlled prompt markers and bounded silence.
+- **Linux utility and E2B transport semantics are assumed** — there is no Windows, arbitrary-template, escaped-session recovery, or network-partition fidelity layer.

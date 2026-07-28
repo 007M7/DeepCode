@@ -3,13 +3,13 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
-import { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { Sandbox, SandboxNotFoundError } from '@deepseek-ai/dsh-e2b'
-import { E2BPtyBackend } from '@deepseek-ai/dsh-pty-e2b'
-import { PtySessionId } from '@deepseek-ai/dsh-pty'
+import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
+import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
 
 const fixtureRoot = fileURLToPath(new URL('../../../../examples/headless-agent/tests/fixtures/e2b/e2b/', import.meta.url))
 const binScript = join(fixtureRoot, 'bin.ts')
@@ -29,7 +29,17 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     })
     try {
       const ctx = new Context()
-      ctx.provide('e2b', { cwd: '/home/user', getSandbox: async () => sandbox } as never)
+      ctx.provide('e2b', {
+        cwd: '/home/user',
+        runtimeRoot: '/home/user/.dsh-e2b',
+        getSandbox: async () => sandbox,
+      } as never)
+      ctx.provide('sandboxPolicy', {
+        defaultMode: 'danger-full-access',
+        workspaceRoot: '/home/user',
+      } as never)
+      const ptyFiber = await ctx.plugin(PtyService)
+      const subprocessFiber = await ctx.plugin(E2BSubprocessService)
       const ownerId = SessionId('e2b-pty-env-owner')
       const owner: Agent = {
         id: ownerId,
@@ -38,17 +48,19 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         status: 'idle',
         acceptsNextStep: false,
         ctx,
-        followup: () => AgentMessageId('unused'),
-        steer: () => AgentMessageId('unused'),
-        inject: () => AgentMessageId('unused'),
-        send: () => AgentMessageId('unused'),
+        followup() {},
+        steer() {},
+        inject() {},
+        send() {},
         cancel() {},
         whenIdle: () => Promise.resolve(),
       }
-      const backend = new E2BPtyBackend(ctx, {
-        backendType: 'shell', rows: 24, cols: 80,
+      const backend = new LocalPtyBackend(ctx, {
+        backendType: 'shell', shellPath: '/bin/bash', shellArgs: ['--noprofile', '--norc', '-i'],
+        rows: 24, cols: 80,
         scrollbackLines: 100, scrollbackMaxBytes: 65_536, maxReadBytes: 16_384,
-        pollIntervalMs: 25, idleSilenceMs: 1_000, timeoutMs: 5_000, disposeGraceMs: 1_000,
+        pollIntervalMs: 25, exactProbeAfterMs: 150, idleSilenceMs: 1_000,
+        handoffGraceMs: 500, timeoutMs: 5_000, disposeGraceMs: 1_000,
       })
       const session = await backend.spawn({ sessionId: PtySessionId('env'), owner, type: 'shell' })
       const result = await session.startSend({
@@ -59,6 +71,8 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       expect(result.viewport).not.toContain('sentinel-secret')
       expect(result.viewport).not.toContain('sentinel-stale')
       await session.close('environment test complete')
+      await subprocessFiber.dispose()
+      await ptyFiber.dispose()
     } finally {
       await sandbox.kill().catch(() => false)
     }

@@ -12,27 +12,23 @@ Moving the complete harness into a remote VM would unify that state but also cou
 
 ## Decision
 
-The E2B integration is an opt-in provider-composition POC. Its six E2B-specific packages live under `packages/e2b/` while retaining seam-specific npm names:
+The E2B integration is an opt-in provider-composition POC. Its three E2B-specific packages live together under `packages/e2b/`:
 
 - `@deepseek-ai/dsh-e2b` creates or reconnects one secure E2B sandbox, creates its working and private runtime directories, and owns kill/pause/leave disposal.
 - `@deepseek-ai/dsh-fs-e2b` implements `ctx.fs` over that sandbox's Filesystem API.
-- `@deepseek-ai/dsh-subprocess-e2b` implements `ctx.subprocess` over E2B Commands and remote Linux process groups.
-- `@deepseek-ai/dsh-pty-e2b` registers an E2B byte-PTY backend on `ctx.pty` while the existing registry retains exact-Agent ownership.
-- `@deepseek-ai/dsh-lsp-e2b` registers configured remote language servers on `ctx.lsp`, reads source through a bounded no-follow helper in E2B, and runs servers through `dsh-subprocess-e2b`.
-- `@deepseek-ai/dsh-code-runtime-e2b` registers `ctx.codeRuntime`, runs each model program in a fresh remote worker, and dispatches binding functions in the host process.
-- The existing `@deepseek-ai/dsh-bash-local` remains the Bash implementation because it delegates all process mechanics to `ctx.subprocess`.
+- `@deepseek-ai/dsh-subprocess-e2b` implements `ctx.subprocess` over E2B Commands, byte PTYs, and remote Linux process groups.
 
-The owner is the sole source of sandbox identity. Providers inject it and never create private sandboxes, so filesystem tools, Bash, interactive shells, language servers, and code workers share one remote cwd, process namespace, and adapter-private directory while preserving the existing capability interfaces and model-facing tools.
+The higher capabilities use provider-neutral implementations. `dsh-bash-local` delegates command mechanics to `ctx.subprocess`; `dsh-pty-local` delegates terminal allocation and signalling to `ctx.subprocess.spawnTerminal()`; `dsh-lsp-local` reads through `ctx.fs` and launches through `ctx.subprocess`; `dsh-code-runtime-subprocess` materializes its runner through `ctx.fs` and starts it through `ctx.subprocess`. The [portable execution-world decision](../architecture/2026-07-28-portable-execution-world-consumers.md) owns those generic interfaces and consumers.
 
-The providers reuse the PTY, LSP, Code Runtime, and subprocess seams without changing their model-facing consumers or the agent loop. Backend-neutral PTY text handling lives in `dsh-pty`; the LSP protocol engine accepts `processId: null` for a server in another process namespace; Code Runtime exports its output-ledger and lossless-JSON helpers for backend parity.
+The E2B owner is the sole source of sandbox identity. Its two adapters never create private sandboxes, so filesystem tools, Bash, interactive shells, language servers, and code workers share one remote cwd, process namespace, and adapter-private directory while preserving the existing capability interfaces, generic implementations, model-facing tools, and agent loop.
 
 ## POC boundary
 
-E2B owns the mutable filesystem, command and Bash processes, PTY shell and terminal-session process groups, language-server processes and source reads, the Code Runtime launcher, controller, and worker, and adapter-private files under `.dsh-e2b`.
+E2B owns the mutable filesystem, managed command and Bash processes, terminal allocation and terminal-session process groups, language-server processes and source reads, the Code Runtime launcher, controller, and worker, and adapter-private files under `.dsh-e2b`.
 
 The host owns Cordis and plugin objects, the agent loop, agent/session/goal state, session logs and persistence, LLM calls, prompts and tools, authority decisions, skills, subagent orchestration, PTY buffers and readiness state, LSP JSON-RPC ids/queues/protocol state, Code Runtime type stripping/output accounting/binding dispatch, and E2B SDK/network orchestration. The overlay does not upload, mount, or synchronize the host workspace; identical cwd strings name independent host and remote directories.
 
-Byte-sensitive protocols use the narrowest adapter required by E2B's callback shapes. PTY consumes the SDK's byte callback directly and carries send identity across asynchronous foreground-group lookup. LSP installs a bounded remote source reader that walks no-follow directory descriptors beneath the canonical workspace. Code Runtime keeps framed stdout in a launcher process isolated from the controller and worker descriptors, and gives each controller a process group that is killed before its inherited pipes drain. Their dependency-free helpers encode protocol payloads as validated newline-delimited base64 JSON, keeping E2B's decoded command callbacks on an ASCII transport.
+The fundamental adapters carry the substrate-specific mechanics. `dsh-subprocess-e2b` consumes E2B's byte PTY callback directly, retains terminal send identity across asynchronous foreground-group lookup, and owns whole-session cleanup. `dsh-fs-e2b` performs bounded source reads through a dependency-free helper that walks no-follow directory descriptors beneath the canonical target. Generic Code Runtime keeps its controller/worker protocol on validated ASCII/base64 frames and kills the provider-owned process group before inherited pipes drain. Generic LSP uses UTF-8 JSON over command pipes; E2B's decoded callback transport is not an arbitrary binary channel.
 
 Retaining a sandbox preserves remote files and unmanaged remote state only. Reconnect does not reconstruct host PTY sessions, buffers, process handles, LSP connections or requests, code workers, binding calls, timers, output cursors, or locks. Managed groups terminate and join when their provider disposes before the shared owner pauses, leaves, or kills the sandbox.
 
@@ -40,7 +36,7 @@ The POC has no session-persistence backend, template builder, volume, snapshot, 
 
 ## Verification
 
-Focused package suites pin owner lifecycle cleanup, filesystem semantics and commit metadata, subprocess process groups, configuration and verified publication rollback, byte framing and multibyte boundaries, PTY readiness/signal identity/default-environment scrubbing/terminal-session cleanup, descriptor-walked bounded LSP source reads, Code Runtime binding and descriptor isolation, worker and descendant-held pipe draining, hostile traffic, output limits, timeout/abort ordering, disposal to quiescence, and package-owned invariant registrations. Adjacent local-backend suites pin the shared PTY utilities and the LSP cross-namespace `processId` behavior.
+Focused package suites pin owner lifecycle cleanup, filesystem paths/containment/bounded descriptor reads and commit metadata, subprocess executable lookup/process groups/publication rollback, terminal byte I/O/signal identity/default-environment scrubbing/session cleanup, output limits, abort ordering, disposal to quiescence, and package-owned invariant registrations. The generic PTY, LSP, and subprocess Code Runtime suites pin their provider-neutral readiness, cross-namespace `processId`, binding bridge, descriptor isolation, hostile traffic, and worker/descendant cleanup behavior.
 
 A credential-gated Loader composition creates real E2B sandboxes and exercises FS-to-Bash and Bash-to-FS visibility, process-publication rollback, bounded spill output, PTY default-secret scrubbing, stale-interrupt identity, and process-tree cleanup, parent-swap-safe bounded LSP source reads, Code Runtime host bindings, descriptor-isolated output accounting, descendant-held pipe cleanup, wall timeout, abort, runner cleanup, host-workspace isolation, and final sandbox deletion. The same composition runs through source imports and built package exports.
 
@@ -50,13 +46,13 @@ A credential-gated Loader composition creates real E2B sandboxes and exercises F
 
 **Run the entire harness process inside E2B** — rejected because it changes deployment, credential flow, model transport, session durability, plugin loading, and supervision at once. Those questions are independent of proving the provider seams.
 
-**Put every E2B capability in the shared owner package** — rejected because lifecycle identity is the owner's only concern. Filesystem, subprocess, PTY, LSP, and Code Runtime retain separate provider contracts, configuration, tests, and consumers; Bash continues to reuse its subprocess seam.
+**Put every E2B operation in the shared owner package** — rejected because lifecycle identity is the owner's only concern. Filesystem and subprocess retain separate provider contracts, tests, and consumers; the owner exposes one shared SDK handle without becoming a capability grab bag.
 
 **Implement filesystem operations through shell commands only** — rejected because that bypasses `ctx.fs` identity, structured errors, version guards, streaming reads, and atomic mutation semantics already consumed by the file tools.
 
-**Use the host PTY, LSP, and worker backends unchanged** — rejected because they use host process and filesystem APIs; sharing an absolute cwd string does not share state across machines.
+**Keep E2B-specific PTY, LSP, and Code Runtime packages** — rejected because their domain behavior does not vary with E2B. They were shallow adapters that duplicated existing consumers to replace filesystem and process operations; moving those operations behind the fundamental seams gives every provider one implementation of readiness, protocol, binding, and presentation behavior.
 
-**Expose E2B Commands as one generic transport and bypass capability providers** — rejected because PTY needs byte callbacks and foreground signaling, LSP needs byte-faithful stdio plus remote source containment, and Code Runtime needs bidirectional host binding calls and hostile-peer validation. Bypassing their registries would also fork model-facing behavior.
+**Call E2B Filesystem, Commands, or PTY APIs directly from higher capabilities** — rejected because it bypasses the `ctx.fs` and `ctx.subprocess` contracts, duplicates execution-world policy in each consumer, and forks model-facing behavior. The subprocess seam includes the irreducible terminal primitive because ordinary pipes cannot supply foreground groups or whole-session cleanup.
 
 **Add a generic distributed-runtime abstraction first** — rejected because the existing capability seams already carry the required contracts. A new cross-cutting interface would speculate about persistence, synchronization, and reconnect semantics beyond the POC.
 
@@ -64,6 +60,6 @@ A credential-gated Loader composition creates real E2B sandboxes and exercises F
 
 ## Consequences
 
-The small composition demonstrates that existing capability seams can move an agent's mutable coding world off-host without changing the loop or model-facing tool packages. `sandboxId` plus pause/leave permits manual remote-file retention for experiments, while kill remains the demo's cleanup policy.
+The three-package composition demonstrates that filesystem and subprocess are the sufficient provider seams for moving an agent's mutable coding world off-host without changing the loop, higher capability implementations, or model-facing tool packages. Fixes to Bash, PTY, LSP, and Code Runtime remain provider-neutral. `sandboxId` plus pause/leave permits manual remote-file retention for experiments, while kill remains the demo's cleanup policy.
 
-The providers are not interchangeable with local backends for every consumer: remote startup cannot synchronously expose a PID, E2B retains complete command output in SDK memory, ordinary command callbacks are not byte-faithful, signal attribution is partly inferred, and reconnect cannot restore handles or protocol state. PTY uses E2B's byte API; LSP and Code Runtime add validated ASCII framing where protocol bytes matter. Remote process/spill artifacts accumulate in a retained sandbox, Code programs share a JavaScript realm with Node worker internals, and a process that deliberately escapes a managed process group or PTY session does not become reconnectable or owned. These gaps remain documented POC constraints rather than compatibility shims or new cross-cutting abstractions.
+The adapters are not interchangeable with local backends for every consumer: remote startup cannot synchronously expose a PID, E2B retains complete command output in SDK memory, command callbacks are text-decoded rather than arbitrary binary streams, exact terminal stdin-wait inspection is unavailable, signal attribution is partly inferred, and reconnect cannot restore handles or protocol state. PTY uses E2B's byte API; Code Runtime uses validated ASCII/base64 framing; the exercised LSP path carries valid UTF-8 JSON. Remote process/spill artifacts accumulate in a retained sandbox, Code programs share a JavaScript realm with Node worker internals, and a process that deliberately escapes a managed process group or terminal session does not become reconnectable or owned. These gaps remain documented POC constraints rather than compatibility shims or new cross-cutting abstractions.

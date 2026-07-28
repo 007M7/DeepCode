@@ -6,7 +6,7 @@
 
 ## 层级结构
 
-组在 `packages/<group>/<pkg>/` 容纳包；包名仍为 `@deepseek-ai/dsh-<pkg>`。**组 README 是规范的包／ctx 键映射。**
+包按组置于 `packages/<group>/<pkg>/`；包名仍为 `@deepseek-ai/dsh-<pkg>`。**组 README 负责包／ctx 键映射。**
 
 | 组 | 职责 | 发布预期 |
 |---|---|---|
