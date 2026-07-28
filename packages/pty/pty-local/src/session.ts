@@ -125,7 +125,8 @@ class LocalSendOperation implements PtySendOperation {
 
   acceptsStdinWait(pgid: number, waiting: boolean): boolean {
     // The same group may still expose the wait that existed before terminal.write.
-    // It becomes post-write evidence only after polling observes it leave that wait.
+    // Observe every poll so a departure before the exact-settlement threshold
+    // still makes a later return to that wait post-write evidence.
     if (pgid !== this.initialForegroundPgid) return waiting
     if (!waiting) this.initialForegroundLeftWait = true
     return waiting && this.initialForegroundLeftWait
@@ -338,12 +339,15 @@ export class LocalPtySession implements PtyBackendSession {
     }
     const elapsed = Date.now() - operation.startedAt
     const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
-    if (startupHasOutput && elapsed >= this.config.exactProbeAfterMs) {
+    let acceptsStdinWait = false
+    if (startupHasOutput) {
       const pgid = this.inspector.foregroundPgid(this.pid)
-      if (pgid !== undefined && operation.acceptsStdinWait(pgid, this.inspector.isStdinWaiting(pgid))) {
-        this.settleActive('stdin_read')
-        return
-      }
+      acceptsStdinWait = pgid !== undefined
+        && operation.acceptsStdinWait(pgid, this.inspector.isStdinWaiting(pgid))
+    }
+    if (elapsed >= this.config.exactProbeAfterMs && acceptsStdinWait) {
+      this.settleActive('stdin_read')
+      return
     }
     // A prompt candidate can race bash's foreground handoff, but an interactive
     // child also inherits PROMPT_COMMAND. Silence therefore remains the bound

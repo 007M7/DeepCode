@@ -144,6 +144,31 @@ describe('LocalPtySession readiness and output', () => {
     expect((await operation.done).waitReason).toBe('stdin_read')
   })
 
+  it('tracks a pre-write wait exit before exact probing begins', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({
+      exactProbeAfterMs: 50,
+      idleSilenceMs: 100,
+      timeoutMs: 200,
+    }))
+    await initialize(session, terminal)
+
+    inspector.waiting = true
+    const operation = session.startSend({ text: 'fast command', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspector.waiting = false
+    await vi.advanceTimersByTimeAsync(10)
+    inspector.waiting = true
+    await vi.advanceTimersByTimeAsync(30)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(true)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
   it('distinguishes inferred idle, timeout, exit signal, and operation reads', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
