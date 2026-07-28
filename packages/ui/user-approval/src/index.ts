@@ -11,7 +11,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import { hasOpenTurn } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -137,6 +136,22 @@ export function effectiveApprovalPolicy(events: readonly SessionEvent[]): Approv
     if (event.type === 'approval/policy') return event.data.policy
   }
   return undefined
+}
+
+/**
+ * Whether the log currently sits inside an open turn (a `turn/start` not yet
+ * closed by a `turn/end`) — the {@link ApprovalService.request} precondition.
+ * The audit pair must be turn-enclosed: the turn is the durable log's
+ * commit/replay boundary, so a bare event appended between turns is
+ * indistinguishable from a crash tail and silently dropped on reload.
+ */
+function hasOpenTurn(events: readonly SessionEvent[]): boolean {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const type = (events[index] as SessionEvent).type
+    if (type === 'turn/start') return true
+    if (type === 'turn/end') return false
+  }
+  return false
 }
 
 /**

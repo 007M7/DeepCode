@@ -73,12 +73,6 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
-      async permissions(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { options: [], currentValue: 'custom' } } }
-      },
-      async setPermission(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { currentValue: request.payload.value } } }
-      },
     },
     host: {
       async describe(request) {
@@ -184,7 +178,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('covers create/prompt/cancel/permissions/setPermission/describe passthrough', async () => {
+  it('covers create/prompt/cancel/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
@@ -206,8 +200,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
-    expect((await c.sessions.permissions({ sessionId: 's' as never })).result.ok).toBe(true)
-    expect((await c.sessions.setPermission({ sessionId: 's' as never, value: 'workspace-write' })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 

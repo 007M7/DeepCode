@@ -248,31 +248,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return result
   }
 
-  /**
-   * Read the permission select (options + effective current value).
-   * @returns the select material, or the error branch on failure.
-   */
-  async permissions(): Promise<RpcResult<{ options: { value: string; name: string; description?: string }[]; currentValue: string }>> {
-    try {
-      return (await this.api.sessions.permissions({ sessionId: this.sessionId })).result
-    } catch (error) {
-      return transportError(error)
-    }
-  }
-
-  /**
-   * Switch the permission preset.
-   * @param value - a preset value advertised by {@link Session.permissions} (never `custom`).
-   * @returns the confirmed current value, or the error branch on failure.
-   */
-  async setPermission(value: string): Promise<RpcResult<{ currentValue: string }>> {
-    try {
-      return (await this.api.sessions.setPermission({ sessionId: this.sessionId, value })).result
-    } catch (error) {
-      return transportError(error)
-    }
-  }
-
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
   open(): Promise<void> {
     if (this.openState === 'open') return Promise.resolve()

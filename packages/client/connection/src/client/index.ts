@@ -12,7 +12,7 @@ import { WebApiClient } from './web-api-client.ts'
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
-  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, PermissionOption, ToolEventView,
+  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,

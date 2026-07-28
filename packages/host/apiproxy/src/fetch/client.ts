@@ -22,10 +22,8 @@ import {
   sessionHistoryValueSchema,
   sessionListValueSchema,
   sessionModelsValueSchema,
-  sessionPermissionsValueSchema,
   sessionPromptValueSchema,
   sessionSelectModelValueSchema,
-  sessionSetPermissionValueSchema,
 } from '../api/sessions.schema.ts'
 import {
   workspaceCreateValueSchema,
@@ -61,8 +59,6 @@ export interface IApiClient {
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
-    permissions(payload: RequestPayload<'session.permissions'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.permissions'>>>
-    setPermission(payload: RequestPayload<'session.setPermission'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.setPermission'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
@@ -103,8 +99,6 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.selectModel': sessionSelectModelValueSchema,
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
-  'session.permissions': sessionPermissionsValueSchema,
-  'session.setPermission': sessionSetPermissionValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
   'host.openPath': hostOpenPathValueSchema,
@@ -308,8 +302,6 @@ export abstract class AbstractApiClient implements IApiClient {
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
-    permissions: (payload, signal) => this.callUnary('session.permissions', payload, signal),
-    setPermission: (payload, signal) => this.callUnary('session.setPermission', payload, signal),
   }
 
   readonly host: IApiClient['host'] = {

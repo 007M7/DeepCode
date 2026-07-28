@@ -51,25 +51,6 @@ export function findLastMessageTurnEnd(
   return latest
 }
 
-/**
- * Whether the log currently sits inside an open turn (a `turn/start` not yet
- * closed by a `turn/end`). The turn is the durable log's commit/replay
- * boundary: a bare event appended between turns is indistinguishable from a
- * crash tail and silently dropped on reload, so writers of turn-enclosed
- * events (approval audit pairs, permission/sandbox knob switches) gate on
- * this fold and hold idle writes until the next turn opens.
- * @param events - session events, or an owned suffix, to inspect.
- * @returns true when the last turn boundary event is a `turn/start`.
- */
-export function hasOpenTurn(events: readonly SessionEvent[]): boolean {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const type = (events[index] as SessionEvent).type
-    if (type === 'turn/start') return true
-    if (type === 'turn/end') return false
-  }
-  return false
-}
-
 declare module 'cordis' {
   interface Context {
     sessions: SessionStore

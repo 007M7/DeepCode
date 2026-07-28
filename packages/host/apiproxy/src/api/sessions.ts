@@ -145,21 +145,6 @@ export interface SessionSummary {
   cwd?: string
 }
 
-/**
- * One selectable permission preset (or the derived `custom` state) as the
- * client renders it. Protocol-owned DTO (the ACP bridge precedent: each
- * protocol owns its presentation shape); the host projects it from
- * `ctx.permission` without exposing that service's types on the wire.
- */
-export interface PermissionOption {
-  /** The machine value (`session.setPermission` vocabulary): a preset table key, or `custom`. */
-  value: string
-  /** The display label. */
-  name: string
-  /** One user-facing sentence on what the value means. */
-  description?: string
-}
-
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
@@ -216,23 +201,4 @@ export interface SessionsApi {
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
-  /**
-   * Reads the session's permission select: every switchable preset plus the
-   * effective current value (`custom` when the knobs match no preset — shown,
-   * never a switch target). A host composed without the permission service
-   * returns empty options and `custom`; clients hide the control.
-   */
-  permissions(request: RpcRequest<{ sessionId: SessionId }>):
-  Promise<RpcResponse<{ options: PermissionOption[]; currentValue: string }>>
-
-  /**
-   * Switches the session's permission preset. Mirrors the ACP bridge's
-   * turn-anchoring: inside an open turn the knob events append immediately;
-   * idle switches are held last-write-wins and flushed into the next prompted
-   * turn (approval-policy and sandbox-mode events must stay turn-enclosed for
-   * durable replay). A current-value echo is acknowledged without recording.
-   * Unknown values and a permission-less composition are bad-request.
-   */
-  setPermission(request: RpcRequest<{ sessionId: SessionId; value: string }>):
-  Promise<RpcResponse<{ currentValue: string }>>
 }

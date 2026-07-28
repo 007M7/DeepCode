@@ -63,12 +63,6 @@ export class FakeApiClient implements IApiClient {
     payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
-  onPermissions: (payload: unknown) =>
-  Promise<RpcResponse<{ options: { value: string; name: string; description?: string }[]; currentValue: string }>> =
-    () => Promise.resolve(ok({ options: [], currentValue: 'custom' }))
-
-  onSetPermission: (payload: { sessionId: SessionId; value: string }) => Promise<RpcResponse<{ currentValue: string }>> =
-    payload => Promise.resolve(ok({ currentValue: payload.value }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
   onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
@@ -92,8 +86,6 @@ export class FakeApiClient implements IApiClient {
       this.record('session.selectModel', payload, this.onSelectModel(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
-    permissions: (payload: unknown) => this.record('session.permissions', payload, this.onPermissions(payload)),
-    setPermission: (payload: { sessionId: SessionId; value: string }) => this.record('session.setPermission', payload, this.onSetPermission(payload)),
   }
 
   readonly host: IApiClient['host'] = {

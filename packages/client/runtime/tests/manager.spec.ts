@@ -358,7 +358,7 @@ describe('connected generation', () => {
 describe('waiting-approval list bit', () => {
   it('lights on requested, survives replay duplicates, and clears on resolved — without instantiation', () => {
     const manager = new SessionManager(new FakeApiClient())
-    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
@@ -371,7 +371,7 @@ describe('waiting-approval list bit', () => {
 
   it('clears only when the last outstanding question resolves; session-removed drops the bit', () => {
     const manager = new SessionManager(new FakeApiClient())
-    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     manager.handleMuxEnvelope({ rpcId: 'r1' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a1' as never, toolName: 'rm' } })
     manager.handleMuxEnvelope({ rpcId: 'r2' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a2' as never, toolName: 'rm' } })
     manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a1' as never, outcome: 'rejected' as never } })
@@ -386,7 +386,7 @@ describe('waiting-approval list bit', () => {
 
   it('drops stale bits on reconnect — the reopen replay re-adds still-pending questions', () => {
     const manager = new SessionManager(new FakeApiClient())
-    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
     manager.handleConnected() // resolved-while-disconnected questions send no frame

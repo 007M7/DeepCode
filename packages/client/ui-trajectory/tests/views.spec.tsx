@@ -149,8 +149,6 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       inputActions={{ setDraft: vi.fn(), submit: vi.fn() }}
       bindDraftMirror={() => () => {}}
       open={vi.fn()}
-      permissions={() => Promise.resolve(null)}
-      setPermission={() => Promise.resolve(null)}
     />,
   )
 }

@@ -27,7 +27,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy }> {
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ApprovalService)
-  const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+  const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
   return { ctx, api }
 }
 

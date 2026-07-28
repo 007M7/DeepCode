@@ -20,10 +20,8 @@ import {
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
   sessionModelsRequestSchema,
-  sessionPermissionsRequestSchema,
   sessionPromptRequestSchema,
   sessionSelectModelRequestSchema,
-  sessionSetPermissionRequestSchema,
 } from '../api/sessions.schema.ts'
 import {
   hostDescribeRequestSchema, hostOpenPathRequestSchema, hostPickDirectoryRequestSchema,
@@ -62,8 +60,6 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
-  'session.permissions': { schema: sessionPermissionsRequestSchema, invoke: (api, r) => api.sessions.permissions(r) },
-  'session.setPermission': { schema: sessionSetPermissionRequestSchema, invoke: (api, r) => api.sessions.setPermission(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'host.openPath': { schema: hostOpenPathRequestSchema, invoke: (api, r, signal) => api.host.openPath(r, signal) },

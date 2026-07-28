@@ -55,7 +55,7 @@ async function bench() {
 
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT],
-    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, blank: false, updatedAt: 1 } },
+    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, waitingApproval: false, blank: false, updatedAt: 1 } },
     current: ROOT,
     phase: 'ready',
   })

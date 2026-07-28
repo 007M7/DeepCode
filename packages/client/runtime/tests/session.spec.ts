@@ -816,27 +816,3 @@ describe('reference stability (the memo contract)', () => {
     expect(resolved.pending).toBe(after.pending)
   })
 })
-
-describe('permissions / setPermission', () => {
-  it('passes the select read and switch through with the session id', async () => {
-    const { api, session } = makeSession()
-    api.onPermissions = () => Promise.resolve(ok({ options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }))
-    const read = await session.permissions()
-    expect(read.ok).toBe(true)
-    if (read.ok) expect(read.value.currentValue).toBe('workspace-write')
-    expect(api.callsOf('session.permissions')).toMatchObject([{ sessionId: SID }])
-
-    const switched = await session.setPermission('danger-full-access')
-    expect(switched.ok).toBe(true)
-    if (switched.ok) expect(switched.value.currentValue).toBe('danger-full-access')
-    expect(api.callsOf('session.setPermission')).toMatchObject([{ sessionId: SID, value: 'danger-full-access' }])
-  })
-
-  it('folds transport failures into the error branch', async () => {
-    const { api, session } = makeSession()
-    api.onPermissions = () => Promise.reject(new Error('down'))
-    api.onSetPermission = () => Promise.reject(new Error('down'))
-    expect((await session.permissions()).ok).toBe(false)
-    expect((await session.setPermission('x')).ok).toBe(false)
-  })
-})

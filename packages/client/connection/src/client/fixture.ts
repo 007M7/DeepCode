@@ -483,12 +483,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   let approvalPending = true
   const pendingQuestionRpcId = mint()
   let questionPending = true
-  /** Per-session permission preset (fixture mirror of the host permission select). */
-  const permissionValues = new Map<SessionId, string>()
-  const PERMISSION_OPTIONS = [
-    { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
-    { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
-  ]
   const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
     {
       id: 'harness-profile',
@@ -839,24 +833,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         return ok(request, { accepted: true as const })
       },
-      permissions: (request) => {
-        const { sessionId: id } = request.payload
-        if (summaryOf(id) === undefined) {
-          return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
-        }
-        return ok(request, { options: PERMISSION_OPTIONS, currentValue: permissionValues.get(id) ?? 'workspace-write' })
-      },
-      setPermission: (request) => {
-        const { sessionId: id, value } = request.payload
-        if (summaryOf(id) === undefined) {
-          return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
-        }
-        if (!PERMISSION_OPTIONS.some(option => option.value === value)) {
-          return err(request, { code: 'bad-request', message: `unknown permission value ${JSON.stringify(value)}`, details: { issues: [] } })
-        }
-        permissionValues.set(id, value)
-        return ok(request, { currentValue: value })
-      },
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
@@ -1134,8 +1110,6 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
-      case 'session.permissions': return this.api.sessions.permissions(request)
-      case 'session.setPermission': return this.api.sessions.setPermission(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)

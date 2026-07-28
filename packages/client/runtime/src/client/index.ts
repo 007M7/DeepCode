@@ -40,15 +40,7 @@ export type { PendingInteraction, PendingKind, PendingPayloads } from './session
 export type {
   ProjectionsBaseline, ProjectionValueStore, SessionProjectionMap, UseProjection,
 } from './sessions/projection-store.ts'
-export type { PermissionOption, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-
-/** The permission select material as the object layer serves it to UI plugins. */
-export interface PermissionSelect {
-  /** Switchable presets plus (when derived) the current-only `custom`. */
-  options: { value: string; name: string; description?: string }[]
-  /** The effective current value (`custom` when knobs match no preset). */
-  currentValue: string
-}
+export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context

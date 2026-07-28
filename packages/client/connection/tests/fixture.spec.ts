@@ -345,23 +345,6 @@ describe('createFixtureApi', () => {
     expect(replayed.some(f => f.type === 'approval/requested')).toBe(false)
   })
 
-  it('permissions/setPermission mirror the host select: read, switch, validation', async () => {
-    const api = createFixtureApi()
-    const read = await api.sessions.permissions(req({ sessionId: sid('fx-alpha') }))
-    expect(read.result).toMatchObject({ ok: true, value: { currentValue: 'workspace-write' } })
-    const switched = await api.sessions.setPermission(req({ sessionId: sid('fx-alpha'), value: 'danger-full-access' }))
-    expect(switched.result).toMatchObject({ ok: true, value: { currentValue: 'danger-full-access' } })
-    const reread = await api.sessions.permissions(req({ sessionId: sid('fx-alpha') }))
-    expect(reread.result).toMatchObject({ ok: true, value: { currentValue: 'danger-full-access' } })
-    // Validation: ghost session and unknown value.
-    const ghostRead = await api.sessions.permissions(req({ sessionId: sid('fx-ghost') }))
-    expect(ghostRead.result.ok).toBe(false)
-    const ghostSwitch = await api.sessions.setPermission(req({ sessionId: sid('fx-ghost'), value: 'workspace-write' }))
-    expect(ghostSwitch.result.ok).toBe(false)
-    const unknown = await api.sessions.setPermission(req({ sessionId: sid('fx-alpha'), value: 'nope' }))
-    expect(unknown.result.ok).toBe(false)
-  })
-
   it('describe answers the fixture identity', async () => {
     const api = createFixtureApi()
     const response = await api.host.describe(req({}))
@@ -739,8 +722,6 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await client.sessions.history({ sessionId: id })).result.ok).toBe(true)
     expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
-    expect((await client.sessions.permissions({ sessionId: id })).result.ok).toBe(true)
-    expect((await client.sessions.setPermission({ sessionId: id, value: 'danger-full-access' })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
     expect((await client.workspace.list({})).result.ok).toBe(true)
     const workspace = await client.workspace.create({ name: 'via-client' })

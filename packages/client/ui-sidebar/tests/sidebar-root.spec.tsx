@@ -94,17 +94,4 @@ describe('SidebarRoot shell', () => {
     expect(b.regionOwner().wide).toBe(false)
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
   })
-
-  it('waiting-approval shows the amber warning dot and outranks the running ring', () => {
-    mount(
-      summary({ id: 'blocked', title: 'blocked one', cwd: '/p', running: true, waitingApproval: true, updatedAt: 2 }),
-      summary({ id: 'busy', title: 'busy one', cwd: '/p', running: true, updatedAt: 1 }),
-    )
-    act(() => { fireEvent.click(screen.getByText('p')) })
-    const blockedRow = screen.getByText('blocked one').closest('[role="treeitem"]')!
-    const busyRow = screen.getByText('busy one').closest('[role="treeitem"]')!
-    expect(blockedRow.querySelector('[data-state="warning"]')).toBeTruthy()
-    expect(blockedRow.querySelector('[data-state="ongoing"]')).toBeNull()
-    expect(busyRow.querySelector('[data-state="ongoing"]')).toBeTruthy()
-  })
 })

@@ -11,7 +11,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, PermissionOption, SessionProjectionsBlock, SessionSummary,
+  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -207,31 +207,3 @@ export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
 
-/** One permission select option (a preset table key, or the derived `custom`). */
-export const permissionOptionSchema = z.object({
-  value: z.string(),
-  name: z.string(),
-  description: z.string().optional(),
-}) satisfies z.ZodType<Wire<PermissionOption>>
-
-/** session.permissions request payload. */
-export const sessionPermissionsRequestSchema = z.object({
-  sessionId: sessionIdSchema,
-}) satisfies z.ZodType<Wire<RequestPayload<'session.permissions'>>>
-
-/** session.permissions response value. */
-export const sessionPermissionsValueSchema = z.object({
-  options: z.array(permissionOptionSchema),
-  currentValue: z.string(),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.permissions'>>>
-
-/** session.setPermission request payload. */
-export const sessionSetPermissionRequestSchema = z.object({
-  sessionId: sessionIdSchema,
-  value: z.string(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.setPermission'>>>
-
-/** session.setPermission response value. */
-export const sessionSetPermissionValueSchema = z.object({
-  currentValue: z.string(),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.setPermission'>>>

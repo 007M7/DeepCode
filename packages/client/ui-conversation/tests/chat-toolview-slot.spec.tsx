@@ -68,7 +68,7 @@ async function bench(nodes: ToolResultNode[]) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshotWith(nodes))
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, waitingApproval: false, blank: false, updatedAt: 1 } },
     current: SID,
     phase: 'ready',
   })
