@@ -6,12 +6,12 @@
 
 import type { ReactNode } from 'react'
 import {
-  IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconThinkOutline14,
+  IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
+  IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
-import { IconSparkle16 } from './IconSparkle16.tsx'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {

@@ -11,9 +11,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconTrashOutline16,
+  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconSparkle16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IconSparkle16 } from './IconSparkle16.tsx'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
 import css from './GoalBar.module.css'
 
