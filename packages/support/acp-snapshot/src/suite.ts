@@ -31,6 +31,7 @@ import {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
+  tokenizeSessionFixtureCwd,
 } from './normalize.ts'
 
 /** The readable system-prompt snapshot beside its owning header pin. */
@@ -1007,6 +1008,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const scrub = scenario.pinsHeader === true
           ? (log: string): string => scrubToolSchemas(scrubSystemPrompts(log))
           : scrubRequestHeaders
+        const portableFixture = scenario.workspaceParent === undefined
+          ? tokenizeSessionFixtureCwd
+          : (log: string): string => log
         const existingFixtures = REFRESHING
           ? await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))
           : []
@@ -1024,14 +1028,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             ...Array.from({ length: result.sessionLogs.length - 1 }, (_, i) => `session.${i + 1}.jsonl`),
           ]
           const primary = (result.sessionLogs[0] as HarvestedLog).content
-          await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(
+          await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(portableFixture(
             REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx) : primary,
-          ))
+          )))
           for (let i = 1; i < result.sessionLogs.length; i++) {
             const child = (result.sessionLogs[i] as HarvestedLog).content
-            await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(
+            await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(portableFixture(
               REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx) : child,
-            ))
+            )))
           }
           if (RECORDING) {
             const outputNames = new Set(outputFixtureFiles)

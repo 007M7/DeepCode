@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"14dda109-5728-45ba-a002-7db9543fe50e","createdAt":1783352126247,"cwd":"/tmp/acp-snap-cwd-28z5Of","delegationDepth":0}
+{"type":"session","version":0,"id":"14dda109-5728-45ba-a002-7db9543fe50e","createdAt":1783352126247,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352126251,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352126251,"data":{"content":[{"type":"text","text":"Use the subagent tool TWICE, once at a time, to delegate two subtasks to child agents. First subtask: 'Reply with exactly the word ALPHA and nothing else.' Second subtask (after the first returns): 'Reply with exactly the word BETA and nothing else.' After both subagents return, reply with the single word PARENT_DONE and stop. Do not use the bash tool."}],"source":{"kind":"user"},"role":"user","id":"26ff1621-20b5-4c1e-b546-ed4c6f6ec99e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783352126251,"data":{"title":"Use the subagent tool TWICE,","messageSeqs":[1],"source":{"kind":"fallback"}}}
