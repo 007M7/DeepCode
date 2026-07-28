@@ -375,7 +375,7 @@ describe('hooks-claude bridge — load resilience', () => {
     const warn = vi.fn()
     const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
     const agent = ctx.agentLoop.create(SessionId('invalid-claude-matcher'), { provider: 'mock', model: 'mock' })
-    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
     expect(events(agent).some(event => event.type === 'hook/invoked')).toBe(false)
@@ -394,7 +394,7 @@ describe('hooks-claude bridge — load resilience', () => {
     const warn = vi.fn()
     const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
     const agent = ctx.agentLoop.create(SessionId('unsupported-claude-matcher'), { provider: 'mock', model: 'mock' })
-    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0)
