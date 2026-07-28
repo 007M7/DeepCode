@@ -45,6 +45,10 @@ describe('translation pairing snapshots', () => {
       const objectId = storeGitBlob(root, content)
 
       expect(objectId).toBe(gitBlobHash(content))
+      expect(execFileSync('git', [
+        '-C', root, 'rev-parse', `refs/dsh/translation-pairing/snapshots/${objectId}`,
+      ], { encoding: 'utf8' }).trim()).toBe(objectId)
+      execFileSync('git', ['-C', root, 'gc', '--prune=now'])
       expect(execFileSync('git', ['-C', root, 'cat-file', '-p', objectId])).toEqual(content)
     } finally {
       rmSync(root, { recursive: true, force: true })
