@@ -36,7 +36,7 @@ The historical [universal turn-enclosure decision](../../archived/architecture/2
 
 ## Verification
 
-Core invariant tests accept an unknown plugin event between turns while continuing to reject built-in execution events there. Session-title service tests pin one direct fallback event under concurrent refresh, detached-session rejection, and newest-revision acceptance. JSONL and SQLite round trips preserve a title appended after `turn/end` through the persistence lifecycle drain, and fork tests retain a standalone log-only tail while rejecting boundaries inside an open turn. Generated API and type-equivalence catalogs contain no removed symbol.
+Core invariant tests accept an unknown plugin event between turns while continuing to reject built-in execution events there. Hook, compaction, plan-mode, Code Mode dispatch, and approval invariant companions replay existing logs and reject the same execution-scoped events before commit when no turn is open. Session-title service tests pin one direct fallback event under concurrent refresh, detached-session rejection, and newest-revision acceptance. JSONL and SQLite round trips preserve a title appended after `turn/end` through the persistence lifecycle drain, and fork tests retain a standalone log-only tail while rejecting boundaries inside an open turn. A keyless assembled ACP snapshot delays the model-backed title until after `turn/end` and pins one standalone provider title with no synthetic turn. Generated API and type-equivalence catalogs contain no removed symbol.
 
 ## Consequences
 

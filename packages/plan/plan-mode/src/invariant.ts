@@ -11,9 +11,10 @@ export const name = 'plan-mode-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Validate one `plan/mode` payload before it reaches the durable log. */
-function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
+/** Validate one `plan/mode` event before it reaches the durable log. */
+function validateEvent(openTurn: number | null, event: SessionEvent, fail: InvariantFailure): void {
   if (event.type !== 'plan/mode') return
+  if (openTurn === null) fail('plan/mode appended outside any open turn')
   const active = (event.data as { active?: unknown }).active
   if (typeof active !== 'boolean') {
     fail(`plan/mode carries invalid active state ${JSON.stringify(active)}; expected a boolean`)
@@ -23,13 +24,30 @@ function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Install validation for loaded and newly appended plan-mode state. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
-  for (const session of ctx.sessions.list()) {
-    for (const event of session.events) validateEvent(event, fail)
+  const traces = new WeakMap<Session, number | null>()
+  const seed = (session: Session): number | null => {
+    let openTurn: number | null = null
+    traces.set(session, openTurn)
+    for (const event of session.events) {
+      if (event.type === 'turn/start') openTurn = event.data.turn
+      else if (event.type === 'turn/end') openTurn = null
+      validateEvent(openTurn, event, fail)
+      traces.set(session, openTurn)
+    }
+    return openTurn
   }
+  const traceFor = (session: Session): number | null => traces.get(session) ?? seed(session)
+
+  for (const session of ctx.sessions.list()) seed(session)
+  ctx.on('session/created', (session) => { seed(session) }, { global: true })
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/start') traces.set(session, event.data.turn)
+    else if (event.type === 'turn/end') traces.set(session, null)
+  }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
-    const event = (args as [Session, SessionEvent])[1]
-    validateEvent(event, fail)
+    const [session, event] = args as [Session, SessionEvent]
+    validateEvent(traceFor(session), event, fail)
   }, { global: true })
 }, { inject: ['sessions'] })
 /* jscpd:ignore-end */
