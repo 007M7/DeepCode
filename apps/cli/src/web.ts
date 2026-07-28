@@ -7,7 +7,7 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { ALL_INTERFACES_HOST, AppCLIEntry, lanIPv4Addresses } from './app-cli-entry.ts'
+import { AppCLIEntry } from './app-cli-entry.ts'
 
 const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 
@@ -48,7 +48,9 @@ export async function runWeb(
     void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
   }
 
-  const lanCandidate = host === ALL_INTERFACES_HOST ? lanIPv4Addresses()[0] : undefined
+  // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
+  // must name an address the /api trust fence was configured with.
+  const lanCandidate = entry.lanAddresses[0]
   const localUrl = `http://${LOOPBACK_HOST}:${boundPort}`
   console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
 

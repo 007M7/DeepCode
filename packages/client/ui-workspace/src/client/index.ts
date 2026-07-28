@@ -3,22 +3,22 @@
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
  * and WorkspacePicker fills the conversation hero's picker hole
  * (`conversation.hero.workspace` — both hero forms). Both read real Host
- * Workspaces through the global useWorkspaces hook. Export discipline:
+ * Workspaces through the global useWorkspaces hook, and each declares its
+ * own `single` directory-flow child hole for the composed picker package's
+ * client half (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
+import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { DirectoryPickingInjected, WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 
 export type {
-  DirectoryPickingInjected,
+  DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
-
-/** Locale namespace for the picker surfaces (dictionaries registered in apply). */
-const LOCALE_NS = 'workspace'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -28,7 +28,7 @@ const LOCALE_NS = 'workspace'
  * provides a waitable service. apply therefore registers via
  * declaration-aware deferral instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale']
+export const inject = ['slots', 'sessions', 'workspaces']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -37,45 +37,6 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(LOCALE_NS, 'zh', {
-        'browser.title': '选择工作区目录',
-        'browser.home': '主目录',
-        'browser.newFolder': '新建文件夹',
-        'browser.folderName': '文件夹名称',
-        'browser.createIn': '在"{name}"中新建文件夹',
-        'browser.untitledFolder': '未命名文件夹',
-        'browser.create': '创建',
-        'browser.cancel': '取消',
-        'browser.open': '打开',
-        'browser.editPath': '编辑路径',
-        'browser.loading': '加载中…',
-      }),
-      ctx.locale.register(LOCALE_NS, 'en', {
-        'browser.title': 'Select Workspace Directory',
-        'browser.home': 'Home',
-        'browser.newFolder': 'New folder',
-        'browser.folderName': 'Folder name',
-        'browser.createIn': 'New folder in "{name}"',
-        'browser.untitledFolder': 'Untitled folder',
-        'browser.create': 'Create',
-        'browser.cancel': 'Cancel',
-        'browser.open': 'Open',
-        'browser.editPath': 'Edit path',
-        'browser.loading': 'Loading…',
-      }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-workspace: picker dictionaries')
-
-  const picking = (): DirectoryPickingInjected => ({
-    directoryPickerKind: () => ctx.workspaces.directoryPickerKind(),
-    pickDirectory: () => ctx.workspaces.pickDirectory(),
-    listDirectory: path => ctx.workspaces.listDirectory(path),
-    createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
-    t: ctx.locale.bind(LOCALE_NS),
-  })
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session rides
     // the runtime's shared action (recent-Workspace projection inside).
@@ -87,58 +48,40 @@ export function apply(ctx: ClientContext): void {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
     createWorkspace: input => ctx.workspaces.create(input),
-    ...picking(),
+    hasDirectoryFlow: () => ctx.slots.entries('sidebar.workspaces.directoryFlow').length > 0,
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
-    ...picking(),
+    hasDirectoryFlow: () => ctx.slots.entries('conversation.hero.workspace.directoryFlow').length > 0,
   })
-  // Declaration-aware registration: each owner's declaring apply may activate
-  // after this one (entry activation order is unconstrained), and a register
-  // into an undeclared slot throws. Register once the declaration is on the
-  // ledger; the subscription also re-registers after an HMR collapse
-  // re-declares the slot (the cascade disposed our entry with it).
+  // Declaration-aware registration (deferRegistration): each owner's
+  // declaring apply may activate after this one, and a register into an
+  // undeclared slot throws; the deferral also re-registers after an HMR
+  // collapse re-declares the slot. Each registration declares its own
+  // directory-flow child hole in the same call (declaration = render
+  // authorization, one table).
   ctx.effect(() => {
-    const registrations = [
-      {
-        name: 'sidebar.workspaces' as const,
-        component: WorkspaceBrowser,
-        register: () => ctx.slots.register(
-          { name: 'sidebar.workspaces', store: createWorkspaceViewStore(), inject: browserInjected },
+    const deferred = [
+      deferRegistration(ctx.slots, 'sidebar.workspaces', WorkspaceBrowser, () =>
+        ctx.slots.register(
+          {
+            name: 'sidebar.workspaces',
+            children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
+            store: createWorkspaceViewStore(),
+            inject: browserInjected,
+          },
           WorkspaceBrowser,
-        ),
-      },
-      {
-        name: 'conversation.hero.workspace' as const,
-        component: WorkspacePicker,
-        register: () => ctx.slots.register(
-          { name: 'conversation.hero.workspace', inject: pickerInjected },
+        )),
+      deferRegistration(ctx.slots, 'conversation.hero.workspace', WorkspacePicker, () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.hero.workspace',
+            children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
+            inject: pickerInjected,
+          },
           WorkspacePicker,
-        ),
-      },
+        )),
     ]
-    const disposers = new Map<string, () => void>()
-    const tryRegister = (entry: (typeof registrations)[number]): void => {
-      if (ctx.slots.spec(entry.name) === undefined) return
-      if (ctx.slots.entries(entry.name).some(e => e.component === entry.component)) return
-      disposers.set(entry.name, entry.register())
-    }
-    const unsubscribers = registrations.map(entry =>
-      ctx.slots.subscribe(entry.name, () => { tryRegister(entry) }))
-    for (const entry of registrations) tryRegister(entry)
-    // Language switch: re-register both entries so open surfaces re-render
-    // with the other dictionary (the bound t keeps a stable identity).
-    const offLocale = ctx.on('locale/change', () => {
-      for (const [name, dispose] of disposers) {
-        dispose()
-        disposers.delete(name)
-      }
-      for (const entry of registrations) tryRegister(entry)
-    })
-    return () => {
-      offLocale()
-      for (const unsubscribe of unsubscribers) unsubscribe()
-      for (const dispose of disposers.values()) dispose()
-    }
+    return () => { for (const entry of deferred) entry.dispose() }
   }, 'ui-workspace: browser + picker registrations')
 }

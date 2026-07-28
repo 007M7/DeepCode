@@ -5,7 +5,7 @@ import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
-import type { DirectoryPickingInjected } from '../src/client/contract/slots.ts'
+import type { DirectoryFlowOwnerProps } from '../src/client/contract/slots.ts'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
 afterEach(cleanup)
@@ -36,34 +36,29 @@ function anchor(): { current: HTMLElement } {
   return { current: element }
 }
 
-/** Minimal picking share for direct renders (kind resolves to dialog). */
-function pickingShare(): DirectoryPickingInjected {
-  return {
-    directoryPickerKind: vi.fn(async () => 'dialog' as const),
-    pickDirectory: vi.fn(async () => null),
-    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [{ name: 'u', path: '/home/u', hidden: false }], entries: [] })),
-    createDirectory: vi.fn(async () => '/home/u/new'),
-    t: (key: string) => key,
-  }
+/**
+ * Probe occupant of the directory-flow hole: records the latest owner
+ * conversation so tests drive onPicked/onCancel/onError like a composed flow
+ * package would, and renders a marker element while the flow is open.
+ */
+function flowProbe() {
+  const probe: { owner: DirectoryFlowOwnerProps | undefined } = { owner: undefined }
+  const renderSlot = ((_name: string, owner: DirectoryFlowOwnerProps) => {
+    probe.owner = owner
+    return owner.open ? <div data-testid="directory-flow" data-busy={owner.busy} /> : null
+  }) as never
+  return { probe, renderSlot }
 }
 
 function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
-  pickDirectory = vi.fn(async () => null as string | null),
-  picking: Partial<DirectoryPickingInjected> = {},
+  hasDirectoryFlow: () => boolean = () => true,
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
   const anchorRef = anchor()
-  const share: DirectoryPickingInjected = {
-    directoryPickerKind: vi.fn(async () => 'dialog' as const),
-    pickDirectory,
-    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [{ name: 'u', path: '/home/u', hidden: false }], entries: [] })),
-    createDirectory: vi.fn(async () => '/home/u/new'),
-    t: key => key,
-    ...picking,
-  }
+  const { probe, renderSlot } = flowProbe()
   const renderPicker = (nextItems: readonly WorkspaceView[]) => (
     <WorkspacePicker
       open
@@ -73,30 +68,21 @@ function mount(
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
-      {...share}
+      hasDirectoryFlow={hasDirectoryFlow}
+      renderSlot={renderSlot}
     />
   )
   const view = render(
     renderPicker(items),
   )
   return {
-    view, onPick, onClose, createWorkspace, pickDirectory, share,
+    view, onPick, onClose, createWorkspace, probe,
     rerenderItems: (nextItems: readonly WorkspaceView[]) => { view.rerender(renderPicker(nextItems)) },
   }
 }
 
 function chooseItem(name: 'Open local folder…' | 'Create a new workspace'): void {
   fireEvent.click(screen.getByRole('menuitem', { name }))
-}
-
-/** The local-folder entry disables until the Host's picker kind resolves. */
-async function chooseLocalFolder(): Promise<void> {
-  await waitFor(() => {
-    const item = screen.getByRole('menuitem', { name: 'Open local folder…' })
-    expect(item).not.toHaveProperty('ariaDisabled', 'true')
-    expect(item.getAttribute('aria-disabled')).not.toBe('true')
-  })
-  chooseItem('Open local folder…')
 }
 
 describe('WorkspacePicker', () => {
@@ -118,65 +104,71 @@ describe('WorkspacePicker', () => {
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
   })
 
-  it('opens a native directory picker, adopts its path, and selects the returned Workspace', async () => {
+  it('opens the composed directory flow, adopts its picked path, and selects the returned Workspace', async () => {
     const created = { ...workspace('adopted'), path: '/tmp/project', title: 'project' }
     const createWorkspace = vi.fn(async () => created)
-    const pickDirectory = vi.fn(async () => '/tmp/project')
-    const b = mount([], createWorkspace, pickDirectory)
-    await chooseLocalFolder()
-    expect(pickDirectory).toHaveBeenCalledOnce()
-    await waitFor(() => { expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' }) })
+    const b = mount([], createWorkspace)
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
+    chooseItem('Open local folder…')
+    expect(b.onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+    await act(async () => { b.probe.owner!.onPicked('/tmp/project') })
     expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' })
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
+    // Successful adoption withdraws the flow request.
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
   })
 
-  it('treats native picker cancellation as a silent no-op', async () => {
-    const b = mount([], vi.fn(), vi.fn(async () => null))
-    await chooseLocalFolder()
-    await waitFor(() => { expect(b.pickDirectory).toHaveBeenCalledOnce() })
+  it('treats flow cancellation as a silent no-op', () => {
+    const b = mount([])
+    chooseItem('Open local folder…')
+    act(() => { b.probe.owner!.onCancel() })
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
     expect(b.onPick).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('shows a name conflict and retries through the native picker', async () => {
-    const pickDirectory = vi.fn()
-      .mockResolvedValueOnce('/one/project')
-      .mockResolvedValueOnce(null)
+  it('shows a name conflict and retries by reopening the flow', async () => {
     const createWorkspace = vi.fn(async () => {
       throw new WorkspaceCreateError({
         code: 'workspace-name-conflict', message: 'project already exists', details: { name: 'project' },
       })
     })
-    const b = mount([], createWorkspace, pickDirectory)
-    await chooseLocalFolder()
+    const b = mount([], createWorkspace)
+    chooseItem('Open local folder…')
+    await act(async () => { b.probe.owner!.onPicked('/one/project') })
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
     })
     expect(screen.getByRole('alert').textContent).toBe('Choose a folder with a different name.')
+    // The failed adoption withdrew the flow; Choose again reopens it.
+    expect(b.probe.owner!.open).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
-    await waitFor(() => { expect(pickDirectory).toHaveBeenCalledTimes(2) })
+    expect(b.probe.owner!.open).toBe(true)
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
-  it('disables the folder action while the native picker is already open', async () => {
-    let resolve!: (path: string | null) => void
-    const pending = new Promise<string | null>((settle) => { resolve = settle })
-    const b = mount([], vi.fn(), vi.fn(() => pending))
-    await chooseLocalFolder()
+  it('disables the create actions and reports busy to the flow while adopting', async () => {
+    let resolve!: (workspace: WorkspaceView) => void
+    const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
+    const created = workspace('adopted')
+    const b = mount([], vi.fn(() => pending))
+    chooseItem('Open local folder…')
+    act(() => { b.probe.owner!.onPicked('/tmp/project') })
+    expect(b.probe.owner!.busy).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Open local folder…' }).disabled).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Open local folder…' }))
-    expect(b.pickDirectory).toHaveBeenCalledTimes(1)
-    await act(async () => { resolve(null); await pending })
+    await act(async () => { resolve(created); await pending })
+    expect(b.probe.owner!.busy).toBe(false)
   })
 
-  it('reports non-Error native picker failures', async () => {
-    const b = mount([], vi.fn(), vi.fn(async () => { throw 'picker unavailable' }))
-    await chooseLocalFolder()
-    await waitFor(() => {
-      expect(screen.getByRole('alert').textContent).toBe('picker unavailable')
-    })
+  it('shows the flow-reported failure in the folder-error surface', () => {
+    const b = mount([])
+    chooseItem('Open local folder…')
+    act(() => { b.probe.owner!.onError('no chooser installed') })
+    expect(screen.getByRole('alert').textContent).toBe('no chooser installed')
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
   })
 
@@ -236,6 +228,8 @@ describe('WorkspacePicker', () => {
   it('reports non-Error creation failures', async () => {
     const b = mount([], vi.fn(async () => { throw 'permission denied' }))
     chooseItem('Create a new workspace')
+    // The name field starts empty (no prefill); a name is required to submit.
+    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'broken' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')
@@ -243,110 +237,13 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
-  it('opens the in-app browser under the browse capability and adopts the confirmed directory', async () => {
-    const created = { ...workspace('adopted'), path: '/home/u', title: 'u' }
-    const createWorkspace = vi.fn(async () => created)
-    const b = mount([], createWorkspace, vi.fn(), {
-      directoryPickerKind: vi.fn(async () => 'browse' as const),
-    })
-    await chooseLocalFolder()
-    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
-    // The dialog listed home; Open adopts the listed directory.
-    await waitFor(() => { expect(b.share.listDirectory).toHaveBeenCalled() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
-    await waitFor(() => { expect(createWorkspace).toHaveBeenCalledWith({ path: '/home/u' }) })
-    await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
-    expect(b.pickDirectory).not.toHaveBeenCalled()
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('routes an adoption conflict from the browser into the folder-error dialog, and Choose again reopens the browser', async () => {
-    const createWorkspace = vi.fn(async () => {
-      throw new WorkspaceCreateError({
-        code: 'workspace-name-conflict', message: 'u already exists', details: { name: 'u' },
-      })
-    })
-    const b = mount([], createWorkspace, vi.fn(), {
-      directoryPickerKind: vi.fn(async () => 'browse' as const),
-    })
-    await chooseLocalFolder()
-    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
-    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
-    expect(b.onPick).not.toHaveBeenCalled()
-  })
-
-  it('drops a picker-kind failure that lands after unmount', async () => {
-    let rejectKind!: (reason: unknown) => void
-    const pending = new Promise<'dialog'>((_settle, fail) => { rejectKind = fail })
-    const b = mount([], vi.fn(), vi.fn(), { directoryPickerKind: vi.fn(() => pending) })
-    b.view.unmount()
-    await act(async () => {
-      rejectKind(new Error('gone'))
-      await pending.catch(() => {})
-    })
-    expect(b.onPick).not.toHaveBeenCalled()
-  })
-
-  it('drops a picker-kind resolution that lands after unmount', async () => {
-    let resolveKind!: (kind: 'dialog') => void
-    const pending = new Promise<'dialog'>((settle) => { resolveKind = settle })
-    const b = mount([], vi.fn(), vi.fn(), { directoryPickerKind: vi.fn(() => pending) })
-    b.view.unmount()
-    await act(async () => {
-      resolveKind('dialog')
-      await pending
-    })
-    expect(b.onPick).not.toHaveBeenCalled()
-  })
-
-  it('reports a browse adoption failure thrown as a plain string', async () => {
-    const b = mount([], vi.fn(async () => { throw 'disk detached' }), vi.fn(), {
-      directoryPickerKind: vi.fn(async () => 'browse' as const),
-    })
-    await chooseLocalFolder()
-    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('disk detached') })
-    expect(b.onPick).not.toHaveBeenCalled()
-  })
-
-  it('reports a native picker Error by its message', async () => {
-    const b = mount([], vi.fn(), vi.fn(async () => { throw new Error('no chooser installed') }))
-    await chooseLocalFolder()
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('no chooser installed') })
-    expect(b.createWorkspace).not.toHaveBeenCalled()
-  })
-
-  it('hides the local-folder entry for an unrecognized advertised kind', async () => {
-    mount([], vi.fn(), vi.fn(), {
-      directoryPickerKind: vi.fn(async () => 'electron-native'),
-    })
-    await waitFor(() => {
-      expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
-    })
-    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
-  })
-
-  it('hides the local-folder entry when the picker kind is unknown', async () => {
-    mount([], vi.fn(), vi.fn(), {
-      directoryPickerKind: vi.fn(async () => { throw new Error('unreachable host') }),
-    })
-    await waitFor(() => {
-      expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
-    })
-    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
-  })
-
   it('waits to show its menu until an optional anchor is available', () => {
+    const { renderSlot } = flowProbe()
     render(
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} {...pickingShare()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
+        hasDirectoryFlow={() => true} renderSlot={renderSlot}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -356,12 +253,31 @@ describe('WorkspacePicker', () => {
     const state: WorkspaceListState = {
       ...workspaceState([]), phase: 'pending', state: 'loading', baselinesReady: false,
     }
+    const { renderSlot } = flowProbe()
     render(
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} {...pickingShare()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
+        hasDirectoryFlow={() => true} renderSlot={renderSlot}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')
+  })
+
+  it('hides the folder entry while the directory-flow hole is empty', () => {
+    mount([], vi.fn(), () => false)
+    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+  })
+
+  it('shows the folder entry once the hole reports an occupant on a later render', () => {
+    let occupied = false
+    const b = mount([], vi.fn(), () => occupied)
+    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    // A flow package activating after the first paint is observed on the
+    // next render — the same cadence as reopening the menu.
+    occupied = true
+    b.rerenderItems([])
+    expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
   })
 })

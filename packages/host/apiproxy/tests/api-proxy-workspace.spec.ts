@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -47,10 +47,10 @@ function stubAgent(session: Session): Agent {
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -59,7 +59,8 @@ function stubAgent(session: Session): Agent {
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
-  picker: DirectoryPickerCapability = { kind: 'dialog', pick: async () => null },
+  picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
+  extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -102,24 +103,25 @@ async function harness(
     model: 'test-model',
     cwd: workspaceRoot,
     workspaceRoot,
+    ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
   })
   return { api, ctx, storageDomain, workspaceRoot }
 }
 
 describe('host.pickDirectory', () => {
-  it('returns a selected path or explicit cancellation from the dialog capability', async () => {
-    const selected = await harness(undefined, { kind: 'dialog', pick: async () => '/tmp/project' })
+  it('returns a selected path or explicit cancellation from the native capability', async () => {
+    const selected = await harness(undefined, { kind: 'native', pick: async () => '/tmp/project' })
     expect((await selected.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: '/tmp/project' } })
 
-    const cancelled = await harness(undefined, { kind: 'dialog', pick: async () => null })
+    const cancelled = await harness(undefined, { kind: 'native', pick: async () => null })
     expect((await cancelled.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: null } })
   })
 
-  it('propagates abort into the dialog capability as a cancelled RPC error', async () => {
+  it('propagates abort into the native capability as a cancelled RPC error', async () => {
     const { api } = await harness(undefined, {
-      kind: 'dialog',
+      kind: 'native',
       pick: signal => new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       }),
@@ -130,13 +132,13 @@ describe('host.pickDirectory', () => {
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })
 
-  it('folds a non-abort dialog failure into an internal error', async () => {
-    const { api } = await harness(undefined, { kind: 'dialog', pick: async () => { throw new Error('no chooser installed') } })
+  it('folds a non-abort native-chooser failure into an internal error', async () => {
+    const { api } = await harness(undefined, { kind: 'native', pick: async () => { throw new Error('no chooser installed') } })
     const response = await api.host.pickDirectory(request({}), new AbortController().signal)
     expect(response.result).toMatchObject({ ok: false, error: { code: 'internal' } })
   })
 
-  it('refuses the dialog RPC under a browse composition', async () => {
+  it('refuses the native RPC under a browse composition', async () => {
     const { api } = await harness(undefined, BROWSE_STUB)
     const response = await api.host.pickDirectory(request({}), new AbortController().signal)
     expect(response.result).toMatchObject({
@@ -190,17 +192,38 @@ describe('host.listDirectory / host.createDirectory', () => {
     })
   })
 
-  it('refuses the browse RPCs under a dialog composition and advertises the kind in describe', async () => {
+  it('refuses the browse RPCs under a native composition', async () => {
     const { api } = await harness()
-    expect((await api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'dialog' } })
     expect((await api.host.listDirectory(request({}))).result).toMatchObject({
-      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'dialog' } },
+      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'native' } },
     })
     expect((await api.host.createDirectory(request({ path: '/x', name: 'y' }))).result).toMatchObject({
-      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'dialog' } },
+      ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'native' } },
     })
-    const browse = await harness(undefined, BROWSE_STUB)
-    expect((await browse.api.host.describe(request({}))).result).toMatchObject({ ok: true, value: { directoryPicker: 'browse' } })
+  })
+})
+
+describe('host.openPath', () => {
+  it('opens through the injected native boundary', async () => {
+    const opened: string[] = []
+    const { api } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect(opened).toEqual(['/tmp/a.txt'])
+  })
+
+  it('propagates abort into the native boundary as a cancelled RPC error', async () => {
+    const { api } = await harness(undefined, undefined, {
+      openPath: (_path, signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }),
+    })
+    const abort = new AbortController()
+    const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
+    abort.abort()
+    expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })
 })
 

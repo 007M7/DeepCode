@@ -7,36 +7,66 @@
  *   consumes the shell's two-fact owner share (wide / expandSidebar).
  * - WorkspacePicker fills the conversation empty-state hole (menu +
  *   create dialogs shared with the browser).
+ *
+ * Each registration also declares one **directory-flow hole** (`single`
+ * kind): the slot a composed picker package's client half fills with its
+ * picking interaction — a renderless native-chooser driver or an in-app
+ * browsing dialog. ui-workspace owns the trigger (the "Open local folder…"
+ * menu entry, shown only while the hole is occupied) and the adoption
+ * semantics (`createWorkspace({ path })`, the conflict/error dialog, Choose
+ * again); the occupant owns everything between `open` and the picked path.
+ * Two holes exist because the two menu surfaces are independent slot entries
+ * and a hole has exactly one declaring entry — they carry the same owner
+ * contract and the same occupant.
  */
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type {
-  DirectoryListing, DirectoryPickerKind, SessionId, WorkspaceId, WorkspaceView,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
+import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
 /**
- * Directory-picking share both registrations consume: the Host's composed
- * picker interaction decides which calls the flow drives (`dialog` opens the
- * native chooser through `pickDirectory`; `browse` drives the in-app browser
- * through `listDirectory`/`createDirectory`; an unknown kind hides the
- * local-folder entry — the merge-extensible union's documented default).
+ * Owner share of the directory-flow holes: the complete conversation between
+ * the trigger surface and the picking interaction. The occupant reads `open`
+ * to run/render its interaction and reports exactly one outcome per open.
  */
+export interface DirectoryFlowOwnerProps {
+  /** True while a picking interaction is requested; flipping back to false withdraws the request. */
+  open: boolean
+  /** True while the owner adopts a picked path (`createWorkspace` in flight); occupants disable their commit affordances. */
+  busy: boolean
+  /** The operator picked a directory (absolute host path); the owner adopts it. */
+  onPicked: (path: string) => void
+  /** The operator dismissed the interaction; the owner just closes the flow. */
+  onCancel: () => void
+  /** The interaction itself failed (chooser missing, listing denied); the owner shows its error surface. */
+  onError: (message: string) => void
+}
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
+    'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+    /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
+    'sidebar.workspaces.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+  }
+}
+
+/** The two directory-flow holes; a flow package's client half registers its one component into both. */
+export type DirectoryFlowSlotName =
+  | 'conversation.hero.workspace.directoryFlow'
+  | 'sidebar.workspaces.directoryFlow'
+
+/** Directory-picking share both trigger surfaces consume. */
 export type DirectoryPickingInjected = {
-  /** The Host's advertised picker interaction, read per flow open. */
-  directoryPickerKind: () => Promise<DirectoryPickerKind>
-  /** Ask the local Host to open its native single-directory picker (`dialog`). */
-  pickDirectory: () => Promise<string | null>
-  /** List one directory level with breadcrumb ancestry (`browse`). */
-  listDirectory: (path?: string) => Promise<DirectoryListing>
-  /** Create one child directory under an existing parent (`browse`). */
-  createDirectory: (path: string, name: string) => Promise<string>
-  /** Localized picker copy (this package's locale namespace). */
-  t: Translate
+  /**
+   * Whether this surface's directory-flow hole is occupied — read when the
+   * menu opens; an empty hole hides the "Open local folder…" entry (the
+   * no-flow composition simply has no picking affordance).
+   */
+  hasDirectoryFlow: () => boolean
 }
 
 /**
@@ -70,6 +100,7 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
 /** Full browser props: shell owner share + viewing store + injected actions. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
+  & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & WorkspaceBrowserInjected
 
@@ -89,4 +120,6 @@ export type WorkspacePickerInjected = DirectoryPickingInjected & {
  * currency, so one composed type serves both registrations.
  */
 export type WorkspacePickerProps =
-  PropsRuntime<'conversation.hero.workspace'> & WorkspacePickerInjected
+  PropsRuntime<'conversation.hero.workspace'>
+  & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
+  & WorkspacePickerInjected

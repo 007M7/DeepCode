@@ -19,7 +19,6 @@ export const hostDescribeValueSchema = z.object({
   attachedSessions: z.number().int().nonnegative(),
   // Open string, not a literal union: unknown kinds must survive the wire so
   // a merge-added capability can advertise (the client hides the affordance).
-  directoryPicker: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
 /** host.pickDirectory request payload (empty object literal). */
@@ -64,3 +63,12 @@ export const hostCreateDirectoryRequestSchema = z.object({
 export const hostCreateDirectoryValueSchema = z.object({
   path: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.createDirectory'>>>
+/** host.openPath request payload. */
+export const hostOpenPathRequestSchema = z.object({
+  path: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'host.openPath'>>>
+
+/** host.openPath response value. */
+export const hostOpenPathValueSchema = z.object({
+  opened: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'host.openPath'>>>

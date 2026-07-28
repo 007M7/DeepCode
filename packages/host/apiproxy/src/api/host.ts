@@ -5,18 +5,6 @@
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
-/**
- * The composed directory-picker interaction the host serves (mirror of the
- * `ctx.directoryPicker` capability kind): `dialog` = one native OS chooser on
- * the host display (`host.pickDirectory`); `browse` = in-app listing/creation
- * primitives (`host.listDirectory`/`host.createDirectory`). Calling a method
- * outside the advertised kind fails with `directory-picker-unavailable`.
- * The wire preserves kinds beyond the two with methods here (a merge-added
- * capability advertises before its RPCs exist); the client's documented
- * default for a kind it does not recognize is to hide the picking affordance.
- */
-export type DirectoryPickerKind = 'dialog' | 'browse' | (string & {})
-
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
 export interface DirectoryEntry {
   /** Base name shown in a browser row (a root crumb carries its full path). */
@@ -51,7 +39,6 @@ export interface HostApi {
    * applied when a new agent doesn't specify them explicitly, absent when the host configures
    * no explicit default (the adapter falls back internally);
    * attachedSessions = count of currently attached sessions (those with a live agent);
-   * directoryPicker = the composed picker interaction the client renders for.
    */
   describe(request: RpcRequest<{}>): Promise<RpcResponse<{
     version: string
@@ -59,12 +46,11 @@ export interface HostApi {
     provider?: string
     model?: string
     attachedSessions: number
-    directoryPicker: DirectoryPickerKind
   }>>
 
   /**
    * Open the operating system's single-directory picker; cancellation returns
-   * null. Only served under the `dialog` capability.
+   * null. Only served under the `native` capability.
    */
   pickDirectory(
     request: RpcRequest<{}>,
@@ -89,4 +75,15 @@ export interface HostApi {
   createDirectory(
     request: RpcRequest<{ path: string; name: string }>,
   ): Promise<RpcResponse<{ path: string }>>
+
+  /**
+   * Open a filesystem path with the operating system's default application
+   * (Finder / Explorer / xdg-open hand-off). The browser carrier's
+   * prefix-wide trust fence covers this privileged method like every other
+   * `/api` request.
+   */
+  openPath(
+    request: RpcRequest<{ path: string }>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>>
 }

@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from 'schemastery'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
   ndJsonStream,
@@ -146,7 +147,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     if (record === undefined || record.agent.session !== session) return
     try {
       if (event.type === 'assistant/message') {
-        for (const block of event.data.content) {
+        for (const block of event.data.message.content) {
           if (block.type === 'text' && block.text.length > 0) {
             notify({
               sessionId: record.agent.session.id,
@@ -274,7 +275,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
           record.inflight = inflight
           try {
-            record.agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+            record.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
             // The machine's send() contains listener failures and accepts
             // any typed input; this guards a future synchronous throw so the
             // slot cannot wedge.

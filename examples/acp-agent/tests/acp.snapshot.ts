@@ -39,6 +39,7 @@ const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
+const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
@@ -75,6 +76,13 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  {
+    name: 'session-title-after-turn',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: SESSION_TITLE_CONFIG,
+  },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   // Authored from the real PACKED_CHUNKS_SOURCE recording under the ordinary
   // app composition. The contract below pins decoded equality and all three
@@ -288,9 +296,22 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   })
 
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
+  const withoutMessageId = (record: unknown): unknown => {
+    const cloned = structuredClone(record) as {
+      type?: unknown
+      data?: { id?: unknown; message?: { id?: unknown } }
+    }
+    if (cloned.type === 'user/message') delete cloned.data?.id
+    if (cloned.type === 'assistant/message'
+      || cloned.type === 'tool/result'
+      || cloned.type === 'steering/message') {
+      delete cloned.data?.message?.id
+    }
+    return cloned
+  }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [
     records[0],
-    ...records.slice(1).flatMap(record => decodeStorageRecord(record)),
+    ...records.slice(1).flatMap(record => decodeStorageRecord(record)).map(withoutMessageId),
   ]
   expect(logicalRecords(packed)).toStrictEqual(logicalRecords(source))
 })

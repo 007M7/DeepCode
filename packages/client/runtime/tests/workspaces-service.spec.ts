@@ -238,15 +238,6 @@ describe('WorkspacesService', () => {
     await expect(workspaces.pickDirectory()).rejects.toThrow(/no chooser/)
   })
 
-  it('reads the picker kind from describe per call, failing loud on an unreachable host', async () => {
-    const ctx = new Context()
-    const api = new FakeApiClient()
-    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api))
-    await expect(workspaces.directoryPickerKind()).resolves.toBe('browse')
-    api.onDescribe = () => Promise.resolve(err({ code: 'internal', message: 'down', details: {} }))
-    await expect(workspaces.directoryPickerKind()).rejects.toThrow(/host describe failed/)
-  })
-
   it('passes listings and creation through the browse wire, wrapping business failures', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
@@ -266,6 +257,17 @@ describe('WorkspacesService', () => {
     expect(api.callsOf('host.createDirectory')).toEqual([{ path: '/home/u', name: 'fresh' }])
     api.onCreateDirectory = () => Promise.resolve(err({ code: 'directory-exists', message: 'taken', details: { path: '/home/u/fresh' } }))
     await expect(workspaces.createDirectory('/home/u', 'fresh')).rejects.toMatchObject({ rpcError: { code: 'directory-exists' } })
+  })
+
+  it('opens a filesystem path through the host without local state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    await expect(workspaces.openPath('/w/alpha/a.ts')).resolves.toBeUndefined()
+    expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
+    api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
+    await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
   })
 
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {

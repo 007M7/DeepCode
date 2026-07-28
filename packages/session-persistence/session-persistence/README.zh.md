@@ -13,8 +13,8 @@
 | `locate(meta): SessionLocation \| undefined` | 在不执行 I/O 或实体化的情况下解析绝对的每会话产物目标。没有独立本地产物的后端返回 `undefined`。 |
 | `create(meta): Promise<void>` | 注册新会话元数据。可以将物理写入延迟到第一次 `append`（延迟实体化）。 |
 | `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并命名违规类型。 |
-| `load(id): Promise<{ meta; events }>` | 返回已存储 header 和平衡、连续日志。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件关闭它。只丢弃撕裂尾部碎片；已提交损坏和未知 `version` 会被拒绝。 |
-| `inspect(id, signal?): Promise<{ meta; events }>` | 返回脱离的有效已存储前缀，不截断撕裂尾部、合成恢复 closer 或发布协调器状态。它与同 id 写入串行化；可选信号会迅速拒绝已排队调用方，阻止该后端读取启动，并取消活动后端读取工作。用于绝不应恢复日志的读模型和其他观察者。 |
+| `load(id): Promise<{ meta; events }>` | 返回已存储 header 和平衡、连续的日志，其中事件已脱离并验证，带标识的消息已深度冻结。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件关闭它。只丢弃撕裂尾部碎片；已提交损坏、格式错误的消息和未知 `version` 会被拒绝。 |
+| `inspect(id, signal?): Promise<{ meta; events }>` | 返回脱离的有效已存储前缀，其中带标识的消息已经验证并深度冻结；不截断撕裂尾部、合成恢复 closer 或发布协调器状态。它与同 id 写入串行化；可选信号会迅速拒绝已排队调用方，阻止该后端读取启动，并取消活动后端读取工作。用于绝不应恢复日志的读模型和其他观察者。 |
 | `list(signal?): Promise<SessionHeader[]>` | 从元数据轻量列出，不解析完整日志。可选信号取消后端列表工作。零事件延迟实体化会话不在 `list` 中。 |
 | `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | 返回轻量元数据和不透明品牌化每日志修订，不加载事件日志。日志及其后端存储不变时，修订保持相等；append 或变更性 load 修复后会改变；不会仅因两个存储使用相同本地计数器而冲突。可选信号请求取消后端发现工作；第一方后端在拒绝前结算已启动列表工作，使已等待调用完全停稳。 |
 

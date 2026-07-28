@@ -1,11 +1,11 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
 import type {
-  MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+  InjectFace, MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConversationSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, InputActions, InputState } from '../input/contract.ts'
+import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -33,6 +33,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `fallback` for unregistered tools.
      */
     'conversation.chat.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolRowOwnerProps }
+    /**
+     * The chat view's per-command row hole: keyed dispatch on the command
+     * name (`command/run.name`; a run-less cross-window node has none and
+     * always lands on the fallback). Declared by the chat view entry; the
+     * render site dispatches via `entryKey: name` with GenericCommandCard as
+     * the `fallback` — a slash command renders durably with zero
+     * registration, and a domain upgrades by registering one row component.
+     */
+    'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
@@ -143,8 +152,13 @@ export interface ToolRowOwnerProps {
   toolName: string
   /** Frozen call slice: the running call or the settled result node. */
   block: ToolCallBlock
-  /** Open the details panel for this call (session-level facility, supplied by the view). */
-  openDetails: () => void
+  /** Session workspace root; path summaries display relative to it. */
+  cwd?: string | undefined
+  /**
+   * Open a tool-arg filesystem path with the host OS default application.
+   * The chat view resolves relative paths against the session cwd.
+   */
+  openFile: (path: string) => void
 }
 
 /**
@@ -155,6 +169,22 @@ export interface ToolRowOwnerProps {
  * share one declaration shape, so this alias serves them all.
  */
 export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
+
+/**
+ * Owner share of the per-command row slot: the frozen {@link CommandNode}
+ * slice off the snapshot (cache-stable reference — memo premise). The node
+ * carries the whole lifecycle (structured name/args, pairing id,
+ * outcome-or-executing), so a
+ * registrant needs no second data channel; domain state arrives through its
+ * own projection cell.
+ */
+export interface CommandRowOwnerProps {
+  /** Folded command lifecycle node (run + optional done). */
+  node: CommandNode
+}
+
+/** Full props of a registered command-row component (same shape rule as {@link ToolRowProps}). */
+export type CommandRowProps = PropsRuntime<'conversation.chat.commandview'>
 
 /**
  * Base props of a conversation view entry: the framework standard kit for the
@@ -220,6 +250,13 @@ export interface ComposerBarInjected {
   keyboard: ComposerKeyboard
   /** Cancel the in-flight turn. */
   stop: () => void
+  /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
+  hooks: {
+    /** Latest surfaced notice (null after none; seq keys re-render of repeats). */
+    notices: ObservableSnapshot<InputNotice | null>
+    /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
+    lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
+  }
 }
 
 /**
@@ -231,11 +268,11 @@ export interface InputControlOwnerProps {
   locked: boolean
 }
 
-/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share. */
+/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share (hooks compartment bound). */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
   & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
-  & ComposerBarInjected
+  & InjectFace<ComposerBarInjected>
 
 /**
  * Composer chain currency: what ConversationRoot dispatches at its
@@ -276,12 +313,17 @@ export type ConversationSessionSlotProps =
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails: (target: SelectionTarget) => void
+  /**
+   * Open a tool-arg filesystem path with the host OS default application
+   * (relative paths resolve against the session cwd).
+   */
+  openFile: (path: string) => void
   loadOlder: () => void
 }
 
-/** Full chat-view component props: runtime share & the declared toolview hole's render share & store share & injected share. */
+/** Full chat-view component props: runtime share & the declared toolview/commandview holes' render share & store share & injected share. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview'>
   & PropsStore<ChatStore> & ChatViewInjected
 
 /**
@@ -300,6 +342,8 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 export interface EmptyWorkspaceOwnerProps {
   open: boolean
   anchorRef?: RefObject<HTMLElement>
+  /** Currently active workspace (renders a trailing check in the picker list). */
+  selectedId?: WorkspaceId | undefined
   onPick: (workspaceId: WorkspaceId) => void
   onClose: () => void
 }

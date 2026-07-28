@@ -14,29 +14,16 @@ async function bench() {
     path: 'name' in input ? `/projects/${input.name}` : input.path,
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
-  const pickDirectory = vi.fn(async () => '/tmp/picked')
-  const directoryPickerKind = vi.fn(async () => 'browse' as const)
-  const listDirectory = vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] }))
-  const createDirectory = vi.fn(async () => '/home/u/new')
   const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
   ctx.provide('workspaces', {
-    create, pickDirectory, directoryPickerKind, listDirectory, createDirectory,
-    startSession, rename, insertSessionBefore,
+    create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear } as never)
-  // Structural locale fake: register/bind are the only members apply touches.
-  const localeRegister = vi.fn(() => () => {})
-  const boundT = (key: string): string => key
-  ctx.provide('locale', { register: localeRegister, bind: () => boundT } as never)
-  return {
-    ctx, slots: ctx.get('slots') as SlotsService, create, pickDirectory,
-    directoryPickerKind, listDirectory, createDirectory, localeRegister, boundT,
-    startSession, rename, insertSessionBefore, open, clear,
-  }
+  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -49,7 +36,7 @@ function declare(slots: SlotsService, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {
@@ -85,14 +72,30 @@ describe('ui-workspace apply', () => {
     expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
     await browser.createWorkspace({ name: 'project' })
     expect(b.create).toHaveBeenCalledWith({ name: 'project' })
-    await browser.pickDirectory()
-    expect(b.pickDirectory).toHaveBeenCalledOnce()
 
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
-    await picker.pickDirectory()
-    expect(b.pickDirectory).toHaveBeenCalledTimes(2)
+  })
+
+  it('declares the two directory-flow holes and reports their occupancy per surface', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    // Registration declared the child holes (declaration = render authorization).
+    expect(b.slots.spec('sidebar.workspaces.directoryFlow')).toMatchObject({ kind: 'single' })
+    expect(b.slots.spec('conversation.hero.workspace.directoryFlow')).toMatchObject({ kind: 'single' })
+
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
+    expect(browser.hasDirectoryFlow()).toBe(false)
+    expect(picker.hasDirectoryFlow()).toBe(false)
+    // A flow occupant flips exactly its own surface.
+    const dispose = b.slots.register({ name: 'sidebar.workspaces.directoryFlow' } as never, () => null)
+    expect(browser.hasDirectoryFlow()).toBe(true)
+    expect(picker.hasDirectoryFlow()).toBe(false)
+    dispose()
+    expect(browser.hasDirectoryFlow()).toBe(false)
   })
 
   it('unregisters every entry on teardown', async () => {

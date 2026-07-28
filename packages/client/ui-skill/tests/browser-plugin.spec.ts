@@ -208,6 +208,33 @@ describe('lexicon', () => {
     // Another session's key is independent — cold until its own fetch.
     expect(source.lexicon!(proj('s2'))).toBeUndefined()
   })
+
+  it('subscribeLexicon notifies on catalog settle and on invalidation, per session', async () => {
+    const { list } = countingList()
+    const { ctx, source } = await bench(list)
+    const s1 = vi.fn()
+    const s2 = vi.fn()
+    source.subscribeLexicon!(proj('s1'), s1)
+    source.subscribeLexicon!(proj('s2'), s2)
+    await source.candidates(proj('s1'), req(''))
+    expect(s1).toHaveBeenCalledTimes(1)
+    expect(s2).not.toHaveBeenCalled()
+    // Reset invalidates every cached session: each key notifies its own listeners.
+    await source.candidates(proj('s2'), req(''))
+    ctx.emit('connection/reset')
+    expect(s1).toHaveBeenCalledTimes(2)
+    expect(s2).toHaveBeenCalledTimes(2)
+  })
+
+  it('an unsubscribed lexicon listener stops receiving notifications', async () => {
+    const { list } = countingList()
+    const { source } = await bench(list)
+    const listener = vi.fn()
+    const off = source.subscribeLexicon!(proj('s1'), listener)
+    off()
+    await source.candidates(proj('s1'), req(''))
+    expect(listener).not.toHaveBeenCalled()
+  })
 })
 
 describe('pick and codec', () => {

@@ -14,9 +14,8 @@
 
 - `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
 - `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
-- `ctx.sessions.appendOutOfBand(session, type, data, trigger)` 只接受已在 `OutOfBandSessionEventMap` 中显式准入的插件事件类型。若轮次已打开，它会直接追加；否则会原子地开启一个零步骤插件轮次，依次追加、关闭并刷新。即使目标事件追加失败，仍会关闭并刷新合成轮次，且在整个序列结算前延后脱离操作。
-- `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取最近的原始轮次边界，因为更晚的注入或插件所有的零步骤轮次具有自己的结果。
-- `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求边界为 `turn/end`，再创建带谱系元数据的实时子会话。
+- `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取日志中最近的事件，因为轮次间记录和非消息轮次没有提示词结果。
+- `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，再创建带谱系元数据的实时子会话。
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -39,7 +38,7 @@
 普通类（不是 Cordis 服务）。通过 `ctx.sessions.create()` 创建。
 
 - `session.append(type, data, opts?)` 会为持久数据和 surface 元数据制作快照并冻结它们，校验标记形态、溯源信息、替换覆盖完整性，以及仅修改内容的单个 `tool/result` 重写，随后同步提交，再在彼此独立的失败收容下通知观察者。对已附加会话的重入追加会被拒绝，运行时检查也覆盖扩宽后的联合类型和已加载日志。
-- `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，数组元素引用共享的冻结消息。assistant 投影保留提供方／模型溯源信息及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
+- `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，其中包含这些条目存储的完整、带标识且冻结的消息。assistant 消息会在其模型来源中保留提供方／模型溯源信息及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
 - `session.deriveEventMessage(event)` 是重建和请求检查使用的规范逐事件投影。
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
 - `session.events` 是按追加失效的缓存冻结快照；已接受事件保持深度冻结。
@@ -66,15 +65,15 @@
 
 `request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`user/message` 会将其 `content` 原样呈现为 user-role 消息，无论它是直接人类提示词、合成注入，还是已准入的 Goal Round；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
+`user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 
-`tool/result` 持久保存面向模型的内容、可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。这样会保留现有事件形态，且不改变 `SESSION_FORMAT_VERSION`。
+`tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。
 
 ### 会话事件词汇（`types.ts`）
 
 生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记和溯源信息。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。提供方／模型／回放溯源信息随 `assistant/message` 一同保存；运行错误的步骤记录在 `turn/end.reason` 上（此时为 `kind: 'error'`），最终模型请求失败时还包含结构化的提供方事实。
 
-`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。`OutOfBandSessionEventMap` 是独立、默认为空的标记映射：事件所有方必须在其中合并相同键，`appendOutOfBand()` 才接受该仅日志类型；surface 和生命周期类型仍被排除。
+`SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
 此包还定义 `TurnTriggerMap` 和 `TurnEndReasonMap`（用于类型化轮次边界、可合并扩展的和类型；以 `kind` 为标签而不是字符串）。最终模型请求错误保留一个结构化 `LlmFailure`；其他轮次错误保留消息／代码，两者均标识失败步骤。
 
@@ -101,7 +100,7 @@
 
 #### 模型看到的内容
 
-模型会原样接收 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` surface 条目的投影：每个投影都是一条 user-role 或 assistant-role 消息，其内容块保持不变。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、hook 记录、todo 记录以及其他仅日志事件不会添加消息。
+模型会原样接收 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、hook 记录、todo 记录以及其他仅日志事件不会添加消息。
 
 #### Token 影响
 
@@ -142,6 +141,6 @@
 ## 已知限制与暂缓工作
 
 - **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
-- **`fork()` 仅在实时会话已关闭轮次的边界处切分**：边界必须是 `turn/end` 事件，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
+- **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
 - **`SESSION_FORMAT_VERSION` 固定为 `0`**：预发布阶段不承诺兼容性；后端会拒绝其他任何版本，首次发布前不提供迁移路径（[政策](../../../AGENTS.md)）。
 - **`TurnEndReasonMap` 不含 ACP（Agent Client Protocol）命名的 `refusal`／`max_turn_requests` 变体**：受生产方约束；只有当适配器或循环首次产生这些变体时才加入。

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
-import BrowseDirectoryPicker from '../src/index.ts'
+import BrowseDirectoryPicker, { fullyQualified } from '../src/index.ts'
 
 let root: string
 let capability: DirectoryPickerBrowseCapability
@@ -68,6 +68,37 @@ describe('BrowseDirectoryPicker', () => {
     expect(failure).toBeInstanceOf(DirectoryPickerError)
     expect((failure as DirectoryPickerError).code).toBe('directory-unreadable')
     expect((failure as DirectoryPickerError).path).toBe(missing)
+  })
+
+  it('classifies fully qualified paths per platform (drive-less rooted Windows forms rejected)', () => {
+    expect(fullyQualified('/home/x', 'linux')).toBe(true)
+    expect(fullyQualified('x/y', 'darwin')).toBe(false)
+    expect(fullyQualified('C:\\projects', 'win32')).toBe(true)
+    expect(fullyQualified('C:/projects', 'win32')).toBe(true)
+    expect(fullyQualified('\\\\server\\share', 'win32')).toBe(true)
+    expect(fullyQualified('//server/share/deep', 'win32')).toBe(true)
+    // Rooted but drive-less: isAbsolute accepts these, yet resolve() would
+    // inject the process's current drive.
+    expect(fullyQualified('\\foo', 'win32')).toBe(false)
+    expect(fullyQualified('/foo', 'win32')).toBe(false)
+    expect(fullyQualified('C:relative', 'win32')).toBe(false)
+    // Incomplete UNC prefixes collapse to drive-relative roots under resolve().
+    expect(fullyQualified('\\\\', 'win32')).toBe(false)
+    expect(fullyQualified('\\\\server', 'win32')).toBe(false)
+    expect(fullyQualified('\\\\server\\', 'win32')).toBe(false)
+  })
+
+  it('rejects non-absolute paths instead of rebasing them under the process cwd', async () => {
+    for (const relative of ['', 'projects', './projects', '..']) {
+      const listFailure = await capability.list(relative).catch((error: unknown) => error)
+      expect(listFailure).toBeInstanceOf(DirectoryPickerError)
+      expect((listFailure as DirectoryPickerError).code).toBe('directory-unreadable')
+      expect((listFailure as DirectoryPickerError).path).toBe(relative)
+      const createFailure = await capability.createDirectory(relative, 'child').catch((error: unknown) => error)
+      expect(createFailure).toBeInstanceOf(DirectoryPickerError)
+      expect((createFailure as DirectoryPickerError).code).toBe('directory-create-failed')
+      expect((createFailure as DirectoryPickerError).path).toBe(relative)
+    }
   })
 
   it('creates one child directory and surfaces it in the next listing', async () => {

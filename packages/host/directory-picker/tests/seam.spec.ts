@@ -7,7 +7,7 @@ import type { DirectoryPickerCapability } from '../src/index.ts'
 
 /** Minimal concrete backend: all a subclass owes the abstract class is capability(). */
 class StubPicker extends DirectoryPicker {
-  private readonly stub: DirectoryPickerCapability = { kind: 'dialog', pick: async () => null }
+  private readonly stub: DirectoryPickerCapability = { kind: 'native', pick: async () => null }
   capability(): DirectoryPickerCapability {
     return this.stub
   }
@@ -19,7 +19,7 @@ describe('DirectoryPicker seam', () => {
     const fiber = ctx.plugin(StubPicker)
     await fiber.await()
     expect(ctx.get('directoryPicker')).toBeInstanceOf(StubPicker)
-    expect(ctx.get('directoryPicker')!.capability().kind).toBe('dialog')
+    expect(ctx.get('directoryPicker')!.capability().kind).toBe('native')
     await fiber.dispose()
     expect(ctx.get('directoryPicker')).toBeUndefined()
   })

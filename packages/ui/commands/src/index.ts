@@ -7,10 +7,27 @@ import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
+import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import { CommandId } from './brand.ts'
+
+export { CommandId } from './brand.ts'
 
 export const name = 'commands'
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
+
+/**
+ * Producer record for one command invocation (the `command/run` event's
+ * provenance slot). Merge-extensible sum type mirroring `MessageSourceMap`'s
+ * shape; minimal today because every executor caller is a human-facing UI
+ * surface dispatching a human-typed line, so the sole variant is `user`.
+ */
+export interface CommandSourceMap {
+  user: { kind: 'user' }
+}
+
+/** The union over {@link CommandSourceMap} — who issued a command line. */
+export type CommandSource = CommandSourceMap[keyof CommandSourceMap]
 
 /** Immutable metadata for a command's optional unstructured input. */
 export interface CommandInputDescriptor {
@@ -32,6 +49,19 @@ export interface CommandInvocation {
 export type CommandResult =
   | { readonly kind: 'success'; readonly text?: string }
   | { readonly kind: 'error'; readonly text: string }
+
+/**
+ * One settled command execution: the handler's normalized result plus the
+ * lifecycle pairing id minted for its `command/run`/`command/done` records,
+ * so a dispatching surface can correlate the RPC-level acknowledgment with
+ * the flow node those events produce.
+ */
+export interface CommandExecution {
+  /** Pairing id carried by this execution's lifecycle events. */
+  readonly commandId: CommandId
+  /** The handler's normalized outcome. */
+  readonly result: CommandResult
+}
 
 /** Plugin-owned command registration. */
 export interface CommandDefinition {
@@ -85,6 +115,27 @@ class CommandLayer implements ScopeLayer {
   /** @returns whether this layer owns no command registrations. */
   isEmpty(): boolean {
     return this.commands.isEmpty()
+  }
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /**
+     * A resolved slash command entered its handler. Log-only (never model
+     * surface); paired with `command/done` by `commandId`, mirroring the
+     * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+     * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+     * separator whitespace included), so a consumer (a projection unit
+     * folding its own command records, a rich command card) never re-parses
+     * a line.
+     */
+    'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+    /**
+     * The paired command settled. `kind`/`text` carry the handler's verbatim
+     * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+     * rendered failure); presentation stays client-computed at render time.
+     */
+    'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
   }
 }
 
@@ -230,6 +281,11 @@ export class CommandService extends Service {
     () => { this.notifyChange() },
   )
 
+  /** Monotonic per-instance counter behind {@link mintCommandId}. */
+  private commandSeq = 0
+  /** Instance token keeping minted ids unique across process restarts over one resumed log. */
+  private readonly instanceToken = crypto.randomUUID().slice(0, 8)
+
   constructor(ctx: Context) {
     super(ctx, 'commands')
   }
@@ -272,24 +328,82 @@ export class CommandService extends Service {
 
   /**
    * Parse and execute a known command without sending it to the model.
+   *
+   * A resolved command's lifecycle is logged: `command/run` is appended
+   * before the handler is invoked and `command/done` after settlement (a
+   * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+   * log-only appends — no turn wraps them, and persistence drains them at
+   * ordinary checkpoints. Admission misses (syntax or unknown name) log
+   * nothing — they never entered a handler. A `command/run` append failure
+   * fails the execution loud; a `command/done` append failure on the
+   * handler-failure path is contained so the handler's own error stays the
+   * reported failure.
+   *
    * @param agent - exact receiving agent.
    * @param line - complete slash-command line.
    * @param signal - cancellation signal owned by the UI request.
-   * @returns a detached result, or `undefined` when syntax or name does not resolve.
+   * @returns the settled execution (result + lifecycle pairing id), or
+   *   `undefined` when syntax or name does not resolve.
    */
   async execute(
     agent: Agent,
     line: string,
     signal: AbortSignal,
-  ): Promise<CommandResult | undefined> {
+  ): Promise<CommandExecution | undefined> {
     const parsed = parseCommand(line)
     if (parsed === undefined) return undefined
     const command = this.view(agent).get(parsed.name)
     if (command === undefined) return undefined
     if (signal.aborted) throw abortError(signal)
+    const commandId = this.mintCommandId()
+    this.appendLifecycle(agent.session, 'command/run', {
+      commandId, name: parsed.name, args: parsed.rawInput, source: { kind: 'user' },
+    })
     const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
-    const output = command.definition.handler(invocation)
-    return normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
+    let result: CommandResult
+    try {
+      const output = command.definition.handler(invocation)
+      result = normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
+    } catch (error: unknown) {
+      try {
+        this.appendLifecycle(agent.session, 'command/done', {
+          commandId, kind: 'error',
+          text: error instanceof Error ? error.message : renderThrown(error),
+        })
+      } catch (appendError: unknown) {
+        this.ctx.logger.warn(`command "${parsed.name}": command/done append failed: ${renderThrown(appendError)}`)
+      }
+      throw error
+    }
+    this.appendLifecycle(agent.session, 'command/done', {
+      commandId, kind: result.kind,
+      ...result.text === undefined ? {} : { text: result.text },
+    })
+    return Object.freeze({ commandId, result })
+  }
+
+  /** Mint the next pairing id (monotonic; instance-token-prefixed so a resumed log never repeats one). */
+  private mintCommandId(): CommandId {
+    this.commandSeq += 1
+    return CommandId(`cmd-${this.instanceToken}-${this.commandSeq}`)
+  }
+
+  /**
+   * Append one log-only lifecycle event directly: no turn is opened for it and
+   * no flush is forced — persistence observes the eager `session/event` path
+   * and drains at ordinary checkpoints and teardown, like every other
+   * standalone plugin event.
+   */
+  private appendLifecycle<T extends 'command/run' | 'command/done'>(
+    session: Session,
+    type: T,
+    data: SessionEventMap[T],
+  ): SessionEvent<T> {
+    // Both admitted types are log-only (non-surface), but TypeScript does not
+    // reduce Session.append's conditional rest parameter through a generic
+    // type parameter. Preserve the proven two-argument call shape.
+    const appendLogOnly = session.append.bind(session) as (eventType: T, eventData: SessionEventMap[T]) => SessionEvent<T>
+    return appendLogOnly(type, data)
   }
 
   /** Resolve global definitions followed by exact scoped shadows. */

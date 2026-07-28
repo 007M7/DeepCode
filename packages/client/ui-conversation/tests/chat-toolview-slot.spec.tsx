@@ -24,6 +24,9 @@ import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/clien
 
 const SID = 's1' as SessionId
 
+/** Identity-stable no-session bundle (uSES getSnapshot contract). */
+const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear between cases.
 beforeEach(() => {
@@ -40,7 +43,7 @@ const toolResult = (seq: number, callId: string, name: string, args = '{"command
 function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
   return {
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -89,30 +92,28 @@ async function bench(nodes: ToolResultNode[]) {
       subscribe: (fn: () => void) => session.subscribe(fn),
     },
   })
+  const provideInfo = (id: string) => {
+    if (id !== SID) return undefined
+    if (info === undefined) {
+      const hooks: Record<string, unknown> = { session }
+      const props: Record<string, unknown> = {}
+      for (const provider of providers) {
+        const c = provider(bindingOf(SID))
+        Object.assign(hooks, c.hooks ?? {})
+        Object.assign(props, c.props ?? {})
+      }
+      info = { sessionId: SID, hooks, props }
+    }
+    return info
+  }
   ctx.provide('sessions', {
     list,
     binding: bindingOf,
     scope: () => actxFake,
-    provideInfo: (id: string) => {
-      if (id !== SID) return undefined
-      if (info === undefined) {
-        const hooks: Record<string, unknown> = { session }
-        const props: Record<string, unknown> = {}
-        for (const provider of providers) {
-          const c = provider(bindingOf(SID))
-          Object.assign(hooks, c.hooks ?? {})
-          Object.assign(props, c.props ?? {})
-        }
-        info = { sessionId: SID, hooks, props }
-      }
-      return info
-    },
-    maybeProvideInfo(id: string | undefined) {
-      // `this` inside an object-literal method is any under strict lint; the
-      // fake resolves through its own provideInfo above.
-      /* eslint-disable-next-line @typescript-eslint/no-unsafe-return,
-         @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-      return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
+    provideInfo,
+    currentProvideInfo: {
+      getSnapshot: () => provideInfo(SID),
+      subscribe: () => () => {},
     },
     provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
     scopeOf: () => SID,
@@ -120,14 +121,16 @@ async function bench(nodes: ToolResultNode[]) {
     open: vi.fn(),
     updateIntent: vi.fn(),
   })
-  ctx.provide('workspaces', {
+  const workspaces = {
     list: createSnapshotStore<WorkspaceListState>({
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
     startSession: vi.fn(),
     sendSession: vi.fn(),
-  })
+    openPath: vi.fn(async () => {}),
+  }
+  ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
   ctx.provide('locale', { bind: () => (key: string) => key })
 
@@ -142,7 +145,7 @@ async function bench(nodes: ToolResultNode[]) {
 
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, session, list, layout }
+  return { ctx, slots, fiber, session, list, layout, workspaces }
 }
 
 /** Render the whole tree through the ctx-level root seam (the shell's own entry). */
@@ -185,11 +188,22 @@ describe('keyed toolview hole through the real machinery', () => {
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
-  it('row clicks travel owner openDetails → chat inject → layout orchestration', async () => {
+  it('file-path clicks travel owner openFile → chat inject → workspaces.openPath', async () => {
+    const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
+    const view = mountApp(b.slots)
+    view.getByText('src/a.ts').click()
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(b.workspaces.openPath).toHaveBeenCalledWith('src/a.ts')
+    })
+  })
+
+  it('bash summary clicks do not open details or host paths', async () => {
     const b = await bench([toolResult(3, 'c1', 'bash')])
     const view = mountApp(b.slots)
     view.getByText('Build').click()
-    expect(b.layout.openDetails).toHaveBeenCalledTimes(1)
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
+    expect(b.workspaces.openPath).not.toHaveBeenCalled()
   })
 
   it('a live keyed registration takes over its tool row and unload reverts to the fallback', async () => {
@@ -254,7 +268,10 @@ describe('registrant load-order seam', () => {
       binding: () => undefined,
       scope: () => undefined,
       provideInfo: () => undefined,
-      maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+      currentProvideInfo: {
+        getSnapshot: () => ABSENT_INFO,
+        subscribe: () => () => {},
+      },
       provide: () => () => {},
       create: vi.fn(),
       open: vi.fn(),
@@ -267,6 +284,7 @@ describe('registrant load-order seam', () => {
       }),
       startSession: vi.fn(),
       sendSession: vi.fn(),
+      openPath: vi.fn(async () => {}),
     })
     ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     ctx.provide('locale', { bind: () => (key: string) => key })

@@ -237,6 +237,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
   },
   {
+    key: 'sessionProjections',
+    pkg: 'session-projection',
+    title: 'Session projection units',
+    mode: 'core',
+    consumers: ['tool-todo', 'session-title', 'host-apiproxy'],
+    note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
+  },
+  {
     key: 'tui',
     pkg: 'tui',
     title: 'Mounted-terminal interaction service',
@@ -413,9 +421,9 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'directory-picker',
     title: 'Workspace-directory picking seam',
     mode: 'seam',
-    implementations: ['directory-picker-dialog', 'directory-picker-browse'],
+    implementations: ['directory-picker-native', 'directory-picker-browse'],
     consumers: ['apiproxy'],
-    note: 'Discriminated interaction capability: the dialog backend opens one native OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; the gateway advertises the kind via host.describe.',
+    note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; each backend is dual-face, its browser half filling ui-workspace directory-flow slots (no wire advertisement).',
   },
   {
     key: 'httpServer',

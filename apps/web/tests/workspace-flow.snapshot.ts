@@ -37,6 +37,15 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
     ],
   },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  // Dual-face host package: its browser half fills the directory-flow holes
+  // (the same composition row apps/cli mounts for the node-side backend).
+  {
+    id: '@deepseek-ai/dsh-host-directory-picker-native',
+    dir: '../host/directory-picker-native',
+    url: '/plugins/directory-picker-native.js',
+    rev: 'fx',
+    inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-workspace'],
+  },
 ]
 
 const bundles = new Map(PLUGINS.map(plugin => [
@@ -165,13 +174,33 @@ it('locks the composer in the New Session view state until a Workspace is chosen
     sidebar: visibleText(tree),
   }).toMatchInlineSnapshot(`
     {
-      "chip": "New Workspace",
+      "chip": "Choose workspace",
       "composerDisabled": true,
       "headline": "Let's start building",
       "sendDisabled": true,
       "sidebar": "No sessions yet",
     }
   `)
+})
+
+it('adopts a directory through the composed native flow and lands in its blank session', async () => {
+  boot('?fixture=empty')
+
+  await findLockedComposer()
+  fireEvent.click(workspaceChip())
+  const menu = await screen.findByRole('menu')
+  // The composed flow package occupies the directory-flow hole, so the
+  // picking affordance is present (no advertised-kind read exists anymore).
+  expect(within(menu).getAllByRole('menuitem').map(item => visibleText(item)))
+    .toEqual(['Open local folder…', 'Create a new workspace'])
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open local folder…' }))
+  // The renderless native flow drives the fixture's deterministic pick and
+  // the owner adopts the returned path into a real Workspace.
+  await act(async () => {})
+  await findHeroComposer()
+  await waitFor(() => {
+    expect(visibleText(screen.getByRole('tree', { name: 'Sessions' }))).toContain('project')
+  })
 })
 
 it('selects the recent Workspace and opens its blank Session on first load', async () => {
@@ -232,7 +261,10 @@ it('New Session reuses the Workspace blank session and converts the single visib
 
   // New Session resolves through the recent Workspace and reuses its blank
   // session in place: no locked interlude, no second entity.
-  fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+  const newSessionButton = screen.getAllByRole('button', { name: 'New session' })
+    .find(button => visibleText(button) === 'New Session')
+  if (newSessionButton === undefined) throw new Error('New Session button missing')
+  fireEvent.click(newSessionButton)
   const composer = await findHeroComposer()
   await waitFor(() => { expect(within(tree).getByText('1 session')).toBeDefined() }, { timeout: 10_000 })
 

@@ -19,6 +19,13 @@
 - id: session
   name: '@deepseek-ai/dsh-session'
 
+# Projection registry: drives every registered domain unit over committed
+# session events and serves finished values (history-tail projections block +
+# session/projection frames). Without this row every domain's optional unit
+# injection stays silent — no block, no frames, no titles/todos on the web.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 - id: session-title
   name: '@deepseek-ai/dsh-session-title'
   config:
@@ -233,10 +240,12 @@
 # The API gateway: the transport-agnostic dispatch face every client shape
 # shares. provider/model are the host default routing — the profile json's
 # mapping target (user config overrides these engineering defaults).
-# Directory-picking backend consumed by the gateway's host.* picker RPCs.
-# Swap point: mount '-dialog' instead for the native OS chooser (host-display only).
+# Directory-picking package, dual-face: the node half serves the gateway's
+# host.* picker RPCs, the browser half fills ui-workspace's directory-flow
+# slots — one row composes the whole interaction. Swap point: mount
+# '-browse' instead for the in-app browser (remote-capable).
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-browse'
+  name: '@deepseek-ai/dsh-host-directory-picker-native'
 
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'

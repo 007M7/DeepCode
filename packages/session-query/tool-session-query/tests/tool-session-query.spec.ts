@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, HarnessError , createMessage } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS, TimeoutReason } from '@deepseek-ai/dsh-timeout'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SessionStore, {
@@ -67,7 +67,9 @@ function openStep(session: Session, text = 'prior needle'): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
   session.append(
     'user/message',
-    { content: [{ type: 'text', text }], source: { kind: 'user' } },
+    createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }),
     { surfaceOp: 'append' },
   )
   session.append('step/start', { turn: 1, step: 1 })
@@ -871,7 +873,9 @@ describe('workspace authority and lineage redaction', () => {
     const target = createSession(mounted.ctx, `${toolName}-failure-target`, '/work')
     target.append(
       'user/message',
-      { content: [{ type: 'text', text: 'event' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'event' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     const secret = `event missing beside hidden-${toolName}-secret`
@@ -900,7 +904,9 @@ describe('workspace authority and lineage redaction', () => {
     const target = createSession(mounted.ctx, `cancelled-${toolName}`, '/work')
     target.append(
       'user/message',
-      { content: [{ type: 'text', text: 'pending exact read' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'pending exact read' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     const controller = new AbortController()
@@ -1130,7 +1136,9 @@ describe('workspace authority and lineage redaction', () => {
     const target = createSession(mounted.ctx, 'moving-target', '/work')
     target.append(
       'user/message',
-      { content: [{ type: 'text', text: 'authorized payload' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'authorized payload' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     const movedHeader = header(target.id, '/outside')
@@ -1947,7 +1955,9 @@ describe('trace and exact read rendering', () => {
     const session = createSession(mounted.ctx, 'relationships', '/work')
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'source' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'source' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     session.append(
@@ -1955,8 +1965,14 @@ describe('trace and exact read rendering', () => {
       {
         turn: 1,
         step: 1,
-        content: [{ type: 'text', text: 'replacement' }],
-        provenance: { provider: 'test', model: 'test' },
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'replacement' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'test', model: 'test' },
+          },
+        }),
       },
       { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
     )
@@ -1971,7 +1987,9 @@ describe('trace and exact read rendering', () => {
     const session = createSession(mounted.ctx, 'read', '/work')
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'before semantic text' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'before semantic text' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     session.append(
@@ -1979,8 +1997,14 @@ describe('trace and exact read rendering', () => {
       {
         turn: 1,
         step: 1,
-        content: [{ type: 'text', text: 'target full text' }],
-        provenance: { provider: 'test', model: 'test' },
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'target full text' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'test', model: 'test' },
+          },
+        }),
       },
       { surfaceOp: 'append' },
     )
