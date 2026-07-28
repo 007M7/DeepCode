@@ -39,8 +39,8 @@ function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('pty-loader-agent')
   const value: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
+    followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value
@@ -71,6 +71,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       '    pollIntervalMs: 10',
       '    exactProbeAfterMs: 20',
       '    idleSilenceMs: 250',
+      '    handoffGraceMs: 250',
       '    timeoutMs: 2000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pty'",

@@ -40,7 +40,7 @@ When the session companion attaches to an existing or seeded session, it replays
 
 ### Pervasive deep-readonly types
 
-[The rejected immutable-public-surfaces proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md) would apply a recursive readonly type across public log and message surfaces. That provides editor feedback but not a runtime guarantee: TypeScript types are erased and plugin code can cast through them. It also pushes readonly types into consumers where mutation is intentional. Runtime ownership at the `Session` boundary protects every caller without that type propagation.
+A rejected companion proposal would apply a recursive `DeepReadonly<T>` type across public log and message surfaces, flipping session read paths (`events`, `session/event` listeners, `deriveMessages()`) to deep-readonly while keeping in-flight waterfalls mutable. That provides editor feedback but not a runtime guarantee: TypeScript types are erased and plugin code can cast through them. It also pushes readonly types into consumers where mutation is intentional. Runtime ownership at the `Session` boundary protects every caller without that type propagation.
 
 ### Development-only freezing
 

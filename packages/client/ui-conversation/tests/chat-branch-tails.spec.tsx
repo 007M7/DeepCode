@@ -106,7 +106,7 @@ describe('MessageItem arms', () => {
 
   it('context and unknown nodes render their JSON rows', () => {
     const ctxView = render(
-      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null, meta: { k: 1 } } as never} />,
+      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
     )
     expect(ctxView.getByText(/上下文注入/)).toBeTruthy()
     const unknownView = render(
@@ -127,6 +127,9 @@ describe('MessageItem arms', () => {
           time: 10_000,
           turn: 1,
           step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
           retry: 1,
           maxRetries: 2,
           delayMs: 2_500.4,
@@ -154,8 +157,11 @@ describe('MessageItem arms', () => {
           kind: 'model-retry',
           seq: 6,
           time: 12_100,
-          turn: 1,
-          step: 1,
+          turn: 2,
+          step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
           retry: 2,
           maxRetries: 2,
           delayMs: 3_500.4,
@@ -174,8 +180,11 @@ describe('MessageItem arms', () => {
         kind: 'model-retry',
         seq: 6,
         time: 12_100,
-        turn: 1,
-        step: 1,
+        turn: 2,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
         retry: 2,
         maxRetries: 2,
         delayMs: 3_500.4,
@@ -185,6 +194,24 @@ describe('MessageItem arms', () => {
     )
     expect(details?.dataset.active).toBeUndefined()
     expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 4s')
+
+    view.rerender(
+      <MessageItem node={{
+        kind: 'model-retry',
+        seq: 7,
+        time: 12_100,
+        turn: 3,
+        step: 0,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: 'mock-always',
+        retry: 3,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '继续重试' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（3/∞） · 4s')
   })
 
   it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
@@ -196,6 +223,9 @@ describe('MessageItem arms', () => {
       time: 10_000,
       turn: 1,
       step: 0,
+      provider: 'mock',
+      mode: 'normal',
+      policyKey: 'mock-normal',
       retry: 1,
       maxRetries: 2,
       delayMs: 5_000,

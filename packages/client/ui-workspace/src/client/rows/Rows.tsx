@@ -192,37 +192,37 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onToggle,
       onDragStart={drag === undefined
         ? undefined
         : (e) => {
-            e.dataTransfer.effectAllowed = 'move'
-            drag.start()
-          }}
+          e.dataTransfer.effectAllowed = 'move'
+          drag.start()
+        }}
       onDragEnd={drag?.end}
       onDragOver={drag === undefined
         ? undefined
         : (e) => {
-            if (!drag.active) return
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            drag.hover(rowHalf(e))
-          }}
+          if (!drag.active) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          drag.hover(rowHalf(e))
+        }}
       onDrop={drag === undefined
         ? undefined
         : (e) => {
-            if (!drag.active) return
-            e.preventDefault()
-            drag.drop(rowHalf(e))
-          }}
+          if (!drag.active) return
+          e.preventDefault()
+          drag.drop(rowHalf(e))
+        }}
     >
       {row.hasChildren && !flat
         ? (
-            <button
-              type="button"
-              className={css.twist}
-              aria-label={row.expanded ? 'Collapse' : 'Expand'}
-              onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
-            >
-              <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
-            </button>
-          )
+          <button
+            type="button"
+            className={css.twist}
+            aria-label={row.expanded ? 'Collapse' : 'Expand'}
+            onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
+          >
+            <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+          </button>
+        )
         : null}
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
       <span className={css.title}>{row.title}</span>

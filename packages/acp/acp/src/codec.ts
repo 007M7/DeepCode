@@ -19,7 +19,6 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
       return 'max_tokens'
     case 'aborted':
     case 'disposed':
-    case 'rejected':
     case 'interrupted':
       return 'cancelled'
     case 'error':

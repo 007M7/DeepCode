@@ -42,6 +42,7 @@ interface RetryCountdown {
 function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolean }) {
   const deadline = node.time + node.delayMs
   const scheduledSeconds = retrySeconds(node.delayMs)
+  const maximum = node.mode === 'normal' ? node.maxRetries : '∞'
   const [countdown, setCountdown] = useState<RetryCountdown>(() => ({
     deadline,
     seconds: retrySeconds(deadline - Date.now()),
@@ -72,7 +73,7 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
     <details className={css.retryRow} data-active={active || undefined}>
       <summary className={css.retrySummary}>
         <span className={css.retryText} role="status">
-          {active ? '正在重试' : '已重试'}模型请求（{node.retry}/{node.maxRetries}） · {active ? remainingSeconds : scheduledSeconds}s
+          {active ? '正在重试' : '已重试'}模型请求（{node.retry}/{maximum}） · {active ? remainingSeconds : scheduledSeconds}s
         </span>
       </summary>
       <div className={css.retryDetails}>
@@ -85,6 +86,9 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
 
 /** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
 async function writeClipboard(text: string): Promise<void> {
+  // lib.dom types clipboard non-optional, but insecure contexts omit it —
+  // that runtime gap is exactly what this guard detects.
+  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text)
@@ -93,6 +97,9 @@ async function writeClipboard(text: string): Promise<void> {
     }
     return
   }
+  // execCommand('copy') is the only clipboard fallback where the async API
+  // is missing (insecure contexts); deprecated but deliberately retained.
+  /* eslint-disable @typescript-eslint/no-deprecated */
   const exec = typeof document.execCommand === 'function'
     ? document.execCommand.bind(document)
     : undefined
@@ -109,6 +116,7 @@ async function writeClipboard(text: string): Promise<void> {
   } catch {
     // Clipboard unavailable; the button stays idle.
   }
+  /* eslint-enable @typescript-eslint/no-deprecated */
   el.remove()
 }
 
@@ -199,7 +207,7 @@ export const MessageItem = memo(function MessageItem({ node, retryActive = false
     case 'context':
       return (
         <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, meta: node.meta }} />
+          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
         </div>
       )
     case 'model-retry':

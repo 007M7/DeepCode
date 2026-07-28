@@ -14,7 +14,7 @@ A tool declares how its calls render in a UI (an editor's tool-call card) throug
 - Which combinations are *valid* is unwritten: a `terminal` call that also sets `content` means "description above the card"; a generic call that sets `terminal` is meaningless but representable. The type permits nonsense.
 - There is no way to express the one file-tool affordance an editor most wants — a **diff card** (`{path, oldText, newText}`, which Zed renders as an inline diff / new-file preview). `ToolCallPresentation.content` is the *LLM* `ContentBlock[]` vocabulary (text/image), so a tool literally cannot ask for a diff.
 
-The existing `FIXME(tool-presentation)` in `packages/core/tools/src/index.ts` named the fix: "redesign the type so a tool declares its render INTENT once (e.g. a tagged union over card kinds) rather than a bag of optional fields the bridge stitches together." The rejected Agent Note [Collapse tool-owned UI presentation](../../rejected/simplification/2026-06-20-generic-tool-rendering.md) deferred it explicitly: rich rendering "should return later as a tagged render-intent union after there are at least two real tools and two real consumers to validate the vocabulary." That bar is met by multiple producer families plus the TUI and host/client-runtime (Web) consumers.
+The existing `FIXME(tool-presentation)` in `packages/core/tools/src/index.ts` named the fix: "redesign the type so a tool declares its render INTENT once (e.g. a tagged union over card kinds) rather than a bag of optional fields the bridge stitches together." An earlier rejected collapse-tool-owned-presentation proposal deferred it explicitly: rich rendering "should return later as a tagged render-intent union after there are at least two real tools and two real consumers to validate the vocabulary." That bar is met by multiple producer families plus the TUI and host/client-runtime (Web) consumers.
 
 ## Decision
 
@@ -62,7 +62,7 @@ The terminal intent is display-only. The harness still executes the command thro
 
 ## Alternatives considered
 
-- **Delete tool-owned presentation entirely** — [the rejected collapse proposal](../../rejected/simplification/2026-06-20-generic-tool-rendering.md); its own verdict deferred to exactly this union once two real tools and two real consumers existed, and that bar is now met.
+- **Delete tool-owned presentation entirely** — the rejected collapse proposal this note supersedes; its own verdict deferred to exactly this union once two real tools and two real consumers existed, and that bar is now met.
 - **Let a UI execute terminal intents** — rejected because it would bypass the harness's bash policy and ownership contracts and fork command execution across backends. A terminal card describes harness-owned execution; it never authorizes client-side execution.
 - **A merge-extensible union** (the `ContentBlockMap` pattern) — rejected: a new render intent needs new bridge code to render it anyway, so a plugin-added variant the bridge silently drops would be worse than the compile error the closed union raises at the bridge's `assertNever` switch.
 - **Keeping the optional-field bag** — the status quo the Problem dissects: invalid states representable, undocumented field interactions, and no way to ask for a diff card at all.
@@ -77,6 +77,6 @@ A new render intent is a compile-breaking change at the bridge switch — delibe
 
 ## Related
 
-- Supersedes the deferral in [Collapse tool-owned UI presentation](../../rejected/simplification/2026-06-20-generic-tool-rendering.md) (rejected — "wait for two real tools and two real consumers, then a tagged render-intent union"). That bar is now met; this is that union.
-- Extended by [Result-time applied-hunk diffs](2026-07-02-result-time-applied-hunk-diffs.md), which adds a persisted `meta` channel so write/edit emit a result-time `DiffResultView` — the applied change (a contextual hunk with context lines / one per `replace_all` site, or a whole-file diff for a create) — on top of this union's call-time diff card.
+- Supersedes the deferral in the earlier rejected collapse-tool-owned-presentation proposal (rejected — "wait for two real tools and two real consumers, then a tagged render-intent union"). That bar is now met; this is that union.
+- Extended by [Result-time applied-hunk diffs](../../archived/architecture/2026-07-02-result-time-applied-hunk-diffs.md) (archived), which added a persisted `meta` channel — the value/presentation split and the persisted `presentationMeta` channel are now owned by [the canonical tool output contract](2026-07-20-canonical-tool-output-contract.md) so write/edit emit a result-time `DiffResultView` — the applied change (a contextual hunk with context lines / one per `replace_all` site, or a whole-file diff for a create) — on top of this union's call-time diff card.
 - Folds `ToolTerminal` into the tagged `terminal` views used by current UI transports.

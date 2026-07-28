@@ -19,5 +19,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Built mode requires a prior build** — the config must also resolve every named package upward through `examples/node_modules`.
-- **Captured stdout and stderr are unbounded** — a runaway child can consume memory until the deadline kills it.
+- **Captured stdout and stderr are bounded only by execa's default 100 MB `maxBuffer`** — a runaway child is terminated at that ceiling rather than at a smoke-chosen budget.
 - **Timeout kills only the direct child** — a process tree spawned by a faulty fixture can outlive the smoke and needs external cleanup.

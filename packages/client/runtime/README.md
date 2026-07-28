@@ -26,15 +26,19 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 ## Model retry projection
 
-The Session object validates plugin-owned `llm/retry` payloads at the event wire boundary. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
+The Session object validates plugin-owned, provider-routed `llm/retry` payloads at the event wire boundary. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. Normal-mode notices carry their finite maximum; always-mode notices remain explicitly unbounded. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
+
+## Session model selection
+
+Each resident `Session` owns a `modelSelection` snapshot containing the current provider/model target, provider-grouped directory, provider-local failures, and the `idle`/`loading`/`ready`/`selecting`/`error` state. History establishes or refreshes the current target, opening a selector refreshes the directory, and selection failures preserve the last target and usable groups. Directory and selection operations share a monotonically increasing generation so an older response cannot overwrite a newer selection. A reconnect rebuild restores the target reported by the Host without replacing unchanged selection substructure.
 
 ## Model Experience
 
-None, as the client runtime hosts browser-side services and the session object layer; nothing here reaches a model request.
+None, as the session object layer selects the provider/model route used by a later Host request but adds no model-visible content.
 
 #### KV Cache effect
 
-None; this package neither assembles nor sends a provider request.
+Changing the target can change or invalidate provider-side cache reuse; this package does not alter the prompt prefix itself.
 
 ## Known Limitations and Deferred Work
 

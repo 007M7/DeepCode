@@ -75,13 +75,18 @@ describe('open', () => {
     const page = plainTurn(10, 0, '早', '安')
     session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
-    gate.resolve(ok({ events: entries(page) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(page) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
 })
+
 
 describe('live event path', () => {
   async function opened(events: SessionEvent[] = plainTurn(0, 0, 'a', 'b')) {
@@ -130,10 +135,21 @@ describe('live event path', () => {
       ev.chunkText(10, 1, '不完整回复'),
       ev.stepEnd(11, 1),
       ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
-      ev.stepStart(13, 1, 1),
-      ev.assistant(14, 1, '完整回复', 1),
-      ev.stepEnd(15, 1, 1),
-      ev.turnEnd(16, 1),
+      at(13, {
+        type: 'turn/end',
+        data: {
+          turn: 1,
+          reason: {
+            kind: 'error', step: 0,
+            failure: { code: 'TRANSPORT', message: '连接被重置' },
+          },
+        },
+      }),
+      at(14, { type: 'turn/start', data: { turn: 2, trigger: { kind: 'retry' } } }),
+      ev.stepStart(15, 2),
+      ev.assistant(16, 2, '完整回复'),
+      ev.stepEnd(17, 2),
+      ev.turnEnd(18, 2),
     ]
     for (const event of retryTurn.slice(0, 7)) feed(event)
 
@@ -143,6 +159,9 @@ describe('live event path', () => {
       kind: 'model-retry',
       turn: 1,
       step: 0,
+      provider: 'fake',
+      mode: 'normal',
+      policyKey: 'fake-normal',
       retry: 1,
       maxRetries: 2,
       delayMs: 450,
@@ -173,13 +192,60 @@ describe('live event path', () => {
       feed(at(9, {
         type: 'llm/retry',
         data: {
-          turn: 1, step: 0, retry: 3, maxRetries: 2, delayMs: 500,
+          turn: 1, step: 0,
+          provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+          retry: 3, maxRetries: 2, delayMs: 500,
           failure: { code: 'TRANSPORT', message: 'bad budget' },
         },
       }))
       expect(session.getSnapshot().partial?.blocks).toEqual([{ kind: 'text', text: '仍在生成' }])
       expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toEqual([])
       expect(errorSpy).toHaveBeenCalledWith('[web-runtime] ignored malformed llm/retry event at seq 9')
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('projects always-mode retries and rejects mode-specific maximums or unknown modes', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      feed(at(6, {
+        type: 'llm/retry',
+        data: {
+          turn: 1, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 3, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'retry forever' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        mode: 'always',
+        retry: 3,
+      })
+
+      feed(at(7, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 4, maxRetries: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unexpected maximum' },
+        },
+      }))
+      feed(at(8, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'sometimes', policyKey: 'fake-unknown',
+          retry: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unknown mode' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toHaveLength(1)
+      expect(errorSpy).toHaveBeenCalledTimes(2)
     } finally {
       errorSpy.mockRestore()
     }
@@ -343,7 +409,11 @@ describe('paging', () => {
     api.onHistory = () => gate.promise
     const first = session.loadOlder()
     const second = session.loadOlder()
-    gate.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
@@ -629,7 +699,11 @@ describe('remaining branches', () => {
     const opening = session.open()
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
-    stale.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '代')) as never[], hasMore: false })) // success, but its generation is gone
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
   })
@@ -648,7 +722,11 @@ describe('remaining branches', () => {
     const opening = session.open() // triggers the second pull, which parks
     await vi.waitFor(() => { expect(call).toBe(2) })
     const resynced = session.resync()
-    secondPull.resolve(ok({ events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[], hasMore: false }))
+    secondPull.resolve(ok({
+      events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
   })
@@ -662,7 +740,11 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '页')) as never[], hasMore: false })) // repair result: stale, dropped
+    repairPull.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
@@ -706,6 +788,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({

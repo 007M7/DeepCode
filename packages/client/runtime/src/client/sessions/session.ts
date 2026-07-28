@@ -845,14 +845,23 @@ function parseRetryEventData(value: unknown): LlmRetryEventData | null {
   const failureData = failure as Record<string, unknown>
   if (!nonNegativeInteger(data.turn)
     || !nonNegativeInteger(data.step)
+    || typeof data.provider !== 'string'
+    || data.provider.length === 0
+    || typeof data.policyKey !== 'string'
+    || data.policyKey.length === 0
     || !positiveInteger(data.retry)
-    || !positiveInteger(data.maxRetries)
-    || data.retry > data.maxRetries
     || typeof data.delayMs !== 'number'
     || !Number.isFinite(data.delayMs)
     || data.delayMs < 0
     || typeof failureData.message !== 'string'
     || typeof failureData.code !== 'string') return null
+  if (data.mode === 'normal') {
+    if (!positiveInteger(data.maxRetries) || data.retry > data.maxRetries) return null
+  } else if (data.mode === 'always') {
+    if ('maxRetries' in data) return null
+  } else {
+    return null
+  }
   const optionalNumbers = [failureData.status, failureData.providerRetryAfterMs]
   if (optionalNumbers.some(item => item !== undefined && (typeof item !== 'number' || !Number.isFinite(item)))) return null
   if (failureData.requestId !== undefined && typeof failureData.requestId !== 'string') return null

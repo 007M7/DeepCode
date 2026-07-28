@@ -50,7 +50,9 @@ export const ev = {
     at(seq, {
       type: 'llm/retry',
       data: {
-        turn, step, retry, maxRetries, delayMs,
+        turn, step,
+        provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+        retry, maxRetries, delayMs,
         failure: { code: 'TRANSPORT', message },
       },
     }),

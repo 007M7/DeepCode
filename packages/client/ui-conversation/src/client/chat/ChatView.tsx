@@ -48,7 +48,8 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
   if (!running) return null
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
-    const node = nodes[index]!
+    const node = nodes[index]
+    if (node === undefined) continue
     if (node.kind === 'model-retry') return node.seq
     if (node.kind === 'assistant' || node.kind === 'user') return null
   }
@@ -96,7 +97,8 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
   seq: number
   onOpenDetails: OpenDetails
   selected: boolean
-  /** `run_code` sub-dispatches in dispatch order (reference-stable per parent; running entries settle in place); undefined for ordinary calls. */
+  /** `run_code` sub-dispatches in dispatch order (reference-stable per
+   *  parent; running entries settle in place); undefined for ordinary calls. */
   subCalls?: readonly CodeSubCall[] | undefined
   /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
   selectedCallId?: string | undefined
@@ -113,7 +115,7 @@ const CallRow = memo(function CallRow({ renderSlot, callId, toolName, block, seq
       })}
       {subCalls !== undefined && subCalls.length > 0 && (
         <div className={css.subCalls} data-subcalls>
-          {subCalls.map((node) => (
+          {subCalls.map(node => (
             <SubCallRow
               key={node.callId}
               renderSlot={renderSlot}
@@ -140,7 +142,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
 }) {
   return (
     <div className={css.toolGroup}>
-      {results.map((node) => (
+      {results.map(node => (
         <CallRow
           key={node.callId}
           renderSlot={renderSlot}
@@ -164,7 +166,7 @@ function StreamingTail({ useSession, onGrow }: {
   useSession: UseConversation
   onGrow: () => void
 }) {
-  const partial = useSession((s) => s.partial)
+  const partial = useSession(s => s.partial)
   useLayoutEffect(() => {
     onGrow()
   })
@@ -172,18 +174,21 @@ function StreamingTail({ useSession, onGrow }: {
   return <AssistantMarkdown blocks={partial.blocks} streaming />
 }
 
-/** The chat view slot entry: pure component over the composed props (tool rows render through the declared keyed hole's renderSlot share). */
+/**
+ * The chat view slot entry: pure component over the composed props (tool rows
+ * render through the declared keyed hole's renderSlot share).
+ */
 export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOlder }: ChatViewSlotProps) {
-  const nodes = useSession((s) => s.nodes)
-  const running = useSession((s) => s.running)
-  const runningCalls = useSession((s) => s.runningCalls)
-  const codeDispatches = useSession((s) => s.codeDispatches)
-  const pending = useSession((s) => s.pending)
-  const openState = useSession((s) => s.openState)
-  const openErrorMessage = useSession((s) => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
-  const hasMore = useSession((s) => s.hasMore)
-  const loadingOlder = useSession((s) => s.loadingOlder)
-  const selectedCallId = useStore((s) => s.selection?.callId)
+  const nodes = useSession(s => s.nodes)
+  const running = useSession(s => s.running)
+  const runningCalls = useSession(s => s.runningCalls)
+  const codeDispatches = useSession(s => s.codeDispatches)
+  const pending = useSession(s => s.pending)
+  const openState = useSession(s => s.openState)
+  const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
+  const hasMore = useSession(s => s.hasMore)
+  const loadingOlder = useSession(s => s.loadingOlder)
+  const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
   const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
@@ -266,8 +271,8 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
   const renderItem = (item: ChatFlowItem): ReactNode => {
     if (item.kind === 'tool-group') {
       const inGroup = selectedCallId !== undefined
-        && item.results.some((r) => r.callId === selectedCallId
-          || codeDispatches.get(r.callId)?.some((sub) => sub.callId === selectedCallId) === true)
+        && item.results.some(r => r.callId === selectedCallId
+          || codeDispatches.get(r.callId)?.some(sub => sub.callId === selectedCallId) === true)
       return (
         <ToolGroup
           key={item.key}
@@ -298,36 +303,36 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
     <div className={css.root}>
       <div ref={listRef} className={css.scroll} onScroll={onScroll}>
         <div className={css.column}>
-        {openState === 'loading' && <div className={css.hint}>载入历史…</div>}
-        {openState === 'error' && <div className={css.openError}>历史加载失败：{openErrorMessage}</div>}
-        {hasMore && (
-          <div className={css.older}>
-            <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
-              {loadingOlder ? '加载中…' : '加载更早'}
-            </button>
-          </div>
-        )}
-        {items.map(renderItem)}
-        <StreamingTail useSession={useSession} onGrow={onGrow} />
-        {runningCalls.length > 0 && (
-          <div className={css.toolGroup}>
-            {runningCalls.map((call) => (
-              <CallRow
-                key={call.callId}
-                renderSlot={renderSlot}
-                callId={call.callId}
-                toolName={call.name}
-                block={call}
-                seq={call.turn}
-                onOpenDetails={openDetails}
-                selected={call.callId === selectedCallId}
-                subCalls={codeDispatches.get(call.callId)}
-                selectedCallId={selectedCallId}
-              />
-            ))}
-          </div>
-        )}
-        {pending.map((item) => <PendingCard key={item.key} item={item} />)}
+          {openState === 'loading' && <div className={css.hint}>载入历史…</div>}
+          {openState === 'error' && <div className={css.openError}>历史加载失败：{openErrorMessage}</div>}
+          {hasMore && (
+            <div className={css.older}>
+              <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
+                {loadingOlder ? '加载中…' : '加载更早'}
+              </button>
+            </div>
+          )}
+          {items.map(renderItem)}
+          <StreamingTail useSession={useSession} onGrow={onGrow} />
+          {runningCalls.length > 0 && (
+            <div className={css.toolGroup}>
+              {runningCalls.map(call => (
+                <CallRow
+                  key={call.callId}
+                  renderSlot={renderSlot}
+                  callId={call.callId}
+                  toolName={call.name}
+                  block={call}
+                  seq={call.turn}
+                  onOpenDetails={openDetails}
+                  selected={call.callId === selectedCallId}
+                  subCalls={codeDispatches.get(call.callId)}
+                  selectedCallId={selectedCallId}
+                />
+              ))}
+            </div>
+          )}
+          {pending.map(item => <PendingCard key={item.key} item={item} />)}
         </div>
       </div>
       <StatsLine useSession={useSession} />

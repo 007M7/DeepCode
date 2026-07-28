@@ -101,7 +101,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 
 ### 队列只读镜像
 
-- MuxFrame `session/queued`：Session 持只读 inbox 镜像（预览截断、steering 按 source 匹配退休）；queue 帧不进 history，纯 stream 态——重连清空、新基线重灌；未实例化窗口经 manager pendingBuffers 缓冲重放。
+- MuxFrame `session/queued`：Session 持只读 inbox 镜像（预览截断、steering 按 source 匹配退休）。宿主会在实时和回放帧中标记 agent loop 接受消息时的 steering 分类，因此重连基线不依赖回放更早的 `turn/start`。queue 帧不进 history，纯 stream 态——重连清空、新基线重灌；未实例化窗口经 manager pendingBuffers 缓冲重放。
 - 队列语义：running 不锁输入；普通消息经 `session.prompt {mode:'queue'}` 排队，命令永不排队。
 
 ### host wire 小件

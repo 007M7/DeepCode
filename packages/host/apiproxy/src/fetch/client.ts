@@ -13,13 +13,15 @@ import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
-import { hostDescribeValueSchema } from '../api/host.schema.ts'
+import { hostDescribeValueSchema, hostPickDirectoryValueSchema } from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
   sessionCreateValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
+  sessionModelsValueSchema,
   sessionPromptValueSchema,
+  sessionSelectModelValueSchema,
 } from '../api/sessions.schema.ts'
 import {
   workspaceCreateValueSchema,
@@ -51,11 +53,14 @@ export interface IApiClient {
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
     create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
+    models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
+    selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
+    pickDirectory(payload: RequestPayload<'host.pickDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.pickDirectory'>>>
   }
   workspace: {
     list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
@@ -87,9 +92,12 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.list': sessionListValueSchema,
   'session.create': sessionCreateValueSchema,
   'session.history': sessionHistoryValueSchema,
+  'session.models': sessionModelsValueSchema,
+  'session.selectModel': sessionSelectModelValueSchema,
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'host.describe': hostDescribeValueSchema,
+  'host.pickDirectory': hostPickDirectoryValueSchema,
   'workspace.list': workspaceListValueSchema,
   'workspace.create': workspaceCreateValueSchema,
   'workspace.rename': workspaceRenameValueSchema,
@@ -177,13 +185,22 @@ export abstract class AbstractApiClient implements IApiClient {
    * Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
    * timeout merged with the caller's optional external signal, non-2xx → transport throw.
    */
-  private async postJson(path: string, body: ClientRequest | ClientResponse, signal: AbortSignal | undefined): Promise<Response> {
-    const timeout = AbortSignal.timeout(this.timeoutMs)
+  private async postJson(
+    path: string,
+    body: ClientRequest | ClientResponse,
+    signal: AbortSignal | undefined,
+    useDefaultTimeout = true,
+  ): Promise<Response> {
+    const requestSignal = useDefaultTimeout
+      ? signal === undefined
+        ? AbortSignal.timeout(this.timeoutMs)
+        : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal])
+      : signal
     const response = await this.doFetch(new URL(path, this.resolveBase()), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
+      ...requestSignal === undefined ? {} : { signal: requestSignal },
     })
     if (!response.ok) throw new Error(`transport failure for ${path}: HTTP ${response.status}`)
     return response
@@ -198,10 +215,11 @@ export abstract class AbstractApiClient implements IApiClient {
     method: K,
     payload: RequestPayload<K>,
     signal?: AbortSignal,
+    useDefaultTimeout = true,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const message: ClientRequest = { type: 'client-request', rpcId: this.mintRpcId(), method, payload }
     this.onEnvelope(message)
-    const response = await this.postJson(`/api/${method}`, message, signal)
+    const response = await this.postJson(`/api/${method}`, message, signal, useDefaultTimeout)
     const full = serverResponseSchema.parse(await response.json())
     this.onEnvelope(full)
     if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`)
@@ -276,12 +294,17 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
+    models: (payload, signal) => this.callUnary('session.models', payload, signal),
+    selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
   }
 
   readonly host: IApiClient['host'] = {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
+    // A native system dialog is user-paced and may legitimately stay open
+    // longer than the normal unary deadline. Caller/connection aborts remain.
+    pickDirectory: (payload, signal) => this.callUnary('host.pickDirectory', payload, signal, false),
   }
 
   readonly workspace: IApiClient['workspace'] = {

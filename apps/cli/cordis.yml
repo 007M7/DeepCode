@@ -71,9 +71,6 @@
   config:
     agents: []
 
-- id: llm-retry
-  name: '@deepseek-ai/dsh-llm-retry'
-
 # The native DeepSeek adapter; reads the key/base-url the boot's layered
 # .env loading (cwd then $DSH_HOME) left in the environment.
 - id: llm-deepseek
@@ -87,6 +84,10 @@
 - id: llm-retry
   name: '@deepseek-ai/dsh-llm-retry'
 
+# Session store root. AppCLIEntry resolves the engineering default to a
+# global dir under the Harness home ($DSH_HOME, else ~/.dsh): sessions live
+# in one place across every cwd, not a project-local ./.sessions. The
+# persistenceRoot profile key (user config) still overrides this per field.
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
@@ -107,6 +108,10 @@
 
 - id: workspace
   name: '@deepseek-ai/dsh-workspace'
+
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
 
 - id: bash-local
   name: '@deepseek-ai/dsh-bash-local'
@@ -286,6 +291,7 @@
 - id: ui-conversation
   name: '@deepseek-ai/dsh-client-ui-conversation'
 
+
 - id: ui-workspace
   name: '@deepseek-ai/dsh-client-ui-workspace'
 
@@ -302,6 +308,10 @@
 
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
+
+# Model selection: the /model popupSelect + composer seat over session.models.
+- id: ui-model
+  name: '@deepseek-ai/dsh-client-ui-model'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'

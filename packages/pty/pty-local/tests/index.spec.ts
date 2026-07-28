@@ -33,7 +33,7 @@ function config(): ResolvedConfig {
   return {
     backendType: 'shell', shellPath: '/bin/bash', shellArgs: [], rows: 24, cols: 80,
     scrollbackLines: 10, scrollbackMaxBytes: 100, maxReadBytes: 50,
-    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, timeoutMs: 100,
+    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, handoffGraceMs: 10, timeoutMs: 100,
     disposeGraceMs: 10,
   }
 }
@@ -41,8 +41,8 @@ function config(): ResolvedConfig {
 function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
-    id, options: {}, session: new Session(id), status: 'idle', ctx,
-    followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
+    followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -248,8 +248,8 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -291,8 +291,8 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
-      followup: () => AgentMessageId('stub'), queue: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
+      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

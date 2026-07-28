@@ -24,7 +24,7 @@ When an agent is idle, has no competing queued work, and its current goal is `ac
 
 The `agent/prompt-submit` waterfall is the admission fence. A positive goal source is allowed only when it exactly matches the driver's pending identity and content, the live goal still has that id and revision, activation remains armed, and the round is still the next number. The plugin checks once before delegating and again after downstream hooks return. This second check prevents an async hook from editing or pausing the goal while still admitting the old prompt.
 
-Only the resulting `user/message` is an admitted round and advances the goal fold. A stale reservation becomes a durable `prompt/blocked` plus zero-step rejected turn, but the driver marks it stale and does not charge the round. A downstream policy rejection that is not caused by staleness blocks the goal rather than retrying around policy.
+Only the resulting `user/message` is an admitted round and advances the goal fold. A stale reservation is discarded before a turn opens; the driver marks it stale and does not charge the round. A downstream policy rejection that is not caused by staleness blocks the goal rather than retrying around policy.
 
 ### Human work and revision races
 
@@ -43,7 +43,6 @@ The driver classifies one closed goal-owned turn as follows:
 | `error` with code `RATE_LIMIT` or `QUOTA` | block with code `usage-limited` |
 | other `error` | block with code `turn-error` |
 | `max-tokens` | block with code `max-tokens` |
-| non-stale `rejected` | block with code `prompt-rejected` |
 | failed durability checkpoint | disarm without changing durable phase |
 | `disposed` or `interrupted` | disarm |
 | plugin-added unknown result | block for inspection |

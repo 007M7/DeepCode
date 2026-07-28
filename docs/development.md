@@ -8,7 +8,7 @@ This onboarding guide helps project contributors get started with the local envi
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
-- Git.
+- Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
 - Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
 
 ## First-time setup
@@ -19,13 +19,19 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`; the wrapper script uses lefthook's reviewed `--force` mode so linked worktrees with an existing `core.hooksPath` do not fail normal `pnpm run …` commands.
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. With `CI=true` or `GITHUB_ACTIONS=true`, the wrapper returns before Git discovery because automated jobs do not consume contributor hooks. Otherwise, it requires Git 2.26 or newer and gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
 ```sh
-pnpm exec lefthook install --force
+node scripts/install-lefthook.mjs
 ```
+
+The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; command-scoped and worktree-scoped custom paths must be integrated or removed explicitly.
+
+Before enabling worktree config, migrate direct `extensions.*` in a format-0 common config, direct `core.worktree` or `core.bare=true`, and any non-empty dormant `config.worktree`. The common config and every worktree config must be regular files, while the owned hook directory may contain only unaliased regular files.
+
+After moving a checkout, rerun the wrapper to relocate its owned path and regenerate hooks. For a stale or invalid installer lock, first confirm no installer is running, then remove the reported lock and retry. If installation and hook-path rollback both fail, inspect the reported worktree config before retrying. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the full safety contract.
 
 Run typecheck once after a fresh clone:
 

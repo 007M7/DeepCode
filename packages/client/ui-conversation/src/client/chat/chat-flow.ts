@@ -1,8 +1,8 @@
 /**
  * Chat flow derivation: ConversationSnapshot nodes -> render items. Tool
  * results group into consecutive-run tool groups (figma step-summary flow,
- * VERTICAL gap10) alternating with narration. Consecutive retry notices from
- * one turn reuse the first notice's row while projecting the latest attempt.
+ * VERTICAL gap10) alternating with narration. Consecutive retry notices
+ * reuse the first notice's row while projecting the latest retry turn.
  * Item identity keys are stable across snapshots so the list parent can
  * subscribe to keys only while rows subscribe to content.
  */
@@ -16,7 +16,7 @@ export type ChatFlowItem =
 /**
  * Group finalized nodes into the step-summary flow.
  * @param nodes - snapshot nodes (surface order).
- * @returns flow items; consecutive tool results and same-turn retry notices reuse their first key.
+ * @returns flow items; consecutive tool results and retry notices reuse their first key.
  */
 export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem[] {
   const items: ChatFlowItem[] = []
@@ -35,7 +35,6 @@ export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem
       if (
         previous?.kind === 'node'
         && previous.node.kind === 'model-retry'
-        && previous.node.turn === node.turn
       ) {
         items[items.length - 1] = { ...previous, node }
       } else {

@@ -88,21 +88,14 @@ export interface ContextMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
-  meta?: unknown
 }
 
 /** Durable notice that a closed failed step is waiting for a model-request retry. */
-export interface ModelRetryNode {
+export type ModelRetryNode = LlmRetryEventData & {
   kind: 'model-retry'
   seq: number
   /** Unix epoch ms from the llm/retry session event. */
   time: number
-  turn: number
-  step: number
-  retry: number
-  maxRetries: number
-  delayMs: number
-  failure: LlmRetryEventData['failure']
 }
 
 /** A tool result paired (when in-window) with its call head. */

@@ -8,6 +8,7 @@
       "waitForText": "GOAL ROUND ONE"
     },
     { "op": "waitForTurnStart", "minimumTurn": 3 },
-    { "op": "cancel", "waitForFile": { "path": ".dsh-snapshot-goal-cancel-ready" } }
+    { "op": "cancel", "waitForFile": { "path": ".dsh-snapshot-goal-cancel-ready" } },
+    { "op": "waitForTurnEnd" }
   ]
 }

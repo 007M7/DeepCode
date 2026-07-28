@@ -21,7 +21,6 @@
 | `skills` | 拥有者默认值 | Skill 注册表、本地提供方和面向模型的 skill 工具 |
 | `toolBash` | 拥有者默认值 | 面向模型的 bash 配置，包括此生产方对后台任务的选用 |
 | `toolTasks` | 拥有者默认值 | 通用 `task_output` 等待边界 |
-| `llmRetry` | 拥有者默认值 | 有界的瞬时模型请求重试策略 |
 | `persistenceRoot` | `./.sessions` | JSONL 会话根目录 |
 | `persistenceCompression` | `'zstd'` | JSONL 工件编码（`'zstd'` 或原始 `'none'`） |
 | `workspaceContext` | 必填 | Workspace 指令字节预算，或以 `false` 禁用加载 |
