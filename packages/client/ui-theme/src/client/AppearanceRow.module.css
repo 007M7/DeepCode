@@ -20,13 +20,15 @@
   display: flex;
   align-items: stretch;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* Appearance cube (figma '.Selector Cube' 276x82 r16, pad 20/32, centered
- * icon-over-label column, gap 4). */
+ * icon-over-label column, gap 4); flexed down from the figma width so all
+ * three sit on one row in the 800 panel, wrapping when narrower. */
 .themeCube {
   box-sizing: border-box;
-  width: 276px;
+  flex: 1 1 180px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -41,6 +43,10 @@
   line-height: 22px;
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
+}
+
+.themeCube:hover:not(.selected) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* Selected cube: #F5F6F7 fill + #ADB2B8 border (static token — the bluish-400

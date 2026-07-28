@@ -21,6 +21,7 @@ function makeHost() {
   const versions = new Map<string, number>()
   const subs = new Map<string, Set<() => void>>()
   const live = new Set<StoredEntry>()
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
     for (const fn of [...(subs.get(key) ?? [])]) fn()
@@ -39,9 +40,7 @@ function makeHost() {
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-      current: { getSnapshot: () => undefined, subscribe: () => () => {} },
-      provideInfo: () => undefined,
-      maybeProvideInfo: () => ({ sessionId: undefined, hooks: {}, props: {} }),
+      provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
     },
     workspaces: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },

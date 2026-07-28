@@ -105,18 +105,14 @@ export interface SlotRendererHost {
   sessions: {
     /** Session list source backing the useSessions standard hook. */
     list: HostObservable<unknown>
-    /** Current-session source used by SessionProvider. */
-    current: HostObservable<string | undefined>
-    /** Resolve a definite session bundle, or undefined when the id is unknown. */
-    provideInfo(id: string): SessionProvideInfo | undefined
     /**
-     * Resolve the current-session-optional standard props bundle. The result
-     * always carries the static provider roster, even when `id` is absent or
-     * cannot resolve to a live session.
-     * @param id - current session id, when selected.
-     * @returns the optional provide info.
+     * Atomic current-session provide projection used by SessionProvider:
+     * selection changes and provider-roster changes publish through this one
+     * source, so a stable current id cannot strand mounted entries on an
+     * obsolete hook/prop schema. Carries the static roster with sessionId
+     * undefined while no current session resolves.
      */
-    maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo
+    provideInfo: HostObservable<SessionMaybeProvideInfo>
   }
   /** Workspace-side standard-kit sources. */
   workspaces: {

@@ -635,10 +635,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
       },
       {
-        signature: 'async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>',
-        jsDoc: '/**\n * Append one plugin-declared log-only event without borrowing the agent\n * loop\'s lifecycle. An open turn receives the event directly and remains\n * responsible for its ordinary checkpoint. A closed log receives one\n * zero-step turn around the event, followed by an awaited flush.\n *\n * Once the synthetic `turn/start` commits, this method always attempts its\n * matching `turn/end` and flush, including when the target append fails.\n * Detachment requested by an event or flush listener is deferred until that\n * sequence settles, so publication cannot switch from a live scoped session\n * to an unobserved bare `Session` halfway through the update.\n *\n * @param session - exact live session that owns the target log.\n * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.\n * @param data - typed JSON payload for the target event.\n * @param trigger - plugin-owned turn trigger used only when the log is closed.\n * @returns the accepted target event with its assigned sequence and timestamp.\n * @throws when the session is detached, another out-of-band append is active,\n *   event acceptance fails, the synthetic turn cannot close, or flushing fails.\n */',
-      },
-      {
         signature: 'get(id: SessionId): Session | undefined',
         jsDoc: '/**\n * Look up a live session.\n * @param id - the session id to look up.\n * @returns the session, or undefined when no live session has that id.\n */',
       },
@@ -648,7 +644,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
-        jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
+        jsDoc: '/**\n * Create a live child session from a stable prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. The selected slice may end with a between-turn event\n * but must not end inside an open turn.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
       },
     ],
   },
@@ -662,7 +658,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
+        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
       {
         signature: 'register(provider: SessionTitleProvider): () => Promise<void>',
@@ -1804,14 +1800,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
-  },
-  {
-    name: 'OutOfBandSessionEventMap',
-    declaration: 'export interface OutOfBandSessionEventMap {\n}',
-  },
-  {
-    name: 'OutOfBandSessionEventType',
-    declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
   },
   {
     name: 'PreparedLlmCall',

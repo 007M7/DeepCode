@@ -10,7 +10,7 @@
 
 ## 捕获点
 
-协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；轮次封闭机制在结构上决定了这些错误进不了日志）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
+协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；会话事件词汇有意不包含运行错误记录）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
 
 ## 脱敏 waterfall
 

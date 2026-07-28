@@ -5,7 +5,7 @@
  * slot registration.
  */
 import type { RefObject } from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -37,6 +37,12 @@ export interface WorkspaceCreateFlowProps {
   onPick: (workspaceId: WorkspaceId) => void
   /** Close the popover (outside click / Escape / post-pick). */
   onClose: () => void
+  /** Only show create actions (open folder / create new), hide existing workspaces. */
+  createOnly?: boolean
+  /** Menu opening direction relative to the anchor. */
+  side?: 'bottom' | 'top' | 'right'
+  /** Currently active workspace (trailing check in the picker list). */
+  selectedId?: WorkspaceId | undefined
 }
 
 /**
@@ -52,6 +58,9 @@ export function WorkspaceCreateFlow({
   pickDirectory,
   onPick,
   onClose,
+  createOnly = false,
+  side = 'bottom',
+  selectedId,
 }: WorkspaceCreateFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
@@ -65,21 +74,26 @@ export function WorkspaceCreateFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderConflict, setFolderConflict] = useState(false)
+  const composingRef = useRef(false)
   const normalizedWorkspaceName = workspaceName.trim()
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
-  const items: MenuEntry[] = [
-    ...workspaces.map(workspace => ({
+  const createEntries: MenuEntry[] = [
+    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
+    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
+  ]
+  // With workspaces listed, the create actions pin below the scroll region
+  // (divider + always visible); otherwise they ARE the menu.
+  const pinCreate = !createOnly && workspaces.length > 0
+  const items: MenuEntry[] = pinCreate
+    ? workspaces.map(workspace => ({
       id: workspace.workspaceId,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
       disabled: pickingFolder,
-    })),
-    ...(workspaces.length > 0 ? [{ type: 'separator' as const, id: 'sep-create' }] : []),
-    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
-    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
-  ]
+    }))
+    : createEntries
 
   const closeModal = (): void => {
     if (creating) return
@@ -114,7 +128,7 @@ export function WorkspaceCreateFlow({
     }
     if (id === CREATE_NEW) {
       onClose()
-      setWorkspaceName('workspace')
+      setWorkspaceName('')
       setModalError(null)
       setModalKind('create')
       return
@@ -149,8 +163,11 @@ export function WorkspaceCreateFlow({
         open={open}
         anchor={null}
         items={items}
+        {...pinCreate ? { footer: createEntries } : {}}
+        selectedId={selectedId}
         onSelect={handleSelect}
         onClose={onClose}
+        side={side}
         portal
         getAnchorRect={getAnchorRect}
       />
@@ -194,12 +211,15 @@ export function WorkspaceCreateFlow({
         <input
           className={css.modalInput}
           value={workspaceName}
+          placeholder="Workspace name"
           aria-label="New workspace name"
           autoFocus
           disabled={creating}
           onChange={(event) => { setWorkspaceName(event.target.value); setModalError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !composingRef.current) {
               event.preventDefault()
               confirmCreate()
             }
@@ -225,6 +245,7 @@ export function WorkspacePicker({
   open,
   anchorRef,
   useWorkspaces,
+  selectedId,
   onPick,
   onClose,
   createWorkspace,
@@ -237,6 +258,7 @@ export function WorkspacePicker({
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
       pickDirectory={pickDirectory}
+      selectedId={selectedId}
       onPick={onPick}
       onClose={onClose}
     />

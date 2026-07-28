@@ -1,0 +1,137 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  defaultConcurrency,
+  formatGateResultReason,
+  gatesForMode,
+  runGate,
+  runGates,
+  type Gate,
+  type GateResult,
+} from './run-gates.ts'
+
+function gate(id: string, options: Partial<Gate> = {}): Gate {
+  return {
+    id,
+    label: id,
+    displayCommand: `run ${id}`,
+    command: process.execPath,
+    args: ['-e', ''],
+    ...options,
+  }
+}
+
+function resultFor(subject: Gate, status: GateResult['status'] = 'passed'): GateResult {
+  return {
+    gate: subject,
+    status,
+    durationMs: 10,
+    output: [],
+    exitCode: status === 'passed' ? 0 : 1,
+    signalCode: null,
+  }
+}
+
+function withPnpmEntrypoint<T>(action: () => T): T {
+  const previous = process.env.npm_execpath
+  process.env.npm_execpath = '/private/pnpm.cjs'
+  try {
+    return action()
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(process.env, 'npm_execpath')
+    else process.env.npm_execpath = previous
+  }
+}
+
+describe('gate graph validation', () => {
+  it.each([
+    'ci-primary',
+    'ci-static',
+    'ci-lint',
+    'ci-coverage',
+    'ci-snapshot',
+    'ci-artifacts',
+    'ci-consumers',
+    'ci-windows-blocking',
+    'ci-windows-complete',
+    'ci-windows-observational',
+    'node-compat',
+    'check-all',
+    'doc-sync',
+  ] as const)('constructs and executes preflight for a valid non-empty %s graph', async (mode) => {
+    const subject = withPnpmEntrypoint(() => gatesForMode(mode))
+    const execute = vi.fn(async (item: Gate) => resultFor(item))
+
+    await expect(runGates(subject, subject.length, execute)).resolves.toHaveLength(subject.length)
+  })
+
+  it.each([
+    ['empty', [], /gate graph has no gates/],
+    ['duplicate ids', [gate('same'), gate('same')], /duplicate gate id "same"/],
+    ['unknown dependencies', [gate('subject', { needs: ['missing'] })], /depends on unknown gate "missing"/],
+    ['cycles', [gate('first', { needs: ['second'] }), gate('second', { needs: ['first'] })], /dependency cycle: first -> second -> first/],
+  ] as const)('rejects %s before starting a child', async (_label, invalid, message) => {
+    const execute = vi.fn(async (subject: Gate) => resultFor(subject))
+
+    await expect(runGates([...invalid], 1, execute)).rejects.toThrow(message)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid worker count before starting a child', async () => {
+    const execute = vi.fn(async (subject: Gate) => resultFor(subject))
+
+    await expect(runGates([gate('subject')], 0, execute)).rejects.toThrow('max concurrency must be a positive integer')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('skips dependents after their prerequisite fails', async () => {
+    const dependent = gate('dependent', { needs: ['root'] })
+    const root = gate('root')
+    const execute = vi.fn(async (subject: Gate) => resultFor(subject, 'failed'))
+
+    const results = await runGates([dependent, root], 1, execute)
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledWith(root)
+    expect(results[0]).toMatchObject({ gate: dependent, status: 'skipped', error: 'dependency failed or skipped: root' })
+  })
+})
+
+describe('Node 24 consumer graph', () => {
+  it('owns the seven-command pool and orders restored-artifact consumers', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
+
+    expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
+      workers: 7,
+      source: 'ci-consumers gate count',
+    })
+    expect(subject.map(item => item.id)).toEqual([
+      'lint-and-duplication',
+      'node-compat',
+      'snapshot',
+      'publint',
+      'node-next-types',
+      'built-package-invariants',
+      'built-bin-smoke',
+    ])
+    expect(subject.find(item => item.id === 'publint')?.needs).toBeUndefined()
+    expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
+    expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
+    for (const id of ['snapshot', 'node-next-types', 'built-bin-smoke']) {
+      expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
+    }
+    expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+  })
+})
+
+describe('gate process outcomes', () => {
+  it.skipIf(process.platform === 'win32')('reports signal termination independently from exit status', async () => {
+    const result = await runGate(gate('terminated', {
+      args: ['-e', "process.kill(process.pid, 'SIGTERM')"],
+    }))
+
+    expect(result.status).toBe('failed')
+    expect(result.exitCode).toBeNull()
+    expect(result.signalCode).toBe('SIGTERM')
+    expect(formatGateResultReason(result)).toBe('signal SIGTERM')
+  })
+})
