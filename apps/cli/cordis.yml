@@ -346,6 +346,10 @@
 - id: ui-model
   name: '@deepseek-ai/dsh-client-ui-model'
 
+# Plan control: the composer plan seat over the plan projection + /plan channel.
+- id: ui-plan
+  name: '@deepseek-ai/dsh-client-ui-plan'
+
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'
 

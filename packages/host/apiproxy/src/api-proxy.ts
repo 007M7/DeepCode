@@ -141,13 +141,24 @@ function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Sess
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
 }
 
+/**
+ * Whether the session's conversation has started: no turn has run yet (a
+ * turn is one model-loop execution). Standalone plugin events — command
+ * lifecycle records, plan/mode, titles, goals — never open a turn, so
+ * running `/plan` or `/goal` on a fresh session keeps it blank
+ * (list-hidden, reusable).
+ */
+function sessionBlank(session: Session): boolean {
+  return !session.events.some(event => event.type === 'turn/start')
+}
+
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
     updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
     running,
-    blank: session.events.length === 0,
+    blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
@@ -172,8 +183,9 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     sessionId: meta.id,
     updatedAt,
     running: false,
-    // Lazy persistence keeps never-appended sessions out of list(): a cold
-    // session necessarily has events, so blank is constantly false here.
+    // Lazy persistence keeps never-appended sessions out of list(); reading
+    // a cold log to check for turns would defeat the index read, so a listed
+    // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
@@ -1328,8 +1340,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               type: 'host/session-added',
               sessionId: session.id,
               // Derived at frame time like summarize(); a just-created session
-              // has no events yet, so this is constantly true in practice.
-              blank: session.events.length === 0,
+              // has run no turn yet, so this is constantly true in practice.
+              blank: sessionBlank(session),
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },

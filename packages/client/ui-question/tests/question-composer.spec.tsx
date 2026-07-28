@@ -71,7 +71,11 @@ describe('QuestionComposer', () => {
     expect(screen.getByText('1 / 3')).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
     expect(screen.getByText('工程落地型')).toBeTruthy()
-    expect(screen.getByText('按当前空缺岗位的优先级选择。')).toBeTruthy()
+    const detail = screen.getByText('按当前空缺岗位的优先级选择。')
+    const scrollRegion = detail.closest('[data-question-scroll]')
+    expect(scrollRegion).toBeTruthy()
+    expect(scrollRegion?.contains(screen.getByRole('radio', { name: /工程落地型/ }))).toBe(true)
+    expect(scrollRegion?.contains(screen.getByText('下一题').closest('button'))).toBe(false)
     fireEvent.keyDown(screen.getByRole('radio', { name: /工程落地型/ }), { key: 'Enter' })
     expect(respond).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
@@ -101,6 +105,29 @@ describe('QuestionComposer', () => {
       { id: 'signals', selected: ['系统设计', '代码质量'] },
     ]))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
+  })
+
+  it('renders plan detail through the shared assistant Markdown primitive', () => {
+    const carrier = new PendingWait(
+      'question',
+      RpcId('markdown-plan'),
+      SID,
+      {
+        questions: [{
+          id: 'plan',
+          question: '批准这个计划吗？',
+          detail: '# 实施计划\n\n- **先验证**现状\n- 修改 `QuestionComposer`',
+          options: [{ label: '批准' }],
+        }],
+      },
+      vi.fn(),
+    )
+    const view = render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    expect(screen.getByRole('heading', { level: 1, name: '实施计划' })).toBeTruthy()
+    expect(view.container.querySelector('strong')?.textContent).toBe('先验证')
+    expect(view.container.querySelector('code')?.textContent).toBe('QuestionComposer')
+    expect(view.container.querySelectorAll('li')).toHaveLength(2)
   })
 
   it('skips individual questions without discarding earlier answers', () => {

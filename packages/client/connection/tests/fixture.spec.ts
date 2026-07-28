@@ -69,9 +69,11 @@ describe('createFixtureApi', () => {
     // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    // Fixture composes the todos unit (host parallel when tool-todo is mounted): null before any write.
+    // Fixture composes the todos + plan units (host parallel when tool-todo
+    // and plan-mode are mounted): the empty-log values.
     expect(empty.result.value).toEqual({
-      events: [], hasMore: false, projections: { asOfSeq: -1, values: { goal: null, todos: null } },
+      events: [], hasMore: false,
+      projections: { asOfSeq: -1, values: { goal: null, todos: null, plan: { active: false, pending: false } } },
     })
   })
 
@@ -206,7 +208,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 4) abort.abort()
+        if (envelopes.length >= 7) abort.abort()
       }
       return envelopes
     }
@@ -214,14 +216,15 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos + goal units).
+    // Projection baseline frames follow the subscribed frame (title + todos + plan + goal units).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
-    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
-    expect(first[4]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[4]?.rpcId).toBe(first[4]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[5]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[5]?.rpcId).toBe(first[5]?.rpcId)
+    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
+    expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
+    expect(first[5]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[5]?.rpcId).toBe(first[5]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[6]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[6]?.rpcId).toBe(first[6]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

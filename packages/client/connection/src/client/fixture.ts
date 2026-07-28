@@ -302,6 +302,34 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
+/**
+ * Fixture parallel of the plan unit's double-event fold: `command/run`
+ * records named `plan` set the wanted target (`off` → false, else true);
+ * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
+ * boundary (the fixture's agent/step parallel).
+ */
+function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
+  let active = false
+  let wanted: boolean | null = null
+  for (const event of log) {
+    const item = event as unknown as { type: string; data?: Record<string, unknown> }
+    if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+    } else if (item.type === 'plan/mode') {
+      active = item.data?.['active'] === true
+      wanted = null
+    }
+  }
+  return { active, pending: wanted !== null && wanted !== active, wanted }
+}
+
+/** The plan projection's wire view over the full log. */
+function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: boolean } {
+  const plan = foldPlan(log)
+  return { active: plan.active, pending: plan.pending }
+}
+
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -311,6 +339,8 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (plan-mode unit composed): the {active, pending} view.
+  values['plan'] = planViewOf(log)
   // Always present (GoalService unit composed): null before create / after clear.
   values['goal'] = backscanGoal(log)
   return values
@@ -340,6 +370,17 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'todos',
       value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // The plan unit advances on its two folded event kinds.
+  if (type === 'plan/mode' || (type === 'command/run'
+    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'plan',
+      value: planViewOf(log),
       seq: event.seq,
     }]
   }
@@ -904,6 +945,12 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // /plan selection commits as plan/mode inside the opened turn.
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         startReply(
           id,
@@ -1035,6 +1082,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
             { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
       },
@@ -1073,14 +1121,29 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
           return ok(request, { matched: true as const, commandId })
         }
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),
+          plan: args.trim() === 'off'
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
         const commandId = `fx-cmd-${logOf(id).length}` as CommandId
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const, commandId })
       },
