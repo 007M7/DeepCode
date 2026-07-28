@@ -41,10 +41,9 @@
   90%, 100% { left: 100%; }
 }
 
-/* Clickable rows keep only the cursor affordance — no hover fill. */
-.row[data-clickable] {
+/* Expand-on-row (Think / code): pointer only — no row fill hover. */
+.row[data-expandable] {
   cursor: pointer;
-  border-radius: 6px;
 }
 
 .leading {
@@ -141,6 +140,29 @@ button.leading {
   font-size: 14px;
   line-height: 24px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* File-tool path: same geometry as .summary; hover underline + pointer. */
+.fileLink {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.fileLink:hover {
+  text-decoration: underline;
 }
 
 /* Expanded body: pad-left 22 indented gray text, no border, no fill. */

@@ -145,8 +145,11 @@ export interface ToolRowOwnerProps {
   block: ToolCallBlock
   /** Session workspace root; path summaries display relative to it. */
   cwd?: string | undefined
-  /** Open the details panel for this call (session-level facility, supplied by the view). */
-  openDetails: () => void
+  /**
+   * Open a tool-arg filesystem path with the host OS default application.
+   * The chat view resolves relative paths against the session cwd.
+   */
+  openFile: (path: string) => void
 }
 
 /**
@@ -285,6 +288,11 @@ export type ConversationSessionSlotProps =
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails: (target: SelectionTarget) => void
+  /**
+   * Open a tool-arg filesystem path with the host OS default application
+   * (relative paths resolve against the session cwd).
+   */
+  openFile: (path: string) => void
   loadOlder: () => void
 }
 

@@ -48,6 +48,7 @@ async function bench() {
   ctx.provide('workspaces', {
     startSession: vi.fn(),
     sendSession: vi.fn(),
+    openPath: vi.fn(async () => {}),
   })
   ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
   ctx.provide('locale', { bind: () => (key: string) => key })
