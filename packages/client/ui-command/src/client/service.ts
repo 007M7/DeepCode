@@ -139,6 +139,9 @@ export class CommandService extends Service implements CommandServiceContract {
     for (const contribution of this.live.contributions.values()) {
       if (!contribution.available(session)) continue
       if (seen.has(contribution.name)) {
+        // hostBacked cooperates: the host's catalog row stands, the
+        // contribution only supplies the bare-invocation popup.
+        if (contribution.hostBacked === true) continue
         throw new Error(`ui-command: contribution /${contribution.name} collides with a host command`)
       }
       rows.push({ name: contribution.name, description: contribution.description })
@@ -170,7 +173,10 @@ export class CommandService extends Service implements CommandServiceContract {
   private matchSpace(session: ClientSessionContext, token: string): PickOutcome {
     if (!token.startsWith('/')) return undefined
     const name = token.slice(1)
-    if (this.live.contributions.has(name)) return undefined // popup kinds never claim on space
+    // Popup kinds never claim on space; a hostBacked popup defers to the
+    // host command's own claim (the popup serves only the bare invocation).
+    const spaceContribution = this.live.contributions.get(name)
+    if (spaceContribution !== undefined && spaceContribution.hostBacked !== true) return undefined
     const desc = this.directory.resolve(session.sessionId, name)
     if (desc === undefined || desc.input === undefined) return undefined
     return { claim: this.leadingClaim(desc, session) }
@@ -192,9 +198,13 @@ export class CommandService extends Service implements CommandServiceContract {
     if (name === '') return undefined
     const contribution = this.live.contributions.get(name)
     if (contribution !== undefined && contribution.available(session)) {
-      if (!bare) return undefined
-      this.openPopup(contribution, session, { via: 'enter', token })
-      return 'handled'
+      if (bare) {
+        this.openPopup(contribution, session, { via: 'enter', token })
+        return 'handled'
+      }
+      // hostBacked + arguments: the host command owns the argued path
+      // (claim or detached run below); a pure contribution stays bare-only.
+      if (contribution.hostBacked !== true) return undefined
     }
     await this.directory.ensureReady(session.sessionId, signal)
     const desc = this.directory.resolve(session.sessionId, name)

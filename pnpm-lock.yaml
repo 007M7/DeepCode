@@ -161,6 +161,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-models':
         specifier: workspace:^
         version: link:../../packages/client/ui-models
+      '@deepseek-ai/dsh-client-ui-permission':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-permission
       '@deepseek-ai/dsh-client-ui-question':
         specifier: workspace:^
         version: link:../../packages/client/ui-question
@@ -1105,6 +1108,27 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/client/ui-permission:
+    devDependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-command':
+        specifier: workspace:^
+        version: link:../ui-command
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../ui/permission
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/client/ui-primitives:
     dependencies:

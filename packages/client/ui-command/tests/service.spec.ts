@@ -197,6 +197,36 @@ describe('candidates', () => {
     command.register(themeContribution({ name: 'plan' }))
     await expect(source.candidates(proj('s1'), req(''))).rejects.toThrow('collides with a host command')
   })
+
+  it('a hostBacked contribution cooperates: the host row stands, no duplicate, no throw', async () => {
+    const { command, source } = await bench()
+    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    const names = (await source.candidates(proj('s1'), req(''))).map(c => c.name)
+    expect(names).toEqual(['plan', 'goal'])
+  })
+})
+
+describe('hostBacked enter/space columns', () => {
+  it('bare enter opens the popup; an argued line falls through to the host claim', async () => {
+    const { command, source, mint, warm } = await bench()
+    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    const scope = mint('s1')
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/goal', new AbortController().signal)).toBe('handled')
+    expect(command.popupFor(scope.ctx).state.getSnapshot()).toMatchObject({ open: true, command: 'goal' })
+    const argued = await source.matchEnter!(proj('s1'), '/goal ship it', new AbortController().signal)
+    if (argued === undefined || argued === 'handled' || !('claim' in argued)) throw new Error('expected the host claim')
+    expect(argued.claim.token).toBe('/goal ')
+  })
+
+  it('space defers to the host claim instead of the popup', async () => {
+    const { command, source, warm } = await bench()
+    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    await warm(proj('s1'))
+    const outcome = source.matchSpace!(proj('s1'), '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected the host claim')
+    expect(outcome.claim.token).toBe('/goal ')
+  })
 })
 
 describe('dispatch (menu column)', () => {

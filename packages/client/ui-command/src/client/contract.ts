@@ -30,13 +30,23 @@ export type CommandUiSpec = {
  * One client-owned command contribution: a slash-menu entry whose behavior
  * lives entirely on the client (no host descriptor). Merged with the host
  * catalog by name — a collision with a host command fails loud at candidate
- * synthesis, never shadows.
+ * synthesis, never shadows — UNLESS the contribution declares `hostBacked`:
+ * then the same-named host command owns execution and the contribution only
+ * supplies the bare-invocation picker (menu row stays the host's; a bare
+ * pick/enter opens the popup; a line with arguments falls through to the
+ * host command's own path).
  */
 export interface CommandContribution {
   /** Command name without the leading slash (unique across contributions). */
   readonly name: string
   /** Menu row description. */
   readonly description: string
+  /**
+   * Cooperate with the same-named host command instead of colliding: the
+   * popup is the bare-invocation UI, the host command is the executor (its
+   * catalog row, argument claim, and lifecycle logging stand unchanged).
+   */
+  readonly hostBacked?: true
   /** Capability filter, called with a fresh projection per candidate pass. */
   available(session: ClientSessionContext): boolean
   /** The command's UI behavior (this phase: popupSelect only). */
