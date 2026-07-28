@@ -56,6 +56,7 @@
     { "path": "./packages/session-persistence/session-checkpoint-policy" },
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
+    { "path": "./packages/session-projection/session-projection" },
     { "path": "./packages/session-query/session-query" },
     { "path": "./packages/session-query/session-query-sqlite" },
     { "path": "./packages/session-query/tool-session-query" },
