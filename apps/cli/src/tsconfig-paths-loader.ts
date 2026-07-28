@@ -29,16 +29,29 @@ interface PathRule {
   targets: readonly string[]
 }
 
+interface PathsCompilerOptions {
+  readonly baseUrl?: string
+  readonly paths?: ts.MapLike<string[]>
+  readonly pathsBasePath?: string
+}
+
+// Node's native TypeScript transform cannot parse JSX, so `.tsx` is excluded.
 const SOURCE_EXTENSIONS = ['.ts', '.mts', '.cts'] as const
 
-/** Resolve package imports through one parsed tsconfig paths table. */
+/**
+ * Resolve package imports through one parsed tsconfig paths table.
+ *
+ * Manifest reads are process-scoped and memoized by path. Only matched source
+ * aliases enter the cache, bounding it to directories participating in source
+ * resolution.
+ */
 export class TsconfigPathsResolver {
   private readonly rules: readonly PathRule[]
   private readonly configDirectory: string
   private readonly manifests = new Map<string, Promise<PackageManifest | undefined>>()
 
-  private constructor(tsconfigPath: string, paths: ts.MapLike<string[]>) {
-    this.configDirectory = dirname(tsconfigPath)
+  private constructor(configDirectory: string, paths: ts.MapLike<string[]>) {
+    this.configDirectory = configDirectory
     this.rules = Object.entries(paths)
       .map(([pattern, targets]) => {
         const wildcard = pattern.indexOf('*')
@@ -73,9 +86,11 @@ export class TsconfigPathsResolver {
         : ts.flattenDiagnosticMessageText(unrecoverable.messageText, '\n')
       throw new Error(`dsh source loader could not parse ${tsconfigPath}: ${detail}`)
     }
-    const paths = parsed.options.paths
+    const options = parsed.options as PathsCompilerOptions
+    const paths = options.paths
     if (paths === undefined) throw new Error(`dsh source loader requires compilerOptions.paths in ${tsconfigPath}`)
-    return new TsconfigPathsResolver(tsconfigPath, paths)
+    const configDirectory = options.baseUrl ?? options.pathsBasePath ?? dirname(tsconfigPath)
+    return new TsconfigPathsResolver(configDirectory, paths)
   }
 
   /**
@@ -168,7 +183,7 @@ export async function resolveHook(
 export { resolveHook as resolve }
 
 function packageNameFromSpecifier(specifier: string): string | undefined {
-  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('node:') || specifier.startsWith('file:')) {
+  if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z+.-]*:/i.test(specifier)) {
     return undefined
   }
   const segments = specifier.split('/')
@@ -185,7 +200,9 @@ function declaresRuntimeDependency(manifest: PackageManifest, packageName: strin
 }
 
 async function existingSourcePath(base: string): Promise<string | undefined> {
-  const candidates = extname(base) === ''
+  const extension = extname(base)
+  if (extension === '.tsx') return undefined
+  const candidates = extension === ''
     ? [base, ...SOURCE_EXTENSIONS.map(extension => `${base}${extension}`), ...SOURCE_EXTENSIONS.map(extension => join(base, `index${extension}`))]
     : [base]
   for (const candidate of candidates) {
