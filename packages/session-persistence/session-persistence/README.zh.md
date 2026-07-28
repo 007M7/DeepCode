@@ -15,6 +15,7 @@
 | `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并命名违规类型。 |
 | `load(id): Promise<{ meta; events }>` | 返回已存储 header 和平衡、连续的日志，其中事件已脱离并验证，带标识的消息已深度冻结。协调器会在返回快照中，将消息标识机制引入前的四种消息事件形状升级为当前包装层；其余过时或格式错误的形状仍会被拒绝。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件关闭它。只丢弃撕裂尾部碎片；已提交损坏和未知 `version` 会被拒绝。 |
 | `inspect(id, signal?): Promise<{ meta; events }>` | 返回脱离的有效已存储前缀，其中带标识的消息已经升级、验证并深度冻结；不截断撕裂尾部、合成恢复 closer 或发布协调器状态。它与同 id 写入串行化；可选信号会迅速拒绝已排队调用方，阻止该后端读取启动，并取消活动后端读取工作。用于绝不应恢复日志的读模型和其他观察者。 |
+| `readFrom(id, fromSeq, signal?): Promise<{ meta; events }>` | read-from-seq 原语：返回 header 和 `seq >= fromSeq` 的有效已存储事件，与 `inspect` 同样脱离且非变更（不截断、不合成 closer、不发布协调器状态）。`fromSeq` 达到或超过已存储末尾时返回空事件列表；负数或非安全整数 `fromSeq` 会被拒绝。可寻址后端（SQLite）只读后缀；顺序后端（JSONL）仍解析整个产物并向前跳过——原语约束的是返回和重折叠的量，不是每个后端的物理读取。用于从水位续折尾部的 checkpoint 消费者（例如持久投影缓存）。 |
 | `list(signal?): Promise<SessionHeader[]>` | 从元数据轻量列出，不解析完整日志。可选信号取消后端列表工作。零事件延迟实体化会话不在 `list` 中。 |
 | `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | 返回轻量元数据和不透明品牌化每日志修订，不加载事件日志。日志及其后端存储不变时，修订保持相等；append 或变更性 load 修复后会改变；不会仅因两个存储使用相同本地计数器而冲突。可选信号请求取消后端发现工作；第一方后端在拒绝前结算已启动列表工作，使已等待调用完全停稳。 |
 
@@ -45,6 +46,7 @@
 |---|---|
 | `name` | dispose 失败 `AggregateError` 的后端标签。 |
 | `loadStored(id, signal?)` | 在全部存储范围中按 id 读取已存储前缀。用于 resume/load、非变更 inspect、实时接管和 create 冲突探测。可选信号属于仅观察读取。返回元数据标识 `id`；当且仅当必须截断撕裂尾部时才存在不透明 `tornMarker`。 |
+| `loadStoredFrom?(id, fromSeq, signal?)` | 服务 `readFrom` 背后的可选可寻址后缀读取：返回 header 和 `seq >= fromSeq` 的已存储事件，非变更、无撕裂标记。SQLite 实现它（`WHERE seq >= ?`）；不实现的后端使用协调器回退——`loadStored` 加向前跳过。 |
 | `appendBatch(meta, events, isMaterialized)` | 持久追加连续批次；尚未实体化时以原子方式延迟实体化。 |
 | `commitRepair(meta, tornMarker, closers)` | 使崩溃修复持久：截断撕裂尾部（当且仅当 `tornMarker !== undefined`；标记可为 falsy，例如 seq/offset `0`），并追加 `closers`。不要求原子性。由 load（截断 + closer）和实时接管（仅截断）使用。 |
 | `list(signal?)` | 列出全部已存储元数据，观察可选取消。 |

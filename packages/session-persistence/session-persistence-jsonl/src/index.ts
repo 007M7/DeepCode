@@ -134,6 +134,12 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.inspect(id, signal)
   }
 
+  // JSONL is sequential media: no loadStoredFrom hook, so the coordinator
+  // parses the stored prefix (both encodings) and skips forward to fromSeq.
+  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
