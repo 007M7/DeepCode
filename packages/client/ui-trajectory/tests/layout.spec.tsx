@@ -204,6 +204,23 @@ describe('deriveTrajectoryLayout', () => {
     // From context at 9s, not from the earlier user/tool surfaces.
     expect(message?.timeSeconds).toBe(1)
   })
+
+  it('uses the recorded step start for assistant duration when timing exists', () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'hi' }], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 4_000, turn: 1, step: 1,
+        blocks: [{ kind: 'text', text: 'done' }],
+        timing: { stepStartTime: 3_000, firstTokenTime: 3_500, completedTime: 4_000 },
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const turns = deriveTrajectoryLayout({
+      codeDispatches: new Map(), nodes, partial: null, runningCalls: [],
+    })
+    const message = turns[0]?.groups.flatMap(group => group.cells)
+      .find(cell => cell.kind === 'message')
+    expect(message).toMatchObject({ startedAt: 3_000, timeSeconds: 1 })
+  })
 })
 
 describe('run_code sub-dispatch cells', () => {

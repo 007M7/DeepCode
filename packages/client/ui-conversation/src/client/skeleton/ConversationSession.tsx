@@ -32,6 +32,7 @@ export function ConversationSession({
   const active = tabs.find(view => view.id === activeId) ?? tabs[0]
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
   const composerPhase = useSession(s => s.composerPhase)
+  const hasPending = useSession(s => s.pending.length > 0)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)
   const storedDraft = useStore(s => s.draft)
@@ -90,7 +91,9 @@ export function ConversationSession({
       {!blankHero && <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>}
-      {(blankHero || active?.id === 'chat') && <Fragment key="composer">{composer}</Fragment>}
+      {(blankHero || active?.id === 'chat' || hasPending) && (
+        <Fragment key="composer">{composer}</Fragment>
+      )}
     </>
   )
 }

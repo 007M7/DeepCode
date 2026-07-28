@@ -103,7 +103,14 @@ function mount(
           useStore={bindSnapshotSelector(chat)}
           actions={chat.actions}
           renderSlot={renderSlot as never}
-          views={{ list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 }}
+          views={{
+            list: () => [
+              { id: 'chat', label: 'Chat' },
+              { id: 'trajectory', label: 'Trajectory' },
+            ],
+            subscribe: () => () => {},
+            version: () => 1,
+          }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
         />
@@ -208,6 +215,13 @@ describe('ConversationRoot resident composer', () => {
     expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
     expect(b.view.queryByText("Let's start building")).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
+  })
+
+  it('keeps pending takeover interaction accessible outside the Chat view', () => {
+    const b = mount(conversationSnapshot({ pending: [{} as never] }))
+    act(() => { b.chat.actions.setView('trajectory') })
+    expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
+    expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

@@ -229,10 +229,11 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       continue
     }
     if (sourceEvent.type === 'request/header') {
+      const tools: unknown = sourceEvent.data.header.tools
       const prompt: ConversationPromptSnapshot = {
         config: sourceEvent.data.header.config,
         system: sourceEvent.data.header.system ?? '',
-        tools: sourceEvent.data.header.tools ?? [],
+        tools: Array.isArray(tools) ? tools as ToolSchema[] : [],
       }
       const change = promptChange(activePrompt, prompt, sourceEvent)
       activePrompt = prompt

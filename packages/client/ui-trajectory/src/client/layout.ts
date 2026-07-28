@@ -538,7 +538,10 @@ function expandAssistant(
   let index = startIndex - 1
   const usage = node.usage as UsageLike | undefined
   const streaming = opts?.streaming === true
-  const messageDuration = streaming ? null : durationSeconds(node.time, prevAbsTime)
+  const recordedStart = finiteTime(node.timing?.stepStartTime)
+  const messageDuration = streaming
+    ? null
+    : durationSeconds(node.time, recordedStart ?? prevAbsTime)
   const nodeAbs = streaming ? null : finiteTime(node.time)
   const messageText = node.blocks
     .filter(block => block.kind === 'text' && (!streaming || block.text !== ''))
@@ -561,7 +564,7 @@ function expandAssistant(
     ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
     sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
     timeSeconds: messageDuration,
-    startedAt: finiteTime(node.timing?.stepStartTime),
+    startedAt: recordedStart,
   }
   attachUsage(message, usage)
   message.assistantMetrics = {

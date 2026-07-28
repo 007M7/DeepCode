@@ -56,7 +56,8 @@ const NODES = [
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
-    nodes, partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
+    nodes, pending: [], partial: null,
+    runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
@@ -123,6 +124,7 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
+    pending: [],
     openState: 'open' as const, hasMore: true, loadingOlder: false,
     partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
   })
@@ -404,6 +406,50 @@ describe('TrajectoryView branches', () => {
     expect(screen.getByText('current response')).toBeTruthy()
     expect(screen.getByRole('row', { name: /Request 2, ASSISTANT/ })).toBeTruthy()
     expect(view.container.querySelectorAll('[data-request-only="true"]')).toHaveLength(0)
+  })
+
+  it('retains cancellation-frozen assistant and tool nodes outside raw contexts', () => {
+    const retained = {
+      kind: 'user', seq: 1, time: 1_000,
+      content: [{ type: 'text', text: 'stop the task' }], source: null,
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const interruptedAssistant = {
+      kind: 'assistant', seq: 2.1, time: 2_000, turn: 1, step: 1,
+      blocks: [{ kind: 'text', text: 'partial response retained' }],
+      interrupted: true,
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const interruptedTool = {
+      kind: 'tool-result', seq: 2.2, time: 2_100, callId: 'slow-call',
+      call: { name: 'bash', argsRaw: '{"command":"sleep 30"}' }, callTime: 1_900,
+      content: [], isError: true,
+      error: { name: 'Interrupted', code: 'interrupted' },
+      callView: null, resultView: null,
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const store = createSnapshotStore({
+      nodes: [retained, interruptedAssistant, interruptedTool],
+      inspection: {
+        eventNodes: [retained],
+        contexts: [{ id: 0, nodes: [retained] }],
+        requests: [],
+        callSchemas: new Map(),
+      },
+      openState: 'open' as const,
+      hasMore: false,
+      partial: null,
+      runningCalls: [] as ConversationSnapshot['runningCalls'],
+      codeDispatches: new Map(),
+    })
+
+    render(
+      <TrajectoryView
+        {...standaloneProps([])}
+        useSession={bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>}
+        loadAllHistory={vi.fn(() => Promise.resolve())}
+      />,
+    )
+
+    expect(screen.getByText('partial response retained')).toBeTruthy()
+    expect(screen.getByRole('row', { name: /TOOL, bash/ })).toBeTruthy()
   })
 })
 

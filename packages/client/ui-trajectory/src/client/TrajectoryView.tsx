@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  AssistantMessageNode, ConversationContext, RequestView,
+  AssistantMessageNode, ConversationContext, ConversationNode, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsSeq,
@@ -82,6 +82,12 @@ function searchableJson(value: unknown): string {
   } catch {
     return ''
   }
+}
+
+function isInterruptedNode(node: ConversationNode): boolean {
+  return node.kind === 'assistant'
+    ? node.interrupted === true
+    : node.kind === 'tool-result' && node.error?.code === 'interrupted'
 }
 
 function searchMatches(
@@ -170,7 +176,13 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   )
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = currentBranch.nodes
+  const selectedNodes = useMemo(() => {
+    const selected = new Map(currentBranch.nodes.map(node => [node.seq, node]))
+    for (const node of nodes) {
+      if (isInterruptedNode(node)) selected.set(node.seq, node)
+    }
+    return [...selected.values()].sort((left, right) => left.seq - right.seq)
+  }, [currentBranch, nodes])
   const selectedRequests = useMemo(
     () => requests.filter(request =>
       trajectoryBranchContainsSeq(currentBranch, request.startSeq),

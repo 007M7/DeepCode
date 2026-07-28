@@ -111,14 +111,15 @@ describe('inspectRequests', () => {
 
   it('treats a scrubbed durable-fixture tool catalog as unavailable', () => {
     const snapshot = inspectRequests(entriesOf([
-      at(0, 'request/header', {
+      at(0, 'step/start', { turn: 1, step: 1 }),
+      at(1, 'request/header', {
         reason: 'initial',
         header: {
           config: { provider: 'fake', model: 'model' },
           tools: '{{tools}}',
         },
       }),
-      at(1, 'tool/call', {
+      at(2, 'tool/call', {
         turn: 1,
         step: 1,
         callId: 'call-1',
@@ -128,5 +129,6 @@ describe('inspectRequests', () => {
     ]))
 
     expect(snapshot.callSchemas).toEqual(new Map())
+    expect(snapshot.requests[0]?.prompt?.tools).toEqual([])
   })
 })
