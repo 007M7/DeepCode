@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
-  react-json-view-lite@2.5.0: 8caeb240cf32d6060a32781982025430c919fe9eba857054195179dd08acff5e
+  react-json-view-lite@2.5.0: 472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113
 
 importers:
 
@@ -1096,7 +1096,7 @@ importers:
         version: 18.3.1(react@18.3.1)
       react-json-view-lite:
         specifier: ^2.5.0
-        version: 2.5.0(patch_hash=8caeb240cf32d6060a32781982025430c919fe9eba857054195179dd08acff5e)(react@18.3.1)
+        version: 2.5.0(patch_hash=472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113)(react@18.3.1)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@18.3.31)(react@18.3.1)
@@ -15040,7 +15040,7 @@ snapshots:
 
   react-is@17.0.2: {}
 
-  react-json-view-lite@2.5.0(patch_hash=8caeb240cf32d6060a32781982025430c919fe9eba857054195179dd08acff5e)(react@18.3.1):
+  react-json-view-lite@2.5.0(patch_hash=472dbd828142af74e536f4156c818f0516974e2a7d3d5509ec0dd04b389fb113)(react@18.3.1):
     dependencies:
       react: 18.3.1
 

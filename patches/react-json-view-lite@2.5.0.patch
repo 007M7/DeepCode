@@ -162,7 +162,7 @@ index ab8b98c992bd34e00e7c3a0257d6778d7928dde8..669304fbba450c789bf4a4264f0627a8
      });
    }) : (/*#__PURE__*/React.createElement(DataRender, {
      value: data,
-@@ -403,7 +421,9 @@ const JsonView = _ref => {
+@@ -403,6 +421,8 @@ const JsonView = _ref => {
      shouldExpandNode: shouldExpandNode,
      clickToExpandNode: clickToExpandNode,
      outerRef: outerRef,
@@ -305,7 +305,7 @@ index e25aea1bc8936b69275b9fbe7011d0466480f99c..f4c509e4459f70080b90695c00f8a17e
      });
    }) : (/*#__PURE__*/createElement(DataRender, {
      value: data,
-@@ -403,7 +421,9 @@ const JsonView = _ref => {
+@@ -403,6 +421,8 @@ const JsonView = _ref => {
      shouldExpandNode: shouldExpandNode,
      clickToExpandNode: clickToExpandNode,
      outerRef: outerRef,
