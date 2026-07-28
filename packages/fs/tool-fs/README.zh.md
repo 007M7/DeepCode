@@ -2,24 +2,23 @@
 
 [English](README.md) | 中文
 
-**面向模型的文件系统工具**（`list`、`read`、`write`、`edit`）及其**执行器**。这是文件系统栈的消费方层：拥有工具名称、JSON schema、参数校验、提示词段、**读取窗口逻辑**、**列出顺序** 和结果格式化。它**直接** 通过 `ctx.fs` 提供方 seam（[`@deepseek-ai/dsh-fs`](../fs)）读取/写入/编辑：注入 `fs`（以及 `tools`/`systemPrompt`），**不** 注入政策服务。新鲜度/观察政策由独立插件（[`@deepseek-ai/dsh-fs-policy`](../fs-policy)）通过 `fs/*` 事件门禁贡献；工具不与其方法耦合。
+**面向模型的文件系统工具**（`read`、`write`、`edit`）及其**执行器**。这是文件系统栈的消费方层：拥有工具名称、JSON schema、参数校验、提示词段、**读取窗口逻辑** 和结果格式化。它**直接** 通过 `ctx.fs` 提供方 seam（[`@deepseek-ai/dsh-fs`](../fs)）读取/写入/编辑：注入 `fs`（以及 `tools`/`systemPrompt`），**不** 注入政策服务。新鲜度/观察政策由独立插件（[`@deepseek-ai/dsh-fs-policy`](../fs-policy)）通过 `fs/*` 事件门禁贡献；工具不与其方法耦合。
 
 ```ts ignore-check
 // Default deployment: a ctx.fs provider, the policy plugin, then the tools.
 await ctx.plugin(LocalFileSystem, { cwd: process.cwd() }) // @deepseek-ai/dsh-fs-local
 await ctx.plugin(FsPolicy)                             // @deepseek-ai/dsh-fs-policy (policy gate)
-await ctx.plugin(ToolFs)                                  // this package — registers list/read/write/edit
+await ctx.plugin(ToolFs)                                  // this package — registers read/write/edit
 ```
 
 `@deepseek-ai/dsh-fs-policy` 是**可选的**：省略时，工具直接使用裸提供方（无条件写入/覆盖/编辑，无已观察状态）。加载这些工具的部署也应加载该插件，从而提供编辑前读取行为。
 
 ## 配置
 
-所有键均为可选；默认值是随产品交付的列出与读取上限。
+所有键均为可选；默认值是随产品交付的读取上限。
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `listMaxEntries` | `200` | 单个 `list` 页面返回的最大条目数；footer 会报告完整规模与构成，并在仍有条目时给出下一 offset。 |
 | `readLimit` | `2000` | 一次 `read` 调用返回的默认和最大行数（工具 schema 将其声明为 `limit` 默认值）。 |
 | `readMaxLineLength` | `2000` | 每行截断前保留的字符数（后缀会说明上限）。 |
 | `readMaxBytes` | `51200` | 一次 `read` 调用所选行的字节上限；溢出时以「已达上限」footer 结束窗口。 |
@@ -29,20 +28,18 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `list` | `path?`、`offset?` | 单个目录的一页直接子项及其类型，默认取会话工作区并从第 1 个条目开始。顺序为先目录、再文件、最后非常规子项，各组内按字母序排列；仍有条目时按 footer 给出的下一 offset 继续。 |
 | `read` | `file_path`、`offset?`、`limit?` | 带行号的 UTF-8 内容和分页 footer。`offset` 从 1 开始；`limit` 默认为配置的 `readLimit`（2000），上限也为该值。 |
 | `write` | `file_path`、`content` | 创建文件或完整替换文件。有政策插件时：覆盖现有文件要求先在未变版本上执行 `read`；创建新文件不需要。没有插件时：无条件执行。 |
 | `edit` | `file_path`、非空 `old_string`、`new_string`、`replace_all?` | 字面量替换；除非 `replace_all` 为 true，否则要求唯一匹配。有政策插件时：要求先执行 `read`（任何窗口），且文件此后未变。没有插件时：无条件执行。 |
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。
 
-规范成功值分别为：`list` → `{ path, offset, entries: [{ name, type }], totalEntries, counts: { directories, files, other } }`，`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。`list.entries` 是一个有界页面；`type` 为 `file`、`directory` 或 `other`，而总计信息描述的是完整目录。Native 渲染器会保留下方的列出/读取包络和变更确认。写入/编辑从这些值派生可回放的 diff 卡片元数据；值本身仅用于执行，不会添加到 `tool/result`。
+规范成功值分别为：`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。Native 渲染器会保留下方带行号的读取结果和变更确认。写入/编辑从这些值派生可回放的 diff 卡片元数据；值本身仅用于执行，不会添加到 `tool/result`。
 
 ## 工具就是执行器；政策是事件门禁
 
 工具**不** 注入政策服务，也不检查任何缓存。每个工具通过 `ctx.fs.resolve(path, { cwd, signal })` 解析路径；它会传入调用 agent（智能体）的会话 cwd（`exec.agent.session.header.cwd`），使相对路径以会话工作区为基准解析并与 `dsh-tool-bash` 一致，同时把工具取消转发到解析过程（见[每会话 cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)）。随后执行：
 
-- **list**：一次 `ctx.fs.listDir`；seam 已经把不存在报告为 `FS_NOT_FOUND`、把非目录目标报告为 `FS_NOT_DIRECTORY`，因此前面不需要任何探测。不发出 `fs/observed`：列出不读取任何文件内容，也不得满足编辑前读取门禁。（0 次 stat。）
 - **read**：一次 `ctx.fs.stat`（用于类型、大小路由和版本），随后调用 `readText`/`streamText`，构建行窗口，再发出 `fs/observed`，使用普通 `ctx.emit`。（1 次 stat。）
 - **write**：调用 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` 取得可选防护，然后调用 `ctx.fs.writeText(target, content, intent)`，再发出 `fs/observed`。（0 次 stat。）
 - **edit**：调用 `ctx.waterfall('fs/edit-intent', target, exec, () => undefined)` 取得可选防护，然后调用 `ctx.fs.editText(target, edit, intent)`，再发出 `fs/observed`。（0 次 stat。）
@@ -53,9 +50,9 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 `fs/observed` 在读取/写入/编辑已经成功之后，通过普通 `ctx.emit` 发出。监听器的契约是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。
 
-`list` 与 `read` 都允许并发调度：`list` 完全不做任何变更，而 `read` 的唯一变更是同步版本记录器。稍后的 `write` 或 `edit` 会在目标锁内重新检查版本，因此记录器竞态会以拒绝方式关闭；两个变更工具仍保持互斥。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
+`read` 允许并发调度，因为其唯一变更是同步版本记录器。稍后的 `write` 或 `edit` 会在目标锁内重新检查版本，因此记录器竞态会以拒绝方式关闭；两个变更工具仍保持互斥。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
-包根目录只导出 Cordis 插件契约（`name`、`inject`、`Config` 和 `apply`）。纯展示逻辑与执行器并列存放并单独进行单元测试：读取窗口与输出格式化位于 `src/read-render.ts`，列出顺序与包络位于 `src/list-render.ts`（两者均不依赖 Cordis）；`src/list.ts`/`read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
+包根目录只导出 Cordis 插件契约（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
 
 ## 模型体验
 
@@ -63,13 +60,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 #### 模型看到的内容
 
-该插件注册作用域内的每个请求都会收到下方独立注册的 list、read、write 与 edit 指导。作用域工具限制可以隐藏 schema，而不移除这些段。
-
-##### List 指导
-
-```markdown
-Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. When a result is capped, continue with the offset named in its footer.
-```
+该插件注册作用域内的每个请求都会收到下方独立注册的 read、write 与 edit 指导。作用域工具限制可以隐藏 schema，而不移除这些段。
 
 ##### Read 指导
 
@@ -101,7 +92,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-模型会看到已生成的 [`list`、`read`、`write` 和 `edit` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs)，参数使用 snake_case。作用域工具限制可以为某个 agent 移除任一定义。
+模型会看到已生成的 [`read`、`write` 和 `edit` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs)，参数使用 snake_case。作用域工具限制可以为某个 agent 移除任一定义。
 
 #### Token 影响
 
@@ -110,20 +101,6 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 #### KV Cache 影响
 
 只要可见工具定义和顺序不变，前缀就保持稳定。注册生命周期或作用域限制可能从首个变化的 schema token 开始使复用失效。
-
-### 列出结果
-
-#### 模型看到的内容
-
-成功列出结果为 `<path><display path></path>`、换行、`<type>directory</type>`、换行、`<content>`、页面中的每个条目一行、一个空行、一条 footer 和 `</content>`。目录带尾部 `/`，非常规子项带尾部 `@`，常规文件两者都不带。条目名默认原样输出，只有当它可能让列出结果失真时才转为 JSON 字符串并中和 `</`——包括控制字符、开头的 `"`、反斜杠、`</`，以及会与非常规标记撞车的结尾 `@`。绝大多数普通名称都保持不加引号。footer 为 `(Empty directory)`、`(<n> entries: <d> directories, <f> files)`（可选追加 `, <o> other`），或 `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`；最后一页省略继续提示。每一页都会说明完整计数与构成。
-
-#### Token 影响
-
-列出输出及其规范 `entries` 页面受 `listMaxEntries` 限制；保留的调用与结果会反复发送，直到上下文压缩。
-
-#### KV Cache 影响
-
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ### 读取结果
 
@@ -157,7 +134,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`path must be a non-empty string when given`、`offset must be a positive integer`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file`、`offset <offset> is out of range for "<path>" (<total> entries)`，以及对应的 `<total> lines` 读取错误；提供方和政策模板在各自包的 README 中逐字列出。
+失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file` 和 `offset <offset> is out of range for "<path>" (<total> lines)`；提供方和政策模板在各自包的 README 中逐字列出。
 
 #### Token 影响
 
@@ -169,6 +146,6 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 ## 已知限制与延期工作
 
-- **`list` 只读取一层目录**：不提供递归和逐目录子项计数；offset 分页只遍历当前目录中按顺序排列的直接子项。
+- **未交付面向模型的目录列出工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 bash 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
 - **`read` 只处理 UTF-8 文本文件**：二进制安全读取和 PDF/图像/多模态内容均延期处理；目录目标为 `FS_NOT_REGULAR_FILE`。
-- **没有超时接口**：`list`/`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见有意采用的 [fs 能力族立场](../README.md)）。
+- **没有超时接口**：`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见有意采用的 [fs 能力族立场](../README.md)）。

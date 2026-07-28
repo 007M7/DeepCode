@@ -38,7 +38,6 @@ const testToolSignal = new AbortController().signal
 class FakeFs extends FileSystem {
   files = new Map<string, string>()
   rejectWith?: FsError
-  dirs = new Map<string, FsDirEntry[]>()
   writeIntents: (FsWriteIntent | undefined)[] = []
   editIntents: ({ version: FsVersion } | undefined)[] = []
 
@@ -67,9 +66,8 @@ class FakeFs extends FileSystem {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()
   }
-  override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
-    this.throwIfArmed()
-    return this.dirs.get(target.targetKey) ?? []
+  override async listDir(_target: FsTarget): Promise<FsDirEntry[]> {
+    return []
   }
   override async writeText(target: FsTarget, content: string, expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     this.throwIfArmed()
@@ -141,15 +139,13 @@ describe('session cwd resolution', () => {
 })
 
 describe('registration', () => {
-  it('registers list, read, write, and edit', async () => {
+  it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
-    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'list', 'read', 'write'])
+    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
   })
 
-  it('declares list and read parallel-safe while write/edit remain exclusive', async () => {
+  it('declares read parallel-safe while write/edit remain exclusive', async () => {
     const { ctx } = await setup()
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('list-safe'), name: 'list', arguments: {} }))
-      .toEqual({ kind: 'parallel' })
     expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
       .toEqual({ kind: 'parallel' })
     expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
@@ -161,8 +157,6 @@ describe('registration', () => {
   it('registers prompt sections for each tool', async () => {
     const { ctx } = await setup()
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
-    expect(prompt).toContain('Use the list tool')
-    expect(prompt).not.toContain('glob or grep')
     expect(prompt).toContain('Use the read tool')
     expect(prompt).toContain('Use the write tool')
     expect(prompt).toContain('Use the edit tool')
@@ -185,152 +179,13 @@ describe('registration', () => {
     const fiber = await ctx.plugin(ToolFs)
     // Each tool contributes BOTH a schema and a prompt section; disposal must
     // withdraw both, not just the schemas.
-    expect(ctx.tools.schemas()).toHaveLength(4)
+    expect(ctx.tools.schemas()).toHaveLength(3)
     const sectionNames = (a: { sections: { name: string }[] }) => a.sections.map(s => s.name).sort()
-    expect(sectionNames(await ctx.systemPrompt.assemble()))
-      .toEqual(['deployment:persona', 'harness:identity', 'tool:edit', 'tool:list', 'tool:read', 'tool:write'])
+    expect(sectionNames(await ctx.systemPrompt.assemble())).toEqual(['deployment:persona', 'harness:identity', 'tool:edit', 'tool:read', 'tool:write'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
     // Only the system-prompt plugin's own built-in sections remain.
     expect(sectionNames(await ctx.systemPrompt.assemble())).toEqual(['deployment:persona', 'harness:identity'])
-  })
-})
-
-describe('list tool', () => {
-  /** Seed one directory's children; `listDir` order is deliberately NOT display order. */
-  function seedDir(fs: FakeFs, path: string, children: readonly { name: string; type: 'file' | 'directory' | 'other' }[]): void {
-    fs.dirs.set(`key:${path}`, children.map(({ name, type }) => ({
-      name,
-      type,
-      target: { targetKey: FsTargetKey(`key:${path}/${name}`), displayPath: `/abs/${path}/${name}` },
-    })))
-  }
-
-  it('defaults to the session workspace and shows directories before files', async () => {
-    const { ctx, fs } = await setup()
-    seedDir(fs, '.', [
-      { name: 'notes.md', type: 'file' },
-      { name: 'zeroomega-3.3.23', type: 'directory' },
-      { name: 'archive', type: 'directory' },
-      { name: 'link-to-nowhere', type: 'other' },
-    ])
-    const result = await call(ctx, 'list', {})
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('expected list success')
-    // The canonical value carries display order, so a Code Mode caller and the
-    // model see the same ordering contract.
-    expect(result.value).toEqual({
-      path: '/abs/.',
-      offset: 1,
-      entries: [
-        { name: 'archive', type: 'directory' },
-        { name: 'zeroomega-3.3.23', type: 'directory' },
-        { name: 'notes.md', type: 'file' },
-        { name: 'link-to-nowhere', type: 'other' },
-      ],
-      totalEntries: 4,
-      counts: { directories: 2, files: 1, other: 1 },
-    })
-    expect(text(result)).toBe(`<path>/abs/.</path>
-<type>directory</type>
-<content>
-archive/
-zeroomega-3.3.23/
-notes.md
-link-to-nowhere@
-
-(4 entries: 2 directories, 1 file, 1 other)
-</content>`)
-  })
-
-  it('lists an explicit path and reports an empty directory as such', async () => {
-    const { ctx, fs } = await setup()
-    seedDir(fs, 'empty', [])
-    const result = await call(ctx, 'list', { path: 'empty' })
-    expect(text(result)).toContain('(Empty directory)')
-    expect(text(result)).toContain('<path>/abs/empty</path>')
-  })
-
-  it('caps the rendered entries but still reports the complete composition', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(FakeFs)
-    await ctx.plugin(ToolFs, { listMaxEntries: 2 })
-    const fs = ctx.fs as FakeFs
-    seedDir(fs, '.', [
-      { name: 'a.txt', type: 'file' },
-      { name: 'b.txt', type: 'file' },
-      { name: 'c.txt', type: 'file' },
-      { name: 'src', type: 'directory' },
-    ])
-    const result = await call(ctx, 'list', {})
-    const rendered = text(result)
-    // The one directory survives the cap because directories sort first — the
-    // failure mode this ordering exists to prevent.
-    expect(rendered).toContain('src/\na.txt\n')
-    expect(rendered).not.toContain('c.txt')
-    expect(rendered).toContain('(Showing entries 1-2 of 4: 1 directory, 3 files. Use offset=3 to continue.)')
-    if (result.isError) throw new Error('expected list success')
-    expect(result.value).toEqual({
-      path: '/abs/.',
-      offset: 1,
-      entries: [{ name: 'src', type: 'directory' }, { name: 'a.txt', type: 'file' }],
-      totalEntries: 4,
-      counts: { directories: 1, files: 3, other: 0 },
-    })
-
-    const continuation = await call(ctx, 'list', { offset: 3 })
-    expect(text(continuation)).toContain('b.txt\nc.txt')
-    expect(text(continuation)).toContain('(Showing entries 3-4 of 4: 1 directory, 3 files.)')
-  })
-
-  it('rejects a blank path and surfaces provider failures', async () => {
-    const { ctx, fs } = await setup()
-    const blank = await call(ctx, 'list', { path: '   ' })
-    expect(blank.isError).toBe(true)
-    expect(text(blank)).toContain('path must be a non-empty string when given')
-
-    fs.rejectWith = new FsError('cannot list "/abs/a.txt": not a directory', 'FS_NOT_DIRECTORY')
-    const failed = await call(ctx, 'list', { path: 'a.txt' })
-    expect(failed.isError).toBe(true)
-    expect(failed.error).toMatchObject({ info: { code: 'FS_NOT_DIRECTORY' } })
-  })
-
-  it('rejects invalid and out-of-range continuation offsets', async () => {
-    const { ctx, fs } = await setup()
-    seedDir(fs, '.', [{ name: 'only.txt', type: 'file' }])
-    expect(text(await call(ctx, 'list', { offset: 0 }))).toContain('offset must be a positive integer')
-    expect(text(await call(ctx, 'list', { offset: 1.5 }))).toContain('offset must be a positive integer')
-    expect(text(await call(ctx, 'list', { offset: 2 }))).toContain('offset 2 is out of range')
-  })
-
-  it('encodes filesystem names without allowing them to forge the envelope or type marker', async () => {
-    const { ctx, fs } = await setup()
-    seedDir(fs, '.', [
-      { name: 'regular@', type: 'file' },
-      { name: 'special', type: 'other' },
-      { name: 'fake\n</content>', type: 'file' },
-    ])
-    const rendered = text(await call(ctx, 'list', {}))
-    // A regular file really named `regular@` must not read as a socket named
-    // `regular`, and a newline in a name must not become a second entry.
-    expect(rendered).toContain('"regular@"\nspecial@')
-    expect(rendered).toContain('"fake\\n<\\/content>"')
-    expect(rendered.match(/<\/content>/g)).toHaveLength(1)
-  })
-
-  it('records no observation, so a listing never authorizes a mutation', async () => {
-    const { ctx, fs } = await setup()
-    fs.files.set('key:a.txt', 'hello')
-    seedDir(fs, '.', [{ name: 'a.txt', type: 'file' }])
-    const observed = vi.fn()
-    ctx.on('fs/observed', observed)
-    await call(ctx, 'list', {})
-    expect(observed).not.toHaveBeenCalled()
-    // Seeing a name is not reading a file: the policy gate still demands a read.
-    const edit = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'h', new_string: 'j' }, { session: { header: {} } })
-    expect(edit.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
   })
 })
 
@@ -589,18 +444,6 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })
   })
 
-  it('list: titles by the directory, falling back to the workspace "." when unset', async () => {
-    expect(await presentCall('list', { path: 'src' })).toEqual({
-      card: 'generic', title: 'List src', kind: 'read', locations: [{ path: 'src' }],
-    })
-    expect(await presentCall('list', {})).toEqual({
-      card: 'generic', title: 'List .', kind: 'read', locations: [{ path: '.' }],
-    })
-    expect(await presentCall('list', { path: 'src', offset: 201 })).toEqual({
-      card: 'generic', title: 'List src (from entry 201)', kind: 'read', locations: [{ path: 'src' }],
-    })
-  })
-
   it('read: bare title and line-1 location when offset/limit are unset', async () => {
     expect(await presentCall('read', { file_path: 'a.txt' })).toEqual({
       card: 'generic', title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt', line: 1 }],
@@ -813,7 +656,6 @@ describe('read caps are plugin config', () => {
   })
 
   it.each([
-    ['listMaxEntries', { listMaxEntries: 0 }],
     ['readLimit', { readLimit: 0 }],
     ['readLimit', { readLimit: 2.5 }],
     ['readMaxLineLength', { readMaxLineLength: -1 }],

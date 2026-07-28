@@ -1,0 +1,24 @@
+# Keyless counterpart to fs-search.cordis.yml: the search plugin and sandboxed
+# bash execution remain real; only the model adapter is replaced by replay.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - insert:
+          - id: llm-replay
+            name: '@deepseek-ai/dsh-llm-replay'
+            config:
+              providers:
+                - id: deepseek
+                  name: DeepSeek
+                  models:
+                    - id: deepseek-v4-flash
+                    - id: deepseek-v4-pro
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              globMaxResults: 4

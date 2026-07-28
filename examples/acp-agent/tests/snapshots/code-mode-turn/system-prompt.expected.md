@@ -5,8 +5,6 @@ You are a coding assistant powered by the deepseek-v4-flash model. Your working 
 Verify your work by running the code or tests. Keep answers brief and factual.
 
 
-Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. When a result is capped, continue with the offset named in its footer.
-
 Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
 
 Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-policy requires it) and prefer edit for targeted changes.
@@ -82,13 +80,6 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal: Record<string, JsonValue>;
-  /** List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; up to 200 are returned from the requested offset, and the footer gives the complete count plus a next offset when more remain. It includes subdirectories and is the tool for seeing one directory's contents. */
-  list: {
-    /** Directory to list. Defaults to the session workspace; a relative path resolves against it. */
-    path?: string;
-    /** 1-based first entry to return. Defaults to 1; use the footer value to continue. */
-    offset?: number;
-  } & Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
     /** The immutable completion objective for every fresh Ralph round. */
@@ -277,20 +268,6 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
-  };
-  list: {
-    path: string;
-    offset: number;
-    entries: ({
-      name: string;
-      type: "file" | "directory" | "other";
-    })[];
-    totalEntries: number;
-    counts: {
-      directories: number;
-      files: number;
-      other: number;
-    };
   };
   ralph: {
     runId: string;

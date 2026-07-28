@@ -230,7 +230,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolFs)
     },
     note:
-      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. `list` paginates one directory level through `ctx.fs.listDir` and records no observation, so seeing a filename never satisfies that read-before-write gate.',
+      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs-search',
@@ -248,7 +248,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolFsSearch)
     },
     note:
-      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. An over-cap glob result does not return the head of the sorted list: its inline page is taken round-robin across entries immediately beneath the actual search root and the footer states that basis, because modification-time order is ascending and the restored timestamps of an unpacked archive put one subtree in front of every broad match.',
+      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-pty',

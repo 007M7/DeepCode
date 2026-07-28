@@ -116,23 +116,6 @@
       }
     },
     {
-      "name": "list",
-      "description": "List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; up to 200 are returned from the requested offset, and the footer gives the complete count plus a next offset when more remain. It includes subdirectories and is the tool for seeing one directory's contents.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Directory to list. Defaults to the session workspace; a relative path resolves against it."
-          },
-          "offset": {
-            "type": "number",
-            "description": "1-based first entry to return. Defaults to 1; use the footer value to continue."
-          }
-        }
-      }
-    },
-    {
       "name": "lsp",
       "description": "Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.",
       "parameters": {

@@ -1,7 +1,0 @@
-{
-  "steps": [
-    { "op": "initialize" },
-    { "op": "newSession" },
-    { "op": "prompt", "text": "Call the list tool exactly once, with no arguments at all (NOT bash, NOT glob, and do not pass a path). Then reply with exactly the names of the subdirectories it reported, alphabetically, separated by a single space, and nothing else." }
-  ]
-}

@@ -116,23 +116,6 @@
       }
     },
     {
-      "name": "list",
-      "description": "List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; up to 200 are returned from the requested offset, and the footer gives the complete count plus a next offset when more remain. It includes subdirectories and is the tool for seeing one directory's contents.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Directory to list. Defaults to the session workspace; a relative path resolves against it."
-          },
-          "offset": {
-            "type": "number",
-            "description": "1-based first entry to return. Defaults to 1; use the footer value to continue."
-          }
-        }
-      }
-    },
-    {
       "name": "ralph",
       "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
       "parameters": {

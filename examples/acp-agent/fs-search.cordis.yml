@@ -1,0 +1,13 @@
+# Search snapshot composition: mount the real model-facing search plugin over
+# the shipped sandboxed bash stack. A four-path inline cap keeps the fixture
+# small while forcing the over-cap sampling branch.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - insert:
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              globMaxResults: 4

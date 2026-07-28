@@ -377,7 +377,7 @@ The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `
 
 ### `glob`
 
-Find files whose paths match a glob pattern. Returns matching paths sorted by modification time, including hidden and ignored files (VCS metadata directories are excluded). Returns the first 100 paths inline; a capped result reports where the complete list was saved.
+Find files whose paths match a glob pattern. Returns matching file paths — never directories — including hidden and ignored files (VCS metadata directories are excluded). Up to 100 paths come back in modification-time order; a larger result instead returns 100 paths sampled across top-level entries, says so, and reports where the complete sorted list was saved. This tool does not enumerate directory entries.
 
 ```json
 {
@@ -385,7 +385,7 @@ Find files whose paths match a glob pattern. Returns matching paths sorted by mo
   "properties": {
     "pattern": {
       "type": "string",
-      "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\")."
+      "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
     },
     "path": {
       "type": "string",
