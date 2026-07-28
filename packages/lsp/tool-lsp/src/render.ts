@@ -156,7 +156,7 @@ export function renderUri(uri: string, workspaceUri: string): string {
     const relative = targetSegments.slice(workspaceSegments.length)
     return relative.length === 0 ? '.' : relative.join('/')
   }
-  return absoluteUriPath(target, targetSegments, workspaceSegments)
+  return absoluteUriPath(target, targetSegments, windowsWorld)
 }
 
 /** Whether a canonical file URI names a drive path or UNC path in a Windows execution world. */
@@ -183,9 +183,8 @@ function samePathSegment(left: string, right: string, windowsWorld: boolean): bo
 }
 
 /** Render an external file URL according to the execution-world style implied by its workspace URI. */
-function absoluteUriPath(target: URL, segments: readonly string[], workspaceSegments: readonly string[]): string {
+function absoluteUriPath(target: URL, segments: readonly string[], windowsWorld: boolean): string {
   if (target.hostname.length > 0) return `//${target.hostname}/${segments.join('/')}`
-  const windowsWorld = /^[A-Za-z]:$/.test(workspaceSegments[0] ?? '')
   if (windowsWorld && /^[A-Za-z]:$/.test(segments[0] ?? '')) return segments.join('/')
   return `/${segments.join('/')}`
 }
