@@ -23,21 +23,21 @@ const OBJECT_COPY_MENU_ITEMS: readonly MenuEntry[] = [
 ]
 
 const TREE_STYLES: NonNullable<LiteJsonViewProps['style']> = {
-  container: css.container!,
-  childFieldsContainer: css.children!,
-  basicChildStyle: css.row!,
-  label: css.label!,
-  clickableLabel: `${css.label!} ${css.clickableLabel!}`,
-  nullValue: css.keywordValue!,
-  undefinedValue: css.keywordValue!,
-  numberValue: css.numberValue!,
-  stringValue: css.stringValue!,
-  booleanValue: css.keywordValue!,
-  otherValue: css.otherValue!,
-  punctuation: css.punctuation!,
-  expandIcon: `${css.expander!} ${css.expandIcon!}`,
-  collapseIcon: `${css.expander!} ${css.collapseIcon!}`,
-  collapsedContent: css.collapsedContent!,
+  container: clsx(css.container),
+  childFieldsContainer: clsx(css.children),
+  basicChildStyle: clsx(css.row),
+  label: clsx(css.label),
+  clickableLabel: clsx(css.label, css.clickableLabel),
+  nullValue: clsx(css.keywordValue),
+  undefinedValue: clsx(css.keywordValue),
+  numberValue: clsx(css.numberValue),
+  stringValue: clsx(css.stringValue),
+  booleanValue: clsx(css.keywordValue),
+  otherValue: clsx(css.otherValue),
+  punctuation: clsx(css.punctuation),
+  expandIcon: clsx(css.expander, css.expandIcon),
+  collapseIcon: clsx(css.expander, css.collapseIcon),
+  collapsedContent: clsx(css.collapsedContent),
   noQuotesForStringValues: false,
   quotesForFieldNames: false,
   stringifyStringValues: true,
@@ -49,7 +49,7 @@ const TREE_STYLES: NonNullable<LiteJsonViewProps['style']> = {
 
 const EXPANDED_TOP_LEVEL_TREE_STYLES: NonNullable<LiteJsonViewProps['style']> = {
   ...TREE_STYLES,
-  container: `${css.container!} ${css.expandedTopLevelContainer!}`,
+  container: clsx(css.container, css.expandedTopLevelContainer),
 }
 
 function previewPrimitive(value: unknown): ReactNode {
@@ -63,7 +63,16 @@ function previewPrimitive(value: unknown): ReactNode {
   if (typeof value === 'boolean') {
     return <span className={css.keywordValue}>{String(value)}</span>
   }
-  return <span className={css.otherValue}>{String(value)}</span>
+  if (typeof value === 'bigint') {
+    return <span className={css.otherValue}>{value.toString()}</span>
+  }
+  if (typeof value === 'undefined') {
+    return <span className={css.otherValue}>undefined</span>
+  }
+  if (typeof value === 'symbol') {
+    return <span className={css.otherValue}>{value.description ?? 'Symbol'}</span>
+  }
+  return <span className={css.otherValue}>{value.name || 'Function'}</span>
 }
 
 function previewValue(value: unknown, depth: number): ReactNode {
@@ -84,17 +93,17 @@ function previewValue(value: unknown, depth: number): ReactNode {
       {depth >= PREVIEW_DEPTH_LIMIT
         ? <span className={css.previewEllipsis}>…</span>
         : visible.map(([key, item], index) => (
-            <span key={key}>
-              {index > 0 && <span className={css.punctuation}>, </span>}
-              {!array && (
-                <>
-                  <span className={css.previewProperty}>{key}</span>
-                  <span className={css.punctuation}>: </span>
-                </>
-              )}
-              {previewValue(item, depth + 1)}
-            </span>
-          ))}
+          <span key={key}>
+            {index > 0 && <span className={css.punctuation}>, </span>}
+            {!array && (
+              <>
+                <span className={css.previewProperty}>{key}</span>
+                <span className={css.punctuation}>: </span>
+              </>
+            )}
+            {previewValue(item, depth + 1)}
+          </span>
+        ))}
       {depth < PREVIEW_DEPTH_LIMIT && entries.length > limit && (
         <span className={css.previewEllipsis}>{visible.length > 0 ? ', …' : '…'}</span>
       )}
@@ -117,10 +126,10 @@ interface CopyTarget {
 
 function fieldOf(row: HTMLElement): string | undefined {
   const label = Array.from(row.children).find(
-    child => child instanceof HTMLElement && child.classList.contains(css.label!),
+    child => child instanceof HTMLElement && child.classList.contains(clsx(css.label)),
   )
   const text = label?.textContent
-  return text === undefined || text === null ? undefined : text.slice(0, -1)
+  return text === undefined ? undefined : text.slice(0, -1)
 }
 
 function resolveRow(data: object | unknown[], row: HTMLElement, expandTopLevel: boolean): {
@@ -172,12 +181,16 @@ function formattedPath(path: readonly (number | string)[]): string {
 function copyText(target: CopyTarget, mode: 'json' | 'path' | 'prettyJson' | 'value'): string {
   if (mode === 'path') return formattedPath(target.path)
   if (mode === 'prettyJson') return JSON.stringify(target.value, null, 2)
-  if (mode === 'json') return JSON.stringify(target.value) ?? String(target.value)
+  if (mode === 'json') return JSON.stringify(target.value)
   if (typeof target.value === 'string') return target.value
   if (typeof target.value === 'object' && target.value !== null) {
     return JSON.stringify(target.value, null, 2)
   }
-  return JSON.stringify(target.value) ?? String(target.value)
+  if (typeof target.value === 'undefined') return 'undefined'
+  if (typeof target.value === 'bigint') return target.value.toString()
+  if (typeof target.value === 'symbol') return target.value.description ?? 'Symbol'
+  if (typeof target.value === 'function') return target.value.name || 'Function'
+  return JSON.stringify(target.value)
 }
 
 /** Props for the read-only, token-themed JSON tree. */
@@ -303,7 +316,7 @@ export function JsonTree({
       setCopyState('failed')
     }
     if (resetTimer.current !== undefined) clearTimeout(resetTimer.current)
-    resetTimer.current = setTimeout(() => setCopyState('idle'), 1_500)
+    resetTimer.current = setTimeout(() => { setCopyState('idle') }, 1_500)
   }
 
   const copyTargetIsObject = typeof copyTarget?.value === 'object' && copyTarget.value !== null
@@ -326,34 +339,34 @@ export function JsonTree({
     >
       {expandTopLevel
         ? (
-            <div className={css.expandedTopLevel}>
-              <div className={clsx(css.row, css.topLevelBracket)} data-json-root-row>
-                <span className={css.punctuation}>{Array.isArray(data) ? '[' : '{'}</span>
-              </div>
-              <JsonView
-                aria-label={label}
-                compactTopLevel
-                data={data}
-                style={EXPANDED_TOP_LEVEL_TREE_STYLES}
-                shouldExpandNode={collapseAllNested}
-                clickToExpandNode
-                renderExpandableValue={renderExpandableValue}
-              />
-              <div className={clsx(css.row, css.topLevelBracket)}>
-                <span className={css.punctuation}>{Array.isArray(data) ? ']' : '}'}</span>
-              </div>
+          <div className={css.expandedTopLevel}>
+            <div className={clsx(css.row, css.topLevelBracket)} data-json-root-row>
+              <span className={css.punctuation}>{Array.isArray(data) ? '[' : '{'}</span>
             </div>
-          )
-        : (
             <JsonView
               aria-label={label}
+              compactTopLevel
               data={data}
-              style={TREE_STYLES}
+              style={EXPANDED_TOP_LEVEL_TREE_STYLES}
               shouldExpandNode={collapseAllNested}
               clickToExpandNode
               renderExpandableValue={renderExpandableValue}
             />
-          )}
+            <div className={clsx(css.row, css.topLevelBracket)}>
+              <span className={css.punctuation}>{Array.isArray(data) ? ']' : '}'}</span>
+            </div>
+          </div>
+        )
+        : (
+          <JsonView
+            aria-label={label}
+            data={data}
+            style={TREE_STYLES}
+            shouldExpandNode={collapseAllNested}
+            clickToExpandNode
+            renderExpandableValue={renderExpandableValue}
+          />
+        )}
       {copyTarget !== undefined && (
         <span
           className={css.copyAnchor}

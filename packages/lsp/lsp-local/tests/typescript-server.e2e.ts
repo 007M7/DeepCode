@@ -10,6 +10,7 @@ import { mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import Lsp, { type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 
@@ -52,6 +53,7 @@ beforeAll(async () => {
 
   ctx = new Context()
   await ctx.plugin(Lsp)
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LspLocal, {
     servers: {
       typescript: {

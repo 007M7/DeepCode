@@ -13,6 +13,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
 | [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
+| [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
 | [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
 | [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
@@ -36,6 +37,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
+| [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |
 | [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |

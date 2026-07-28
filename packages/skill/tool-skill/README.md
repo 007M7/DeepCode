@@ -6,11 +6,11 @@ The model-facing skill catalog and `skill` tool.
 
 Requires `ctx.tools` and `ctx.skills` (`inject: ['tools', 'skills']`).
 
-## Session-prefix catalog
+## Session catalog
 
-The plugin contributes one user-role `<system-reminder>` catalog through `agent/session-prefix`. It resolves skills for the calling session's cwd, forwards the prefix abort signal to discovery, and lists only sorted `name` and `description` entries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog. The catalog is omitted when no model-invocable skills are available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. This exact-definition check keeps prompt guidance, the model-visible schema, and executable dispatch aligned.
+The plugin injects one durable user-role `<system-reminder>` catalog at the first `agent/step` of a live session. It resolves skills for the calling session's cwd, forwards the step abort signal to discovery, and lists only sorted `name` and `description` entries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog. The catalog is omitted when no model-invocable skills are available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. This exact-definition check keeps prompt guidance, the model-visible schema, and executable dispatch aligned.
 
-`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [session-prefix Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md) defines the request-only, header-logged lifecycle of this message.
+`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The catalog is a sourced `user/message` injected before the first request and retained in ordinary session history.
 
 ## Tool: `skill`
 
@@ -28,11 +28,11 @@ The tool does not call `agent.inject()` in v1. Its result is already recorded as
 
 ## Model Experience
 
-### Session prefix
+### Session catalog
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below, with one data-dependent entry per sorted skill. The catalog is a frozen user-role session prefix.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below, with one data-dependent entry per sorted skill. The catalog is one durable user-role message.
 
 ##### Skill catalog template
 
@@ -54,7 +54,7 @@ Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; n
 
 #### KV Cache effect
 
-Prefix-stable within a loop instance once the session prefix is composed. A new or resumed instance with different providers, skills, descriptions, visibility, or catalog limits may invalidate reuse from the first changed catalog token.
+Append-only after the existing reusable prefix. A new or resumed instance with different providers, skills, descriptions, visibility, or catalog limits may affect cache reuse from the newly appended catalog position.
 
 ### Tool schema
 

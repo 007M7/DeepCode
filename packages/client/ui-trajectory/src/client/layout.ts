@@ -219,7 +219,9 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     }
     if (entry.kind === 'system') {
       const { change } = entry
-      const turn = enclosingPromptTurn(nodes, change.seq, partial)
+      const turn = change.kind === 'initial'
+        ? firstVisibleTurn(nodes, partial)
+        : enclosingPromptTurn(nodes, change.seq, partial)
       pushMessage(turn, {
         absTime: finiteTime(change.time),
         cell: {
@@ -714,6 +716,20 @@ function enclosingPromptTurn(
     node.seq > seq && node.kind === 'assistant' && node.step > 0)
   if (next?.kind === 'assistant') return next.turn
   return partial?.turn ?? 1
+}
+
+/** Earliest raw turn represented by the selected trajectory branch. */
+function firstVisibleTurn(
+  nodes: ConversationSnapshot['nodes'],
+  partial: ConversationSnapshot['partial'],
+): number {
+  const turns = nodes.flatMap(node =>
+    (node.kind === 'assistant' || node.kind === 'steering') && node.turn > 0
+      ? [node.turn]
+      : [],
+  )
+  if (partial !== null && partial.turn > 0) turns.push(partial.turn)
+  return turns.length === 0 ? 1 : Math.min(...turns)
 }
 
 /** Copy provider usage onto a Message cell when present. */

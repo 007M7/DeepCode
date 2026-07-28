@@ -1,6 +1,7 @@
 /** Node half: registers the /api prefix route bridging to the api gateway. */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH, apply, inject } from '../src/index.ts'
@@ -26,6 +27,23 @@ describe('connection node half', () => {
     await fiber.await()
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
+
+    let status: number | undefined
+    let body: unknown
+    const deniedRequest = {
+      url: '/api/host.pickDirectory',
+      headers: {
+        host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
+      },
+      socket: { remoteAddress: '192.168.1.8' },
+    } as unknown as IncomingMessage
+    const deniedResponse = {
+      writeHead(value: number) { status = value; return this },
+      end(value?: unknown) { body = value; return this },
+    } as unknown as ServerResponse
+    await routes[0]!.handler(deniedRequest, deniedResponse)
+    expect(status).toBe(403)
+    expect(body).toBe('forbidden')
 
     await fiber.dispose()
     expect(routes).toHaveLength(0)

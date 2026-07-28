@@ -53,6 +53,13 @@ const TURNS: readonly TrajectoryTurnModel[] = [{
   }],
 }]
 
+const FOLD_PROPS = {
+  collapsedTurns: new Set<number>(),
+  onToggleTurn: () => {},
+  collapsedAssistants: new Set<number>(),
+  onToggleAssistant: () => {},
+}
+
 describe('TrajectoryTable', () => {
   it('shows assistant timing facts after keyboard selection', () => {
     render(<TrajectoryTable turns={TURNS} collapsed={false} />)
@@ -62,6 +69,18 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('500 ms')).toBeTruthy()
     expect(screen.getByText('1.00 s')).toBeTruthy()
     expect(screen.getByText('20.0 tok/s')).toBeTruthy()
+  })
+
+  it('breaks output tokens into labeled reasoning and content rows', () => {
+    render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
+
+    expect(screen.getByText('Tokens')).toBeTruthy()
+    expect(screen.getByText('20 tok')).toBeTruthy()
+    expect(screen.getByText('Reasoning')).toBeTruthy()
+    expect(screen.getByText('5 tok')).toBeTruthy()
+    expect(screen.getByText('Content')).toBeTruthy()
+    expect(screen.getByText('15 tok')).toBeTruthy()
   })
 
   it('keeps running and failure semantics distinct from record roles', () => {

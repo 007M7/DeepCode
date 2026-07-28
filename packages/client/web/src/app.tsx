@@ -7,7 +7,6 @@
  */
 import type { ReactNode } from 'react'
 import type { Context } from 'cordis'
-import type { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { DocumentTitle } from './DocumentTitle.tsx'
 // Type-only: pulls the runtime's SlotMap declaration merge (the 'root' key) into this program.
@@ -26,7 +25,7 @@ export interface AssemblyDeps {
  */
 export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
   const { ctx } = deps
-  const sessions = ctx.get('sessions') as SessionsService | undefined
+  const sessions = ctx.get('sessions')
   if (sessions === undefined) throw new Error('shell assembly: sessions service unavailable')
   const useSessions = bindSnapshotSelector(sessions.list)
   const SessionDocumentTitle = (): ReactNode => {

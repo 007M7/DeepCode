@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
-import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -116,8 +115,7 @@ describe('in-process structured output', () => {
     ])
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
-    // Default continuation would run a second step after the tool call; the
-    // structured runtime's turn-continuation veto stops the turn instead.
+    // The structured tool marks its successful result as turn-concluding.
     expect(adapter.requests.length).toBe(1)
     await run.dispose()
   })
@@ -216,63 +214,6 @@ describe('in-process structured output', () => {
     // window after the terminal answer landed.
     expect(sideEffectRan).toBe(true)
     expect(result.structured).toEqual({ answer: 6 })
-    await run.dispose()
-  })
-
-  it('a later-prepended continuation wrapper cannot resurrect a captured turn', async () => {
-    const { ctx, parent, adapter } = await setup([
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
-      textResponse('MUST NOT BE CONSUMED'),
-    ])
-    ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
-    let wrapperInstalled = false
-    // Register before ready-only start: structured output is attached before session-start and the
-    // loop. The wrapper waits for a downstream stop, rewrites it to continue, and must still lose
-    // to the later terminal checkpoint.
-    ctx.on('agent/session-start', (child) => {
-      if (child === parent) return
-      wrapperInstalled = true
-      child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
-        const downstream = await next()
-        expect(downstream).toEqual({ action: 'stop' })
-        return { action: 'continue' }
-      }, { prepend: true })
-    })
-    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-    const result = await run.result
-    expect(wrapperInstalled).toBe(true)
-    expect(result.structured).toEqual({ answer: 7 })
-    expect(result.stopReason).toBe('completed')
-    expect(adapter.requests).toHaveLength(1)
-    await run.dispose()
-  })
-
-  it('a continuation wrapper cannot carry steering past a captured terminal stop', async () => {
-    const { ctx, parent, adapter } = await setup([
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
-      textResponse('MUST NOT BE CONSUMED'),
-    ])
-    // A downstream policy stops, then a later wrapper delegates and queues steering that ordinary
-    // folding would turn into continue. The terminal checkpoint must discard that steering.
-    ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'stop' }))
-    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
-    ctx.on('agent/session-start', (child) => {
-      if (child.id !== run.id) return
-      child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
-        const downstream = await next()
-        expect(downstream).toEqual({ action: 'stop' })
-        subject.steer([{ type: 'text', text: 'late steering after downstream stop' }])
-        return downstream
-      }, { prepend: true })
-    })
-
-    const result = await run.result
-    const child = ctx.agents.get(run.id)
-
-    expect(result.structured).toEqual({ answer: 9 })
-    expect(adapter.requests).toHaveLength(1)
-    expect(child?.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(child?.session.events.filter(event => event.type === 'steering/message')).toHaveLength(0)
     await run.dispose()
   })
 
@@ -522,7 +463,7 @@ describe('in-process structured output', () => {
       textResponse('parent answer'),
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    parent.followup([{ type: 'text', text: 'hello' }])
+    parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
     await parent.whenIdle()
     expect(adapter.requests[0]!.system ?? '').not.toContain(STRUCTURED_OUTPUT_INSTRUCTION)
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
@@ -538,7 +479,7 @@ describe('in-process structured output', () => {
   describe('scoped registration (each child owns its capture tool)', () => {
     it('a plain agent never sees the tool: nothing is registered globally at all', async () => {
       const { ctx, parent, adapter } = await setup([textResponse('parent answer')])
-      parent.followup([{ type: 'text', text: 'hello' }])
+      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
       await parent.whenIdle()
       // Scoped registration: the global view has no capture tool, ever.
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
@@ -552,7 +493,7 @@ describe('in-process structured output', () => {
         // Child turn: must see it, with the run's schema.
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42 }),
       ])
-      parent.followup([{ type: 'text', text: 'hello' }])
+      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
       await parent.whenIdle()
       expect(toolNames(adapter.requests[0]!)).not.toContain(STRUCTURED_OUTPUT_TOOL)
 
@@ -630,7 +571,7 @@ describe('in-process structured output', () => {
 
     it('a non-structured agent request keeps tools ABSENT when it had none (no tools: [] materialized)', async () => {
       const { parent, adapter } = await setup([textResponse('plain')])
-      parent.followup([{ type: 'text', text: 'q' }])
+      parent.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
       await parent.whenIdle()
       const request = adapter.requests[0]!
       expect(request.tools).toBeUndefined()

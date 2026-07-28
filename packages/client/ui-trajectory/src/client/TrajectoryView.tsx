@@ -71,21 +71,21 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<number>>(EMPTY_IDS)
-  const nodes = useSession((s) => s.nodes)
-  const projectedContexts = useSession((s) => s.contexts)
+  const nodes = useSession(s => s.nodes)
+  const projectedContexts = useSession(s => s.contexts)
   const compactionRequests = useSession(
-    (s) => s.compactionRequests ?? EMPTY_COMPACTION_REQUESTS,
+    s => s.compactionRequests ?? EMPTY_COMPACTION_REQUESTS,
   )
   const requestAttempts = useSession(
-    (s) => s.requestAttempts ?? EMPTY_MODEL_REQUESTS,
+    s => s.requestAttempts ?? EMPTY_MODEL_REQUESTS,
   )
   const promptChanges = useSession(
-    (s) => s.promptChanges ?? EMPTY_PROMPT_CHANGES,
+    s => s.promptChanges ?? EMPTY_PROMPT_CHANGES,
   )
-  const partial = useSession((s) => s.partial)
-  const runningCalls = useSession((s) => s.runningCalls)
-  const callSchemas = useSession((s) => s.callSchemas)
-  const codeDispatches = useSession((s) => s.codeDispatches)
+  const partial = useSession(s => s.partial)
+  const runningCalls = useSession(s => s.runningCalls)
+  const callSchemas = useSession(s => s.callSchemas)
+  const codeDispatches = useSession(s => s.codeDispatches)
   const contexts = useMemo<readonly ConversationContext[]>(
     () => projectedContexts === undefined || projectedContexts.length === 0
       ? [{ id: 0, nodes }]
@@ -98,7 +98,11 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
   )
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = currentBranch.nodes
+  const selectedNodes = useMemo(() => {
+    const bySeq = new Map(currentBranch.nodes.map(node => [node.seq, node]))
+    for (const node of nodes) bySeq.set(node.seq, node)
+    return [...bySeq.values()].sort((left, right) => left.seq - right.seq)
+  }, [currentBranch, nodes])
   const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
@@ -128,11 +132,11 @@ export function TrajectoryView({ useSession }: ConvViewProps) {
         attemptsByStep.has(key)
           ? []
           : [{
-              seq: node.seq,
-              kind: 'ordinary' as const,
-              request: undefined,
-              node,
-            }],
+            seq: node.seq,
+            kind: 'ordinary' as const,
+            request: undefined,
+            node,
+          }],
       ),
       ...compactionRequests.map(request => ({
         seq: request.startSeq,

@@ -25,6 +25,7 @@ const PATTERNS = [
   'AGENTS.md',
   'packages/AGENTS.md',
   '.agents/skills/**/*.md',
+  'skills/**/*.md',
 ]
 
 /** A broken relative link: a target path that does not resolve to a file. */

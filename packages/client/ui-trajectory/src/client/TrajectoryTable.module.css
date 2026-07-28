@@ -32,7 +32,7 @@
 }
 
 .eventColumn {
-  width: 104px;
+  width: 122px;
 }
 
 .contentColumn {
@@ -111,7 +111,7 @@
   position: absolute;
   z-index: 6;
   top: -8px;
-  left: 2px;
+  left: 12px;
   width: 16px;
   height: 16px;
   padding: 0;
@@ -242,7 +242,7 @@
 .event {
   overflow: visible !important;
   padding-right: 4px !important;
-  padding-left: 18px !important;
+  padding-left: 36px !important;
 }
 
 .turnLabel {
@@ -833,16 +833,6 @@
 .timestampToggle:focus-visible {
   outline: 1px solid var(--dsw-alias-state-business-primary);
   outline-offset: 2px;
-}
-
-.tokenEquation {
-  display: inline-flex;
-  align-items: baseline;
-}
-
-.tokenOperator {
-  margin: 0 2px;
-  color: var(--dsw-alias-label-caption);
 }
 
 .overviewSections {

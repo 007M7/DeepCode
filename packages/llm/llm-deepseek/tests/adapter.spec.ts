@@ -602,21 +602,41 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
+  it('registers retryPolicy from the provider config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      retryPolicy: {
+        mode: 'always',
+        backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
+      },
+    })
+
+    expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
+      mode: 'always',
+      initialDelayMs: 25,
+      maxDelayMs: 100,
+      jitterRatio: 0.2,
+    })
+  })
+
   it('owns the deepseek provider and advertises the default models', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
     await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({
         provider: 'deepseek',
         id: 'deepseek-v4-flash',
-        name: 'deepseek-v4-flash',
-        context: { contextWindow: 128_000 },
+        name: 'DeepSeek-V4-Flash',
+        context: { contextWindow: 256_000 },
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
@@ -712,8 +732,8 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
   })
 
@@ -907,5 +927,17 @@ describe('plugin registration and config', () => {
       baseURL: 'http://127.0.0.1:1',
       streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
     })).rejects.toThrow(/streamIdleTimeoutMs/)
+  })
+
+  it('rejects invalid nested retryPolicy before registering the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      retryPolicy: { mode: 'normal', maxRetries: -1 },
+    })).rejects.toThrow(/retryPolicy/)
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 })

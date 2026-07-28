@@ -8,13 +8,13 @@ export interface TrajectoryToolbarProps {
   /** Whether every collapsible turn is currently folded. */
   allTurnsCollapsed: boolean
   /** Fold or expand every collapsible turn. */
-  onToggleAllTurns(): void
+  onToggleAllTurns: () => void
   /** Number of assistant messages followed by tool calls. */
   collapsibleAssistants: number
   /** Whether every collapsible assistant's tool calls are currently folded. */
   allAssistantsCollapsed: boolean
   /** Fold or expand tool calls under every collapsible assistant. */
-  onToggleAllAssistants(): void
+  onToggleAllAssistants: () => void
 }
 
 /**

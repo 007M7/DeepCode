@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup([{ type: 'text', text }])
+  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 }
 
 /** Assert `previous` is a strict value-prefix of `current`. */
@@ -115,7 +115,7 @@ describe('request stability across the loop', () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request', async (_agent, turn, _step, _config, _signal, next) => {
+    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
       const config = await next()
       return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
     })
@@ -136,20 +136,26 @@ describe('request stability across the loop', () => {
     ])
     expect(headers.map(event => event.data.reason)).toEqual(['initial', 'change'])
 
-    const resumedAdapter = new MockAdapter([textResponse('three')], reasoning)
-    const resumedCtx = await harness(resumedAdapter)
-    const resumedHandle = await resumedCtx.agents.create({
-      sessionId: SessionId('effort-resumed'),
-      seed: structuredClone(agent.session.events),
-      agentOptions: { provider: 'mock', model: 'mock' },
-    })
-    send(resumedHandle.agent, 'third')
-    await waitForIdle(resumedCtx, resumedHandle.agent)
+    for (const [model, effort] of [
+      ['mock', ReasoningEffortId('max')],
+      ['replacement', ReasoningEffortId('high')],
+    ] as const) {
+      const resumedAdapter = new MockAdapter([textResponse('resumed')], reasoning)
+      const resumedCtx = await harness(resumedAdapter)
+      const resumedHandle = await resumedCtx.agents.create({
+        sessionId: SessionId(`effort-${model}`),
+        seed: structuredClone(agent.session.events),
+        agentOptions: { provider: 'mock', model },
+      })
+      send(resumedHandle.agent, 'resumed')
+      await waitForIdle(resumedCtx, resumedHandle.agent)
 
-    expect(resumedAdapter.requests[0]?.reasoningEffort).toBe(ReasoningEffortId('max'))
-    const resumedHeaders = resumedHandle.agent.session.events.filter(event => event.type === 'request/header')
-    expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(ReasoningEffortId('max'))
-    expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
+      expect(resumedAdapter.requests[0]?.model).toBe(model)
+      expect(resumedAdapter.requests[0]?.reasoningEffort).toBe(effort)
+      const resumedHeaders = resumedHandle.agent.session.events.filter(event => event.type === 'request/header')
+      expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(effort)
+      expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
+    }
   })
 
   it('keeps exact-model resolution, request logging, and dispatch on one adapter registration', async () => {
@@ -234,7 +240,7 @@ describe('request stability across the loop', () => {
     await handle.dispose()
 
     expect(signal.aborted).toBe(true)
-    expect(handle.agent.status).toBe('disposed')
+    expect(handle.agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
     expect(handle.agent.session.events.some(event => event.type === 'request/header')).toBe(false)
   })
@@ -252,7 +258,9 @@ describe('request stability across the loop', () => {
       }([])
       const ctx = await harness(adapter)
       const errors: Error[] = []
-      ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+      ctx.on('agent/error', (_agent, _turn, _step, error) => {
+        if (error instanceof Error) errors.push(error)
+      })
       const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
         provider: 'mock',
         model: 'mock',
@@ -266,6 +274,40 @@ describe('request stability across the loop', () => {
     },
   )
 
+  it('lets a short-circuiting llm/stream listener own an unregistered route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: 'stable base' })
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    let observed: GenerateOptions | undefined
+    ctx.on('llm/stream', (options) => {
+      observed = options
+      return (async function* () {
+        yield* textResponse('owned')
+      })()
+    })
+    const agent = ctx.agentLoop.create(SessionId('listener-owned'), {
+      provider: 'listener',
+      model: 'virtual',
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(observed).toMatchObject({ provider: 'listener', model: 'virtual' })
+    expect(agent.session.requestHeader()?.config).toEqual({
+      provider: 'listener',
+      model: 'virtual',
+    })
+    expect(agent.session.deriveMessages().at(-1)?.content).toContainEqual({
+      type: 'text',
+      text: 'owned',
+    })
+  })
+
   it('a compaction replace rewrites the resend, and the log explains it', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
@@ -276,7 +318,7 @@ describe('request stability across the loop', () => {
 
     // A pre-step listener compacts turn 1's history before turn 2's step —
     // the sanctioned surface rewrite, landing OUTSIDE the step.
-    const preStep = ctx.on('agent/pre-step', () => {
+    const preStep = ctx.on('agent/step', () => {
       preStep()
       const session = agent.session
       const nodes = session.surface.nodes
@@ -329,10 +371,10 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       if (!injected) {
         injected = true
-        agent.inject([{ type: 'text', text: '[late context]' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } })
       }
       return next()
     })
@@ -357,7 +399,9 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+      if (error instanceof Error) errors.push(error)
+    })
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
@@ -394,7 +438,7 @@ describe('request stability across the loop', () => {
 
     const snapshots = agent2.session.events.filter(e => e.type === 'request/header')
     expect(snapshots).toHaveLength(2)
-    expect(snapshots[1]?.type === 'request/header' && snapshots[1].data.reason).toBe('resume')
+    expect(snapshots[1]?.data.reason).toBe('resume')
     // Identical header across the restart: byte-identical continuation.
     expect(adapter2.requests[0]!.system).toEqual(adapter.requests[0]!.system)
     expectPrefixExtension(adapter.requests[0]!, adapter2.requests[0]!)
@@ -405,7 +449,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -442,7 +486,9 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => ({ ...config, temperature: 0.5, maxTokens: 99, stop: ['<END>'] }))
+    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ...await next(), temperature: 0.5, maxTokens: 99, stop: ['<END>'],
+    }))
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 

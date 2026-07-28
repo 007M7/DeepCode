@@ -12,7 +12,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 - 每个 `(server id, canonical workspace realpath)` 惰性 single-flight 一个服务器进程。存活服务器错误不会回放；如果选中的池化传输在只读查询之前或期间失败，提供方会等待其释放，并在新进程上重试该查询一次。
 - 每次查询都使用兼容性优先的**临时打开** 序列：通过 Node API 规范化并读取源文件、`textDocument/didOpen`（版本 1、完整文本）、所请求操作，然后执行 `textDocument/didClose`，该操作位于 `finally` 中。写入 `didOpen` 失败或取消时，会先终止实例再允许池复用。文档在每次调用后关闭，因此第一版不需要 `didChange`、内容 cache 或文档 LRU。
 - 通过一条逐 Workspace、可中止的队列，串行执行每个源读取／打开／查询／关闭生命周期，因此排队调用只会在轮到自身时读取当前源；不同 Workspace 并行运行。
-- 协议 shutdown 失败后，通过 POSIX 进程组信号或同步 Windows `taskkill /T /F` 终止服务器后代树。Windows 只抑制 taskkill 报告的树已不存在结果；命令、权限与其他树终止失败仍保持可见。
+- 协议 shutdown 失败后，经由进程管理器 seam 终止服务器后代树（POSIX 进程组信号；Windows `taskkill /T /F`）。树终止的投递结果与所有进程组信号一样被就地吸收，不向外抛出（投递与服务器退出存在竞态）；服务器是否完全停稳，由句柄的进程树存活等待确认，而非由这次终止自身的结果确认。
 - 通过子进程 host namespace 中的 Node 文件系统 API 读取源文件，绝不使用 `ctx.fs`，也不发出 `fs/observed`：只有 LSP 结果对模型可见，因此查询不满足先读后写策略。
 
 ## 配置
@@ -23,7 +23,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 |---|---|---|
 | `command` | （必填） | 要 spawn 的可执行文件：绝对路径，或在加载时从子进程 PATH 解析。不使用 shell 启动。 |
 | `args` | `[]` | 传给可执行文件的参数。 |
-| `env` | `{}` | 合并到已清理 credential 的环境之上的额外 env（匹配 `KEY`／`SECRET`／`TOKEN` 的变量不会转发）。 |
+| `env` | `{}` | 合并到已清理 credential 的环境之上的额外 env（匹配 `KEY`／`SECRET`／`TOKEN` 的变量不会转发）；显式 `DSH_*` 条目在 seam 清除环境中同名值之后合并。 |
 | `extensionToLanguage` | （必填） | 小写、以点开头的扩展名 → LSP language id（例如 `{ '.ts': 'typescript' }`）。 |
 | `initializationOptions` | `null` | 转发给服务器的静态 `initialize` 选项。 |
 | `configuration` | `null` | 每个 `workspace/configuration` 配置项的静态答案。 |

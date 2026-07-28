@@ -121,7 +121,6 @@ export interface ContextMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
-  meta?: unknown
 }
 
 /** A tool result paired (when in-window) with its call head. */

@@ -49,7 +49,7 @@ describe('GeneralSection', () => {
     mount()
     expect(screen.getByText('Permission')).toBeTruthy()
     expect(screen.getByText('Choose default permission mode')).toBeTruthy()
-    const selector = screen.getByRole('button', { name: /Read only/ }) as HTMLButtonElement
+    const selector = screen.getByRole<HTMLButtonElement>('button', { name: /Read only/ })
     expect(selector.disabled).toBe(true)
   })
 

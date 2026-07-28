@@ -26,6 +26,11 @@ export interface Config {
   exactProbeAfterMs?: number
   /** Silence duration that yields `inferred_idle`. */
   idleSilenceMs?: number
+  /**
+   * Extra wait beyond `idleSilenceMs`, once a prompt marker was seen, for the shell to
+   * regain the foreground before `inferred_idle` settles; at least one `pollIntervalMs`.
+   */
+  handoffGraceMs?: number
   /** Absolute send wait bound. */
   timeoutMs?: number
   /** Grace before teardown escalates to `SIGKILL`. */
@@ -48,6 +53,7 @@ export const Config: z<Config> = z.object({
   pollIntervalMs: z.number().default(50),
   exactProbeAfterMs: z.number().default(150),
   idleSilenceMs: z.number().default(3_000),
+  handoffGraceMs: z.number().default(500),
   timeoutMs: z.number().default(30_000),
   disposeGraceMs: z.number().default(3_000),
 })
@@ -68,5 +74,8 @@ export function validateConfig(config: Config): asserts config is ResolvedConfig
   }
   if (resolved.maxReadBytes > resolved.scrollbackMaxBytes) {
     throw new Error('pty-local: maxReadBytes must not exceed scrollbackMaxBytes')
+  }
+  if (resolved.handoffGraceMs < resolved.pollIntervalMs) {
+    throw new Error('pty-local: handoffGraceMs must be at least pollIntervalMs so one readiness poll runs inside the grace window')
   }
 }
