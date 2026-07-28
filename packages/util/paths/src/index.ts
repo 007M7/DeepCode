@@ -52,6 +52,27 @@ export function resolveDshHome(configured?: string, env: Record<string, string |
   return resolve(expandHomePath(selected))
 }
 
+/** Directory name for persisted session logs under the Harness home. */
+export const SESSIONS_DIR_NAME = 'sessions'
+
+/**
+ * Resolve the shared session-store root under the Harness home.
+ *
+ * Every surface that persists sessions resolves this one directory, so history
+ * is shared across working directories instead of scattered per project. A
+ * persistence backend may still partition inside it. Two surfaces resolving
+ * different roots would silently split one user's history into disjoint stores,
+ * so this is a single owned fact rather than a per-caller `join`.
+ * @param configuredHome - explicit harness-home override, which has highest precedence.
+ * @param env - environment mapping used to read `DSH_HOME`.
+ * @returns the normalized absolute session-store root.
+ */
+export function resolveSessionsRoot(
+  configuredHome?: string, env: Record<string, string | undefined> = process.env,
+): string {
+  return join(resolveDshHome(configuredHome, env), SESSIONS_DIR_NAME)
+}
+
 /**
  * Describe a resolved harness home symbolically for user-facing display.
  *
