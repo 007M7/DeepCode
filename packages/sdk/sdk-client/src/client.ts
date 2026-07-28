@@ -71,11 +71,28 @@ interface SubscriptionState {
   failure: Error | undefined
 }
 
-/**
- * One client-side notification stream. Delivery order matches the wire;
- * {@link close} detaches it from the client, after which {@link next} rejects.
- */
-export class NotificationSubscription implements AsyncIterable<HarnessNotification> {
+/** One client-side notification stream returned by {@link HarnessClient.subscribe}. */
+export interface NotificationSubscription extends AsyncIterable<HarnessNotification> {
+  /**
+   * Await the next matching notification.
+   * @returns the notification; after the runtime died, drains what was
+   * already delivered and then rejects; after {@link close}, rejects
+   * immediately (the queue is dropped).
+   */
+  next(): Promise<HarnessNotification>
+
+  /**
+   * Drain one already-delivered notification without waiting.
+   * @returns the next queued notification, or `undefined` when none is queued.
+   */
+  tryNext(): HarnessNotification | undefined
+
+  /** Detach from the client; queued items drop and pending waiters reject. */
+  close(): void
+}
+
+/** Internal producer side of a public notification subscription. */
+class NotificationSubscriptionImpl implements NotificationSubscription {
   constructor(
     private readonly state: SubscriptionState,
     private readonly unsubscribe: () => void,
@@ -168,7 +185,7 @@ export class HarnessClient {
   private child: ChildProcess | undefined
   private transport: JsonRpcLineTransport | undefined
   private readonly stderrTail: string[] = []
-  private readonly subscriptions = new Map<string, NotificationSubscription>()
+  private readonly subscriptions = new Map<string, NotificationSubscriptionImpl>()
   private readonly sessionParents = new Map<string, string>()
   private subscriptionSerial = 0
   private exitCode: number | null | undefined
@@ -324,7 +341,7 @@ export class HarnessClient {
   subscribe(filter?: NotificationFilter): NotificationSubscription {
     const id = String(this.subscriptionSerial++)
     const state: SubscriptionState = { queue: [], waiters: [], filter, failure: undefined }
-    const subscription = new NotificationSubscription(state, () => { this.subscriptions.delete(id) })
+    const subscription = new NotificationSubscriptionImpl(state, () => { this.subscriptions.delete(id) })
     if (this.closeTask !== undefined || this.exitCode !== undefined || this.spawnError !== undefined) {
       subscription.fail(this.closedError('DeepSeek Harness runtime closed'))
       return subscription
