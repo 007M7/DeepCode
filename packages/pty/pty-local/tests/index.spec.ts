@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { IPty, IPtyForkOptions } from 'node-pty'
+import { PassThrough } from 'node:stream'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -11,12 +11,18 @@ import PtyService, { PtyBackendCleanupError, PtySessionId } from '@deepseek-ai/d
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import * as ptyLocal from '@deepseek-ai/dsh-pty-local'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-pty-local/src/config.ts'
-import type { ProcessInspector } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
 import type { LocalPtySession } from '@deepseek-ai/dsh-pty-local/src/session.ts'
+import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import type {
+  SubprocessHandle,
+  SubprocessSpawnSpec,
+  SubprocessTerminalHandle,
+  SubprocessTerminalSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
   }
 }
 
@@ -25,7 +31,7 @@ class RecordingSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
   }
 }
 
@@ -38,28 +44,37 @@ function config(): ResolvedConfig {
   }
 }
 
-function agent(ctx: Context, cwd?: string): Agent {
+function agent(ctx: Context): Agent {
   const id = SessionId('agent')
-  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
   return {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
-    status: 'idle',
-    ctx,
-    send: () => {},
-    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
-    whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
-const inspector = {
-  foregroundPgid: () => undefined,
-  isStdinWaiting: () => false,
-  processTree: () => [],
-  isAlive: () => false,
-  signalGroup() {},
-  signalProcess() {},
-} satisfies ProcessInspector
+function terminalHandle(): SubprocessTerminalHandle {
+  const output = new PassThrough()
+  return {
+    pid: 123,
+    output,
+    done: Promise.resolve({ exitCode: 0, signal: null }),
+    write: async () => {},
+    inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
+    signalForeground: async () => 123,
+    terminate: () => { output.end() },
+    waitForExit: async () => true,
+  }
+}
+
+class StubSubprocessService extends SubprocessService {
+  readonly cwd = '/tmp'
+  readonly runtimeRoot = '/tmp/dsh-runtime'
+  async resolveExecutable(command: string): Promise<string> { return command }
+  spawn(_spec: SubprocessSpawnSpec): SubprocessHandle { throw new Error('unused') }
+  async spawnTerminal(_spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return terminalHandle()
+  }
+}
 
 function spec(owner: Agent, signal?: AbortSignal) {
   return {
@@ -81,12 +96,11 @@ function stubLocalSession(initialize: () => Promise<void> = () => Promise.resolv
 }
 
 function registerStubLocalBackend(ctx: Context, createSession: () => LocalPtySession) {
-  return ctx.inject(['pty', 'sandbox', 'sandboxPolicy'], (providerCtx) => {
+  return ctx.inject(['pty', 'sandbox', 'sandboxPolicy', 'subprocess'], (providerCtx) => {
     providerCtx.pty.registerBackend(new LocalPtyBackend(
       providerCtx,
       { ...config(), backendType: 'stub' },
-      inspector,
-      (() => ({})) as never,
+      async () => terminalHandle(),
       createSession,
     ))
   })
@@ -97,7 +111,7 @@ describe('LocalPtyBackend startup rollback', () => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/tmp' })
-    const backend = new LocalPtyBackend(ctx, config(), inspector)
+    const backend = new LocalPtyBackend(ctx, config(), async () => terminalHandle())
     const controller = new AbortController()
     const abortReason = new Error('spawn aborted')
     controller.abort(abortReason)
@@ -109,11 +123,11 @@ describe('LocalPtyBackend startup rollback', () => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
-    const spawnTerminal = (() => ({} as IPty)) as never
+    const spawnTerminal = async (): Promise<SubprocessTerminalHandle> => terminalHandle()
 
     const closed = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     const failed = { initialize: () => Promise.reject(new Error('startup failed')), close: closed } as unknown as LocalPtySession
-    const backend = new LocalPtyBackend(ctx, config(), inspector, spawnTerminal, () => failed)
+    const backend = new LocalPtyBackend(ctx, config(), spawnTerminal, () => failed)
     await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow('startup failed')
     expect(closed).toHaveBeenCalledWith('PTY startup failed')
 
@@ -123,7 +137,7 @@ describe('LocalPtyBackend startup rollback', () => {
       initialize: () => Promise.reject(startupFailure),
       close: () => Promise.reject(cleanupFailure),
     } as unknown as LocalPtySession
-    const aggregate = new LocalPtyBackend(ctx, config(), inspector, spawnTerminal, () => doublyFailed)
+    const aggregate = new LocalPtyBackend(ctx, config(), spawnTerminal, () => doublyFailed)
     await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toEqual(expect.objectContaining({
       name: 'PtyBackendCleanupError',
       spawnError: startupFailure,
@@ -131,79 +145,72 @@ describe('LocalPtyBackend startup rollback', () => {
     } satisfies Partial<PtyBackendCleanupError>))
   })
 
-  it('resolves session mode and root together before wrapping the shell', async () => {
+  it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
     const ctx = new Context()
     await ctx.plugin(RecordingSandbox)
-    await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/deployment-fallback' })
-    const terminal = {} as IPty
-    let spawned: { file: string; args: string[]; options: IPtyForkOptions } | undefined
-    const spawnTerminal = ((file: string, args: string[], options: IPtyForkOptions) => {
-      spawned = { file, args, options }
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/workspace' })
+    const terminal = terminalHandle()
+    let spawned: SubprocessTerminalSpawnSpec | undefined
+    const spawnTerminal = async (spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> => {
+      spawned = spec
       return terminal
-    }) as never
+    }
     const initialized = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     const session = { initialize: initialized } as unknown as LocalPtySession
     const backend = new LocalPtyBackend(
       ctx,
       { ...config(), shellArgs: ['-i'] },
-      inspector,
       spawnTerminal,
       () => session,
     )
     const previous = process.env.PTY_TEST_SECRET
     process.env.PTY_TEST_SECRET = 'must-not-leak'
-    const owner = agent(ctx, '/session-workspace')
-    setSandboxMode(owner.session, 'workspace-write')
     try {
-      expect(await backend.spawn(spec(owner))).toBe(session)
+      expect(await backend.spawn({ ...spec(agent(ctx)), cwd: '/work' })).toBe(session)
     } finally {
       if (previous === undefined) delete process.env.PTY_TEST_SECRET
       else process.env.PTY_TEST_SECRET = previous
     }
 
     expect(spawned).toMatchObject({
-      file: '/sandbox',
-      args: ['--', '/bin/bash', '-i'],
-      options: {
-        name: 'dumb', cols: 80, rows: 24, cwd: '/session-workspace',
-        env: {
-          TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ', BASH_SILENCE_DEPRECATION_WARNING: '1',
-          DSH_SHELL: '1', DSH_SESSION_ID: 'agent', DSH_PTY_SESSION_ID: 'pty-1',
-        },
+      argv: ['/sandbox', '--', '/bin/bash', '-i'],
+      cols: 80,
+      rows: 24,
+      cwd: '/work',
+      graceMs: 10,
+      env: {
+        TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ', BASH_SILENCE_DEPRECATION_WARNING: '1',
+        DSH_SHELL: '1', DSH_SESSION_ID: 'agent', DSH_PTY_SESSION_ID: 'pty-1',
       },
     })
-    expect(spawned?.options.env?.PTY_TEST_SECRET).toBeUndefined()
+    expect(spawned?.env?.PTY_TEST_SECRET).toBeUndefined()
     expect(initialized).toHaveBeenCalledWith(undefined)
-    expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
-      argv: ['/bin/bash', '-i'],
-      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace' },
-    }])
   })
 
   it('composes the default local session around a spawned terminal', async () => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
-    let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
-    const terminal = {
-      pid: 123, cols: 80, rows: 24, process: 'bash', handleFlowControl: false,
-      onData(listener: (data: string) => void) {
-        queueMicrotask(() => { listener('\x1b]133;D;0\x07dsh> ') })
-        return { dispose() {} }
+    const output = new PassThrough()
+    const outcome = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    const terminal: SubprocessTerminalHandle = {
+      pid: 123,
+      output,
+      done: outcome.promise,
+      write: async () => {},
+      inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
+      signalForeground: async () => 123,
+      terminate() {
+        output.end()
+        outcome.resolve({ exitCode: null, signal: 'SIGTERM' })
       },
-      onExit(listener: (event: { exitCode: number; signal?: number }) => void) {
-        exitListener = listener
-        return { dispose() {} }
-      },
-      write() {},
-      kill() { exitListener?.({ exitCode: 0, signal: 15 }) },
-      resize() {}, clear() {}, pause() {}, resume() {},
-    } as IPty
+      waitForExit: async () => true,
+    }
+    queueMicrotask(() => { output.write(Buffer.from('\x1b]133;D;0\x07dsh> ')) })
     const backend = new LocalPtyBackend(
       ctx,
       config(),
-      { ...inspector, foregroundPgid: () => terminal.pid },
-      () => terminal,
+      async () => terminal,
     )
     const session = await backend.spawn(spec(agent(ctx)))
     expect(session.motd).toBe('dsh> ')
@@ -217,7 +224,7 @@ describe('pty-local plugin shape', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(ptyLocal) as Record<string, unknown>
     expect(unwrapped.name).toBe('pty-local')
-    expect(unwrapped.inject).toEqual(['pty', 'sandbox', 'sandboxPolicy'])
+    expect(unwrapped.inject).toEqual(['pty', 'sandbox', 'sandboxPolicy', 'subprocess'])
     expect(unwrapped.Config).toBeDefined()
   })
 
@@ -227,6 +234,7 @@ describe('pty-local plugin shape', () => {
     await ctx.plugin(PtyService)
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    await ctx.plugin(StubSubprocessService)
     const fiber = await ctx.plugin(ptyLocal, config())
     expect(ctx.pty.listBackends()).toEqual(['shell'])
     await fiber.dispose()
@@ -240,11 +248,12 @@ describe('pty-local plugin shape', () => {
     await ctx.plugin(PtyService)
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    await ctx.plugin(StubSubprocessService)
     await ctx.plugin(ptyLocal, config())
 
     const session = ctx.sessions.create(SessionId('unowned-mode'))
     expect(() => {
-      session.append('turn/start', { turn: 1 })
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     }).not.toThrow()
     expect(() => { setSandboxMode(session, 'read-only') }).not.toThrow()
   })
@@ -256,17 +265,13 @@ describe('pty-local plugin shape', () => {
     await ctx.plugin(PtyService)
     await ctx.plugin(RecordingSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    await ctx.plugin(StubSubprocessService)
 
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
-      status: 'idle',
-      ctx: ownerFiber.ctx,
-      send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
-      runMaintenance: task => task(new AbortController().signal),
-      whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -275,7 +280,7 @@ describe('pty-local plugin shape', () => {
     const unrelated = ctx.sessions.create(SessionId('unrelated-mode'))
     expect(() => { setSandboxMode(unrelated, 'read-only') }).not.toThrow()
     expect(() => {
-      session.append('turn/start', { turn: 1 })
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     }).not.toThrow()
 
     expect(() => { setSandboxMode(session, 'danger-full-access') }).not.toThrow()
@@ -304,17 +309,13 @@ describe('pty-local plugin shape', () => {
     await ctx.plugin(PtyService)
     await ctx.plugin(RecordingSandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    await ctx.plugin(StubSubprocessService)
 
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
-      status: 'idle',
-      ctx: ownerFiber.ctx,
-      send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
-      runMaintenance: task => task(new AbortController().signal),
-      whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

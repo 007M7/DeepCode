@@ -75,6 +75,14 @@ class RecordingFileSystem extends FileSystem {
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
@@ -107,6 +115,12 @@ class RecordingFileSystem extends FileSystem {
     signal?.throwIfAborted()
     this.readTextTargets.push(target.targetKey)
     return this.entries.get(target.targetKey)?.content ?? ''
+  }
+
+  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
+    const text = await this.readText(target, signal)
+    if (Buffer.byteLength(text) > maxBytes) throw new Error('too large')
+    return text
   }
 
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
@@ -84,6 +85,20 @@ describe('resolve', () => {
     controller.abort()
 
     await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('projects process paths, file URLs, and canonical containment', async () => {
+    await mkdir(join(dir, 'nested'))
+    await writeFile(join(dir, 'nested', 'file.txt'), 'text')
+    const root = await fs.resolve('.')
+    const child = await fs.resolve('nested/file.txt')
+    const outside = await fs.resolve('..')
+
+    expect(fs.processPath(child)).toBe(await realpath(join(dir, 'nested', 'file.txt')))
+    expect(fs.fileUrl(child)).toBe(pathToFileURL(await realpath(join(dir, 'nested', 'file.txt'))).href)
+    expect(fs.contains(root, root)).toBe(true)
+    expect(fs.contains(root, child)).toBe(true)
+    expect(fs.contains(root, outside)).toBe(false)
   })
 })
 
@@ -201,6 +216,15 @@ describe('readText / streamText', () => {
   it('reads whole-file text', async () => {
     await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree')
     expect(await fs.readText(await fs.resolve('a.txt'))).toBe('one\ntwo\nthree')
+  })
+
+  it('reads complete text through the stable byte bound', async () => {
+    await writeFile(join(dir, 'bounded.txt'), '€abc')
+    const target = await fs.resolve('bounded.txt')
+    expect(await fs.readTextBounded(target, 6)).toBe('€abc')
+    await expect(fs.readTextBounded(target, 5)).rejects.toThrow('exceeds the 5-byte limit')
+    await expect(fs.readTextBounded(target, 0)).rejects.toThrow('positive safe integer')
+    await expect(fs.readTextBounded(target, 6, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 
   it('streams the same text', async () => {

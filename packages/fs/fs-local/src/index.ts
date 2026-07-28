@@ -5,7 +5,8 @@
  */
 
 import { Context } from 'cordis'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -27,6 +28,7 @@ import {
   readForEdit,
   readTextForDiff,
   readWholeText,
+  readWholeTextBounded,
   resolveLocalTarget,
   restoreLineEndings,
   streamWholeText,
@@ -90,6 +92,19 @@ export class LocalFileSystem extends FileSystem {
     return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
+  override processPath(target: FsTarget): string {
+    return String(target.targetKey)
+  }
+
+  override fileUrl(target: FsTarget): string {
+    return pathToFileURL(this.processPath(target)).href
+  }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    const path = relative(this.processPath(parent), this.processPath(child))
+    return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     const info = await probe(target.targetKey)
@@ -109,6 +124,10 @@ export class LocalFileSystem extends FileSystem {
 
   override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
     return readWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
+  }
+
+  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
+    return readWholeTextBounded({ displayPath: target.displayPath, targetKey: target.targetKey }, maxBytes, signal)
   }
 
   override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {

@@ -192,3 +192,71 @@ export interface SubprocessHandle {
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }
+
+/** Signals supported by the terminal-process primitive. */
+export type SubprocessTerminalSignal = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'
+
+/** A fully specified terminal-process spawn. */
+export interface SubprocessTerminalSpawnSpec {
+  /** Executable and arguments; `argv[0]` is the program. */
+  argv: readonly string[]
+  /** Working directory in this subprocess provider's execution world. */
+  cwd: string
+  /** Explicit environment layered after the provider's ambient scrub. */
+  env?: Record<string, string> | undefined
+  /** Initial terminal row count. */
+  rows: number
+  /** Initial terminal column count. */
+  cols: number
+  /** TERM-to-KILL cleanup grace for the complete terminal session. */
+  graceMs: number
+  /** Cancellation of setup or the live terminal session. */
+  signal?: AbortSignal | undefined
+}
+
+/** Current foreground process-group facts for one terminal. */
+export interface SubprocessTerminalForeground {
+  /** Foreground process-group id published by the terminal driver. */
+  processGroupId: number
+  /** Whether the provider can currently prove that group is waiting on terminal input. */
+  inputWaiting: boolean
+}
+
+/**
+ * One live terminal process and its owned OS session. Terminal allocation,
+ * foreground-group inspection/signalling, and session-tree cleanup are one
+ * deep subprocess primitive because none can be reconstructed from ordinary
+ * piped stdio without substrate-specific process control.
+ */
+export interface SubprocessTerminalHandle {
+  /** Top-level terminal process id. */
+  readonly pid: number
+  /** UTF-8 terminal output bytes in delivery order; ends after queued output when the terminal exits. */
+  readonly output: Readable
+  /** Resolves when the top-level process exits; rejects only for a live transport failure. */
+  readonly done: Promise<SubprocessOutcome>
+  /**
+   * Write bytes to the terminal input.
+   * @param data - valid UTF-8 bytes to deliver without implicit newline conversion.
+   */
+  write(data: Uint8Array): Promise<void>
+  /**
+   * Inspect the current foreground process group.
+   * @returns its id and input-wait fact, or undefined when no foreground group can be resolved.
+   */
+  inspectForeground(): Promise<SubprocessTerminalForeground | undefined>
+  /**
+   * Deliver a signal to the current foreground process group.
+   * @param signal - permitted terminal signal.
+   * @returns the exact group id that received it.
+   */
+  signalForeground(signal: SubprocessTerminalSignal): Promise<number>
+  /** Begin idempotent TERM-to-KILL cleanup of the complete terminal session. */
+  terminate(): void
+  /**
+   * Await whole-session quiescence, not only top-level process exit.
+   * @param signal - optional bound for this wait.
+   * @returns true after quiescence, false when `signal` aborts first.
+   */
+  waitForExit(signal?: AbortSignal): Promise<boolean>
+}

@@ -23,10 +23,10 @@ The implementation supports interactive shells and line-oriented REPLs on Linux 
 | Package | Role | ctx key |
 |---|---|---|
 | `dsh-pty` | `PtyService`, branded `PtySessionId`, backend registry, owner-scoped session contract, and result types | `ctx.pty` |
-| `dsh-pty-local` | [`node-pty`](https://github.com/microsoft/node-pty)-based local backend, platform process inspection, bounded terminal buffer, sandbox resolution, and process-tree supervision | registers a backend on `ctx.pty` |
+| `dsh-pty-local` | Persistent-shell backend over `ctx.subprocess.spawnTerminal()`: readiness, bounded terminal buffers, sandbox resolution, and owner-aware session lifecycle | registers a backend on `ctx.pty` |
 | `dsh-tool-pty` | Six model-facing tools, task-runtime integration for background sends, guidance, and UI render intents | registers on `ctx.tools` |
 
-Idle detection is backend behavior, not a second public seam. A remote or container backend may have authoritative readiness signals that do not resemble local `/proc` inspection; every `PtyBackend` therefore returns the common send result while owning its detection mechanism internally.
+Readiness remains PTY-backend behavior, not a second public seam. The terminal-process provider supplies only substrate facts such as the foreground process group and whether it can prove that group is waiting on input; `dsh-pty-local` combines those facts with prompt and silence evidence into the common send result.
 
 ### Agent ownership and identity
 
@@ -40,12 +40,12 @@ Agent-scope disposal closes registrations first, then awaits quiescent teardown 
 
 A registered `shell` backend constrains how a terminal starts; it does not constrain commands typed after startup. `dsh-pty-local` therefore applies two protections before spawning:
 
-- It builds a scrubbed child environment using the same credential-shaped-name policy as `bash-local`, removing ambient `*KEY*`, `*PASSWORD*`, `*SECRET*`, `*TOKEN*`, and harness-managed variables unless an explicit trusted mapping supplies them.
+- It supplies only terminal-specific environment overrides; the mounted subprocess provider applies the shared credential-shaped-name scrub before merging them.
 - It requires `ctx.sandbox` and the shared `ctx.sandboxPolicy`. At spawn, the backend resolves the owner's effective session mode over the deployment default and wraps the shell argv once; that mode and workspace root remain the process boundary for the PTY lifetime. A write that would change the effective `sandbox/mode` is rejected before commit while the owner has any open PTY or unpublished spawn, with an instruction to wait for creation to settle and close those sessions first; same-effective-mode writes remain valid. The pending reservation spans backend setup through publication, so there is no race in which a wider terminal appears after a downgrade. `danger-full-access` is the existing explicit unconfined choice rather than a PTY-specific bypass.
 
 Sandboxing confines local process effects but does not make arbitrary shell input safe: network calls and other external side effects remain governed by deployment policy. Tool descriptions state that PTY sessions are less auditable than one-shot tools and should be used only when persistence or interactive stdin is necessary.
 
-The implementation uses only public `node-pty` capabilities: child PID, `data` and `exit` notifications, `write`, `resize`, and `kill`. It does not assume access to the native master fd or call `waitpid` from TypeScript. Platform process inspectors derive foreground process groups and parent/child identity from `/proc` on Linux and `ps` on macOS.
+The local subprocess terminal primitive uses only public `node-pty` capabilities: child PID, `data` and `exit` notifications, `write`, and `kill`. It does not assume access to the native master fd or call `waitpid` from TypeScript. Platform process inspectors below that primitive derive foreground process groups and parent/child identity from `/proc` on Linux and `ps` on macOS. The [portable execution-world decision](../architecture/2026-07-28-portable-execution-world-consumers.md) owns this process/consumer split.
 
 ### Six model-facing tools
 
@@ -92,9 +92,9 @@ Background sends use the existing task completion notice and `task_output` resul
 
 ### Process-tree teardown
 
-The top-level `node-pty` child is the ownership anchor. On close, the backend stops callbacks, snapshots its transitive descendants by parent PID in children-first order, sends `SIGTERM`, waits, rescans for children forked during shutdown, sends `SIGKILL` to the remaining descendant tree, and verifies that every non-zombie descendant left the process table while the shell is still alive. A matching Linux zombie has no executable work and therefore counts as quiescent, allowing shell shutdown to reap or reparent it. Only then does the backend stop the shell with its own TERM/grace/KILL sequence. Every captured PID includes process-start identity so reuse cannot redirect escalation.
+The subprocess terminal handle owns the top-level terminal process and its session. On close it snapshots transitive descendants by parent PID in children-first order, sends `SIGTERM`, waits, rescans for children forked during shutdown, sends `SIGKILL` to the union, and verifies every non-zombie descendant left the process table before stopping the top-level process. A matching Linux zombie has no executable work and therefore counts as quiescent. Every captured PID includes process-start identity so reuse cannot redirect escalation.
 
-Teardown reports root exit and survivor cleanup independently. It does not claim success merely because the shell exited; disposal resolves only after no captured non-quiescent tree member remains or returns a cleanup failure naming the survivors. A failed close is not cached forever: the registry and local session each clear the fence only when it still names that failed attempt, so a later explicit or lifecycle close retries after the external survivor condition changes without disturbing a newer concurrent attempt. Service disposal still clears its backend, reservation, and owner-detacher registries when a close fails. It never broadens ownership to every member of the root PID's POSIX session.
+Teardown reports top-level exit and survivor cleanup independently. The PTY session does not claim success merely because the shell exited: it calls `SubprocessTerminalHandle.terminate()` and awaits whole-session quiescence, propagating a cleanup failure that names survivors. A failed close is not cached forever: the registry and local session clear the fence only when it still names that failed attempt, so a later explicit or lifecycle close retries without disturbing a newer concurrent attempt. Service disposal still clears its backend, reservation, and owner-detacher registries when a close fails.
 
 ### Composition and rollout
 
@@ -108,6 +108,7 @@ plugins:
       mode: workspace-write
       workspaceRoot: .
   '@deepseek-ai/dsh-pty':
+  '@deepseek-ai/dsh-subprocess-local':
   '@deepseek-ai/dsh-pty-local':
     config:
       scrollbackLines: 10000
@@ -141,11 +142,11 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 **Add persistent mode to `bash`.** Rejected. Returning on readiness rather than process exit, retaining a process tree across calls, and exposing interactive stdin create a different ownership and failure contract.
 
-**Require native master-fd access from `node-pty`.** Rejected. Its public API exposes no master fd. The local backend instead derives foreground groups and descendants from supported OS process metadata and treats unreadable metadata as a detector miss.
+**Require native master-fd access from `node-pty`.** Rejected. Its public API exposes no master fd. The local subprocess terminal adapter derives foreground groups and descendants from supported OS process metadata and treats unreadable metadata as a detector miss.
 
 **Signal every member of the root PID's POSIX session.** Rejected. `node-pty` may expose a helper PID whose session belongs to the launcher, so SID-wide teardown can signal unrelated harness or desktop processes. A PID-identity-fenced descendant tree is narrower and safe by construction.
 
-**Publish `PtyIdleDetector` as a replaceable registry.** Rejected. Only the local backend needs these platform probes, while remote backends may receive readiness over their own protocol. Backend replacement already provides the necessary extension point.
+**Publish `PtyIdleDetector` as a replaceable registry.** Rejected. Substrate-specific foreground facts come from the mounted terminal-process primitive, while prompt/silence readiness remains one private policy in `dsh-pty-local`. The filesystem/subprocess execution-world replacement is the necessary extension point.
 
 **Add a PTY-specific `sleep` tool.** Rejected. `ctx.tasks` already owns bounded waiting, cancellation, completion notices, and model-facing collection. A second general wake mechanism would cross the agent-loop boundary and duplicate that contract.
 
@@ -156,8 +157,8 @@ The package ships concise tool guidance explaining persistent state, owner isola
 ## Verification
 
 - Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, rejection of pre-write stdin waits, the configured handoff grace holding the idle fallback past one poll and its rejection below `pollIntervalMs`, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
-- Linux process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
-- Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT` after deliberately delayed child readiness under scenario-owned timing bounds, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
+- Subprocess process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
+- Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, core data structures, generated catalogs, and the website API describe the same shipped surface.
 - The repository CI-equivalent sequence owns type, lint, coverage, snapshot, documentation, build, hygiene, demo, and built-entry verification.
@@ -172,10 +173,10 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 **Persistent state can drift from the model's belief.** The model may forget its cwd or active REPL. Session summaries and retained output help recovery, but no prompt can make state persistence deterministic.
 
-**A daemonized descendant can leave the captured tree.** A process that reparents before teardown is no longer discoverable from the `node-pty` root. The implementation accepts that cleanup gap instead of risking SID-wide signals to unrelated processes.
+**A daemonized descendant can leave the local provider's captured tree.** A process that reparents before teardown is no longer discoverable from the `node-pty` root. The local terminal primitive accepts that cleanup gap instead of risking SID-wide signals to unrelated processes.
 
 **A shell can cause external side effects.** Session sandboxing and environment scrubbing reduce local exposure but do not undo pushes, API calls, or messages. Deployments that cannot tolerate those effects must omit PTY or add network policy.
 
 **Process loss destroys terminal state.** In-process sessions do not survive a harness crash or restart, and raw scrollback is not durable. Important work must be committed to files or another durable system.
 
-**`node-pty` is a native dependency.** Installation, supported Node versions, prebuild availability, and platform behavior require built-artifact smokes on every supported OS.
+**`node-pty` is a native dependency of `dsh-subprocess-local`.** Installation, supported Node versions, prebuild availability, and platform behavior require built-artifact smokes on every supported OS.

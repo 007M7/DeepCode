@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createProcessInspector, parseProcStat } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
-import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
+import { createProcessInspector, parseProcStat } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
+import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
 
 function stat(pid: number, pgrp: number, session: number, tpgid: number, started: string, parentPid = 1, state = 'S'): string {
   const rest = [state, String(parentPid), String(pgrp), String(session), '99', String(tpgid)]
@@ -216,6 +216,6 @@ describe('macOS process inspector', () => {
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
     fake.internals.exec = () => { throw new Error('gone') }
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
-    expect(() => createProcessInspector('win32', 'x64', fake.internals)).toThrow('unsupported platform win32')
+    expect(() => createProcessInspector('win32', 'x64', fake.internals)).toThrow('unsupported on platform win32')
   })
 })

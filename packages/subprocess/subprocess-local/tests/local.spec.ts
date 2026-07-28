@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { describe, expect, it, vi } from 'vitest'
+import { stat } from 'node:fs/promises'
+import { basename, delimiter, dirname } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec {
   return {
@@ -18,6 +21,133 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
 }
 
 describe('LocalSubprocessService', () => {
+  it('publishes execution-world paths and removes its private runtime directory', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const root = ctx.subprocess.runtimeRoot
+    expect(ctx.subprocess.cwd).toBe(process.cwd())
+    expect((await stat(root)).isDirectory()).toBe(true)
+    await fiber.dispose()
+    await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('resolves absolute and PATH executables and honors lookup cancellation', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    expect(await ctx.subprocess.resolveExecutable(process.execPath)).toBe(process.execPath)
+    expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
+      PATH: dirname(process.execPath),
+    })).toBe(process.execPath)
+    await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('must be non-empty')
+    await expect(ctx.subprocess.resolveExecutable('dsh-command-that-does-not-exist', { PATH: '' }))
+      .rejects.toThrow('was not found on PATH')
+    await expect(ctx.subprocess.resolveExecutable('/dsh-absolute-command-that-does-not-exist'))
+      .rejects.toThrow('is not an executable file')
+    await expect(ctx.subprocess.resolveExecutable(process.cwd()))
+      .rejects.toThrow('is not an executable file')
+    await expect(ctx.subprocess.resolveExecutable(process.execPath, {}, AbortSignal.abort('stop')))
+      .rejects.toBe('stop')
+    await fiber.dispose()
+  })
+
+  it('builds Windows executable candidates without empty PATH entries', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const service = ctx.subprocess as LocalSubprocessService
+    const candidates = (service as unknown as {
+      executableCandidates(command: string, env: NodeJS.ProcessEnv): string[]
+    }).executableCandidates.bind(service)
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      expect(candidates('tool', { PATH: `${delimiter}/bin`, PATHEXT: '.EXE;.CMD' }))
+        .toEqual(['/bin/tool.EXE', '/bin/tool.CMD'])
+      expect(candidates('tool.exe', {})).toEqual([])
+      expect(candidates('tool', { PATH: '/bin' })).toHaveLength(4)
+    } finally {
+      platform.mockRestore()
+      await fiber.dispose()
+    }
+  })
+
+  it('validates terminal spawn specs before allocating a PTY', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const base: SubprocessTerminalSpawnSpec = {
+      argv: ['bash'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 10,
+    }
+    await expect(ctx.subprocess.spawnTerminal({ ...base, argv: [] })).rejects.toThrow('must contain a program')
+    await expect(ctx.subprocess.spawnTerminal({ ...base, argv: [''] })).rejects.toThrow('must contain a program')
+    await expect(ctx.subprocess.spawnTerminal({ ...base, rows: 1.5 })).rejects.toThrow('rows')
+    await expect(ctx.subprocess.spawnTerminal({ ...base, cols: 0 })).rejects.toThrow('cols')
+    await expect(ctx.subprocess.spawnTerminal({ ...base, graceMs: 0 })).rejects.toThrow('graceMs')
+    await expect(ctx.subprocess.spawnTerminal({ ...base, signal: AbortSignal.abort('stop') })).rejects.toBe('stop')
+    await fiber.dispose()
+  })
+
+  it('terminates and joins an owned terminal during disposal', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const terminate = vi.fn()
+    const waitForExit = vi.fn(async () => true)
+    const terminal: SubprocessTerminalHandle = {
+      pid: 1,
+      output: new PassThrough(),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      inspectForeground: async () => undefined,
+      signalForeground: async () => 1,
+      terminate,
+      waitForExit,
+    }
+    ;(ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.add(terminal)
+    await fiber.dispose()
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(waitForExit).toHaveBeenCalledOnce()
+  })
+
+  it('contains a terminal release failure after top-level exit', async () => {
+    let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
+    const terminal = {
+      pid: 123,
+      onData: () => ({ dispose: () => {} }),
+      onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => {
+        exitListener = listener
+        return { dispose: () => {} }
+      },
+      write: () => {},
+      kill: () => {},
+    }
+    vi.resetModules()
+    vi.doMock('node-pty', () => ({ spawn: () => terminal }))
+    try {
+      const { default: IsolatedLocalSubprocessService } = await import('../src/index.ts')
+      const ctx = new Context()
+      const fiber = await ctx.plugin(IsolatedLocalSubprocessService)
+      const alive = new Set([124])
+      ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessService>).terminalInspector = {
+        foregroundPgid: () => 123,
+        isStdinWaiting: () => false,
+        processTree: () => [{ pid: 124, started: 'child' }],
+        isAlive: identity => alive.has(identity.pid),
+        signalGroup: () => {},
+        signalProcess: () => {},
+      }
+      const handle = await ctx.subprocess.spawnTerminal({
+        argv: ['shell'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1,
+      })
+      exitListener?.({ exitCode: 0 })
+      await handle.done
+      await new Promise(resolve => setTimeout(resolve, 10))
+      alive.clear()
+      handle.terminate()
+      await handle.waitForExit()
+      await fiber.dispose()
+    } finally {
+      vi.doUnmock('node-pty')
+      vi.resetModules()
+    }
+  })
+
   it('registers as ctx.subprocess and spawns managed handles', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)

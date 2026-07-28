@@ -1,22 +1,18 @@
 /**
- * Local persistent PTY backend using public `node-pty` APIs, shared sandbox
- * policy, bounded output, platform readiness probes, and process-session cleanup.
+ * Persistent shell PTY backend over the subprocess terminal primitive, shared
+ * sandbox policy, bounded output, and provider-owned session cleanup.
  * @module @deepseek-ai/dsh-pty-local
  */
 
 import { Context } from 'cordis'
-import * as nodePty from 'node-pty'
-import type { IPtyForkOptions } from 'node-pty'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
-import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
-import { createProcessInspector } from './process-inspector.ts'
-import type { ProcessInspector } from './process-inspector.ts'
 import { LocalPtySession } from './session.ts'
 
 export { Config } from './config.ts'
@@ -24,8 +20,8 @@ export type { Config as PtyLocalConfig } from './config.ts'
 
 /** Cordis plugin name. */
 export const name = 'pty-local'
-/** Required services: PTY registry plus the one shared confinement policy. */
-export const inject = ['pty', 'sandbox', 'sandboxPolicy']
+/** Required services: PTY registry, shared confinement policy, and process substrate. */
+export const inject = ['pty', 'sandbox', 'sandboxPolicy', 'subprocess']
 
 interface SandboxModeFenceState {
   pty: Context['pty']
@@ -55,10 +51,10 @@ function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
   }, { global: true })
 }
 
-function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
-  // node-pty owns the spawn; the base env shares the subprocess seam's scrub.
+function childEnvironment(spec: PtyBackendSpawnSpec): Record<string, string> {
+  // The subprocess provider supplies its own scrubbed ambient base; these are
+  // deliberate terminal-specific overrides layered after it.
   return {
-    ...scrubbedParentEnv(),
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
@@ -71,11 +67,14 @@ function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
   }
 }
 
-function spawnArgv(ctx: Context, config: ResolvedConfig, policy: SandboxExecutionPolicy): string[] {
+function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSpec): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
-  if (policy.mode === 'danger-full-access') return argv
-  // Re-state the discriminant because object spread does not preserve its narrowed type.
-  return ctx.sandbox.confine(argv, { ...policy, mode: policy.mode }).argv
+  const mode: SandboxMode = effectiveSandboxMode(spec.owner.session.events) ?? ctx.sandboxPolicy.defaultMode
+  if (mode === 'danger-full-access') return argv
+  return ctx.sandbox.confine(argv, {
+    mode: mode,
+    workspaceRoot: ctx.sandboxPolicy.workspaceRoot,
+  }).argv
 }
 
 /** Local shell backend registered under the configured type. */
@@ -85,13 +84,13 @@ export class LocalPtyBackend implements PtyBackend {
   constructor(
     private readonly ctx: Context,
     private readonly config: ResolvedConfig,
-    private readonly inspector: ProcessInspector,
-    private readonly spawnTerminal: typeof nodePty.spawn = nodePty.spawn,
+    private readonly spawnTerminal: (
+      spec: SubprocessTerminalSpawnSpec,
+    ) => Promise<SubprocessTerminalHandle> = spec => ctx.subprocess.spawnTerminal(spec),
     private readonly createSession: (
-      terminal: ReturnType<typeof nodePty.spawn>,
-      inspector: ProcessInspector,
+      terminal: SubprocessTerminalHandle,
       config: ResolvedConfig,
-    ) => LocalPtySession = (terminal, inspector, config) => new LocalPtySession(terminal, inspector, config),
+    ) => LocalPtySession = (terminal, config) => new LocalPtySession(terminal, config),
   ) {
     this.type = config.backendType
   }
@@ -99,19 +98,18 @@ export class LocalPtyBackend implements PtyBackend {
   async spawn(spec: PtyBackendSpawnSpec): Promise<LocalPtySession> {
     spec.signal?.throwIfAborted()
     ensureSandboxModeFence(this.ctx, spec.owner)
-    const policy = this.ctx.sandboxPolicy.resolve({ session: spec.owner.session })
-    const argv = spawnArgv(this.ctx, this.config, policy)
-    const file = argv[0]
-    if (file === undefined) throw new Error('pty-local: sandbox returned empty argv')
-    const options: IPtyForkOptions = {
-      name: 'dumb',
-      cols: this.config.cols,
-      rows: this.config.rows,
-      cwd: spec.cwd ?? policy.workspaceRoot,
+    const argv = spawnArgv(this.ctx, this.config, spec)
+    if (argv[0] === undefined) throw new Error('pty-local: sandbox returned empty argv')
+    const terminal = await this.spawnTerminal({
+      argv,
+      cwd: spec.cwd ?? this.ctx.sandboxPolicy.workspaceRoot,
       env: childEnvironment(spec),
-    }
-    const terminal = this.spawnTerminal(file, argv.slice(1), options)
-    const session = this.createSession(terminal, this.inspector, this.config)
+      rows: this.config.rows,
+      cols: this.config.cols,
+      graceMs: this.config.disposeGraceMs,
+      signal: spec.signal,
+    })
+    const session = this.createSession(terminal, this.config)
     try {
       await session.initialize(spec.signal)
       return session
@@ -129,6 +127,5 @@ export class LocalPtyBackend implements PtyBackend {
 /** Register the local PTY backend. */
 export function apply(ctx: Context, config: Config): void {
   validateConfig(config)
-  const inspector = createProcessInspector()
-  ctx.pty.registerBackend(new LocalPtyBackend(ctx, config, inspector))
+  ctx.pty.registerBackend(new LocalPtyBackend(ctx, config))
 }

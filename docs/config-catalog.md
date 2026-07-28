@@ -284,6 +284,30 @@ export interface Config {
 
 Source: [`packages/client/hmr/src/index.ts:29`](../packages/client/hmr/src/index.ts)
 
+## `@deepseek-ai/dsh-code-runtime-subprocess`
+
+Requires: `fs` · `subprocess`
+
+```ts config-catalog
+/** Runtime configuration; every execution and bridge bound is deployment-tunable. */
+export interface Config {
+  /** Worker measured event-loop busy-time budget. */
+  computeMs?: number
+  /** Host-observed wall-clock ceiling. */
+  maxWallMs?: number
+  /** Combined serialized outer logs/value/diagnostic cap. */
+  maxOutputBytes?: number
+  /** Worker old-generation heap cap in MiB. */
+  maxOldGenerationSizeMb?: number
+  /** Largest decoded bridge frame, including binding traffic. */
+  maxFrameBytes?: number
+  /** Process-tree TERM-to-KILL grace. */
+  killGraceMs?: number
+}
+```
+
+Source: [`packages/code-runtime/code-runtime-subprocess/src/index.ts:28`](../packages/code-runtime/code-runtime-subprocess/src/index.ts)
+
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
@@ -317,7 +341,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:25`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:30`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -423,7 +447,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:40`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -906,7 +930,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src
 
 ## `@deepseek-ai/dsh-lsp-local`
 
-Requires: `lsp` · `subprocess`
+Requires: `fs` · `lsp` · `subprocess`
 
 ```ts config-catalog
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -942,7 +966,7 @@ export interface LspLocalServerConfig {
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:87`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:82`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -1048,7 +1072,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `pty` · `sandbox` · `sandboxPolicy`
+Requires: `pty` · `sandbox` · `sandboxPolicy` · `subprocess`
 
 ```ts config-catalog
 /** Public plugin configuration. */

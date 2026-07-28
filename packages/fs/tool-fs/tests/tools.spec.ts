@@ -48,6 +48,11 @@ class FakeFs extends FileSystem {
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: FsTargetKey(`key:${path}`), displayPath: `/abs/${path}` }
   }
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
@@ -61,6 +66,11 @@ class FakeFs extends FileSystem {
   }
   override async readText(target: FsTarget): Promise<string> {
     return this.files.get(target.targetKey) ?? ''
+  }
+  override async readTextBounded(target: FsTarget, maxBytes: number): Promise<string> {
+    const content = await this.readText(target)
+    if (Buffer.byteLength(content) > maxBytes) throw new Error('too large')
+    return content
   }
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = this.files.get(target.targetKey) ?? ''

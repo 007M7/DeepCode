@@ -19,7 +19,7 @@
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
 | [`pty/`](pty/README.md) | 持久 PTY 能力系列：按所有者隔离的会话、本地实现和面向模型的工具 | 产品：稳定表面 |
-| [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：面向模型所写程序的运行时 seam + worker 线程后端 | 产品：稳定表面 |
+| [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：运行时 seam、本地 worker 后端及文件系统／进程管理后端 | 产品：稳定表面 |
 | [`sandbox/`](sandbox/README.md) | 进程限制 seam；bwrap/Landlock/Seatbelt 后端 | 产品：稳定表面 |
 | [`fs/`](fs/README.md) | 文件系统能力系列：seam、本地实现、面向模型的文件工具、bash 后端发现工具 | 产品：稳定表面 |
 | [`lsp/`](lsp/README.md) | LSP 能力系列：seam、通用 stdio 提供方和 `lsp` 工具 | 产品：稳定表面 |

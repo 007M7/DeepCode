@@ -1,8 +1,8 @@
-/** Platform process-table inspection used for readiness, signals, and teardown. */
+/** Platform process-table inspection for terminal readiness, signals, and teardown. */
 
 import { closeSync, openSync, readFileSync, readdirSync, readSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import type { PtySignal } from '@deepseek-ai/dsh-pty'
+import type { SubprocessTerminalSignal } from '@deepseek-ai/dsh-subprocess'
 
 /** PID plus start identity, preventing teardown escalation after PID reuse. */
 export interface ProcessIdentity {
@@ -18,7 +18,7 @@ export interface ProcessInspector {
   processTree(rootPid: number): ProcessIdentity[]
   /** Return whether the exact identity remains a non-quiescent process. */
   isAlive(identity: ProcessIdentity): boolean
-  signalGroup(pgid: number, signal: PtySignal): void
+  signalGroup(pgid: number, signal: SubprocessTerminalSignal): void
   signalProcess(identity: ProcessIdentity, signal: 'SIGTERM' | 'SIGKILL'): void
 }
 
@@ -203,7 +203,7 @@ abstract class PosixProcessInspector implements ProcessInspector {
   abstract processTree(rootPid: number): ProcessIdentity[]
   abstract isAlive(identity: ProcessIdentity): boolean
 
-  signalGroup(pgid: number, signal: PtySignal): void {
+  signalGroup(pgid: number, signal: SubprocessTerminalSignal): void {
     this.internals.kill(-pgid, signal)
   }
 
@@ -327,5 +327,5 @@ export function createProcessInspector(
 ): ProcessInspector {
   if (platform === 'linux') return new LinuxProcessInspector(arch, internals)
   if (platform === 'darwin') return new MacProcessInspector(internals)
-  throw new Error(`pty-local: unsupported platform ${platform}`)
+  throw new Error(`subprocess-local: terminal inspection is unsupported on platform ${platform}`)
 }

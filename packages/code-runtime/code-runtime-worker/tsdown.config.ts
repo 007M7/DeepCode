@@ -1,13 +1,24 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * Build the index and worker as separate single-entry bundles. The sibling `worker.cjs` is loaded
- * by file and must be CommonJS for pkg's VFS Worker hook. A multi-entry build emits an unlisted
- * shared chunk omitted by the package's exact `files` whitelist; separate builds inline it.
+ * Build the plugin, reusable runtime host, and worker as separate bundles. The
+ * sibling `worker.cjs` is loaded by file and must be CommonJS for pkg's VFS
+ * Worker hook. Separate builds inline shared implementation instead of
+ * emitting an unlisted chunk outside the exact `files` whitelist.
  */
 export default defineConfig([
   {
     entry: ['lib/types/index.js', 'lib/types/invariant.js'],
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+  },
+  {
+    entry: ['lib/types/runtime-host.js'],
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',

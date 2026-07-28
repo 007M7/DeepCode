@@ -73,6 +73,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SubprocessOutputRead: 'subprocess.md',
   SubprocessOutputReader: 'subprocess.md',
   SubprocessSpawnSpec: 'subprocess.md',
+  SubprocessTerminalHandle: 'subprocess.md',
+  SubprocessTerminalSpawnSpec: 'subprocess.md',
   CodeRunRequest: 'code-runtime.md',
   CodeRunResult: 'code-runtime.md',
   CompactionResult: 'compaction.md',
@@ -242,6 +244,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Partial',
   'Pick',
   'Promise',
+  'Record',
   'Readonly',
 ])
 

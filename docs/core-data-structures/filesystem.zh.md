@@ -12,6 +12,8 @@
 
 每个操作首先将用户提供的路径解析为不透明的后端目标。消费方可以显示 `displayPath`，但禁止解析 `targetKey`（一个品牌化的不透明 id），也不得假设它是本地绝对路径。
 
+与文件系统共享执行世界的消费方通过提供方获取跨能力坐标，而不是解释该身份：`processPath(target)` 返回子进程可以打开的规范化绝对路径，`fileUrl(target)` 返回采用提供方平台语法的 `file:` URI，`contains(parent, child)` 则检查规范化身份相等或后代包含关系。
+
 ```ts type-equiv
 /**
  * A path resolved by a backend into a stable identity. `resolve()` produces
@@ -50,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让工具在读取前拒绝目录或特殊文件；`size` 让工具无需通过失败探测即可选择 `readText` 还是 `streamText`。
+`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让工具在读取前拒绝目录或特殊文件；`size` 让工具无需通过失败探测即可选择 `readText` 还是 `streamText`。当大小校验与完整 UTF-8 读取必须保持为一个由后端负责的稳定操作时，协议消费方使用 `readTextBounded(target, maxBytes)`；组合 `stat` 与 `readText` 会容许文件增长与替换竞态。
 
 ```ts type-equiv
 /**
@@ -256,4 +258,4 @@ type FsErrorCode =
 
 ## 服务与插件
 
-`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`stat`、`lstat`、`readText`、`streamText`、`listDir`、`writeText` 与 `editText`。`dsh-fs-policy` **不注册服务**——它是一个通过 `fs/*` 事件门禁添加策略的插件：对写入/编辑意图 waterfall 作出决策（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }`，或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的 wiring 目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。
+`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`readTextBounded`、`streamText`、`listDir`、`writeText` 与 `editText`。`dsh-fs-policy` **不注册服务**——它是一个通过 `fs/*` 事件门禁添加策略的插件：对写入/编辑意图 waterfall 作出决策（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }`，或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的 wiring 目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。

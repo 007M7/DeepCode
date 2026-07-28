@@ -34,7 +34,7 @@ Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at
 
 Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Its transitive runtime closure contains only Node built-ins and relative source modules, so a fresh checkout never requires a sibling workspace package's unbuilt `lib/` export. The worker-local and session-owned JSON boundaries both flatten and rebuild validated values around the message port so application nesting never reaches structured clone. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. The repository-wide requirement to exercise this published entry path belongs to the [testing policy](../../../docs/testing.md).
 
-The SDK surface is the default/named `WorkerCodeRuntime` class plus `Config`. The operational `./worker` subpath exists only as the packaged spawn entry; the wire protocol and bootstrap helpers are source-private implementation details.
+The SDK surface is the default/named `WorkerCodeRuntime` class plus `Config`. The `./runtime-host` subpath shares type stripping, binding validation/dispatch, lossless JSON transport, and output accounting with sibling worker-based implementations; it is implementation support, not a plugin. The operational `./worker` subpath exists only as the packaged spawn entry; the wire protocol and bootstrap helpers remain source-private.
 
 ## Model Experience
 

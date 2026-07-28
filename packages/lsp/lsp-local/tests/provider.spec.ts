@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
@@ -44,6 +45,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('onpath', {
       command: 'fake-lsp',
       args: [],
@@ -57,6 +59,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('nope', {
       command: 'fake-lsp',
       args: [],
@@ -71,6 +74,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     // Grab the provider instance by registering, then dispose the whole plugin fiber.
     const lsp = ctx.lsp
     const fiber = await ctx.plugin(LspLocal, config('disp', {
@@ -88,6 +92,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-budget', {
       command: process.execPath,
       args: ['-e', ''],
@@ -101,6 +106,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-cap', {
       command: process.execPath,
       args: ['-e', ''],
@@ -114,6 +120,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-timer', {
       command: process.execPath,
       args: ['-e', ''],
@@ -130,6 +137,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('abs-bad', {
       command: notExe,
       args: [],
@@ -142,6 +150,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('abs-directory', {
       command: ws,
       args: [],
@@ -154,6 +163,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, { servers: {} })).rejects.toThrow(/servers must contain at least one server/)
     await ctx.fiber.dispose()
   })
@@ -162,6 +172,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('', {
       command: process.execPath,
       extensionToLanguage: { '.ts': 'typescript' },
@@ -173,6 +184,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         valid: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
@@ -187,6 +199,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         first: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },

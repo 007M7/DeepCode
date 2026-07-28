@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { Context } from 'cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { canonicalizeWorkspace, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 
@@ -12,84 +15,105 @@ const execFileAsync = promisify(execFile)
 
 let root: string
 let ws: string
+let ctx: Context
+let fs: LocalFileSystem
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'lsp-host-')))
   ws = join(root, 'ws')
   await mkdir(ws)
+  ctx = new Context()
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  fs = ctx.fs as LocalFileSystem
 })
 
 afterEach(async () => {
+  await ctx.fiber.dispose()
   await rm(root, { recursive: true, force: true })
 })
 
 const BIG = 1_000_000
 
+async function workspace() {
+  return await canonicalizeWorkspace(fs, ws)
+}
+
+async function readSource(filePath: string, maxBytes = BIG, signal?: AbortSignal) {
+  return await readHostSource(fs, filePath, await workspace(), maxBytes, signal)
+}
+
 describe('canonicalizeWorkspace', () => {
   it('returns the realpath of a directory', async () => {
-    expect(await canonicalizeWorkspace(ws)).toBe(ws)
+    expect((await workspace()).canonicalPath).toBe(ws)
   })
 
   it('resolves a symlinked workspace to its target so aliases share identity', async () => {
     const link = join(root, 'ws-link')
     await symlink(ws, link)
-    expect(await canonicalizeWorkspace(link)).toBe(ws)
+    expect((await canonicalizeWorkspace(fs, link)).canonicalPath).toBe(ws)
   })
 
   it('rejects a missing workspace', async () => {
-    await expect(canonicalizeWorkspace(join(root, 'nope'))).rejects.toThrow(/cannot be resolved/)
+    await expect(canonicalizeWorkspace(fs, join(root, 'nope'))).rejects.toThrow(/not a directory/)
   })
 
   it('rejects a non-directory workspace', async () => {
     const file = join(root, 'file.txt')
     await writeFile(file, 'x')
-    await expect(canonicalizeWorkspace(file)).rejects.toThrow(/not a directory/)
+    await expect(canonicalizeWorkspace(fs, file)).rejects.toThrow(/not a directory/)
   })
 })
 
 describe('readHostSource', () => {
   it('reads a relative path against the workspace', async () => {
     await writeFile(join(ws, 'a.ts'), 'const x = 1\n')
-    const source = await readHostSource('a.ts', ws, BIG)
-    expect(source.canonicalPath).toBe(join(ws, 'a.ts'))
+    const source = await readSource('a.ts')
+    expect(source.fileUrl).toBe(pathToFileURL(join(ws, 'a.ts')).href)
     expect(source.text).toBe('const x = 1\n')
   })
 
   it('reads an absolute path inside the workspace', async () => {
     const abs = join(ws, 'b.ts')
     await writeFile(abs, 'b')
-    const source = await readHostSource(abs, ws, BIG)
-    expect(source.canonicalPath).toBe(abs)
+    const source = await readSource(abs)
+    expect(source.fileUrl).toBe(pathToFileURL(abs).href)
   })
 
   it('accepts a source reached through a symlink that stays inside the workspace', async () => {
     await mkdir(join(ws, 'real'))
     await writeFile(join(ws, 'real', 'c.ts'), 'c')
     await symlink(join(ws, 'real'), join(ws, 'linked'))
-    const source = await readHostSource('linked/c.ts', ws, BIG)
-    expect(source.canonicalPath).toBe(join(ws, 'real', 'c.ts'))
+    const source = await readSource('linked/c.ts')
+    expect(source.fileUrl).toBe(pathToFileURL(join(ws, 'real', 'c.ts')).href)
   })
 
   it('rejects a source whose canonical path escapes the workspace via symlink', async () => {
     const outside = join(root, 'outside.ts')
     await writeFile(outside, 'secret')
     await symlink(outside, join(ws, 'escape.ts'))
-    await expect(readHostSource('escape.ts', ws, BIG)).rejects.toThrow(/outside the workspace/)
+    await expect(readSource('escape.ts')).rejects.toThrow(/outside the workspace/)
   })
 
   it('rejects an absolute source outside the workspace', async () => {
     const outside = join(root, 'out.ts')
     await writeFile(outside, 'x')
-    await expect(readHostSource(outside, ws, BIG)).rejects.toThrow(/outside the workspace/)
+    await expect(readSource(outside)).rejects.toThrow(/outside the workspace/)
   })
 
   it('rejects a missing source', async () => {
-    await expect(readHostSource('nope.ts', ws, BIG)).rejects.toThrow(/cannot be resolved/)
+    await expect(readSource('nope.ts')).rejects.toThrow(/not found/)
+  })
+
+  it('wraps a provider failure while resolving the source', async () => {
+    const canonical = await workspace()
+    fs.resolve = async () => { throw 'raw resolve failure' }
+    await expect(readHostSource(fs, 'broken.ts', canonical, BIG))
+      .rejects.toThrow('source "broken.ts" cannot be resolved: raw resolve failure')
   })
 
   it('rejects a non-regular source (directory)', async () => {
     await mkdir(join(ws, 'dir'))
-    await expect(readHostSource('dir', ws, BIG)).rejects.toThrow(/not a regular file/)
+    await expect(readSource('dir')).rejects.toThrow(/not a regular file/)
   })
 
   // Windows has no filesystem FIFO; the directory case above pins non-regular rejection there.
@@ -97,36 +121,36 @@ describe('readHostSource', () => {
     const fifo = join(ws, 'pipe.ts')
     await execFileAsync('mkfifo', [fifo])
     using d = deadline(undefined, 1000, 'FIFO_READ_TIMEOUT')
-    await expect(readHostSource('pipe.ts', ws, BIG, d.signal)).rejects.toThrow(/not a regular file/)
+    await expect(readSource('pipe.ts', BIG, d.signal)).rejects.toThrow(/not a regular file/)
   })
 
   it('honors a pre-aborted source read before filesystem work', async () => {
     const controller = new AbortController()
     controller.abort(new Error('source read cancelled'))
-    await expect(readHostSource('missing.ts', ws, BIG, controller.signal)).rejects.toThrow(/source read cancelled/)
+    await expect(readSource('missing.ts', BIG, controller.signal)).rejects.toThrow(/source read cancelled/)
   })
 
   it('treats the workspace root itself as inside, then rejects it as non-regular', async () => {
-    // filePath '.' canonicalizes to the workspace dir: isInside's identity branch is taken, and the
-    // directory then fails the regular-file check.
-    await expect(readHostSource('.', ws, BIG)).rejects.toThrow(/not a regular file/)
+    // The filesystem containment primitive accepts the workspace itself; the
+    // bounded read then rejects the directory as non-regular.
+    await expect(readSource('.')).rejects.toThrow(/not a regular file/)
   })
 
   it('rejects an oversized source', async () => {
     await writeFile(join(ws, 'big.ts'), 'x'.repeat(100))
-    await expect(readHostSource('big.ts', ws, 10)).rejects.toThrow(/over the 10-byte limit/)
+    await expect(readSource('big.ts', 10)).rejects.toThrow(/10-byte limit/)
   })
 
   it('rejects a non-UTF-8 source', async () => {
     await writeFile(join(ws, 'bin.ts'), Buffer.from([0xff, 0xfe, 0x00]))
-    await expect(readHostSource('bin.ts', ws, BIG)).rejects.toThrow(/not valid UTF-8/)
+    await expect(readSource('bin.ts')).rejects.toThrow(/invalid UTF-8|binary file/)
   })
 
   it('keeps a valid U+FFFD replacement character in otherwise-valid UTF-8', async () => {
     // The literal replacement char is valid UTF-8; a fatal decoder must accept it (only malformed
     // byte sequences are rejected).
     await writeFile(join(ws, 'repl.ts'), 'const s = "�"\n')
-    const source = await readHostSource('repl.ts', ws, BIG)
+    const source = await readSource('repl.ts')
     expect(source.text).toBe('const s = "�"\n')
   })
 })

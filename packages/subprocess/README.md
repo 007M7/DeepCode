@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-This family runs host subprocesses behind an explicit process-lifecycle service.
+The shared process substrate for one execution world: canonical cwd/runtime storage, executable lookup, fully-specified managed child-process trees with raw or collected stdio, and one deep terminal-process primitive that owns PTY allocation, foreground groups, and complete session cleanup. Command defaulting, shell semantics, deadlines, protocol framing, readiness, and presentation stay with consumers — the [bash executors](../bash/README.md), [LSP host](../lsp/README.md), [PTY shell backend](../pty/README.md), [subprocess code runtime](../code-runtime/code-runtime-subprocess/README.md), and [ACP subagent backend](../subagent/README.md). See the [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
 
-| Package | Role | ctx key |
+| Package | ctx key | Role |
 |---|---|---|
-| [`subprocess/`](subprocess/README.md) | Defines subprocess launch, stream, termination, and disposal contracts | `ctx.subprocess` |
-| [`subprocess-local/`](subprocess-local/README.md) | Implements local process-tree execution | registers on `ctx.subprocess` |
+| [`subprocess`](subprocess/README.md) (`@deepseek-ai/dsh-subprocess`) | `ctx.subprocess` | The seam: execution-world coordinates and executable lookup, ordinary managed spawns, the terminal-process primitive, handle lifecycles, and shared environment/output vocabulary |
+| [`subprocess-local`](subprocess-local/README.md) (`@deepseek-ai/dsh-subprocess-local`) | — | The local implementation: detached process trees, bounded collection/spill, `node-pty`, foreground/session inspection, tree signalling, runtime storage, and terminate-and-join disposal |
 
-The service owns process lifetime; each consumer owns what the process does and which defaults apply.
+The service owns process lifetime across consumer reloads; consumers own what a process means (a bash command, a future non-shell runner) and every default that shapes one.

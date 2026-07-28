@@ -1,8 +1,11 @@
-/** Local `node-pty` session: bounded output, readiness, signals, and teardown. */
+/** Persistent PTY session over the subprocess seam's terminal primitive. */
 
-import { constants } from 'node:os'
 import { Buffer } from 'node:buffer'
-import type { IDisposable, IPty } from 'node-pty'
+import type {
+  SubprocessOutcome,
+  SubprocessTerminalForeground,
+  SubprocessTerminalHandle,
+} from '@deepseek-ai/dsh-subprocess'
 import type {
   PtyBackendSession,
   PtyReadRequest,
@@ -17,12 +20,7 @@ import type {
   PtyWaitReason,
 } from '@deepseek-ai/dsh-pty'
 import type { ResolvedConfig } from './config.ts'
-import type { ProcessIdentity, ProcessInspector } from './process-inspector.ts'
 import { TerminalSanitizer } from './sanitize.ts'
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 function utf8Tail(text: string, maxBytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(text) <= maxBytes) return { text, truncated: false }
@@ -80,17 +78,16 @@ class LocalSendOperation implements PtySendOperation {
   private readonly promise: PromiseWithResolvers<PtySendResult>
   private finished = false
   private initialForegroundLeftWait: boolean
+  private initialForegroundPgid: number | undefined
 
   constructor(
     maxBytes: number,
     readonly startedAt: number,
-    private readonly initialForegroundPgid: number | undefined,
-    initialForegroundWasWaiting: boolean,
     private readonly onCancel: () => void,
   ) {
     this.output = new BoundedTextBuffer(maxBytes)
     this.promise = Promise.withResolvers<PtySendResult>()
-    this.initialForegroundLeftWait = !initialForegroundWasWaiting
+    this.initialForegroundLeftWait = true
   }
 
   get done(): Promise<PtySendResult> {
@@ -123,6 +120,11 @@ class LocalSendOperation implements PtySendOperation {
     return this.output.consume()
   }
 
+  setInitialForeground(foreground: SubprocessTerminalForeground | undefined): void {
+    this.initialForegroundPgid = foreground?.processGroupId
+    this.initialForegroundLeftWait = foreground?.inputWaiting !== true
+  }
+
   acceptsStdinWait(pgid: number, waiting: boolean): boolean {
     // The same group may still expose the wait that existed before terminal.write.
     // Observe every poll so a departure before the exact-settlement threshold
@@ -139,27 +141,21 @@ class LocalSendOperation implements PtySendOperation {
   }
 }
 
-function signalName(number: number | undefined): NodeJS.Signals | null {
-  if (number === undefined || number === 0) return null
-  for (const [name, value] of Object.entries(constants.signals)) {
-    if (value === number) return name as NodeJS.Signals
-  }
-  return null
-}
-
-/** Backend session wrapping one `node-pty` process and its captured process tree. */
+/** Backend session wrapping one provider-owned terminal process. */
 export class LocalPtySession implements PtyBackendSession {
   motd = ''
   readonly pid: number
+  private readonly decoder = new TextDecoder('utf-8', { fatal: true })
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
-  private readonly exitPromise: PromiseWithResolvers<void> = Promise.withResolvers<void>()
-  private readonly dataDisposable: IDisposable
-  private readonly exitDisposable: IDisposable
+  private readonly outputEnded = Promise.withResolvers<void>()
+  private readonly completion: Promise<void>
   private statusValue: PtySessionStatus = { kind: 'running' }
   private active: LocalSendOperation | undefined
   private activeTimer: NodeJS.Timeout | undefined
+  private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
+  private polling = false
   private promptSeen = false
   private promptTextSeen = false
   private shellPgid: number | undefined
@@ -167,23 +163,22 @@ export class LocalPtySession implements PtyBackendSession {
   private lastOutputAt = Date.now()
   private closing = false
   private closePromise: Promise<void> | undefined
+  private transportFailure: Error | undefined
 
   constructor(
-    private readonly terminal: IPty,
-    private readonly inspector: ProcessInspector,
+    private readonly terminal: SubprocessTerminalHandle,
     private readonly config: ResolvedConfig,
   ) {
     this.pid = terminal.pid
     this.sanitizer = new TerminalSanitizer(config.maxReadBytes)
     this.scrollback = new BoundedTextBuffer(config.scrollbackMaxBytes, config.scrollbackLines)
-    this.dataDisposable = terminal.onData((data) => { this.onData(data) })
-    this.exitDisposable = terminal.onExit(({ exitCode, signal }) => {
-      const tail = this.sanitizer.flush()
-      this.appendOutput(tail)
-      this.statusValue = { kind: 'exited', exitCode, signal: signalName(signal) }
-      this.settleActive('session_exit')
-      this.exitPromise.resolve()
-    })
+    terminal.output.on('data', this.onTerminalData)
+    terminal.output.once('end', this.onTerminalEnd)
+    terminal.output.once('error', this.onTerminalError)
+    this.completion = terminal.done.then(
+      outcome => this.onExit(outcome),
+      (error: unknown) => { this.onTransportFailure(error) },
+    )
   }
 
   /**
@@ -213,14 +208,9 @@ export class LocalPtySession implements PtyBackendSession {
     if (this.active !== undefined) throw new Error('PTY session already has an active send')
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
-    const initialForegroundPgid = this.inspector.foregroundPgid(this.pid)
-    const initialForegroundWasWaiting = initialForegroundPgid !== undefined
-      && this.inspector.isStdinWaiting(initialForegroundPgid)
     const operation = new LocalSendOperation(
       this.config.maxReadBytes,
       Date.now(),
-      initialForegroundPgid,
-      initialForegroundWasWaiting,
       () => { this.interrupt(operation) },
     )
     this.active = operation
@@ -233,18 +223,26 @@ export class LocalPtySession implements PtyBackendSession {
       request.signal.addEventListener('abort', onAbort, { once: true })
       this.activeAbort = () => request.signal?.removeEventListener('abort', onAbort)
     }
-
-    try {
-      if (request.text.length > 0) this.terminal.write(request.text)
-      if (request.submit) this.terminal.write('\r')
-    } catch (error: unknown) {
-      this.clearActive()
-      operation.fail(error)
-      return operation
-    }
-
-    this.activeTimer = setInterval(() => { this.pollReadiness(operation) }, this.config.pollIntervalMs)
+    this.activeDeadlineTimer = setTimeout(() => {
+      if (this.active === operation) this.settleActive('timeout')
+    }, this.config.timeoutMs)
+    void this.beginSend(operation, request)
     return operation
+  }
+
+  private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
+    try {
+      const foreground = await this.terminal.inspectForeground()
+      if (this.active !== operation || this.closing) return
+      operation.setInitialForeground(foreground)
+      const input = `${request.text}${request.submit ? '\r' : ''}`
+      if (input.length > 0) await this.terminal.write(Buffer.from(input, 'utf8'))
+      // Closing can race the awaited provider write even though static analysis sees only local assignments.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (this.active === operation && !this.closing) this.schedulePoll(operation, 0)
+    } catch (error: unknown) {
+      if (this.active === operation) this.failActive(error)
+    }
   }
 
   read(request: PtyReadRequest): PtyReadResult {
@@ -272,16 +270,9 @@ export class LocalPtySession implements PtyBackendSession {
     }
   }
 
-  signal(signal: PtySignal): Promise<PtySignalResult> {
-    return Promise.resolve().then(() => {
-      const pgid = this.inspector.foregroundPgid(this.pid)
-      if (pgid === undefined) throw new Error(`cannot resolve foreground process group for PTY ${this.pid}`)
-      if (signal === 'SIGKILL' && pgid === this.pid) {
-        throw new Error('refusing to SIGKILL the PTY shell; use terminal_close')
-      }
-      this.inspector.signalGroup(pgid, signal)
-      return { delivered: true, targetPgid: pgid }
-    })
+  async signal(signal: PtySignal): Promise<PtySignalResult> {
+    const targetPgid = await this.terminal.signalForeground(signal)
+    return { delivered: true, targetPgid }
   }
 
   status(): PtySessionStatus {
@@ -300,12 +291,35 @@ export class LocalPtySession implements PtyBackendSession {
     return closing
   }
 
+  private readonly onTerminalData = (chunk: Buffer | Uint8Array | string): void => {
+    try {
+      const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+      this.onData(this.decoder.decode(bytes, { stream: true }))
+    } catch (error: unknown) {
+      this.onTransportFailure(new Error('PTY emitted invalid UTF-8', { cause: error }))
+    }
+  }
+
+  private readonly onTerminalEnd = (): void => {
+    try {
+      this.onData(this.decoder.decode())
+      this.appendOutput(this.sanitizer.flush())
+    } catch (error: unknown) {
+      this.onTransportFailure(new Error('PTY ended with invalid UTF-8', { cause: error }))
+    } finally {
+      this.outputEnded.resolve()
+    }
+  }
+
+  private readonly onTerminalError = (error: Error): void => {
+    this.onTransportFailure(error)
+    this.outputEnded.resolve()
+  }
+
   private onData(data: string): void {
     const sanitized = this.sanitizer.push(data)
     this.appendOutput(sanitized.text)
     if (sanitized.prompt) {
-      const foregroundPgid = this.inspector.foregroundPgid(this.pid)
-      if (this.shellPgid === undefined) this.shellPgid = foregroundPgid
       // Bash can print PROMPT_COMMAND before the kernel publishes its return
       // to the foreground process group. Retain the marker; polling below is
       // the authority that accepts it only after bash owns the foreground.
@@ -317,6 +331,21 @@ export class LocalPtySession implements PtyBackendSession {
     }
   }
 
+  private async onExit(outcome: SubprocessOutcome): Promise<void> {
+    await this.outputEnded.promise
+    if (this.transportFailure !== undefined) return
+    this.statusValue = { kind: 'exited', exitCode: outcome.exitCode, signal: outcome.signal }
+    this.settleActive('session_exit')
+  }
+
+  private onTransportFailure(error: unknown): void {
+    const failure = error instanceof Error ? error : new Error(String(error))
+    this.transportFailure ??= failure
+    this.statusValue = { kind: 'exited', exitCode: null, signal: null }
+    this.failActive(failure)
+    this.terminal.terminate()
+  }
+
   private appendOutput(text: string): void {
     if (text.length === 0) return
     this.lastOutputAt = Date.now()
@@ -324,44 +353,56 @@ export class LocalPtySession implements PtyBackendSession {
     this.active?.append(text)
   }
 
-  private pollReadiness(operation: LocalSendOperation): void {
-    if (this.active !== operation) return
-    if (this.statusValue.kind === 'exited') {
-      this.settleActive('session_exit')
-      return
-    }
-    if (this.promptSeen && this.promptTextSeen && Date.now() - this.lastOutputAt >= this.config.pollIntervalMs) {
-      const pgid = this.inspector.foregroundPgid(this.pid)
-      if (this.shellPgid !== undefined && pgid === this.shellPgid) {
+  private schedulePoll(operation: LocalSendOperation, delayMs = this.config.pollIntervalMs): void {
+    if (this.active !== operation || this.polling) return
+    if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
+    this.activeTimer = setTimeout(() => {
+      this.activeTimer = undefined
+      void this.pollReadiness(operation)
+    }, delayMs)
+  }
+
+  private async pollReadiness(operation: LocalSendOperation): Promise<void> {
+    if (this.active !== operation || this.polling) return
+    this.polling = true
+    try {
+      if (this.statusValue.kind === 'exited') {
+        this.settleActive('session_exit')
+        return
+      }
+      const foreground = await this.terminal.inspectForeground()
+      if (this.active !== operation) return
+      const idleFor = Date.now() - this.lastOutputAt
+      if (this.promptSeen && foreground !== undefined && this.shellPgid === undefined) {
+        this.shellPgid = foreground.processGroupId
+      }
+      if (this.promptSeen && this.promptTextSeen && idleFor >= this.config.pollIntervalMs
+        && foreground?.processGroupId === this.shellPgid) {
         this.settleActive('stdin_read')
         return
       }
+      const elapsed = Date.now() - operation.startedAt
+      const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
+      const acceptsStdinWait = startupHasOutput && foreground !== undefined
+        && operation.acceptsStdinWait(foreground.processGroupId, foreground.inputWaiting)
+      if (elapsed >= this.config.exactProbeAfterMs && acceptsStdinWait) {
+        this.settleActive('stdin_read')
+        return
+      }
+      // A prompt candidate can race bash's foreground handoff, but an interactive
+      // child also inherits PROMPT_COMMAND. Silence therefore remains the bound
+      // on waiting for shell ownership instead of letting a child marker suppress
+      // readiness until the absolute timeout.
+      const handoffGrace = this.promptSeen ? this.config.handoffGraceMs : 0
+      if (startupHasOutput && idleFor >= this.config.idleSilenceMs + handoffGrace) {
+        this.settleActive('inferred_idle')
+      }
+    } catch (error: unknown) {
+      if (this.active === operation) this.failActive(error)
+    } finally {
+      this.polling = false
+      if (this.active === operation) this.schedulePoll(operation)
     }
-    const elapsed = Date.now() - operation.startedAt
-    const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
-    let acceptsStdinWait = false
-    if (startupHasOutput) {
-      const pgid = this.inspector.foregroundPgid(this.pid)
-      acceptsStdinWait = pgid !== undefined
-        && operation.acceptsStdinWait(pgid, this.inspector.isStdinWaiting(pgid))
-    }
-    if (elapsed >= this.config.exactProbeAfterMs && acceptsStdinWait) {
-      this.settleActive('stdin_read')
-      return
-    }
-    // A prompt candidate can race bash's foreground handoff, but an interactive
-    // child also inherits PROMPT_COMMAND. Silence therefore remains the bound
-    // on waiting for shell ownership instead of letting a child marker suppress
-    // readiness until the absolute timeout. When a prompt marker was seen, the
-    // configured grace holds the fallback past the silence bound so polls in
-    // that window can observe the foreground handoff and settle as stdin_read.
-    const idleFor = Date.now() - this.lastOutputAt
-    const handoffGrace = this.promptSeen ? this.config.handoffGraceMs : 0
-    if (startupHasOutput && idleFor >= this.config.idleSilenceMs + handoffGrace) {
-      this.settleActive('inferred_idle')
-      return
-    }
-    if (elapsed >= this.config.timeoutMs) this.settleActive('timeout')
   }
 
   private settleActive(waitReason: PtyWaitReason): void {
@@ -373,8 +414,10 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private stopPolling(): void {
-    if (this.activeTimer !== undefined) clearInterval(this.activeTimer)
+    if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
     this.activeTimer = undefined
+    if (this.activeDeadlineTimer !== undefined) clearTimeout(this.activeDeadlineTimer)
+    this.activeDeadlineTimer = undefined
   }
 
   private clearActive(): void {
@@ -393,104 +436,30 @@ export class LocalPtySession implements PtyBackendSession {
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
-    try {
-      const pgid = this.inspector.foregroundPgid(this.pid)
-      if (pgid === undefined) throw new Error(`cannot resolve foreground process group for PTY ${this.pid}`)
-      this.inspector.signalGroup(pgid, 'SIGINT')
-    } catch (error: unknown) {
-      this.failActive(error)
-    }
-  }
-
-  private survivors(members: ProcessIdentity[]): ProcessIdentity[] {
-    return members.filter(member => this.inspector.isAlive(member))
-  }
-
-  private descendants(): ProcessIdentity[] {
-    return this.inspector.processTree(this.pid).filter(member => member.pid !== this.pid)
-  }
-
-  private async waitForExit(members: ProcessIdentity[]): Promise<ProcessIdentity[]> {
-    const deadline = Date.now() + this.config.disposeGraceMs
-    let survivors = this.survivors(members)
-    while (survivors.length > 0 && Date.now() < deadline) {
-      await delay(Math.min(25, Math.max(1, deadline - Date.now())))
-      survivors = this.survivors(members)
-    }
-    return survivors
-  }
-
-  private signalMembers(members: ProcessIdentity[], signal: 'SIGTERM' | 'SIGKILL'): void {
-    for (const member of members) {
-      try {
-        this.inspector.signalProcess(member, signal)
-      } catch (_alreadyExitedDuringSignal) {
-        // Identity is rechecked by the inspector; a same-tick exit is success.
-      }
-    }
-  }
-
-  private unionMembers(...groups: ProcessIdentity[][]): ProcessIdentity[] {
-    const members: ProcessIdentity[] = []
-    const seen = new Set<string>()
-    for (const group of groups) {
-      for (const member of group) {
-        const key = JSON.stringify([member.pid, member.started])
-        if (seen.has(key)) continue
-        seen.add(key)
-        members.push(member)
-      }
-    }
-    return members
-  }
-
-  private async stopDescendants(): Promise<ProcessIdentity[]> {
-    const captured = this.descendants()
-    this.signalMembers(captured, 'SIGTERM')
-    const capturedSurvivors = await this.waitForExit(captured)
-    // A TERM-handling descendant may have forked while winding down. Rescan
-    // while the shell can still reap every member, then kill both the fresh
-    // tree and captured survivors that were reparented out of that tree.
-    const members = this.unionMembers(capturedSurvivors, this.descendants())
-    this.signalMembers(members, 'SIGKILL')
-    const survivors = await this.waitForExit(members)
-    return this.survivors(this.unionMembers(survivors, this.descendants()))
-  }
-
-  private async stopShell(): Promise<void> {
-    try {
-      this.terminal.kill('SIGTERM')
-    } catch (_topLevelAlreadyExitedDuringTerm) {
-      // The exit notification remains authoritative.
-    }
-    if (this.statusValue.kind === 'running') {
-      await Promise.race([this.exitPromise.promise, delay(this.config.disposeGraceMs)])
-    }
-    if (this.statusValue.kind === 'running') {
-      try {
-        this.terminal.kill('SIGKILL')
-      } catch (_topLevelAlreadyExitedDuringKill) {
-        // The exit notification remains authoritative.
-      }
-      await Promise.race([this.exitPromise.promise, delay(this.config.disposeGraceMs)])
-    }
-    if (this.statusValue.kind === 'running') {
-      throw new Error(`PTY cleanup failed; surviving pids: ${this.pid}`)
-    }
+    void this.terminal.signalForeground('SIGINT').catch((error: unknown) => {
+      if (this.active === operation) this.failActive(error)
+    })
   }
 
   private async closeOnce(reason: string): Promise<void> {
-    this.dataDisposable.dispose()
     // Stop readiness polling but retain the active operation: teardown settles
     // it as session_exit below, so an in-flight send is never mis-settled as
     // stdin_read/inferred_idle/timeout during the grace period.
     this.stopPolling()
-    const survivors = await this.stopDescendants()
-    if (survivors.length > 0) {
-      throw new Error(`PTY cleanup failed (${reason}); surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
+    this.terminal.terminate()
+    const quiescent = await this.terminal.waitForExit()
+    if (!quiescent) {
+      throw new Error(`PTY cleanup failed (${reason}); terminal session did not reach quiescence`)
     }
-    await this.stopShell()
+    // Whole-session cleanup can fail before the top-level process exits. Wait
+    // for it first so that failure is reported instead of blocking forever on
+    // `done`; successful quiescence guarantees `done` can now settle status and
+    // drain the terminal output.
+    await this.completion
     this.settleActive('session_exit')
-    this.exitDisposable.dispose()
+    this.terminal.output.off('data', this.onTerminalData)
+    this.terminal.output.off('end', this.onTerminalEnd)
+    this.terminal.output.off('error', this.onTerminalError)
+    if (this.transportFailure !== undefined) throw this.transportFailure
   }
 }

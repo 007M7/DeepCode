@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
+import { Context } from 'cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
@@ -15,6 +17,8 @@ const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.u
 
 let root: string
 let ws: string
+let ctx: Context
+let fs: LocalFileSystem
 let live: LspInstance[] = []
 
 beforeEach(async () => {
@@ -22,11 +26,15 @@ beforeEach(async () => {
   ws = join(root, 'ws')
   await mkdir(ws)
   await writeFile(join(ws, 'a.ts'), 'const x = 1\n')
+  ctx = new Context()
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  fs = ctx.fs as LocalFileSystem
 })
 
 afterEach(async () => {
   for (const instance of live) await instance.dispose()
   live = []
+  await ctx.fiber.dispose()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -39,6 +47,7 @@ function makeInstance(
     command: process.execPath,
     args: [fixtureServer],
     cwd: ws,
+    workspaceUri: pathToFileURL(ws).href,
     env: { ...scrubbedParentEnv(), ...env },
     configuration: { setting: 42 },
     initializationOptions: { init: true },
@@ -58,7 +67,12 @@ function query(operation: LspProviderQuery['operation'] = 'goToDefinition'): Lsp
 
 /** Run a query against an instance, reading the source first the way the provider does. */
 async function run(instance: LspInstance, operation: LspProviderQuery['operation'] = 'goToDefinition', signal?: AbortSignal): Promise<LspQueryResult> {
-  const source = await readHostSource('a.ts', ws, 4_000_000)
+  const workspace = {
+    target: await fs.resolve(ws),
+    canonicalPath: ws,
+    fileUrl: pathToFileURL(ws).href,
+  }
+  const source = await readHostSource(fs, 'a.ts', workspace, 4_000_000)
   return instance.query(query(operation), source, signal)
 }
 
@@ -68,6 +82,7 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     command: process.execPath,
     args: ['-e', script],
     cwd: ws,
+    workspaceUri: pathToFileURL(ws).href,
     env: scrubbedParentEnv(),
     configuration: null,
     initializationOptions: null,

@@ -5,7 +5,7 @@
  * policy and lives in `dsh-fs-policy`, so it is not tested here.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +17,7 @@ import {
   probeNoFollow,
   readForEdit,
   readWholeText,
+  readWholeTextBounded,
   resolveLocalTarget,
   restoreLineEndings,
   streamWholeText,
@@ -313,6 +314,66 @@ describe('readWholeText', () => {
     const pending = readWholeText(localTarget(file), ac.signal)
     ac.abort()
     await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
+describe('readWholeTextBounded', () => {
+  it('rejects non-files, binary text, and initial oversize without a full read', async () => {
+    await expect(readWholeTextBounded(localTarget(dir), 10)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    await writeFile(join(dir, 'large'), '12345')
+    await expect(readWholeTextBounded(localTarget(join(dir, 'large')), 4)).rejects.toThrow('exceeds the 4-byte limit')
+    await writeFile(join(dir, 'binary'), Buffer.from([0x61, 0x00, 0x62]))
+    await expect(readWholeTextBounded(localTarget(join(dir, 'binary')), 3)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+
+  it('detects growth past the bound on the same open handle', async () => {
+    const close = vi.fn(async () => {})
+    const read = vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
+      const bytes = position === 0 ? Buffer.from('abc') : Buffer.from('d')
+      bytes.copy(buffer, offset, 0, Math.min(length, bytes.length))
+      return { bytesRead: Math.min(length, bytes.length), buffer }
+    })
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        open: async () => ({
+          stat: async () => ({ isFile: () => true, size: 3 }),
+          read,
+          close,
+        }),
+      }
+    })
+    try {
+      const isolated = await import('../src/fsio.ts')
+      await expect(isolated.readWholeTextBounded(localTarget('/virtual/growing'), 3))
+        .rejects.toThrow('grew past the 3-byte limit')
+      expect(close).toHaveBeenCalledOnce()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it('translates permission and generic open failures', async () => {
+    const failure: { current: Error & { code?: string } } = { current: Object.assign(new Error('denied'), { code: 'EACCES' }) }
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return { ...actual, open: async () => { throw failure.current } }
+    })
+    try {
+      const isolated = await import('../src/fsio.ts')
+      await expect(isolated.readWholeTextBounded(localTarget('/virtual/denied'), 3))
+        .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+      failure.current = new Error('open broke')
+      await expect(isolated.readWholeTextBounded(localTarget('/virtual/broken'), 3))
+        .rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
   })
 })
 

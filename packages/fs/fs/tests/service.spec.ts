@@ -19,12 +19,17 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-/** A minimal in-memory fake implementing the eight provider primitives. */
+/** A minimal in-memory fake implementing the provider primitives. */
 class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: FsTargetKey(path), displayPath: path }
+  }
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+  override fileUrl(target: FsTarget): string { return `file:///${encodeURIComponent(String(target.targetKey))}` }
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
@@ -39,6 +44,11 @@ class FakeFileSystem extends FileSystem {
   override async readText(target: FsTarget): Promise<string> {
     const content = this.files.get(target.targetKey)
     if (content === undefined) throw new FsError(`not found: ${target.displayPath}`, 'FS_NOT_FOUND')
+    return content
+  }
+  override async readTextBounded(target: FsTarget, maxBytes: number): Promise<string> {
+    const content = await this.readText(target)
+    if (Buffer.byteLength(content) > maxBytes) throw new FsError('too large', 'FS_IO_ERROR')
     return content
   }
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
@@ -75,6 +85,7 @@ describe('FileSystem provider seam', () => {
     const ctx = new Context()
     await ctx.plugin(FakeFileSystem)
     const fs = ctx.fs as FakeFileSystem
+    expect(fs.sandboxMode).toBeUndefined()
     fs.files.set('a.txt', 'hi')
     const target = await fs.resolve('a.txt')
     expect((await fs.stat(target))?.type).toBe('file')

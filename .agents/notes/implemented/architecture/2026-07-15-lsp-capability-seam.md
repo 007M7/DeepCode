@@ -79,7 +79,7 @@ interface LspService {
 
 Mapping keys normalize to lowercase, leading-dot extensions selected from `filePath`'s final extension; language ids only synchronize documents. Seam positions and ranges are zero-based UTF-16. `findReferences` always includes declarations: providers enforce this internally, the local mapping sets `context.includeDeclaration: true`, and callers get no flag. Closed result unions normalize navigation to locations and hover to content or `null`; navigation results carry the provider's resolved workspace root so consumers relativize file URIs in the same canonical namespace. The seam exposes no protocol types, process or document controls, or generic request escape hatch.
 
-`dsh-lsp-local` owns host files, server configuration, JSON-RPC, process and transient-document state, and protocol translation; it depends on `dsh-lsp` and Node APIs, not `dsh-fs`. The server-table key is its provider id. The plugin resolves every server-local setting before registration, rolls back earlier registrations if a later mapping is invalid or conflicts, and retains an independent process pool per provider. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
+`dsh-lsp-local` owns server configuration, JSON-RPC, process and transient-document state, and protocol translation. It reads through `ctx.fs` and launches through `ctx.subprocess`, depending on their interface packages rather than concrete providers; the [portable execution-world decision](2026-07-28-portable-execution-world-consumers.md) owns that pairing. The server-table key is its provider id. The plugin resolves every server-local setting before registration, rolls back earlier registrations if a later mapping is invalid or conflicts, and retains an independent process pool per provider. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
 
 ## Model-facing contract
 
@@ -112,26 +112,26 @@ Provider disposal occurs outside tool execution, so `dsh-lsp-local` keeps `shutd
 
 ## Workspace, filesystem, and document synchronization
 
-`dsh-lsp-local` canonicalizes and reads through Node APIs in the subprocess's host namespace. It rejects missing, non-regular, non-UTF-8, oversized, or canonical out-of-workspace sources and keeps one `O_NOFOLLOW | O_NONBLOCK` handle through validation and reading, so a FIFO with no writer cannot block before the regular-file check. It observes caller cancellation around each filesystem operation. It does not consume `ctx.fs` or emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
+`dsh-lsp-local` canonicalizes and reads through `ctx.fs` in the language server's execution world. It requires the workspace target to be a directory, rejects out-of-workspace sources through provider-owned containment, and uses `readTextBounded` so regular-file validation, UTF-8 decoding, the byte ceiling, and path replacement/growth safety stay one filesystem operation. It observes caller cancellation around each provider operation. It does not emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
 
 The `read` tool is unsuitable source because its output is windowed, numbered, transcript-visible, and observed. Reading in `tool-lsp` would also assign provider-specific synchronization to the consumer and preclude non-local providers.
 
 The local provider uses a compatibility-first transient-open sequence for every query. It accepts legacy `textDocumentSync` `Full` or `Incremental`, or options with `openClose: true`; omitted, `None`, or explicitly incompatible synchronization fails as unsupported before `didOpen`.
 
-1. Canonicalize and validate the host path, then read the current source with Node filesystem APIs.
+1. Resolve and contain the source through `ctx.fs`, then read its current bounded text through the same provider.
 2. Send `textDocument/didOpen` with version `1`, full text, and the configured language id. Its write remains abortable; failure or cancellation invalidates the instance and awaits bounded process termination before the pool can reuse it.
 3. Send the requested `textDocument/definition`, `textDocument/references`, `textDocument/implementation`, or `textDocument/hover` request.
 4. If `didOpen` succeeded, attempt `textDocument/didClose` in `finally` after the request settles or aborts. A close-write failure does not replace the settled result or error, but invalidates the instance and awaits bounded process termination.
 
 Documents close after each call, so the first version needs no `didChange`, `didSave`, content cache, mutation listener, or document LRU. One abortable per-workspace provider queue serializes source-read/open/query/close lifecycles, so a waiting query reads current bytes only when its turn starts; the instance also keeps protocol lifecycles serialized. Distinct workspaces may run in parallel. The server's workspace index remains responsible for closed files reached from the source.
 
-The canonical workspace `realpath` must be a directory and supplies process cwd, `rootUri`, the sole `workspaceFolders` entry, and pool identity; symlink aliases therefore share an instance. Result locations may be external, but an external path cannot become a query source. Remote, virtual, or independently sandboxed filesystems require another provider.
+The canonical workspace target must be a directory. Its target key supplies pool identity, its process path supplies cwd, and its provider-owned `file:` URI supplies `rootUri` and the sole `workspaceFolders` entry; aliases share an instance when the filesystem provider resolves them to one key. Result locations may be external, but an external path cannot become a query source. A filesystem that cannot share paths with the mounted subprocess provider is a composition error, not a reason for another LSP package.
 
 ## Local server lifecycle and protocol behavior
 
-`dsh-lsp-local` lazily single-flights one server per `(provider id, canonical workspace realpath)`. At load it resolves the executable after credential scrubbing and environment overrides, failing before registration if unavailable; server process launch stays lazy (first query spawns it) and uses no shell. `maxMessageBytes` defaults to `16_000_000`, `maxStderrBytes` to `1_000_000`, and `maxDocumentBytes` to `4_000_000`. A crash fails the active query without replay; a later query may replace the process. Each query starts at most one process, so the MVP has no cross-request restart counter.
+`dsh-lsp-local` lazily single-flights one server per `(provider id, canonical workspace target)`. At load it calls `ctx.subprocess.resolveExecutable()` with the configured environment, failing before registration if unavailable; first query launches through raw protocol pipes with no shell and a bounded collected stderr tail. `maxMessageBytes` defaults to `16_000_000`, `maxStderrBytes` to `1_000_000`, and `maxDocumentBytes` to `4_000_000`. A crash fails the active query without replay; a later query may replace the process. Each query starts at most one process, so the MVP has no cross-request restart counter.
 
-Initialization advertises `general.positionEncodings: ['utf-16']`, `workspace: { workspaceFolders: true, configuration: true }`, `textDocument.hover.contentFormat: ['markdown', 'plaintext']`, and `linkSupport: true` for definition and implementation, with no dynamic registration. Returned operation and synchronization capabilities are authoritative. An omitted server `positionEncoding` defaults to `utf-16`; any other value is a protocol error. Configuration may supply initialization options and `workspace/configuration` responses, but the client rejects `workspace/applyEdit` and never executes commands or edits.
+Initialization uses `processId: null` because the client and server may inhabit different process namespaces. It advertises `general.positionEncodings: ['utf-16']`, `workspace: { workspaceFolders: true, configuration: true }`, `textDocument.hover.contentFormat: ['markdown', 'plaintext']`, and `linkSupport: true` for definition and implementation, with no dynamic registration. Returned operation and synchronization capabilities are authoritative. An omitted server `positionEncoding` defaults to `utf-16`; any other value is a protocol error. Configuration may supply initialization options and `workspace/configuration` responses, but the client rejects `workspace/applyEdit` and never executes commands or edits.
 
 Navigation maps `Location` directly and `LocationLink` from `targetUri` plus `targetSelectionRange`. Positions must be nonnegative integers. Hover normalization accepts only valid `MarkupContent` and `MarkedString` shapes, preserves string values, renders language-tagged values as fenced code, and joins arrays with one blank line. The model-facing tool applies `maxResultChars` after rendering.
 
@@ -143,7 +143,7 @@ Symbols are deferred because they need different schemas and overlap read/search
 
 Diagnostics need separate freshness, accumulation, and transcript rules. Mutations such as rename, code actions, and formatting require separate tools with preview, permission, and write-policy integration.
 
-The local provider trusts its configured server and claims no sandbox confinement. Supporting untrusted binaries requires a later process/filesystem contract for workspace reads plus private cache and temporary writes; restricted, remote, or virtual workspaces require another provider.
+The provider trusts its configured server. Its filesystem visibility and process confinement are exactly those of the mounted execution world; LSP adds no independent sandbox policy.
 
 ## Alternatives considered
 
@@ -157,7 +157,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 
 **Wrap the signal in a per-seam execution-context object.** Web passes a bare `AbortSignal`; wrapping this single field would add unexplained asymmetry. `query()` gains a context object only when another field requires it.
 
-**Read through `ctx.fs` or the `read` tool.** This could mix the document with a server index from another filesystem namespace; tool output is also windowed, numbered, and observed. The host-local provider reads unobserved full text beside its subprocess.
+**Read through the model-facing `read` tool.** Rejected because tool output is windowed, numbered, transcript-visible, and observed. The provider reads bounded full text directly through the same `ctx.fs` execution world used by its subprocess.
 
 **Keep documents open.** Mirroring edits requires version ownership, all-path `didChange`, HMR recovery, eviction, and stale-state rules. Transient opens avoid that MVP state machine.
 
@@ -180,7 +180,7 @@ The local provider trusts its configured server and claims no sandbox confinemen
 - Synchronization tests pin UTF-16 negotiation and conversion, supported and rejected `textDocumentSync` forms, blocked and failed open writes, balanced transient open/close, close-write failure, and malformed-response rejection.
 - Timeout tests pin one `TOOL_TIMEOUT` budget, unclassified upstream cancellation, no hidden seam deadline, and bounded awaited teardown.
 - Lifecycle tests pin startup single-flight, complete-lifecycle serialization with fresh queued source reads, cross-workspace parallelism, abortable queues, crash replacement without replay, failed-stdin teardown, and quiescent disposal.
-- Host-filesystem tests pin session-cwd requirements, relative and absolute source containment through symlinks, document validation, file/non-file URI rendering, unformatted source, and no `fs/observed` event.
+- Filesystem-host tests pin session-cwd requirements, provider-owned containment and URI rendering, bounded document reads, unformatted source, and no `fs/observed` event.
 - A keyless pinned TypeScript real-server e2e exercises all four operations; runnable configuration uses the same explicit provider mapping.
 - Snapshots cover model-visible schema, prompt, results, and omissions; a built-artifact smoke test covers framing and cleanup.
 - Package and architecture docs cover configuration, security boundaries, and search/read guidance; the new `packages/lsp/` group is added to the AGENTS.md repository-layout block, the packages/README.md group table, and architecture.md in the same change.
@@ -195,4 +195,4 @@ Extension ownership is exclusive within one runtime. Two providers cannot both c
 
 UTF-16 cursor columns are exact for the protocol but difficult for a model to count around non-BMP characters. Invalid or off-symbol positions may produce empty results, so error text and prompt examples must explain the coordinate convention without encouraging broad LSP use.
 
-Direct Node access aligns the query snapshot with the server index but bypasses `ctx.fs` and its policy. Canonical containment rejects source files outside the workspace; a trusted server may still read the workspace and use caches. The first implementation therefore requires trusted host-local deployment and provides no sandbox guarantee.
+The paired filesystem/subprocess providers align the query snapshot with the server index but do not make a trusted language server safe. Canonical containment rejects query sources outside the workspace; the server itself receives the execution world's configured authority and may read other paths or use caches.

@@ -2,16 +2,19 @@
 
 English | [中文](README.zh.md)
 
-The filesystem capability family: provider seam, interchangeable backends, policy, and model-facing tools. All **product** packages.
+The filesystem stack: a provider seam (execution-world paths, bounded text IO, and atomic mutation with an optional version guard), a local implementation, a policy gate plugin (observed-state + read-before-edit + version-guarded write/edit), the model-facing file tools + executor, and the bash-backed discovery tools. All **product** packages.
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`fs/`](fs/README.md) | Filesystem provider seam and policy-event vocabulary | `ctx.fs` |
-| [`fs-local/`](fs-local/README.md) | Local-filesystem backend | registers `ctx.fs` |
-| [`fs-sandbox/`](fs-sandbox/README.md) | Sandbox-enforcing backend | registers `ctx.fs` |
-| [`fs-policy/`](fs-policy/README.md) | Observed-state and mutation policy | `fs/*` listeners |
-| [`tool-fs/`](tool-fs/README.md) | Model-facing file tools | registers on `ctx.tools` |
-| [`tool-fs-search/`](tool-fs-search/README.md) | Process-backed discovery tools | registers on `ctx.tools` |
-| [`tool-str-replace-editor/`](tool-str-replace-editor/README.md) | Model-facing string-replacement editor | registers on `ctx.tools` |
+| `fs/` | Provider seam: canonical process paths/file URIs/containment, text IO, and atomic mutation primitives; owns the `fs/*` policy events | `ctx.fs` |
+| `fs-local/` | Local-filesystem `FileSystem` implementation | (registers `ctx.fs`) |
+| `fs-sandbox/` | Sandbox-enforcing `FileSystem`: extends `fs-local` and fences write/edit by the per-call mode + workspace root policy (read-only denies, workspace-write contains to the session workspace + temp roots), reads pass through | (registers `ctx.fs`) |
+| `fs-policy/` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit, via the `fs/*` event gate | (no service — `fs/*` listeners) |
+| `tool-fs/` | Model-facing `read`/`write`/`edit` tools AND the executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`); preserves filesystem semantics for session-cwd-relative paths and advertises sandbox escalation fields when the mounted `ctx.fs` confines | (registers on `ctx.tools`) |
+| `tool-fs-search/` | Model-facing `glob`/`grep` discovery tools when `rg` is available on the bash executor `PATH`, backed by fixed ripgrep commands through `ctx.bash`, NOT by `ctx.fs` provider methods | (registers on `ctx.tools`) |
 
-Backends replace one another behind `ctx.fs`; policy and tools consume the seam independently. Discovery remains process-backed instead of expanding the provider contract. Child READMEs own containment, mutation, schema, and timeout details.
+The interface lives at `fs/fs/`. A sandboxed, remote, or project-scoped filesystem backend can replace `fs-local` without touching the seam, the policy gate, or the model-facing tool schemas — `fs-sandbox` is the first such replacement (an in-process path fence over the shared sandbox mode; see [the cross-family fs sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md)). The policy (`fs-policy/`) is a plugin that participates only through the `fs/*` event gate, not a service the tool injects — so dropping it gracefully loses the policy and leaves the unconstrained bare provider rather than breaking the tool. A deployment that loads `tool-fs/` is expected to also load it. The mode fence and the read-before-edit gate are orthogonal and compose. Discovery (`tool-fs-search/`) deliberately does NOT extend the provider seam: search is a process-backed `rg` workflow on the bash executor, so filesystem backends stay free of a universal search contract; its tools register only when that executor can find `rg`, and its results are follow-up-readable when the bash workdir and the `read` root are the same workspace (the co-located deployment its README documents).
+
+## No timeouts on file IO
+
+`read`/`write`/`edit` take **no** `timeoutMs`, and the provider seam arms no deadline — unlike bash and web (which consume [`@deepseek-ai/dsh-timeout`](../util/timeout/README.md)) and the bash-backed `glob`/`grep` (whose declared `timeoutMs` is enforced by `@deepseek-ai/dsh-timeout-policy`): those are process-backed, where a deadline can really kill the work. A local syscall is best-effort-abortable at most: a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise. Adding one would also be an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.

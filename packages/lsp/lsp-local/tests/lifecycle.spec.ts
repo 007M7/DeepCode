@@ -8,6 +8,7 @@ import { Context } from 'cordis'
 import Lsp, { type LspProvider, type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
 
@@ -47,6 +48,7 @@ async function mount(
   const ctx = new Context()
   await ctx.plugin(Lsp)
   await ctx.plugin(LocalSubprocessService)
+  await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
   const register = ctx.lsp.registerProvider.bind(ctx.lsp)
   const registrationSpy = captureProvider === undefined
     ? undefined
@@ -79,6 +81,7 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await ctx.plugin(LspLocal, {
       servers: {
         typescript: fakeServer({ LSP_FAKE_HOVER: JSON.stringify({ contents: 'ts' }) }),
@@ -322,6 +325,7 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         missing: {
