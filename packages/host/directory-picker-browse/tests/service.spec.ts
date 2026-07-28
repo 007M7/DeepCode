@@ -70,6 +70,19 @@ describe('BrowseDirectoryPicker', () => {
     expect((failure as DirectoryPickerError).path).toBe(missing)
   })
 
+  it('rejects non-absolute paths instead of rebasing them under the process cwd', async () => {
+    for (const relative of ['', 'projects', './projects', '..']) {
+      const listFailure = await capability.list(relative).catch((error: unknown) => error)
+      expect(listFailure).toBeInstanceOf(DirectoryPickerError)
+      expect((listFailure as DirectoryPickerError).code).toBe('directory-unreadable')
+      expect((listFailure as DirectoryPickerError).path).toBe(relative)
+      const createFailure = await capability.createDirectory(relative, 'child').catch((error: unknown) => error)
+      expect(createFailure).toBeInstanceOf(DirectoryPickerError)
+      expect((createFailure as DirectoryPickerError).code).toBe('directory-create-failed')
+      expect((createFailure as DirectoryPickerError).path).toBe(relative)
+    }
+  })
+
   it('creates one child directory and surfaces it in the next listing', async () => {
     const created = await capability.createDirectory(root, 'fresh')
     expect(created).toBe(join(root, 'fresh'))

@@ -5,13 +5,13 @@
  * slot registration.
  */
 import type { RefObject } from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   WorkspaceCreateError,
-  type WorkspaceId, type WorkspaceListState, type WorkspaceView,
+  type DirectoryPickerKind, type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
@@ -33,6 +33,8 @@ export interface WorkspaceCreateFlowProps {
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
   /** Open the Host's native single-directory picker. */
   pickDirectory: () => Promise<string | null>
+  /** The Host's advertised picker interaction (read per flow open); gates which picking affordance renders. */
+  directoryPickerKind: () => Promise<DirectoryPickerKind>
   /** A real Workspace was picked or created. */
   onPick: (workspaceId: WorkspaceId) => void
   /** Close the popover (outside click / Escape / post-pick). */
@@ -50,6 +52,7 @@ export function WorkspaceCreateFlow({
   useWorkspaces,
   createWorkspace,
   pickDirectory,
+  directoryPickerKind,
   onPick,
   onClose,
 }: WorkspaceCreateFlowProps) {
@@ -69,6 +72,22 @@ export function WorkspaceCreateFlow({
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
+  // The advertised interaction gates the picking affordance: 'dialog' is the
+  // only kind pickDirectory() can serve, so its entry renders under that kind
+  // alone; 'browse' (until the in-app browser UI lands) and unknown kinds
+  // hide the entry, the seam's documented unknown-kind default. Re-read per
+  // flow open — no cache to go stale across reconnects.
+  const [dialogPicker, setDialogPicker] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    void directoryPickerKind()
+      .then((kind) => { setDialogPicker(kind === 'dialog') })
+      // A failed describe hides the entry too: the same Host that cannot
+      // answer describe cannot serve pickDirectory. (Post-unmount settlement
+      // is safe: React 18 no-ops setState on unmounted components.)
+      .catch(() => { setDialogPicker(false) })
+  }, [open, directoryPickerKind])
+
   const items: MenuEntry[] = [
     ...workspaces.map(workspace => ({
       id: workspace.workspaceId,
@@ -77,7 +96,9 @@ export function WorkspaceCreateFlow({
       disabled: pickingFolder,
     })),
     ...(workspaces.length > 0 ? [{ type: 'separator' as const, id: 'sep-create' }] : []),
-    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
+    ...(dialogPicker
+      ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder }]
+      : []),
     { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
   ]
 
@@ -229,6 +250,7 @@ export function WorkspacePicker({
   onClose,
   createWorkspace,
   pickDirectory,
+  directoryPickerKind,
 }: WorkspacePickerProps) {
   return (
     <WorkspaceCreateFlow
@@ -237,6 +259,7 @@ export function WorkspacePicker({
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
       pickDirectory={pickDirectory}
+      directoryPickerKind={directoryPickerKind}
       onPick={onPick}
       onClose={onClose}
     />

@@ -174,6 +174,20 @@ it('locks the composer in the New Session view state until a Workspace is chosen
   `)
 })
 
+it('hides the Open-local-folder entry under the fixture host\'s browse picker capability', async () => {
+  boot('?fixture=empty')
+
+  await findLockedComposer()
+  fireEvent.click(workspaceChip())
+  const menu = await screen.findByRole('menu')
+  // Flush the advertised-kind read (fixture describe resolves in microtasks):
+  // the fixture serves `browse`, whose in-app UI is not wired yet, so the
+  // dialog affordance must not render — only the create action remains.
+  await act(async () => {})
+  expect(within(menu).getAllByRole('menuitem').map(item => visibleText(item)))
+    .toEqual(['Create a new workspace'])
+})
+
 it('selects the recent Workspace and opens its blank Session on first load', async () => {
   boot('?fixture')
 

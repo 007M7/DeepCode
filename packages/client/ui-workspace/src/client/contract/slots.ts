@@ -13,7 +13,7 @@ import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DirectoryPickerKind, SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
 /**
@@ -44,6 +44,8 @@ export type WorkspaceBrowserInjected = {
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
   /** Ask the local Host to open its native single-directory picker. */
   pickDirectory: () => Promise<string | null>
+  /** The Host's advertised picker interaction (read per flow open); gates which picking affordance renders. */
+  directoryPickerKind: () => Promise<DirectoryPickerKind>
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions. */
@@ -62,6 +64,8 @@ export type WorkspacePickerInjected = {
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
   /** Ask the local Host to open its native single-directory picker. */
   pickDirectory: () => Promise<string | null>
+  /** The Host's advertised picker interaction (read per flow open); gates which picking affordance renders. */
+  directoryPickerKind: () => Promise<DirectoryPickerKind>
 }
 
 /**

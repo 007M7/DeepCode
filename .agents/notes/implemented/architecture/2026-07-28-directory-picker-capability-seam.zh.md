@@ -30,7 +30,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 ## 后果
 
-- `cordis.yml` 决定交互形态；`apps/cli` 当前挂 `-dialog`（行为不变），应用内浏览器 PR 将把默认翻到 `-browse` 并让 GUI 按 `describe` 分支。
+- `cordis.yml` 决定交互形态；`apps/cli` 当前挂 `-dialog`（行为不变）。GUI 已按 `describe.directoryPicker` 门控其对话框入口（非 `dialog` kind 一律隐藏）；应用内浏览器 PR 将把默认翻到 `-browse` 并补上浏览 UI。
 - 协议新增 `host.listDirectory`／`host.createDirectory`、四个错误码与 `describe.directoryPicker` 字段；connection fixture 提供确定性浏览树供无密钥组装测试使用。
 - 未来的新交互（或 Electron 的 `dialog` 提供方）只是一个后端包加一个客户端分支——无需网关手术。
 - `ApiProxyDefaults.pickDirectory`（仅测试注入）删除；测试像提供其他服务一样提供 stub `ctx.directoryPicker`。

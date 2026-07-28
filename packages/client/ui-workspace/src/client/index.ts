@@ -45,10 +45,12 @@ export function apply(ctx: ClientContext): void {
     },
     createWorkspace: input => ctx.workspaces.create(input),
     pickDirectory: () => ctx.workspaces.pickDirectory(),
+    directoryPickerKind: () => ctx.workspaces.directoryPickerKind(),
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
     pickDirectory: () => ctx.workspaces.pickDirectory(),
+    directoryPickerKind: () => ctx.workspaces.directoryPickerKind(),
   })
   // Declaration-aware registration: each owner's declaring apply may activate
   // after this one (entry activation order is unconstrained), and a register

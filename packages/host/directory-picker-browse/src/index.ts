@@ -11,7 +11,7 @@
 
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   DirectoryPicker, DirectoryPickerError,
 } from '@deepseek-ai/dsh-host-directory-picker'
@@ -81,6 +81,11 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
 
   private async list(path?: string): Promise<DirectoryListing> {
     const home = homedir()
+    // The seam contract takes absolute paths only; resolve() would silently
+    // rebase a relative or empty wire value under the host process cwd.
+    if (path !== undefined && !isAbsolute(path)) {
+      throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not an absolute path`)
+    }
     const target = resolve(path ?? home)
     let names: { name: string; isDirectory: boolean; isSymbolicLink: boolean }[]
     try {
@@ -100,6 +105,10 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
   }
 
   private async createDirectory(path: string, name: string): Promise<string> {
+    // Same absolute-path fence as list: never rebase a parent under the cwd.
+    if (!isAbsolute(path)) {
+      throw new DirectoryPickerError('directory-create-failed', path, `cannot create under "${path}": not an absolute parent path`)
+    }
     const parent = resolve(path)
     // The backend owns segment validation (the wire schema also refuses these,
     // but direct service consumers must hit the same fence).

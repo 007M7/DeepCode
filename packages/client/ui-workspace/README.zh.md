@@ -4,7 +4,7 @@
 
 共享 Workspace 选择器插件。`WorkspaceBrowser` 注册到侧边栏的 `sidebar.workspaces` slot，`WorkspacePicker` 注册到页面局部 Session Intent 主视觉区的 `conversation.hero.workspace` slot，因此两个表层使用同一菜单和创建流程。
 
-该选择器通过全局 `useWorkspaces` hook 列出真实的 Host Workspace 实体。选择 Workspace 会调用 slot owner 的 `onPick` 回调，重新定位前端 Session 对象。平铺显示的 **打开本地文件夹…** 操作会委托 Host 的原生单目录选择器，通过对象层接纳返回的路径，并等待 Workspace 列表投影刷新后才选中已提交的 Workspace；取消操作不会显示提示，发生错误后仍可重试。**创建新工作区** 操作保留名称对话框，并禁用列表中已有的名称，而 Host 对并发或非 UI 调用方仍具有最终决定权。运行时 Session 与 Workspace 服务负责物化。Workspace 行内的 Delete 操作会打开确认框，说明保留边界、阻止重复提交，并在失败时保持打开；成功后，该分组会被移除，其 Session 则留在 Ungrouped 下。
+该选择器通过全局 `useWorkspaces` hook 列出真实的 Host Workspace 实体。选择 Workspace 会调用 slot owner 的 `onPick` 回调，重新定位前端 Session 对象。平铺显示的 **打开本地文件夹…** 操作仅在 Host 广播 `dialog` 选择交互时渲染（每次流程打开时通过 `host.describe` 读取）；`browse`（在其应用内浏览器 UI 落地之前）以及未知 kind 都会隐藏该入口，即 seam 文档化的默认行为。显示时它会委托 Host 的原生单目录选择器，通过对象层接纳返回的路径，并等待 Workspace 列表投影刷新后才选中已提交的 Workspace；取消操作不会显示提示，发生错误后仍可重试。**创建新工作区** 操作保留名称对话框，并禁用列表中已有的名称，而 Host 对并发或非 UI 调用方仍具有最终决定权。运行时 Session 与 Workspace 服务负责物化。Workspace 行内的 Delete 操作会打开确认框，说明保留边界、阻止重复提交，并在失败时保持打开；成功后，该分组会被移除，其 Session 则留在 Ungrouped 下。
 
 两个目标 slot 都由其他插件声明，因此 `apply` 通过声明感知的延迟机制完成注册，并在声明该 slot 的插件恢复后重新注册。
 
