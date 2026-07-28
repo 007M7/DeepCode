@@ -390,6 +390,14 @@ describe('tokenizeSessionFixtureTmpdir', () => {
       },
       reportedCwd: '/tmp/acp-snap-cwd-abc123',
     },
+    {
+      name: 'Windows',
+      context: {
+        sessionIds: [],
+        cwd: String.raw`C:\Users\runner\AppData\Local\Temp\acp-snap-cwd-abc123`,
+      },
+      reportedCwd: String.raw`C:\Users\runner\AppData\Local\Temp\acp-snap-cwd-abc123`,
+    },
   ])('stores $name temporary workspaces with one portable root token', ({ context, reportedCwd }) => {
     const raw = [
       JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: context.cwd }),
@@ -400,7 +408,7 @@ describe('tokenizeSessionFixtureTmpdir', () => {
         data: {
           content: [{
             type: 'text',
-            text: `wrote ${reportedCwd}/proof.txt. cwd ${context.cwd}. Next; kept ${context.cwd}-backup, ${context.cwd}.backup, and /tmp/authored.txt`,
+            text: `wrote ${reportedCwd}/proof.txt. alias /different/root/acp-snap-cwd-abc123/alias.txt. cwd ${context.cwd}. Next; kept ${context.cwd}-backup, ${context.cwd}.backup, and /tmp/authored.txt`,
           }],
         },
       }),
@@ -408,14 +416,26 @@ describe('tokenizeSessionFixtureTmpdir', () => {
     ].join('\n')
 
     const out = tokenizeSessionFixtureTmpdir(raw)
+    const result = JSON.parse(out.split('\n')[1] as string) as {
+      data: { content: { text: string }[] }
+    }
+    const resultText = (result.data.content[0] as { text: string }).text
 
     expect(out).toContain('"cwd":"{{tmpdir}}/acp-snap-cwd-abc123"')
-    expect(out).toContain('wrote {{tmpdir}}/acp-snap-cwd-abc123/proof.txt')
-    expect(out).toContain('cwd {{tmpdir}}/acp-snap-cwd-abc123. Next')
-    expect(out).toContain(`${context.cwd}-backup`)
-    expect(out).toContain(`${context.cwd}.backup`)
-    expect(out).toContain('/tmp/authored.txt')
-    expect(out).not.toContain(`${reportedCwd}/proof.txt`)
+    expect(resultText).toContain('wrote {{tmpdir}}/acp-snap-cwd-abc123/proof.txt')
+    expect(resultText).toContain('alias {{tmpdir}}/acp-snap-cwd-abc123/alias.txt')
+    expect(resultText).toContain('cwd {{tmpdir}}/acp-snap-cwd-abc123. Next')
+    expect(resultText).toContain(`${context.cwd}-backup`)
+    expect(resultText).toContain(`${context.cwd}.backup`)
+    expect(resultText).toContain('/tmp/authored.txt')
+    expect(resultText).not.toContain(`${reportedCwd}/proof.txt`)
+    expect(tokenizeSessionFixtureTmpdir(out)).toBe(out)
+  })
+
+  it('rejects a log without a session cwd', () => {
+    expect(() => tokenizeSessionFixtureTmpdir('')).toThrow(
+      'acp-snapshot: cannot tokenize a cwd without a basename',
+    )
   })
 })
 
