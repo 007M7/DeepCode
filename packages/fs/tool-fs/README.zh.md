@@ -19,7 +19,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `listMaxEntries` | `200` | 一次 `list` 调用内联渲染的条目数；footer 仍会报告整个目录的规模与构成。 |
+| `listMaxEntries` | `200` | 单个 `list` 页面返回的最大条目数；footer 会报告完整规模与构成，并在仍有条目时给出下一 offset。 |
 | `readLimit` | `2000` | 一次 `read` 调用返回的默认和最大行数（工具 schema 将其声明为 `limit` 默认值）。 |
 | `readMaxLineLength` | `2000` | 每行截断前保留的字符数（后缀会说明上限）。 |
 | `readMaxBytes` | `51200` | 一次 `read` 调用所选行的字节上限；溢出时以「已达上限」footer 结束窗口。 |
@@ -29,14 +29,14 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `list` | `path?` | 单个目录的直接子项及其类型，默认取会话工作区。顺序为先目录、再文件、最后非常规子项，各组内按字母序排列，并受配置的 `listMaxEntries`（200）限制。 |
+| `list` | `path?`、`offset?` | 单个目录的一页直接子项及其类型，默认取会话工作区并从第 1 个条目开始。顺序为先目录、再文件、最后非常规子项，各组内按字母序排列；仍有条目时按 footer 给出的下一 offset 继续。 |
 | `read` | `file_path`、`offset?`、`limit?` | 带行号的 UTF-8 内容和分页 footer。`offset` 从 1 开始；`limit` 默认为配置的 `readLimit`（2000），上限也为该值。 |
 | `write` | `file_path`、`content` | 创建文件或完整替换文件。有政策插件时：覆盖现有文件要求先在未变版本上执行 `read`；创建新文件不需要。没有插件时：无条件执行。 |
 | `edit` | `file_path`、非空 `old_string`、`new_string`、`replace_all?` | 字面量替换；除非 `replace_all` 为 true，否则要求唯一匹配。有政策插件时：要求先执行 `read`（任何窗口），且文件此后未变。没有插件时：无条件执行。 |
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。
 
-规范成功值分别为：`list` → `{ path, entries: [{ name, type: 'file' | 'directory' | 'other' }] }`，`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。Native 渲染器会保留下方带行号的读取结果和变更确认。写入/编辑从这些值派生可回放的 diff 卡片元数据；值本身仅用于执行，不会添加到 `tool/result`。
+规范成功值分别为：`list` → `{ path, offset, entries: [{ name, type }], totalEntries, counts: { directories, files, other } }`，`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。`list.entries` 是一个有界页面；`type` 为 `file`、`directory` 或 `other`，而总计信息描述的是完整目录。Native 渲染器会保留下方的列出/读取包络和变更确认。写入/编辑从这些值派生可回放的 diff 卡片元数据；值本身仅用于执行，不会添加到 `tool/result`。
 
 ## 工具就是执行器；政策是事件门禁
 
@@ -68,7 +68,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 ##### List 指导
 
 ```markdown
-Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. Reach for glob or grep once you know the path pattern or the text you are looking for.
+Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. When a result is capped, continue with the offset named in its footer.
 ```
 
 ##### Read 指导
@@ -115,11 +115,11 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-成功列出结果精确为 `<path><displayPath></path>`、换行、`<type>directory</type>`、换行、`<content>`、每个条目一行、一个空行、一条 footer 和 `</content>`。目录条目带尾部 `/`，非常规子项带尾部 `@`，常规文件两者都不带。footer 精确为 `(Empty directory)`、`(<n> entries: <d> directories, <f> files)`（仅当存在此类子项时才追加 `, <o> other`，计数为一时使用单数形式），或在视图被截断时为 `(Showing <k> of <n> entries: <d> directories, <f> files. Entries are directories first, then files, each alphabetical; list a subdirectory to see the rest.)`。无论视图是否被截断，都会说明完整计数与构成，因此部分列出结果绝不会被读成整个目录。
+成功列出结果为 `<path><JSON-quoted display path></path>`、换行、`<type>directory</type>`、换行、`<content>`、页面中的每个条目一行、一个空行、一条 footer 和 `</content>`。每个条目名都是 JSON 字符串，并额外对 `<`、`>` 和 `&` 做 Unicode 转义，使文件系统文本无法伪造包络；目录带尾部 `/`，非常规子项带尾部 `@`，常规文件两者都不带。footer 为 `(Empty directory)`、`(<n> entries: <d> directories, <f> files)`（可选追加 `, <o> other`），或 `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`；最后一页省略继续提示。每一页都会说明完整计数与构成。
 
 #### Token 影响
 
-列出输出受 `listMaxEntries` 限制；保留的调用与结果会反复发送，直到上下文压缩。
+列出输出及其规范 `entries` 页面受 `listMaxEntries` 限制；保留的调用与结果会反复发送，直到上下文压缩。
 
 #### KV Cache 影响
 
@@ -157,7 +157,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`path must be a non-empty string when given`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file` 和 `offset <offset> is out of range for "<path>" (<total> lines)`；提供方和政策模板在各自包的 README 中逐字列出。
+失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`path must be a non-empty string when given`、`offset must be a positive integer`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file`、`offset <offset> is out of range for "<path>" (<total> entries)`，以及对应的 `<total> lines` 读取错误；提供方和政策模板在各自包的 README 中逐字列出。
 
 #### Token 影响
 
@@ -169,6 +169,6 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 ## 已知限制与延期工作
 
-- **`list` 只读取一层目录，且没有溢出落盘路径**：不提供递归、分页和逐目录子项计数，超出 `listMaxEntries` 的部分只由 footer 概括，不会保存到任何可取回的位置；模型改为列出对应子目录。
+- **`list` 只读取一层目录**：不提供递归和逐目录子项计数；offset 分页只遍历当前目录中按顺序排列的直接子项。
 - **`read` 只处理 UTF-8 文本文件**：二进制安全读取和 PDF/图像/多模态内容均延期处理；目录目标为 `FS_NOT_REGULAR_FILE`。
-- **没有超时接口**：`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见有意采用的 [fs 能力族立场](../README.md)）。
+- **没有超时接口**：`list`/`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见有意采用的 [fs 能力族立场](../README.md)）。

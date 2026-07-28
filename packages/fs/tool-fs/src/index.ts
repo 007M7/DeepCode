@@ -25,7 +25,7 @@ export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
-  /** Maximum entries one `list` call renders inline; the footer still reports the complete count. */
+  /** Maximum entries one `list` page returns; the footer still reports the complete count. */
   listMaxEntries?: number
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number

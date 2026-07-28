@@ -117,13 +117,17 @@
     },
     {
       "name": "list",
-      "description": "List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; the first 200 are returned inline and the footer reports the complete count. Unlike glob, this shows subdirectories, so it is how to see what a directory contains.",
+      "description": "List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; up to 200 are returned from the requested offset, and the footer gives the complete count plus a next offset when more remain. It includes subdirectories and is the tool for seeing one directory's contents.",
       "parameters": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
             "description": "Directory to list. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first entry to return. Defaults to 1; use the footer value to continue."
           }
         }
       }

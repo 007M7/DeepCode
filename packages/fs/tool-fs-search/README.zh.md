@@ -34,14 +34,14 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录** 搜索根；省略时使用解析后的 bash 工作目录。每行返回一个**文件** 路径；`rg --files` 从不输出目录条目，因此任何 pattern 都无法让 `glob` 描述一个目录的内容，那是 [`dsh-tool-fs`](../tool-fs/) 的 `list`。pattern 保留 ripgrep 语义：不含 `/` 时匹配任意深度的基名，因此 `*` 匹配整棵树。未超过 `globMaxResults` 的结果按修改时间排序；超过时内联页面改为跨顶层条目取样（见下）。 |
+| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录** 搜索根；省略时使用解析后的 bash 工作目录。每行返回一个**文件** 路径；`rg --files` 从不输出目录条目。pattern 保留 ripgrep 语义：不含 `/` 时匹配任意深度的基名，因此 `*` 匹配整棵树。未超过 `globMaxResults` 的结果按修改时间排序；超过时内联页面改为跨顶层条目取样（见下）。 |
 | `grep` | `pattern`、`path?`、`include?` | 按行解析 `rg --json`，避免按冒号拆分的歧义。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录** 目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
 
 常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件；需要后续结果时，遵循返回的 spill locator 检索提示。
 
 ## 两类预算、两类产物
 
-原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ paths }` 中保留所有已取得路径；`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于 Native 渲染器。直接接口调用的逻辑结果超过内联上限时，后置政策会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
+原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ root, paths }` 中保留所显示的搜索根及所有已取得路径；借助 `root`，Native 渲染器能以显式的相对或绝对搜索路径为根，按该根下的条目分组，而不是按其工作目录前缀分组。`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于 Native 渲染器。直接接口调用的逻辑结果超过内联上限时，后置政策会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
 
 ## 错误
 
@@ -58,7 +58,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 ##### Glob 指导
 
 ```markdown
-Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level directories, so it spans the tree instead of one subtree. Use the list tool to see what a directory contains.
+Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level entries, so it spans the tree instead of one subtree.
 ```
 
 ##### Grep 指导
@@ -93,7 +93,7 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 #### 模型看到的内容
 
-`glob` 每行返回一个路径；`grep` 在每个路径下对 `Line <line>: <preview>` 匹配分组。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果末尾会附加省略数量、spill locator 和后端检索提示，或说明完整结果无法保存。超过上限的 `glob` 结果不再展示排序列表的头部：其内联页面按轮转方式跨完整结果的顶层条目取样，因此单个新近写入的子树无法占满所有位置；footer 会说明该页面是取样得到而非按修改时间取用，并给出它触达了多少个顶层条目。未能触达全部时，footer 还会指向 `list`。未超过上限的结果原样不动；扁平结果（每个路径各自构成一个顶层条目）保留朴素 footer，因为此时取样结果就等于按新近度排序的头部。spill 产物始终保存按修改时间排序的完整列表。
+`glob` 每行返回一个路径；`grep` 在每个路径下对 `Line <line>: <preview>` 匹配分组。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果末尾会附加省略数量、spill locator 和后端检索提示，或说明完整结果无法保存。超过上限的 `glob` 结果不再展示排序列表的头部：其内联页面按轮转方式跨实际搜索根正下方的条目取样，因此单个时间戳较旧的子树无法占满所有位置；footer 会说明取样依据及其触达的顶层条目数。无法触达全部时，footer 会要求模型缩小 `path`。未超过上限的结果原样不动；扁平结果（每个路径各自构成一个顶层条目）保留朴素 footer，因为此时取样结果就是按修改时间排序的头部。spill 产物始终保存按修改时间排序的完整列表。
 
 #### Token 影响
 
@@ -122,4 +122,4 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 - **搜索和文件访问没有共享工作区证明**：只有 bash 工作目录和文件系统根目录表示同一工作区时，返回路径才能继续读取；本包不执行运行时跨服务校验。
 - **Ripgrep 是部署依赖**：缺失 `rg` 可执行文件时，本包不注册工具或指导；可执行文件不兼容或注册后消失时，调用以 `SEARCH_FAILED` 失败。远程或虚拟文件系统需要共置执行器或其他搜索消费方。
 - **schema 只公开一个有界页面**：offset 分页、大小写模式开关、其他输出模式和提供方支持的发现均不在本包内；达到上限的完整输出需要 spill 后端。
-- **取样只按路径首段分组**：超过上限的 `glob` 页面在顶层条目之间做均衡，因此集中在更深层的结果（一棵总体均匀的树里某个特别庞大的子目录）在该层级以下仍然分布不均；递归均衡已延期。
+- **取样只按搜索根下的路径首段分组**：超过上限的 `glob` 页面在这些顶层条目之间做均衡，因此集中在更深层的结果（一棵总体均匀的树里某个特别庞大的子目录）在该层级以下仍然分布不均；递归均衡已延期。

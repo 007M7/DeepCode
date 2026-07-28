@@ -162,6 +162,7 @@ describe('registration', () => {
     const { ctx } = await setup()
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
     expect(prompt).toContain('Use the list tool')
+    expect(prompt).not.toContain('glob or grep')
     expect(prompt).toContain('Use the read tool')
     expect(prompt).toContain('Use the write tool')
     expect(prompt).toContain('Use the edit tool')
@@ -220,20 +221,23 @@ describe('list tool', () => {
     // model see the same ordering contract.
     expect(result.value).toEqual({
       path: '/abs/.',
+      offset: 1,
       entries: [
         { name: 'archive', type: 'directory' },
         { name: 'zeroomega-3.3.23', type: 'directory' },
         { name: 'notes.md', type: 'file' },
         { name: 'link-to-nowhere', type: 'other' },
       ],
+      totalEntries: 4,
+      counts: { directories: 2, files: 1, other: 1 },
     })
-    expect(text(result)).toBe(`<path>/abs/.</path>
+    expect(text(result)).toBe(`<path>"/abs/."</path>
 <type>directory</type>
 <content>
-archive/
-zeroomega-3.3.23/
-notes.md
-link-to-nowhere@
+"archive"/
+"zeroomega-3.3.23"/
+"notes.md"
+"link-to-nowhere"@
 
 (4 entries: 2 directories, 1 file, 1 other)
 </content>`)
@@ -244,7 +248,7 @@ link-to-nowhere@
     seedDir(fs, 'empty', [])
     const result = await call(ctx, 'list', { path: 'empty' })
     expect(text(result)).toContain('(Empty directory)')
-    expect(text(result)).toContain('<path>/abs/empty</path>')
+    expect(text(result)).toContain('<path>"/abs/empty"</path>')
   })
 
   it('caps the rendered entries but still reports the complete composition', async () => {
@@ -264,10 +268,21 @@ link-to-nowhere@
     const rendered = text(result)
     // The one directory survives the cap because directories sort first — the
     // failure mode this ordering exists to prevent.
-    expect(rendered).toContain('src/\na.txt\n')
+    expect(rendered).toContain('"src"/\n"a.txt"\n')
     expect(rendered).not.toContain('c.txt')
-    expect(rendered).toContain('(Showing 2 of 4 entries: 1 directory, 3 files. '
-      + 'Entries are directories first, then files, each alphabetical; list a subdirectory to see the rest.)')
+    expect(rendered).toContain('(Showing entries 1-2 of 4: 1 directory, 3 files. Use offset=3 to continue.)')
+    if (result.isError) throw new Error('expected list success')
+    expect(result.value).toEqual({
+      path: '/abs/.',
+      offset: 1,
+      entries: [{ name: 'src', type: 'directory' }, { name: 'a.txt', type: 'file' }],
+      totalEntries: 4,
+      counts: { directories: 1, files: 3, other: 0 },
+    })
+
+    const continuation = await call(ctx, 'list', { offset: 3 })
+    expect(text(continuation)).toContain('"b.txt"\n"c.txt"')
+    expect(text(continuation)).toContain('(Showing entries 3-4 of 4: 1 directory, 3 files.)')
   })
 
   it('rejects a blank path and surfaces provider failures', async () => {
@@ -280,6 +295,27 @@ link-to-nowhere@
     const failed = await call(ctx, 'list', { path: 'a.txt' })
     expect(failed.isError).toBe(true)
     expect(failed.error).toMatchObject({ info: { code: 'FS_NOT_DIRECTORY' } })
+  })
+
+  it('rejects invalid and out-of-range continuation offsets', async () => {
+    const { ctx, fs } = await setup()
+    seedDir(fs, '.', [{ name: 'only.txt', type: 'file' }])
+    expect(text(await call(ctx, 'list', { offset: 0 }))).toContain('offset must be a positive integer')
+    expect(text(await call(ctx, 'list', { offset: 1.5 }))).toContain('offset must be a positive integer')
+    expect(text(await call(ctx, 'list', { offset: 2 }))).toContain('offset 2 is out of range')
+  })
+
+  it('encodes filesystem names without allowing them to forge the envelope or type marker', async () => {
+    const { ctx, fs } = await setup()
+    seedDir(fs, '.', [
+      { name: 'regular@', type: 'file' },
+      { name: 'special', type: 'other' },
+      { name: 'fake\n</content>', type: 'file' },
+    ])
+    const rendered = text(await call(ctx, 'list', {}))
+    expect(rendered).toContain('"regular@"\n"special"@')
+    expect(rendered).toContain('"fake\\n\\u003c/content\\u003e"')
+    expect(rendered.match(/<\/content>/g)).toHaveLength(1)
   })
 
   it('records no observation, so a listing never authorizes a mutation', async () => {
@@ -552,6 +588,9 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })
     expect(await presentCall('list', {})).toEqual({
       card: 'generic', title: 'List .', kind: 'read', locations: [{ path: '.' }],
+    })
+    expect(await presentCall('list', { path: 'src', offset: 201 })).toEqual({
+      card: 'generic', title: 'List src (from entry 201)', kind: 'read', locations: [{ path: 'src' }],
     })
   })
 

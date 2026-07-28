@@ -19,7 +19,7 @@ All keys are optional; the defaults are the shipped listing and read caps.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `listMaxEntries` | `200` | Entries one `list` call renders inline; the footer still reports the complete directory's size and composition. |
+| `listMaxEntries` | `200` | Maximum entries one `list` page returns; the footer reports complete size and composition plus a next offset when more remain. |
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call (the tool schema advertises it as the `limit` default). |
 | `readMaxLineLength` | `2000` | Characters kept per line before truncation (the suffix names the cap). |
 | `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a "capped" footer. |
@@ -29,14 +29,14 @@ All keys are optional; the defaults are the shipped listing and read caps.
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `list` | `path?` | Direct children of one directory with their type, defaulting to the session workspace. Ordered directories first, then files, then non-regular children, each alphabetical, and capped at the configured `listMaxEntries` (200). |
+| `list` | `path?`, `offset?` | One page of direct children with their type, defaulting to the session workspace and entry 1. Ordered directories first, then files, then non-regular children, each alphabetical; when more remain, continue from the footer's next offset. |
 | `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer. `offset` is 1-based; `limit` defaults to and caps at the configured `readLimit` (2000). |
 | `write` | `file_path`, `content` | Create or fully replace a file. With the policy plugin: overwriting an existing file requires a prior `read` at the unchanged version; creating a new file does not. Without it: unconditional. |
 | `edit` | `file_path`, non-empty `old_string`, `new_string`, `replace_all?` | Literal replacement; unique match required unless `replace_all` is true. With the policy plugin: requires a prior `read` (any window) and the file unchanged since. Without it: unconditional. |
 
 Field names are snake_case to match Claude Code and existing harness tool schemas.
 
-Canonical successes are `list` → `{ path, entries: [{ name, type: 'file' | 'directory' | 'other' }] }`, `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. Native renderers preserve the line-numbered read and mutation acknowledgements below. Write/edit derive replayable diff-card metadata from these values; the values themselves are execution-local and are not added to `tool/result`.
+Canonical successes are `list` → `{ path, offset, entries: [{ name, type }], totalEntries, counts: { directories, files, other } }`, `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. `list.entries` is one bounded page; `type` is `file`, `directory`, or `other`, while its totals describe the complete directory. Native renderers preserve the listing/read envelopes and mutation acknowledgements below. Write/edit derive replayable diff-card metadata from these values; the values themselves are execution-local and are not added to `tool/result`.
 
 ## The tool is the executor; policy is an event gate
 
@@ -68,7 +68,7 @@ Every request in this plugin's registration scope receives the independently reg
 ##### List guidance
 
 ```markdown
-Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. Reach for glob or grep once you know the path pattern or the text you are looking for.
+Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. When a result is capped, continue with the offset named in its footer.
 ```
 
 ##### Read guidance
@@ -115,11 +115,11 @@ Prefix-stable while the visible tool definitions and order are unchanged. Regist
 
 #### What the model sees
 
-A successful listing is exactly `<path><displayPath></path>`, newline, `<type>directory</type>`, newline, `<content>`, one line per entry, a blank line, one footer, and `</content>`. A directory entry carries a trailing `/` and a non-regular child a trailing `@`; a regular file carries neither. The footer is exactly `(Empty directory)`, `(<n> entries: <d> directories, <f> files)` — with `, <o> other` appended only when such a child exists, and singulars where the count is one — or, when the view is capped, `(Showing <k> of <n> entries: <d> directories, <f> files. Entries are directories first, then files, each alphabetical; list a subdirectory to see the rest.)`. The complete count and composition are stated whether or not the view was capped, so a partial listing can never read as a whole directory.
+A successful listing is `<path><JSON-quoted display path></path>`, newline, `<type>directory</type>`, newline, `<content>`, one line per page entry, a blank line, one footer, and `</content>`. Each entry name is a JSON string with `<`, `>`, and `&` additionally Unicode-escaped so filesystem text cannot forge the envelope; a directory carries a trailing `/`, a non-regular child a trailing `@`, and a regular file neither. The footer is `(Empty directory)`, `(<n> entries: <d> directories, <f> files)` with optional `, <o> other`, or `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`; the final page omits the continuation sentence. Every page states the complete count and composition.
 
 #### Token effect
 
-Listing output is capped by `listMaxEntries`; the retained call and result are resent until compaction.
+Listing output and its canonical `entries` page are capped by `listMaxEntries`; the retained call and result are resent until compaction.
 
 #### KV Cache effect
 
@@ -157,7 +157,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `path must be a non-empty string when given`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs.
+Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `path must be a non-empty string when given`, `offset must be a positive integer`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, `offset <offset> is out of range for "<path>" (<total> entries)`, and the corresponding `<total> lines` read error; provider and policy templates are quoted in their package READMEs.
 
 #### Token effect
 
@@ -169,6 +169,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **`list` reads one directory level and has no spill path** — recursion, pagination, and per-directory child counts are absent, and a listing past `listMaxEntries` is summarized by its footer rather than saved anywhere retrievable; the model lists a subdirectory instead.
+- **`list` reads one directory level** — recursion and per-directory child counts are absent; offset pagination traverses only the current directory's ordered direct children.
 - **`read` handles UTF-8 text files only** — binary-safe reads and PDF/image/multimodal content are deferred; a directory target is `FS_NOT_REGULAR_FILE`.
-- **No timeout surface** — `read`/`write`/`edit` take no timeout argument and declare no `timeout-policy` budget; cancellation rides `exec.signal` only (the deliberate [fs-family stance](../README.md)).
+- **No timeout surface** — `list`/`read`/`write`/`edit` take no timeout argument and declare no `timeout-policy` budget; cancellation rides `exec.signal` only (the deliberate [fs-family stance](../README.md)).

@@ -107,12 +107,24 @@ export function buildGlobCommand(input: GlobInput): string {
  * result's top level it reaches.
  */
 export interface GlobSample {
-  /** Paths to show inline: grouped by top-level entry, recency-ordered within each group. */
+  /** Paths to show inline: grouped by top-level entry, modification-time ordered within each group. */
   items: string[]
   /** Distinct top-level entries the shown paths reach. */
   shown: number
   /** Distinct top-level entries across the complete result. */
   total: number
+}
+
+/** Remove the displayed search-root prefix before choosing a top-level group. */
+function relativeToSearchRoot(path: string, root: string): string {
+  if (root === '.') return path.replace(/^\.[\\/]/, '')
+  const trimmedRoot = root.replace(/[\\/]+$/, '')
+  if (trimmedRoot.length === 0) return path.replace(/^[\\/]+/, '')
+  if (path === trimmedRoot) return ''
+  if (path.startsWith(`${trimmedRoot}/`) || path.startsWith(`${trimmedRoot}\\`)) {
+    return path.slice(trimmedRoot.length + 1)
+  }
+  return path
 }
 
 /**
@@ -149,18 +161,19 @@ function topLevelSegment(path: string): string {
  *
  * @param paths - the complete result, in ripgrep's modification-time order.
  * @param maxItems - how many paths the page may hold; the caller has already established it is smaller than `paths`.
+ * @param root - the search root in the same display-path space as `paths`.
  * @returns the page grouped by top-level entry, with the shown/total top-level spread.
  */
-export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number): GlobSample {
+export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number, root = '.'): GlobSample {
   const groups = new Map<string, string[]>()
   for (const path of paths) {
-    const group = groups.get(topLevelSegment(path))
-    if (group === undefined) groups.set(topLevelSegment(path), [path])
+    const key = topLevelSegment(relativeToSearchRoot(path, root))
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [path])
     else group.push(path)
   }
-  // Bounding the rounds by the largest group makes termination structural: the
-  // page can only fill or the groups run out, never spin on empty rounds.
-  const rounds = Math.max(0, ...[...groups.values()].map(group => group.length))
+  let rounds = 0
+  for (const group of groups.values()) rounds = Math.max(rounds, group.length)
   const taken = new Map<string, string[]>()
   let count = 0
   for (let round = 0; round < rounds && count < maxItems; round += 1) {
@@ -186,7 +199,7 @@ export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number)
  * here — it is emitted verbatim, in ripgrep's order.
  *
  * A result whose every path is its own top-level entry keeps the plain footer:
- * the sample is the recency-ordered head, and naming a spread would only
+ * the sample is the modification-time-ordered head, and naming a spread would only
  * restate the path counts already there.
  *
  * @param sample - the inline page and its top-level spread.
@@ -202,17 +215,17 @@ export function formatGlobOutput(sample: GlobSample, seen: number, spillRef: Spi
   const basis = sample.total === seen
     ? '.'
     : `, sampled across ${sample.shown} of the ${sample.total} top-level entries this pattern matched instead of taken in modification-time order.`
-      + (sample.shown < sample.total ? ' Use the list tool to see what a directory contains.' : '')
+      + (sample.shown < sample.total ? ' Narrow path to inspect a specific subtree.' : '')
   return `${body}\n\n(Showing ${sample.items.length} of ${seen} paths${basis} ${recovery})`
 }
 
-/** Bound and format one canonical path list for the Native surface. */
-function renderGlobPaths(paths: string[], maxResults: number, spillRef?: SpillRef): string {
+/** Bound and format one canonical path list for the Native surface relative to its search root. */
+function renderGlobPaths(paths: string[], maxResults: number, root: string, spillRef?: SpillRef): string {
   if (paths.length === 0) return 'No files found'
   // A result that fits is shown whole, untouched: modification-time order is the
   // tool's contract, and over a complete result it is what answers age questions.
   if (paths.length <= maxResults) return paths.join('\n')
-  return formatGlobOutput(sampleAcrossTopLevel(paths, maxResults), paths.length, spillRef)
+  return formatGlobOutput(sampleAcrossTopLevel(paths, maxResults, root), paths.length, spillRef)
 }
 
 /**
@@ -238,16 +251,16 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     name: 'tool:glob',
     order: 103,
     text: 'Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. '
-      + 'Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level directories, '
-      + 'so it spans the tree instead of one subtree. Use the list tool to see what a directory contains.',
+      + 'Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level entries, '
+      + 'so it spans the tree instead of one subtree.',
   })
 
   const tool = defineTool({
     name: 'glob',
     description: 'Find files whose paths match a glob pattern. Returns matching file paths — never directories — '
       + 'including hidden and ignored files (VCS metadata directories are excluded). '
-      + `Up to ${caps.maxResults} paths come back in modification-time order; a larger result instead returns ${caps.maxResults} paths sampled across top-level directories, `
-      + 'says so, and reports where the complete sorted list was saved. To see what a directory contains, use the list tool instead.',
+      + `Up to ${caps.maxResults} paths come back in modification-time order; a larger result instead returns ${caps.maxResults} paths sampled across top-level entries, `
+      + 'says so, and reports where the complete sorted list was saved. This tool does not enumerate directory entries.',
     parameters: {
       pattern: {
         type: 'string',
@@ -263,15 +276,17 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         type: 'object',
         additionalProperties: false,
         properties: {
+          root: { type: 'string', required: true },
           paths: { type: 'array', required: true, items: { type: 'string' } },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps.maxResults) }],
+      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps.maxResults, value.root) }],
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
       const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes)
-      if (run.noMatches) return { paths: [] }
+      const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, run.workdir)
+      if (run.noMatches) return { root, paths: [] }
 
       const all: string[] = []
       for (const line of run.stdout.split('\n')) {
@@ -279,7 +294,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         const displayPath = toWorkdirRelative(line, run.workdir)
         all.push(displayPath)
       }
-      return { paths: all }
+      return { root, paths: all }
     },
     presentCall: presentGlobCall,
   })
@@ -287,14 +302,14 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()
-    const value = acceptedSurfaceValue(ctx, tool, exec, result, decision) as { paths: string[] } | undefined
+    const value = acceptedSurfaceValue(ctx, tool, exec, result, decision) as { root: string; paths: string[] } | undefined
     if (value === undefined) return decision
     const paths = value.paths
     if (paths.length <= caps.maxResults) return decision
     const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
     return {
       kind: 'accept',
-      content: [{ type: 'text', text: renderGlobPaths(paths, caps.maxResults, spillRef) }],
+      content: [{ type: 'text', text: renderGlobPaths(paths, caps.maxResults, value.root, spillRef) }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }
   })

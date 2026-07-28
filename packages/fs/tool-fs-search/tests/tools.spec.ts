@@ -185,6 +185,10 @@ describe('registration', () => {
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
     expect(prompt).toContain('Use the glob tool')
     expect(prompt).toContain('Use the grep tool')
+    expect(prompt).toContain('sampled across top-level entries')
+    expect(prompt).not.toContain('sampled across top-level directories')
+    const glob = ctx.tools.schemas().find(schema => schema.name === 'glob')
+    expect(glob?.description).toContain('sampled across top-level entries')
   })
 
   it('does not register glob or grep when the bash executor cannot find rg', async () => {
@@ -526,8 +530,36 @@ describe('cross-directory sampling', () => {
       .toEqual({ items: ['/out/a', '/away/c'], shown: 2, total: 2 })
   })
 
-  it('reproduces the recency-ordered head for a flat result', () => {
+  it('reproduces the modification-time-ordered head for a flat result', () => {
     expect(sampleAcrossTopLevel(['a.ts', 'b.ts', 'c.ts'], 2)).toEqual({ items: ['a.ts', 'b.ts'], shown: 2, total: 3 })
+  })
+
+  it('groups paths relative to an explicit search root', () => {
+    expect(sampleAcrossTopLevel([
+      'workspace/vendor/a.ts',
+      'workspace/vendor/b.ts',
+      'workspace/source/c.ts',
+      'workspace/guides/d.md',
+    ], 3, 'workspace')).toEqual({
+      items: ['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'],
+      shown: 3,
+      total: 3,
+    })
+    expect(sampleAcrossTopLevel(['./vendor/a.ts', './src/b.ts'], 2, '.'))
+      .toEqual({ items: ['./vendor/a.ts', './src/b.ts'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['/vendor/a.ts', '/src/b.ts'], 2, '/'))
+      .toEqual({ items: ['/vendor/a.ts', '/src/b.ts'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['C:\\root\\a\\one', 'C:\\root\\b\\two'], 2, 'C:\\root'))
+      .toEqual({ items: ['C:\\root\\a\\one', 'C:\\root\\b\\two'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['other/a.ts'], 1, 'src'))
+      .toEqual({ items: ['other/a.ts'], shown: 1, total: 1 })
+    expect(sampleAcrossTopLevel(['src'], 1, 'src'))
+      .toEqual({ items: ['src'], shown: 1, total: 1 })
+  })
+
+  it('handles more top-level groups than the JavaScript argument limit', () => {
+    const paths = Array.from({ length: 125_000 }, (_, index) => `dir-${index}/file.txt`)
+    expect(sampleAcrossTopLevel(paths, 100)).toMatchObject({ shown: 100, total: 125_000 })
   })
 })
 
@@ -537,7 +569,7 @@ describe('glob results', () => {
     bash.handler = () => runResult('/sessions/s1/src/a.ts\n/elsewhere/b.ts\nrel/c.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
     expect(text(result)).toBe(`${join('src', 'a.ts')}\n/elsewhere/b.ts\nrel/c.ts`)
   })
 
@@ -565,7 +597,7 @@ describe('glob results', () => {
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
     expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves).toHaveLength(1)
     expect(spill?.saves[0]).toMatchObject({
@@ -587,11 +619,37 @@ describe('glob results', () => {
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
     expect(text(result)).toBe('vendor/a.ts\nsrc/d.ts\nguide/e.md\n\n'
       + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
-      + 'instead of taken in modification-time order. Use the list tool to see what a directory contains. '
+      + 'instead of taken in modification-time order. Narrow path to inspect a specific subtree. '
       + 'The complete result could not be saved; narrow pattern or path to see more.)')
   })
 
-  it('drops the list hint when the sample does reach every top-level entry', async () => {
+  it('samples relative to the explicit search root instead of its workdir prefix', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult([
+      'workspace/vendor/a.ts',
+      'workspace/vendor/b.ts',
+      'workspace/source/c.ts',
+      'workspace/guides/d.md',
+    ].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: 'workspace' }, { agent: agent('/w') })
+    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
+  })
+
+  it('samples relative to an absolute search root after workdir display conversion', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult([
+      '/w/workspace/vendor/a.ts',
+      '/w/workspace/vendor/b.ts',
+      '/w/workspace/source/c.ts',
+      '/w/workspace/guides/d.md',
+    ].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: '/w/workspace' }, { agent: agent('/w') })
+    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
+  })
+
+  it('drops the narrowing hint when the sample reaches every top-level entry', async () => {
     const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
     bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].join('\n'))
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
@@ -608,7 +666,7 @@ describe('glob results', () => {
       .toBe('vendor/a.ts\nvendor/b.ts\nsrc/c.ts')
   })
 
-  it('keeps the plain footer for a flat result, where the sample IS the recency head', async () => {
+  it('keeps the plain footer for a flat result, where the sample is the modification-time head', async () => {
     const { ctx, bash } = await setup({ config: { globMaxResults: 2 } })
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
@@ -627,14 +685,14 @@ describe('glob results', () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 1 }, spill: true })
     ctx.on('tools/post-execute', async () => ({
       kind: 'accept' as const,
-      value: { paths: ['replacement-a.ts', 'replacement-b.ts'] },
+      value: { root: '.', paths: ['replacement-a.ts', 'replacement-b.ts'] },
     }))
     bash.handler = () => runResult('old-a.ts\nold-b.ts\n')
 
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
 
     if (result.isError) throw new Error('expected glob replacement success')
-    expect(result.value).toEqual({ paths: ['replacement-a.ts', 'replacement-b.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['replacement-a.ts', 'replacement-b.ts'] })
     expect(text(result)).toContain('replacement-a.ts')
     expect(text(result)).not.toContain('old-a.ts')
     expect(spill?.saves).toHaveLength(0)
@@ -648,7 +706,7 @@ describe('glob results', () => {
       parent: Symbol('run_code') as ToolExecutionToken,
     })
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
     expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. The complete result could not be saved; narrow pattern or path to see more.)')
     expect(spill?.saves).toHaveLength(0)
   })

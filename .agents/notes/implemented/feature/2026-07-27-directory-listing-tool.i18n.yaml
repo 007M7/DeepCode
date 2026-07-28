@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-directory-listing-tool.md
-2026-07-27-directory-listing-tool.md: 4292c173f07064ff8825462e08096780c20ad9d6
-2026-07-27-directory-listing-tool.zh.md: 4033254b08a77ba7ed9b1f3e638213f019abb692
+2026-07-27-directory-listing-tool.md: a23cdb0090f1a88b783d9717aa3f0434b6c2782e
+2026-07-27-directory-listing-tool.zh.md: bab0138a79ae770ae7e841392b879940e8ac2dc4
