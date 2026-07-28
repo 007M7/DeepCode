@@ -71,7 +71,10 @@ function bench(options: { projection?: GoalProjection | null | undefined; failWi
   ctx.provide('sessions', {
     binding: (id: SessionId) => ({
       sessionId: id,
-      session: { projections: { get: (key: string) => (key === 'goal' ? options.projection : undefined) } },
+      session: { projections: { faceOf: (key: string) => ({
+        getSnapshot: () => (key === 'goal' ? options.projection : undefined),
+        subscribe: () => () => {},
+      }) } },
       ctx,
     }),
   })

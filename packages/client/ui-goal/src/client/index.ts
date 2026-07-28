@@ -45,7 +45,8 @@ export function apply(ctx: ClientContext): void {
 
     /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
     const refOf = (sessionId: SessionId): GoalRef | undefined => {
-      const projection = sessions.binding(sessionId)?.session.projections.get('goal') as GoalProjection | null | undefined
+      const face = sessions.binding(sessionId)?.session.projections.faceOf('goal')
+      const projection = face?.getSnapshot() as GoalProjection | null | undefined
       if (projection == null) return undefined
       return { id: projection.goal.id, revision: projection.goal.revision }
     }
