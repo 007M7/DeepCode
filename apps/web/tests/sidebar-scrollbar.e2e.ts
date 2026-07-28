@@ -59,13 +59,27 @@
 // the same query flipped from the hover colour to the resting one).
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
+import {
+  assertFixtureInventory, compareOrRefreshGolden, launchWebScaffold, seedSession, watchConsole,
+  webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/sidebar-scrollbar', import.meta.url))
+/**
+ * Committed golden of the resolved scrollbar style and geometry, in both
+ * palettes. The aria goldens the other scenarios commit cannot carry this
+ * change: it alters no DOM and no accessible name, so their normalized trees are
+ * byte-identical with and without it. This one records the values instead, which
+ * makes an unintended shift in thumb colour, band width, or rendering path a
+ * reviewable diff rather than an assertion someone has to think about.
+ */
+const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
 /** Enough rows that the list overflows the 800px-tall viewport's sidebar; the scenario asserts the overflow rather than trusting it. */
 const SEED_COUNT = 24
@@ -177,6 +191,48 @@ function measureList(page: Page): Promise<ListMetrics> {
       timeCoveredBy: Math.max(0, time.getBoundingClientRect().right - (list.getBoundingClientRect().right - barWidth)),
     }
   })
+}
+
+/**
+ * Render the golden body: the resolved scrollbar style of the list in each
+ * palette, plus the geometric relations the fix establishes.
+ *
+ * Absolute coordinates are deliberately absent. `timeRight`, `clientRight`, and
+ * `borderRight` depend on the sidebar's laid-out width and on font metrics, so
+ * committing them would make the golden fail on a machine whose fonts measure
+ * differently — a fixture that has to be re-recorded per platform documents the
+ * platform, not the change. What is recorded instead is the band, the overlap,
+ * and the two orderings, each of which is a difference or a comparison and so
+ * survives any layout that keeps the reservation.
+ * @param light - metrics measured under the light palette.
+ * @param dark - metrics measured under the dark palette.
+ * @returns the golden body, without a trailing newline.
+ */
+function renderGeometry(light: ListMetrics, dark: ListMetrics): string {
+  const palette = (name: string, metrics: ListMetrics): string[] => [
+    `## ${name}`,
+    '',
+    `- scrollbar-gutter: ${metrics.gutter}`,
+    `- ::-webkit-scrollbar width: ${metrics.width}`,
+    `- ::-webkit-scrollbar-track background: ${metrics.track}`,
+    `- scrollbar-width: ${metrics.standardWidth}`,
+    `- scrollbar-color: ${metrics.standardColor}`,
+    `- ::-webkit-scrollbar-thumb:hover declarations: ${metrics.hoverRules.join(' | ')}`,
+    `- --dsh-scrollbar-thumb: ${metrics.token}`,
+    `- --dsh-scrollbar-thumb-hover: ${metrics.hoverToken}`,
+    `- list overflows: ${String(metrics.overflows)}`,
+    `- reserved band: ${String(metrics.band)}px`,
+    `- relative time covered by the bar: ${String(metrics.timeCoveredBy)}px`,
+    `- relative time ends inside the content area: ${String(metrics.timeRight <= metrics.clientRight)}`,
+    `- content area ends before the border box: ${String(metrics.clientRight < metrics.borderRight)}`,
+    '',
+  ]
+  return [
+    '# Sidebar session list scrollbar',
+    '',
+    ...palette('Light palette', light),
+    ...palette('Dark palette', dark),
+  ].join('\n').trimEnd()
 }
 
 /**
@@ -295,6 +351,22 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     expect(restored.hoverToken).toBe(light.hoverToken)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
+
+  it('matches the committed scrollbar geometry golden in both palettes', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-scrollbar-golden'))
+    const light = await measureList(page)
+    await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
+    const dark = await measureList(page)
+    await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
+    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(light, dark), MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('commits exactly the fixtures it reads', async () => {
+    // The scenario borrows seeded-history's seed.jsonl rather than committing a
+    // second copy, so this directory holds the golden alone.
+    await assertFixtureInventory(SNAPSHOT_DIR, ['geometry.expected.md'])
+  })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', () => {
     expect(tripwire.warnings).toEqual([])

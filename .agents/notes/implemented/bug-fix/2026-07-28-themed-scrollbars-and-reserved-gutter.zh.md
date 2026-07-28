@@ -20,7 +20,9 @@ Status: implemented
 
 两种渲染互斥，而这种互斥是被强制的，不是假定的。`scrollbar-width` 或 `scrollbar-color` 只要取非 `auto` 值，Chromium 与 Safari 就会丢弃该元素上的全部 `::-webkit-scrollbar*` 规则，`::-webkit-scrollbar-thumb:hover` 也在其中。因此无条件地同时声明会让 hover token 在任何地方都得不到渲染：实现了 hover 伪元素的引擎，恰恰就是被标准属性静音的那些，而 Firefox 没有 hover 伪元素可作退路。于是标准属性写在 `@supports not selector(::-webkit-scrollbar)` 之内，该条件只在伪元素未被实现处为真，因此 Firefox 走标准属性路径，WebKit 系引擎走伪元素路径。WebKit 规则不再反向加门禁：不实现这些伪元素的引擎会把它们当作未知选择器丢弃，因此加门禁只是重述选择器匹配本身已经做的事。对于旧到不支持 `selector()` 函数的引擎，该条件无效，从而求值为假并选中伪元素路径——对于这条判断下现实存在的 16.4 之前的 Safari，这正是正确的一侧。
 
-两条路径都读取同一组间接变量 `--dsh-scrollbar-thumb` 与 `--dsh-scrollbar-thumb-hover`，它们在 `body` 上绑定到 l1（基础表面）token。**这就是重新绑定契约，也是单看 CSS 无法得知的部分**：抬升表面在自己的容器上设置 `--dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2)` 与 `--dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2)`，这一次重新绑定同时作用于标准属性和 WebKit 伪元素。这组变量必须成对重新绑定；只改静止态滑块会让 hover 状态仍留在基础表面的 token 上。目前有四处抬升表面做了重新绑定：命令浮层、斜杠菜单、模型选择面板与设置面板。后两者把声明写在抬升面板上而非滚动的后代元素上，因为抬升层级是这个表面的属性，而自定义属性会继承到真正滚动的那个子元素。
+两条路径都读取同一组间接变量 `--dsh-scrollbar-thumb` 与 `--dsh-scrollbar-thumb-hover`，它们在 `body` 上绑定到 l1（基础表面）token。**这就是重新绑定契约，也是单看 CSS 无法得知的部分**：抬升表面在自己的容器上设置 `--dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2)` 与 `--dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2)`，这一次重新绑定同时作用于标准属性和 WebKit 伪元素。这组变量必须成对重新绑定；只改静止态滑块会让 hover 状态仍留在基础表面的 token 上。目前有七处抬升表面做了重新绑定：命令浮层、斜杠菜单、模型选择面板、设置面板、`ui-primitives` 共用菜单卡片、输入条卡片与提问组件卡片。多数把声明写在抬升卡片上而非滚动的后代元素上，因为抬升层级是这个表面的属性，而自定义属性会继承到真正滚动的那个子元素。
+
+后三处在最初的实现里被漏掉、由评审发现，因此重新绑定契约现在由机械检查把关，而不再依赖人工审阅：一张样式表只要在某处滚动、又在某处绘制已知的抬升表面，就必须重新绑定。抬升表面集合从已经做了重新绑定的样式表推导得出——重新绑定的那条规则正好绘制着它所声明抬升层级的那个表面——因此该集合自我维护，不是一份需要人去更新的清单。这项检查以表面为粒度而非以元素为粒度，因为卡片与真正滚动的后代元素是两条不同的规则，而 CSS 文本无法表达谁包含谁。
 
 轨道与两条滚动条相交的角落保持透明，因此滑块是以其下滚动的任何表面为背景被看到；只有滑块及其 hover 状态带 token 颜色。
 
@@ -60,6 +62,8 @@ Status: implemented
 三份单元测试读取磁盘上的 CSS 文本。`ui-theme/tests/scrollbar-styles.spec.ts` 从 `design-platform.css` 中扫描出滚动条 token 集合，而不是把它写死，因此新增、重命名或删除 token 时断言会随之变化；它检查每个 token 都有消费方，且每处抬升表面重新绑定的都是完整的一对。它还以源码偏移量锁定两条路径的划分：标准属性在门禁块之内，`::-webkit-scrollbar*` 规则与每一处对 hover 间接变量的读取都在门禁块之外。这个划分必须用偏移量断言，因为该测试文件的规则解析器会把 at-rule 拉平，所以删掉门禁或把某条声明移到门禁另一侧，文件里其余全部断言仍然是绿的。
 
 `apps/web/tests/sidebar-scrollbar.e2e.ts` 覆盖只有真实渲染引擎才能报告的事实：预留条带的宽度，以及引擎实际走的是哪条渲染路径。它不需要任何模型调用——列表只要溢出即可——因此以只读方式复用一份既有的已提交 fixture（测试前置数据）来铺入冷会话。
+
+这个场景还提交了一份 golden（期望产物）`snapshots/sidebar-scrollbar/geometry.expected.md`，记录两套调色板下解析后的滚动条样式与几何。其余 web 场景提交的 aria golden 承载不了纯 CSS 的改动：它不改变任何 DOM、也不改变任何无障碍名称，因此有无这次改动，它们规范化后的树都是逐字节相同的。改为记录解析后的取值，就让滑块颜色、条带宽度或渲染路径的意外变化成为可评审的 diff，而不是一条需要人去推敲的阈值断言。绝对坐标被特意排除——`timeRight` 与两条边缘取决于侧边栏排版后的宽度和字体度量，把它们提交进去会得到一份需要按平台重新录制的 fixture，那记录的是平台而不是这次改动。真正记录下来的是条带、重叠量与两个先后关系，每一项都是差值或比较，因此只要预留仍然成立，任何排版下都不变。
 
 在构建产物客户端上于 headless chromium 中读取计算值确认，这正是区分「token 链真正生效」与「语法合法」的手段：滚动容器在两套调色板下分别计算出 l1 的滑块颜色，而重新绑定间接变量的容器计算出 l2 的颜色，证明重新绑定作用到了计算值，而不只是作用到自定义属性上。Firefox 的标准属性路径以同样方式做了验证，包含 `scrollbar-color` 上从 l1 到 l2 的重新绑定；headless Firefox 对任何元素（无论是否被样式命中）都报告 `scrollbar-width: none`，这是 headless 的产物，不是这张样式表造成的。
 

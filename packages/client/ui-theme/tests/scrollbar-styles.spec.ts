@@ -167,21 +167,63 @@ const allTokens = new Set([...lightTokens, ...darkTokens])
 const referencedTokens = new Map<string, string[]>()
 /** Every indirection property any package stylesheet outside ui-theme declares, mapped to its declaring rules. */
 const rebindRules: { file: string; rule: CssRule }[] = []
+/**
+ * What one stylesheet contributes to the elevated-surface question: which
+ * surface tokens its rules paint, whether any rule scrolls, and whether it
+ * rebinds. Kept per file rather than per rule because the elevated card and the
+ * descendant that actually scrolls are separate rules in the same sheet, and
+ * CSS text does not express which element contains which.
+ */
+interface SheetSurfaces {
+  /** Surface tokens named by `background`/`background-color` on a rebinding rule. */
+  rebound: Set<string>
+  /** Surface tokens named by `background`/`background-color` anywhere in the sheet. */
+  painted: Set<string>
+  /** True when some rule declares `overflow*: auto|scroll`. */
+  scrolls: boolean
+  /** True when some rule rebinds the indirection. */
+  rebinds: boolean
+}
+const sheetSurfaces = new Map<string, SheetSurfaces>()
+
+/** Properties whose `auto`/`scroll` value makes a rule a scroll container. */
+const OVERFLOW_PROPERTIES = ['overflow', 'overflow-x', 'overflow-y']
+/** Properties that paint a surface, and so identify the elevation a rule sits on. */
+const SURFACE_PROPERTIES = ['background', 'background-color']
 
 for (const file of packageStylesheets()) {
   const rules = parseRules(readFileSync(file, 'utf8'))
+  const surfaces: SheetSurfaces = { rebound: new Set(), painted: new Set(), scrolls: false, rebinds: false }
   for (const rule of rules) {
     let rebinds = false
+    const ruleSurfaces: string[] = []
     for (const [property, value] of rule.declarations) {
       if (property.startsWith(INDIRECTION_PREFIX) && file !== fileURLToPath(new URL('scrollbar.css', STYLES))) rebinds = true
+      if (OVERFLOW_PROPERTIES.includes(property) && /\b(?:auto|scroll)\b/.test(value)) surfaces.scrolls = true
+      if (SURFACE_PROPERTIES.includes(property)) ruleSurfaces.push(...varReferences(value))
       for (const token of varReferences(value)) {
         if (!token.startsWith(TOKEN_PREFIX)) continue
         referencedTokens.set(token, [...referencedTokens.get(token) ?? [], file])
       }
     }
-    if (rebinds) rebindRules.push({ file, rule })
+    for (const token of ruleSurfaces) surfaces.painted.add(token)
+    if (rebinds) {
+      rebindRules.push({ file, rule })
+      surfaces.rebinds = true
+      for (const token of ruleSurfaces) surfaces.rebound.add(token)
+    }
   }
+  sheetSurfaces.set(file, surfaces)
 }
+
+/**
+ * Surface tokens known to be elevated, derived from the sheets that already
+ * rebind rather than listed here: a rebinding rule paints the surface whose
+ * elevation it is declaring. Deriving it means a new elevated surface joins the
+ * set by rebinding, and cannot be added to the palette without either rebinding
+ * or failing the check below.
+ */
+const elevatedSurfaces = new Set([...sheetSurfaces.values()].flatMap(surfaces => [...surfaces.rebound]))
 
 describe('design-platform.css scrollbar tokens', () => {
   it('defines the same scrollbar token set in the light and the dark block', () => {
@@ -381,6 +423,27 @@ describe('elevated surface rebinds', () => {
           expect(token, `${file}: ${property}`).toMatch(/-l2$/)
         }
       }
+    }
+  })
+
+  it('every sheet that scrolls on a known elevated surface rebinds', () => {
+    // The failure this closes: a scroll container on an elevated surface that
+    // nobody remembered to rebind renders the l1 thumb, which differs from l2
+    // only in the dark palette and only for that one surface — invisible in
+    // review and in a light-palette screenshot. Three sheets shipped that way
+    // (ui-primitives Menu, InputBar, QuestionComposer) and review caught them
+    // by hand, which is what this replaces.
+    //
+    // Surface-level, not element-level: the elevated card and the descendant
+    // that scrolls are separate rules, and CSS text does not say which contains
+    // which. A sheet that both scrolls somewhere and paints a known elevated
+    // surface somewhere must rebind; the elevation would otherwise be a
+    // coincidence of two unrelated rules, which no sheet under test does.
+    expect(elevatedSurfaces.size).toBeGreaterThan(0)
+    for (const [file, surfaces] of sheetSurfaces) {
+      if (!surfaces.scrolls || surfaces.rebinds) continue
+      const elevated = [...surfaces.painted].filter(token => elevatedSurfaces.has(token))
+      expect(elevated, `${file} scrolls on ${elevated.join(', ')} without rebinding`).toEqual([])
     }
   })
 })
