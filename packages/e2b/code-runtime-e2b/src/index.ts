@@ -213,7 +213,7 @@ export class E2BCodeRuntime extends CodeRuntime {
         (runtime) => { cleanup(); resolve(runtime) },
         (error: unknown) => {
           cleanup()
-          reject(error instanceof Error ? error : new Error(String(error)))
+          reject(new Error(messageOf(error), { cause: error }))
         },
       )
     })
