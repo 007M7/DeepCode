@@ -19,6 +19,9 @@ import type { Context, Fiber } from 'cordis'
 import type {
   IApiClient, RpcError, RpcResult, SessionId, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -149,8 +152,13 @@ export interface SessionProvideDescriptor {
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
 export class SessionsService {
-  /** Fixed sidebar result bound supplied to presentation plugins as injected data. */
-  readonly searchResultLimit: number
+  /**
+   * The wire schema's own result bound, re-exposed for presentation plugins as
+   * injected data. Not per-connection state: the `session.search` response
+   * schema caps `items` at this constant, so every transport (fixture included)
+   * reports the same number.
+   */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
@@ -184,14 +192,11 @@ export class SessionsService {
   /**
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
-   * @param searchResultLimit - protocol-owned search bound from the connection service.
    */
   constructor(
     private readonly rootCtx: Context,
     api: IApiClient,
-    searchResultLimit: number,
   ) {
-    this.searchResultLimit = searchResultLimit
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })

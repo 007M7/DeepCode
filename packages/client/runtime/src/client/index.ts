@@ -113,11 +113,7 @@ export const inject = ['connection']
 export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionsService(
-    ctx,
-    connection.api,
-    connection.sessionSearchResultLimit,
-  )
+  const sessions = new SessionsService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
   ctx.effect(
     () => workspaces.startInitialSelection(),

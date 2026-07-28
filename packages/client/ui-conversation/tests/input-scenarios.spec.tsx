@@ -93,7 +93,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   api.onList = () => Promise.resolve(ok({
     items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],
   }) as never)
-  const sessions = new SessionsService(ctx, api, 20) // provides 'sessions' itself
+  const sessions = new SessionsService(ctx, api) // provides 'sessions' itself
   await sessions.refresh()
   await Promise.resolve() // manager notifier flush
   await ctx.plugin(SlashService).await()
