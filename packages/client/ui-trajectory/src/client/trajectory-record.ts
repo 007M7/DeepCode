@@ -95,7 +95,7 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * Format own-duration for the trailing time column.
  * @param seconds - Duration seconds, or `null` when absent.
- * @returns `—` when unknown, otherwise a signed seconds label.
+ * @returns `—` when unknown, otherwise a seconds label.
  */
 export function formatElapsedSeconds(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return '—'

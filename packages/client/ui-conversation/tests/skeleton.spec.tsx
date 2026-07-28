@@ -17,7 +17,9 @@ import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
-import type { ComposerBarOwnerProps } from '../src/client/contract/slots.ts'
+import type {
+  ComposerBarOwnerProps, ConversationSessionOwnerProps,
+} from '../src/client/contract/slots.ts'
 
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
@@ -86,9 +88,10 @@ function mount(
     slotCalls.push(key)
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
     if (key === 'conversation.session') {
+      const sessionOwner = owner as ConversationSessionOwnerProps
       return (
         <ConversationSession
-          composer={null}
+          composer={sessionOwner.composer}
           sessionId={SID}
           SessionProvider={({ children }) => children(SID)}
           useSession={useSession}
