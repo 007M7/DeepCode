@@ -55,6 +55,8 @@ export interface DeepSeekHarnessOptions {
   provider?: string
   /** Model for SDK-created agents (default `deepseek-v4-flash`). */
   model?: string
+  /** Maximum output tokens for each conversation-model request. */
+  maxTokens?: number
 }
 
 /** The settled outcome of one {@link HarnessSession.run} turn. */
