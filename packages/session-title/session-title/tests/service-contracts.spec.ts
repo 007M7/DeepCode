@@ -189,6 +189,22 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(ctx.sessionTitle.get(session)?.messageSeqs).toEqual([source.seq])
   })
 
+  it('reuses a title accepted before the queued fallback commits', async () => {
+    const ctx = await setup()
+    const session = startSession(ctx, 'fallback-already-accepted')
+    const source = appendPrompt(session, 'Reuse the title that wins the fallback race')
+
+    const refresh = ctx.sessionTitle.refresh(session)
+    session.append('session/title', {
+      title: 'Already accepted',
+      messageSeqs: [source.seq],
+      source: { kind: 'fallback' },
+    })
+
+    await expect(refresh).resolves.toMatchObject({ title: 'Already accepted' })
+    expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
+  })
+
   it('lets the newest overlapping explicit refresh win', async () => {
     const ctx = await setup()
     const session = startSession(ctx, 'refresh-order')
@@ -252,6 +268,21 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(inactiveError).toBeInstanceOf(Error)
     if (!(inactiveError instanceof Error)) throw new Error('expected inactive refresh to reject')
     expect(inactiveError.message).toBe('session-title service disposed')
+  })
+
+  it('suppresses a queued fallback failure after service unload begins', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const session = startSession(ctx, 'service-unload-started-fallback')
+    appendPrompt(session, 'Start fallback before unloading the service')
+
+    await Promise.resolve()
+    await fiber.dispose()
+
+    expect(session.events.some(event => event.type === 'session/title')).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('aborts pending and active provider work and drains ignored cancellation during service unload', async () => {
