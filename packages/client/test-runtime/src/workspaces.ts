@@ -115,10 +115,13 @@ export class TestWorkspaces implements IWorkspaces {
    * @param path - absolute directory to list; absent lists the home level.
    * @returns the level's listing.
    */
-  async listDirectory(path?: string, _signal?: AbortSignal): Promise<DirectoryListing> {
-    this.calls.push({ method: 'listDirectory', args: [path] })
+  async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
+    // The signal is recorded and forwarded like the production face passes
+    // it to the wire, so cancellation integration tests can observe or
+    // reject on a superseded scan.
+    this.calls.push({ method: 'listDirectory', args: [path, signal] })
     const stub = this.stubs.get('listDirectory')
-    if (stub !== undefined) return await (stub(path) as Promise<DirectoryListing>)
+    if (stub !== undefined) return await (stub(path, signal) as Promise<DirectoryListing>)
     // The chain runs root-to-target inclusive, per the DirectoryListing
     // contract — a bare root crumb would mislabel the level in browsers
     // driven by this double.
