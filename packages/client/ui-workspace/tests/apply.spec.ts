@@ -91,11 +91,16 @@ describe('ui-workspace apply', () => {
     expect(browser.hasDirectoryFlow()).toBe(false)
     expect(picker.hasDirectoryFlow()).toBe(false)
     // A flow occupant flips exactly its own surface.
+    const notified = vi.fn()
+    const unsubscribe = browser.subscribeDirectoryFlow(notified)
     const dispose = b.slots.register({ name: 'sidebar.workspaces.directoryFlow' } as never, () => null)
     expect(browser.hasDirectoryFlow()).toBe(true)
     expect(picker.hasDirectoryFlow()).toBe(false)
+    await Promise.resolve()
+    expect(notified).toHaveBeenCalled()
     dispose()
     expect(browser.hasDirectoryFlow()).toBe(false)
+    unsubscribe()
   })
 
   it('unregisters every entry on teardown', async () => {

@@ -49,10 +49,12 @@ export function apply(ctx: ClientContext): void {
     },
     createWorkspace: input => ctx.workspaces.create(input),
     hasDirectoryFlow: () => ctx.slots.entries('sidebar.workspaces.directoryFlow').length > 0,
+    subscribeDirectoryFlow: listener => ctx.slots.subscribe('sidebar.workspaces.directoryFlow', listener),
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
     hasDirectoryFlow: () => ctx.slots.entries('conversation.hero.workspace.directoryFlow').length > 0,
+    subscribeDirectoryFlow: listener => ctx.slots.subscribe('conversation.hero.workspace.directoryFlow', listener),
   })
   // Declaration-aware registration (deferRegistration): each owner's
   // declaring apply may activate after this one, and a register into an
