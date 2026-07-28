@@ -50,7 +50,7 @@ const QUESTIONS = [
 /** Carrier fixture: a real PendingWait over a scripted respond carrier. */
 function wait(rpcId = 'question-1', respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))) {
   const carrier = new PendingWait(
-    'question', RpcId(rpcId), SID, { questions: QUESTIONS } as PendingWait<'question'>['payload'], respond)
+    'question', RpcId(rpcId), SID, { questions: QUESTIONS }, respond)
   return { carrier, respond }
 }
 
@@ -99,7 +99,7 @@ describe('QuestionComposer', () => {
       { id: 'detail', selected: [], custom: '要能独立排查线上问题' },
       { id: 'signals', selected: ['系统设计', '代码质量'] },
     ]))
-    expect((screen.getByRole('button', { name: '正在提交…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
   })
 
   it('skips individual questions without discarding earlier answers', () => {
@@ -173,7 +173,7 @@ describe('QuestionComposer', () => {
     // Receipt rejection surfaces through the domain face's thrown message.
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
     expect(await screen.findByText('question cancellation rejected: bad-response')).toBeTruthy()
-    expect((screen.getByRole('button', { name: '跳过本题' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '跳过本题' }).disabled).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
     expect(await screen.findByText('第二次取消失败')).toBeTruthy()
@@ -199,7 +199,7 @@ describe('QuestionComposer', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('网络中断')).toBeTruthy()
-    expect((screen.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '提交' }).disabled).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('字符串错误')).toBeTruthy()

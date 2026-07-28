@@ -40,7 +40,7 @@ hook **本身** 会在 agent 的会话工作区中运行：对 agent scope 点�
 | `UserPromptSubmit` | `agent/prompt-submit`（waterfall） | `deny` → `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts`（后续 listener 仍可阻塞／改写） |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `deny` → `PreToolDecision.deny`；`ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `deny` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
-| `Stop` | `agent/turn-continuation`（waterfall） | 阻塞 Stop hook 强制 `continue`，并将原因作为下一步 steering |
+| `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
 | `SubagentStart` | `subagent/start`（emit） | additionalContext → `agent.inject()` 到实时同进程 child；远程 child 没有本地注入目标 |
 | `SubagentStop` | `subagent/end`（emit） | 只观测 |
 

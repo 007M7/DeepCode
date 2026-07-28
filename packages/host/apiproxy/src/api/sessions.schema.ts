@@ -9,7 +9,10 @@ import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { HistoryEntry, SessionSummary } from './sessions.ts'
+import type {
+  HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelReasoningEffort, ModelTarget, SessionSummary,
+} from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 
@@ -76,6 +79,49 @@ export const sessionHistoryRequestSchema = z.object({
   maxMessages: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
 
+/** Complete provider/model target. */
+export const modelTargetSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelTarget>>
+
+/** One adapter-owned reasoning effort. */
+export const modelReasoningEffortSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+}) satisfies z.ZodType<Wire<ModelReasoningEffort>>
+
+/** Exact-model reasoning metadata. */
+export const modelReasoningSchema = z.object({
+  efforts: z.array(modelReasoningEffortSchema).min(1),
+  defaultEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelReasoning>>
+
+/** One advisory model entry inside a provider group. */
+export const modelCatalogModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  unlisted: z.literal(true).optional(),
+  reasoning: modelReasoningSchema.optional(),
+}) satisfies z.ZodType<Wire<ModelCatalogModel>>
+
+/** One successfully loaded provider group. */
+export const modelProviderGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  models: z.array(modelCatalogModelSchema),
+}) satisfies z.ZodType<Wire<ModelProviderGroup>>
+
+/** One provider-local catalog failure. */
+export const modelCatalogFailureSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  message: z.string(),
+}) satisfies z.ZodType<Wire<ModelCatalogFailure>>
+
 /**
  * ToolEventView passthrough: lock only the `for` discriminant and the presence
  * of a card-tagged `view` object. The view interior is a host-computed product
@@ -105,6 +151,31 @@ export const sessionHistoryValueSchema = z.object({
   hasMore: z.boolean(),
   todos: z.array(todoItemSchema).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
+
+/** session.models request payload. */
+export const sessionModelsRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.models'>>>
+
+/** session.models response value. */
+export const sessionModelsValueSchema = z.object({
+  current: modelTargetSchema,
+  groups: z.array(modelProviderGroupSchema),
+  failures: z.array(modelCatalogFailureSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
+
+/** session.selectModel request payload. */
+export const sessionSelectModelRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.selectModel'>>>
+
+/** session.selectModel response value. */
+export const sessionSelectModelValueSchema = z.object({
+  selected: modelTargetSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.selectModel'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })

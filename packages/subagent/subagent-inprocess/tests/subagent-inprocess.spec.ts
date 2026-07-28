@@ -79,6 +79,7 @@ describe('startInProcessRun', () => {
     const result = await run.result
     const child = ctx.agents.get(run.id)!
 
+    expect(injected).toBe(true)
     expect(child.session.events.findLast(event => event.type === 'turn/end'))
       .toMatchObject({ data: { reason: { kind: 'completed' } } })
     expect(result.stopReason).toBe('max-tokens')
@@ -87,7 +88,7 @@ describe('startInProcessRun', () => {
 
   it('seeds a forked child but reads only the child-owned output', async () => {
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.followup([{ type: 'text', text: 'parent question' }])
+    parent.followup({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } })
     await parent.whenIdle()
     const seed = parent.session.events.slice()
     const run = await startInProcessRun(request(parent), { seed })

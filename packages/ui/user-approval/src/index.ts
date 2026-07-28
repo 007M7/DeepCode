@@ -273,8 +273,8 @@ export class ApprovalService extends Service {
       })
     })
 
-    // Visibility layer 2: the boundary narrator. pre-step runs after prompt
-    // assembly but before the request history is derived, so the notice is
+    // Visibility layer 2: the boundary narrator. agent/step runs before the
+    // request history is derived, so the notice is
     // seen by THIS step's request: idle-time flip-flops coalesce at the
     // turn's first step (net-zero → nothing), and a mid-turn switch is
     // narrated no later than the next step. What each session was last told
@@ -287,7 +287,7 @@ export class ApprovalService extends Service {
     // baseline came from the delegating session; otherwise the configured
     // default moved under the session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
-    ctx.on('agent/pre-step', (agent) => {
+    ctx.on('agent/step', (agent) => {
       const session = agent.session
       const events = session.events
       const seedStart = Math.min(session.header.seedLength ?? 0, events.length)
@@ -315,10 +315,10 @@ export class ApprovalService extends Service {
         : overrideIndex < 0 && session.header.approvalPolicy === current
           ? 'inherited from the delegating session'
           : 'changed by the operator/config'
-      agent.inject(
-        [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        { source: { kind: 'plugin', plugin: 'user-approval' } },
-      )
+      agent.inject({
+        content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
+        source: { kind: 'plugin', plugin: 'user-approval' },
+      })
     })
   }
 

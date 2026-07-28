@@ -479,6 +479,12 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
               for (const context of result.additionalContexts ?? []) {
                 exec.deferContext(context)
               }
+              // Like the context forwarding above, cross-boundary facts travel
+              // on the nested result and the composite forwards them: only a
+              // successful nested result can carry the terminal marker
+              // (ToolExecutionFailure types it never), so a policy-converted
+              // failure cannot stop the turn through a recovering program.
+              if (result.concludesTurn) exec.concludeTurn()
               settle(result)
               // Backpressure on the shaped-append side channel: pending log
               // tasks (each retaining a full result while a slow backend

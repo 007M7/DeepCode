@@ -186,7 +186,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       toolCallResponse('c-write', 'write', { file_path: blocked, content: 'escaped' }),
       textResponse('child done'),
     )
-    parent.followup([{ type: 'text', text: 'stage the session policy' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage the session policy' }], source: { kind: 'user' } })
     await parent.whenIdle()
     const parentLogLength = parent.session.events.length
 
@@ -229,7 +229,7 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       },
       textResponse('child done'),
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -264,9 +264,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('fork child done'),
       textResponse('turn two done'),
     )
-    parent.followup([{ type: 'text', text: 'turn one' }])
+    parent.followup({ content: [{ type: 'text', text: 'turn one' }], source: { kind: 'user' } })
     await parent.whenIdle()
-    parent.followup([{ type: 'text', text: 'turn two: delegate' }])
+    parent.followup({ content: [{ type: 'text', text: 'turn two: delegate' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -297,9 +297,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('race child done'),
       textResponse('turn two done'),
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
-    parent.followup([{ type: 'text', text: 'delegate' }])
+    parent.followup({ content: [{ type: 'text', text: 'delegate' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const child = captured[0] as Agent
@@ -329,9 +329,9 @@ describe('sandbox-mode inheritance against the real fs fence', () => {
       textResponse('child done'),
       textResponse('parent done'),
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
-    parent.followup([{ type: 'text', text: 'delegate twice' }])
+    parent.followup({ content: [{ type: 'text', text: 'delegate twice' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     expect(captured).toHaveLength(2)
@@ -363,7 +363,7 @@ describe('inheritance survives prompt vetoes', () => {
       },
       // No child model entries: the blocked prompt closes a zero-step turn.
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -432,7 +432,7 @@ describe('what a blocked child experiences', () => {
       },
       textResponse('child done'),
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})
@@ -468,7 +468,7 @@ describe('what a blocked child experiences', () => {
       }),
       textResponse('child gave up'),
     )
-    parent.followup([{ type: 'text', text: 'stage' }])
+    parent.followup({ content: [{ type: 'text', text: 'stage' }], source: { kind: 'user' } })
     await parent.whenIdle()
 
     const run = await startInProcessRun(spawnRequest(parent), {})

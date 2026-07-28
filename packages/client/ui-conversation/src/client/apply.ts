@@ -90,20 +90,17 @@ export function apply(ctx: Context): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
-      selectWorkspace: (workspaceId) => {
-        void workspaces.connectWorkspace(workspaceId).then((nextId) => {
-          if (sessionId !== undefined && nextId !== sessionId) {
-            const from = inputHub.shell(sessionId)
-            const draft = from.snapshot.draft
-            if (draft !== '') {
-              inputHub.shell(nextId).setDraft(draft)
-              from.setDraft('')
-            }
+      selectWorkspace: async (workspaceId) => {
+        const nextId = await workspaces.connectWorkspace(workspaceId)
+        if (sessionId !== undefined && nextId !== sessionId) {
+          const from = inputHub.shell(sessionId)
+          const draft = from.snapshot.draft
+          if (draft !== '') {
+            inputHub.shell(nextId).setDraft(draft)
+            from.setDraft('')
           }
-          sessions.open(nextId)
-        }).catch(() => {
-          // Failure leaves the current Hero state available to retry.
-        })
+        }
+        sessions.open(nextId)
       },
     }),
   }, ConversationRoot)

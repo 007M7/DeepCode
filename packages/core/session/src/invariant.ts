@@ -66,8 +66,8 @@ function validateEvent(
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
 
-  // SessionEventMap is merge-extensible, so the default enforces turn
-  // enclosure for package-added events as well as the built-in variants.
+  // Model input may be appended between turns without running the model.
+  // Merge-extensible package events remain turn-enclosed by default.
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -141,6 +141,8 @@ function validateEvent(
       pendingCalls = { kind: 'delete', callId: event.data.callId }
       break
     }
+    case 'user/message':
+      break
     default: {
       if (trace.openTurn === null) {
         fail(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)

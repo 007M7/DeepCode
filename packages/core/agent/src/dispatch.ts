@@ -67,13 +67,22 @@ export interface AgentEventDispatch {
 }
 
 /**
+ * Return the fused scope carrier for one agent subject.
+ * @param agent - the subject agent and scope key.
+ * @returns the carrier passed as the event dispatcher `this` value.
+ */
+export function agentCarrier(agent: Agent): Scoped<Agent> {
+  return scopeTarget(agent, agent)
+}
+
+/**
  * Build a dispatcher that couples the agent subject to its scope carrier.
  * @param ctx - the context to dispatch through (any context of the app).
  * @param agent - the subject agent; also the scope-carrier key.
  * @returns the fused dispatcher.
  */
 export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
-  const carrier: Scoped<Agent> = scopeTarget(agent, agent)
+  const carrier = agentCarrier(agent)
   // The ordinary dispatch methods forward through Cordis' variadic mixins. The
   // fused (carrier, name, agent, ...rest) tuple is provably a valid argument
   // list for the matching thisArg overload, but TypeScript cannot relate the
@@ -109,6 +118,22 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
       return waterfall(carrier, name, agent, ...rest)
     },
   }
+}
+
+/**
+ * Emit one contained agent notification without allocating a retained dispatcher.
+ * @param ctx - the context to dispatch through.
+ * @param agent - the subject agent and scope key.
+ * @param name - the agent-subject event to emit.
+ * @param rest - the event arguments after the injected agent.
+ */
+export function emitAgentEvent<K extends AgentSubjectEvent>(
+  ctx: Context,
+  agent: Agent,
+  name: K,
+  ...rest: Tail<K>
+): void {
+  agentEvents(ctx, agent).emit(name, ...rest)
 }
 
 /**

@@ -42,6 +42,21 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Cordis lifecycle tools retain their generic row mechanics while carrying a
+   shared product accent and tool-owned action title. */
+.root[data-tool^='cordis_'] .leading,
+.root[data-tool^='cordis_'] .title {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.root[data-tool^='cordis_'] .title {
+  font-weight: 500;
+}
+
+.root[data-tool^='cordis_'] .sep {
+  background: var(--dsw-alias-state-business-primary);
+}
+
 button.leading {
   cursor: pointer;
 }

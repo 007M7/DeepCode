@@ -12,11 +12,10 @@
 import type { Context } from 'cordis'
 import type { Readable, Writable } from 'node:stream'
 import Schema from 'schemastery'
+import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 import { HarnessSdkServer } from './server.ts'
-import { JsonRpcLineTransport } from './transport.ts'
 
 export * from './server.ts'
-export * from './transport.ts'
 
 export const name = 'jsonrpc'
 // Only the agent factory is required; initialize reads the optional LLM seam with ctx.get().

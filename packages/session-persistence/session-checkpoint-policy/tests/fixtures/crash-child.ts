@@ -56,5 +56,5 @@ const handle = await ctx.agents.create({
   sessionId: SessionId('semantic-checkpoint-crash'),
   agentOptions: { provider: 'crash', model: 'crash' },
 })
-handle.agent.followup([{ type: 'text', text: 'exercise the crash boundary' }])
+handle.agent.followup({ content: [{ type: 'text', text: 'exercise the crash boundary' }], source: { kind: 'user' } })
 await waitForCrash()

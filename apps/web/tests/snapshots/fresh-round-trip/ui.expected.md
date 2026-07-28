@@ -22,4 +22,7 @@
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
+- button "选择模型，当前 deepseek-v4-flash":
+  - text: deepseek-v4-flash
+  - img
 - button "Send message" [disabled]

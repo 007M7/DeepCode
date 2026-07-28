@@ -2,8 +2,8 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, MuxFrame,
-  RpcRequest, RpcResponse, SessionId, SkillEntry,
+  CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, ModelTarget, MuxFrame,
+  RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -45,13 +45,27 @@ export class FakeApiClient implements IApiClient {
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
-    () => Promise.resolve(ok({ events: [], hasMore: false }))
+  => Promise<RpcResponse<{ events: never[]; hasMore: boolean; modelTarget: ModelTarget }>> =
+    () => Promise.resolve(ok({
+      events: [],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+    }))
 
+  onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
+    current: { provider: 'deepseek', model: 'deepseek-chat' },
+    groups: [],
+    failures: [],
+  }))
+  onSelectModel: (payload: ModelTarget & { sessionId: SessionId })
+  => Promise<RpcResponse<{ selected: ModelTarget }>> =
+    payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
+  onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
+    () => Promise.resolve(ok({ path: null }))
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
@@ -64,12 +78,16 @@ export class FakeApiClient implements IApiClient {
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
+    models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
+    selectModel: (payload: ModelTarget & { sessionId: SessionId }) =>
+      this.record('session.selectModel', payload, this.onSelectModel(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }
 
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
+    pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
   }
 
   readonly workspace: IApiClient['workspace'] = {
@@ -89,12 +107,10 @@ export class FakeApiClient implements IApiClient {
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real
   // wire shapes so cases can program catalogs and skill lists without casts.
-  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
-    = () => Promise.resolve(ok({ commands: [] }))
-  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>>
-    = () => Promise.resolve(ok({ matched: false }))
-  onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
-    = () => Promise.resolve(ok({ skills: [] }))
+  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>> = () => Promise.resolve(ok({ commands: [] }))
+  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; result?: CommandExecuteResult }>> =
+    () => Promise.resolve(ok({ matched: false }))
+  onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>> = () => Promise.resolve(ok({ skills: [] }))
 
   readonly commands: IApiClient['commands'] = {
     list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
