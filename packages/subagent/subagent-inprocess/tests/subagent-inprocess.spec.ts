@@ -226,6 +226,9 @@ describe('startInProcessRun', () => {
       options: parent.options,
       session: parent.session,
       ctx: {
+        // The driver's synchronous inheritance capture probes both policy
+        // services opportunistically; this stub composes neither.
+        get: () => undefined,
         agents: {
           create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
             const handle = await ctx.agents.create(options)
