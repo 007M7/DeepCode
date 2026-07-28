@@ -86,6 +86,19 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
+# Common pi-ai provider routes read credentials and endpoint overrides from the
+# boot's layered environment.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        baseURL: !!js process.env.ANTHROPIC_BASE_URL
+
 # Transient-failure recovery around the loop's model calls (same policy as
 # the TUI's agent-spine composition; defaults: 2 retries, 500ms→10s backoff).
 - id: llm-retry
