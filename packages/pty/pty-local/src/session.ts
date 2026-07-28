@@ -94,6 +94,10 @@ class LocalSendOperation implements PtySendOperation {
     return this.promise.promise
   }
 
+  get settled(): boolean {
+    return this.finished
+  }
+
   append(text: string): void {
     if (!this.finished) this.output.append(text)
   }
@@ -155,6 +159,8 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
+  private writing: LocalSendOperation | undefined
+  private pollingReady: LocalSendOperation | undefined
   private polling = false
   private promptSeen = false
   private promptTextSeen = false
@@ -224,7 +230,7 @@ export class LocalPtySession implements PtyBackendSession {
       this.activeAbort = () => request.signal?.removeEventListener('abort', onAbort)
     }
     this.activeDeadlineTimer = setTimeout(() => {
-      if (this.active === operation) this.settleActive('timeout')
+      if (this.active === operation) this.settleActive('timeout', this.writing === operation)
     }, this.config.timeoutMs)
     void this.beginSend(operation, request)
     return operation
@@ -236,12 +242,29 @@ export class LocalPtySession implements PtyBackendSession {
       if (this.active !== operation || this.closing) return
       operation.setInitialForeground(foreground)
       const input = `${request.text}${request.submit ? '\r' : ''}`
-      if (input.length > 0) await this.terminal.write(Buffer.from(input, 'utf8'))
+      if (input.length > 0) {
+        this.writing = operation
+        try {
+          await this.terminal.write(Buffer.from(input, 'utf8'))
+        } finally {
+          this.writing = undefined
+        }
+      }
+      if (this.active === operation && operation.settled) {
+        this.clearActive()
+        return
+      }
       // Closing can race the awaited provider write even though static analysis sees only local assignments.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (this.active === operation && !this.closing) this.schedulePoll(operation, 0)
+      if (this.active === operation && !this.closing) {
+        this.pollingReady = operation
+        this.schedulePoll(operation, 0)
+      }
     } catch (error: unknown) {
-      if (this.active === operation) this.failActive(error)
+      if (this.active === operation) {
+        if (operation.settled) this.clearActive()
+        else this.failActive(error)
+      }
     }
   }
 
@@ -401,15 +424,24 @@ export class LocalPtySession implements PtyBackendSession {
       if (this.active === operation) this.failActive(error)
     } finally {
       this.polling = false
-      if (this.active === operation) this.schedulePoll(operation)
+      const active = this.active
+      // Awaited provider inspection can clear or replace the active send despite static analysis.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (active !== undefined && this.pollingReady === active) this.schedulePoll(active)
     }
   }
 
-  private settleActive(waitReason: PtyWaitReason): void {
+  private settleActive(waitReason: PtyWaitReason, retainOwnership = false): void {
     const operation = this.active
     if (operation === undefined) return
     const scrollbackTruncated = this.scrollback.snapshot().truncated
-    this.clearActive()
+    if (retainOwnership) {
+      this.stopPolling()
+      this.activeAbort?.()
+      this.activeAbort = undefined
+    } else {
+      this.clearActive()
+    }
     operation.settle(waitReason, this.statusValue, scrollbackTruncated)
   }
 
@@ -424,6 +456,8 @@ export class LocalPtySession implements PtyBackendSession {
     this.stopPolling()
     this.activeAbort?.()
     this.activeAbort = undefined
+    this.writing = undefined
+    this.pollingReady = undefined
     this.active = undefined
   }
 

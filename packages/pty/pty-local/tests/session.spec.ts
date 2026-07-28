@@ -268,6 +268,40 @@ describe('LocalPtySession readiness and output', () => {
     failedInternal.fail(new Error('ignored'))
   })
 
+  it('retains send ownership after timeout until an asynchronous provider write settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    const operation = session.startSend({ text: 'slow write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect((await operation.done).waitReason).toBe('timeout')
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow('active send')
+
+    writeGate.resolve(undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    const rejectedWrite = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await rejectedWrite.promise }
+    const rejected = session.startSend({ text: 'late rejection', submit: true })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await rejected.done).waitReason).toBe('timeout')
+    rejectedWrite.reject(new Error('write failed after timeout'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const next = session.startSend({ text: '', submit: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await next.done).waitReason).toBe('inferred_idle')
+  })
+
   it('handles startup exit, unknown exit signals, cancel-write failure, and stale polls', async () => {
     vi.useFakeTimers()
     const startupTerminal = new FakeTerminal()
@@ -507,6 +541,84 @@ describe('LocalPtySession readiness and output', () => {
     ;(staleOperation as unknown as {
       settle(reason: 'timeout', status: PtySessionStatus, inherited: boolean): void
     }).settle('timeout', { kind: 'running' }, false)
+  })
+
+  it('reschedules readiness for a new send after a stale remote inspection releases the poll slot', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const old = session.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let block = true
+    terminal.inspectForeground = async () => block
+      ? await inspection.promise
+      : { processGroupId: 456, inputWaiting: false }
+    const internals = session as unknown as {
+      pollReadiness(operation: PtySendOperation): Promise<void>
+      settleActive(reason: 'timeout'): void
+    }
+    const stalePoll = internals.pollReadiness(old)
+    internals.settleActive('timeout')
+    await old.done
+
+    block = false
+    const current = session.startSend({ text: '', submit: false })
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await Promise.resolve()
+    await Promise.resolve()
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await stalePoll
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect((await current.done).waitReason).toBe('stdin_read')
+  })
+
+  it('does not poll a successor before its own pre-write inspection and write complete', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const old = session.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const staleInspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    const successorInspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let inspectCalls = 0
+    terminal.inspectForeground = async () => {
+      inspectCalls += 1
+      return inspectCalls === 1 ? await staleInspection.promise : await successorInspection.promise
+    }
+    const internals = session as unknown as {
+      pollReadiness(operation: PtySendOperation): Promise<void>
+      settleActive(reason: 'timeout'): void
+    }
+    const stalePoll = internals.pollReadiness(old)
+    internals.settleActive('timeout')
+    await old.done
+
+    const current = session.startSend({ text: 'successor', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    staleInspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await stalePoll
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspectCalls).toBe(2)
+    expect(terminal.writes).toEqual([])
+
+    successorInspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(terminal.writes).toEqual(['successor\r'])
+    expect((await current.done).waitReason).toBe('stdin_read')
   })
 
   it('contains stale timer, write, inspection, and interrupt continuations', async () => {
