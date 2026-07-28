@@ -265,8 +265,8 @@ describe('LocalSkillProvider', () => {
     const home = await tempDir('skill-invocation-booleans')
     const root = join(home, '.dsh/skills')
     await mkdir(root, { recursive: true })
-    const truthy = ['true', 'TRUE', 'yes', 'ON', '1', '"1"']
-    const falsy = ['false', 'FALSE', 'no', 'OFF', '0', '"0"']
+    const truthy = ['true', 'TRUE', '"true"', 'yes', 'ON', '1', '"1"']
+    const falsy = ['false', 'FALSE', '"false"', 'no', 'OFF', '0', '"0"']
     for (const [index, value] of truthy.entries()) {
       await writeFile(join(root, `truthy-${index}.md`), [
         '---',
