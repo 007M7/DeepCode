@@ -12,7 +12,7 @@ Connection refusal, a reset before the first event, clean EOF without `[DONE]`, 
 
 ## Decision
 
-`@deepseek-ai/dsh-llm-mock-server` is a support package with an importable Node HTTP server and a standalone CLI. It accepts OpenAI-compatible root and `/v1` chat-completions paths, validates an optional bearer token, captures requests, and consumes one explicit behavior per accepted request. Script exhaustion fails loud; repetition requires `repeatLast`.
+`@deepseek-ai/dsh-llm-mock-server` is a private support package with an importable Node HTTP server. The repository-local `pnpm run mock:llm` source entry provides a standalone process for manual fault injection; the package exposes no installable binary. It accepts OpenAI-compatible root and `/v1` chat-completions paths, validates an optional bearer token, captures requests, and consumes one explicit behavior per accepted request. Script exhaustion fails loud; repetition requires `repeatLast`.
 
 Request behaviors cover socket reset, post-header disconnect, partial disconnect, stall, valid empty completion, clean truncated streams, malformed payloads, representative HTTP failures, complete text/reasoning/tool-call responses, slow streaming, and max-token completion. A true `connection_refused` is a CLI listener-lifecycle phase because a bound request handler cannot refuse its own TCP connection.
 
@@ -32,10 +32,12 @@ Package tests exercise every request behavior, split UTF-8 request decoding, HTT
 
 **Use only an in-process `LlmAdapter` mock** — rejected because it bypasses fetch, HTTP status/header parsing, SSE framing, socket termination, and the adapter idle watchdog: the exact boundaries this test infrastructure exists to exercise.
 
+**Expose an installable workspace binary** — rejected because pnpm links dependency binaries before repository build outputs exist, coupling clean installs to a test-only artifact. The repository-local source command supports the same manual fault injection without adding a package installation surface.
+
 **Change retry defaults with the server** — rejected because the server reveals existing semantics rather than deciding policy. Extending recovery to `STREAM_CLOSED` requires a separate decision with its own cost, latency, and duplicate-generation trade-offs.
 
 ## Consequences
 
 Developers can reproduce fault sequences by changing only provider URL/key configuration, and automated tests can keep socket-level failures deterministic through explicit scripts and seeds. The same wire fixture now exposes gaps between hard resets, clean truncation, and recovered empty completions without splicing attempts or modifying model history.
 
-The server adds a support package, executable build entry, and behavior vocabulary that must remain compatible with both direct tests and CLI examples. Arrival-ordered scripts are intentionally shared across clients, random defaults are stress weights rather than operational truth, and exact connection refusal requires coordinating the client attempt with the pre-listen interval.
+The server adds a private support package and behavior vocabulary that must remain compatible with both direct tests and repository-local CLI examples. Arrival-ordered scripts are intentionally shared across clients, random defaults are stress weights rather than operational truth, and exact connection refusal requires coordinating the client attempt with the pre-listen interval.
