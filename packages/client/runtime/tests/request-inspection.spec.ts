@@ -105,4 +105,25 @@ describe('inspectRequests', () => {
 
     expect(snapshot.callSchemas.get('nested')?.name).toBe('read')
   })
+
+  it('treats a scrubbed durable-fixture tool catalog as unavailable', () => {
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'request/header', {
+        reason: 'initial',
+        header: {
+          config: { provider: 'fake', model: 'model' },
+          tools: '{{tools}}',
+        },
+      }),
+      at(1, 'tool/call', {
+        turn: 1,
+        step: 1,
+        callId: 'call-1',
+        name: 'read',
+        arguments: '{}',
+      }),
+    ]))
+
+    expect(snapshot.callSchemas).toEqual(new Map())
+  })
 })

@@ -5,7 +5,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: Reply with a one-sentence description of event sourcing, then stop.
 - textbox "Message the agent"
 - button "Add attachment":

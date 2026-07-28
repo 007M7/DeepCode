@@ -183,6 +183,17 @@ export class WorkspacesService {
   }
 
   /**
+   * Open a filesystem path with the Host operating system's default application.
+   * @param path - absolute or host-resolvable path.
+   */
+  async openPath(path: string): Promise<void> {
+    const response = await this.api.host.openPath({ path })
+    if (!response.result.ok) {
+      throw new Error(`path open failed: ${response.result.error.message}`)
+    }
+  }
+
+  /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.
    * @param title - new display title (trimmed non-empty by the Host).

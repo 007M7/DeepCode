@@ -21,6 +21,12 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

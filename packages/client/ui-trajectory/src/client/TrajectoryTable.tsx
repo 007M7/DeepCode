@@ -1,6 +1,6 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
@@ -217,6 +217,14 @@ export interface TrajectoryTableProps {
   requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
+  /** Record indexes emphasized by the active timeline focus. */
+  timelineFocusIndexes?: ReadonlySet<number> | null
+  /** Record indexes retained by the active live search, or null without a query. */
+  searchMatchIndexes?: ReadonlySet<number> | null
+  /** Report the record currently selected in the local inspector. */
+  onSelectedIndexChange?: (index: number | null) => void
+  /** Report a direct user selection from a ledger row. */
+  onRecordSelect?: (index: number) => void
   /** Turn ids whose rows after the first are folded into a summary. */
   collapsedTurns: ReadonlySet<number>
   /** Toggle one turn between folded and expanded. */
@@ -284,6 +292,31 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
     if (last !== undefined) last.turnEnd = true
     return records
   })
+}
+
+function filterRecords(
+  records: readonly TableRecord[],
+  matches: ReadonlySet<number>,
+): TableRecord[] {
+  const filtered = records
+    .filter(record =>
+      record.cell.requestOnly !== true && matches.has(record.cell.index),
+    )
+    .map(record => ({ ...record, groupStart: false, turnStart: false, turnEnd: false }))
+  const startedTurns = new Set<number>()
+  for (const [index, record] of filtered.entries()) {
+    const previous = filtered[index - 1]
+    const next = filtered[index + 1]
+    record.groupStart = previous === undefined
+      || previous.turn !== record.turn
+      || previous.group !== record.group
+    record.turnStart = !startedTurns.has(record.turn)
+      && record.cell.kind !== 'system'
+      && record.cell.kind !== 'compacted'
+    if (record.turnStart) startedTurns.add(record.turn)
+    record.turnEnd = next === undefined || next.turn !== record.turn
+  }
+  return filtered
 }
 
 function requestStep(group: string): number | undefined {
@@ -1357,6 +1390,10 @@ function OverviewSection({
 export function TrajectoryTable({
   requestNumbers: sessionRequestNumbers,
   turns,
+  timelineFocusIndexes = null,
+  searchMatchIndexes = null,
+  onSelectedIndexChange,
+  onRecordSelect,
   collapsedTurns,
   onToggleTurn,
   collapsedAssistants,
@@ -1370,10 +1407,17 @@ export function TrajectoryTable({
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
+  useEffect(() => {
+    onSelectedIndexChange?.(selectedIndex)
+  }, [onSelectedIndexChange, selectedIndex])
   const allRecords = flattenRecords(turns)
   const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
-  const turnRecords = collapseTurnRecords(allRecords, collapsedTurns)
-  const records = collapseAssistantRecords(turnRecords, collapsedAssistants)
+  const records = searchMatchIndexes === null
+    ? collapseAssistantRecords(
+      collapseTurnRecords(allRecords, collapsedTurns),
+      collapsedAssistants,
+    )
+    : filterRecords(allRecords, searchMatchIndexes)
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedPrompt = selected?.cell.kind === 'system'
     ? selected.cell.promptDetail
@@ -1475,6 +1519,7 @@ export function TrajectoryTable({
 
   const selectRecord = (index: number) => {
     const record = allRecords.find(candidate => candidate.cell.index === index)
+    onRecordSelect?.(index)
     setSelectedRequest(null)
     setSelectedIndex(index)
     if (record === undefined) return
@@ -1570,6 +1615,9 @@ export function TrajectoryTable({
                   data-turn-end={record.turnEnd || undefined}
                   data-collapsed-summary={record.collapsedSummaryKind}
                   data-selected={!isCollapsedSummary && selectedIndex === record.cell.index || undefined}
+                  data-timeline-focus={isCollapsedSummary || timelineFocusIndexes === null
+                    ? undefined
+                    : timelineFocusIndexes.has(record.cell.index) ? 'inside' : 'outside'}
                   onClick={isRequestOnly
                     ? undefined
                     : isCollapsedSummary

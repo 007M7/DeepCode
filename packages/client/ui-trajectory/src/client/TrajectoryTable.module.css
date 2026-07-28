@@ -76,7 +76,13 @@
 .table tbody tr:not([data-collapsed-summary]) {
   cursor: default;
   outline: none;
-  transition: background-color 120ms var(--ds-ease-in-out);
+  transition:
+    background-color 120ms var(--ds-ease-in-out),
+    opacity 120ms var(--ds-ease-in-out);
+}
+
+.table tbody tr[data-timeline-focus='outside'] {
+  opacity: 0.24;
 }
 
 .table tbody tr:not([data-collapsed-summary]):not([data-selected='true']):hover {
@@ -660,12 +666,23 @@
 .detailTabs {
   display: flex;
   flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   height: 34px;
   padding: 0 8px;
   overflow-x: auto;
+  overflow-y: hidden;
   gap: 1px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.detailTabs::-webkit-scrollbar {
+  display: none;
 }
 
 .detailTab {

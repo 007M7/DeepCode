@@ -3,7 +3,7 @@
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.__ModuleLoader__.load, resolves externals through the injected
  * require, returns the export surface (apply + inject), and a mounted apply
- * registers both view tabs into a real SlotsService ring. Skips when dist/ is
+ * registers the view tab into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
 import { readFileSync } from 'node:fs'
@@ -63,7 +63,7 @@ describe('tsdown client artifact', () => {
     expect(surface.inject).toEqual(['slots', 'conversation', 'sessions'])
   })
 
-  it.skipIf(code === undefined)('mounted as an object plugin, apply registers both view tabs on the real ring', async () => {
+  it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
     const { surface } = await loadArtifact()
     const ctx = new Context()
     const slots = new SlotsService(ctx)
@@ -78,7 +78,7 @@ describe('tsdown client artifact', () => {
     ctx.provide('sessions', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
-    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory', 'waterfall'])
+    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
     await fiber.dispose()
     expect(slots.entries('conversation.view')).toHaveLength(0)
   })

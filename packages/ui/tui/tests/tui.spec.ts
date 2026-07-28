@@ -1309,6 +1309,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     result.terminal.send('/clear')
     result.terminal.send('\r')
+    await tick() // the executor logs command/run durably before the handler clears
     appendAssistant(result.session, [{ type: 'text', text: 'answer after clear' }], undefined, { turn: 3, step: 1 })
     await tick()
     expect(result.terminal.output).toContain('answer after clear')
@@ -2139,7 +2140,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('/workspace/status')
     expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
     expect(result.terminal.output).toContain('hidden)')
-    expect(result.terminal.output).toContain('running · 6 events · 1 turn · 1 step · 2 tool calls')
+    // 6 domain events + the /status invocation's own command/run (open turn: joined directly).
+    expect(result.terminal.output).toContain('running · 7 events · 1 turn · 1 step · 2 tool calls')
     expect(result.terminal.output).toContain('1,250 input + 340 output')
     expect(result.terminal.output).toContain('[███████████░░░░░] 67% hit (3,000 read + 250 write)')
     expect(result.terminal.output).toContain('[█████░░░░░░░░░░░] 33% used (42,000 / 128,000)')
@@ -2180,7 +2182,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('untitled')
     expect(result.terminal.output).toContain('unset (effort unset; reasoning blocks shown)')
-    expect(result.terminal.output).toContain('idle · 0 events · 0 turns · 0 steps · 0 tool calls')
+    // The /status invocation's command/run lands directly on the empty log — no turn wraps it.
+    expect(result.terminal.output).toContain('idle · 1 event · 0 turns · 0 steps · 0 tool calls')
     expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
     expect(result.terminal.output).toContain('7 used · capacity unknown')
     expect(result.terminal.output).toContain('2026-07-22 10:11:12 UTC')
@@ -2232,8 +2235,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     for (const command of ['/clear', '/wat']) {
       result.terminal.send(command)
       result.terminal.send('\r')
+      await tick() // /clear's handler runs after the durable command/run append; keep it from wiping the next notice
     }
-    await tick()
     result.terminal.send('draft')
     result.terminal.send('\x03')
     result.terminal.send('\x04')

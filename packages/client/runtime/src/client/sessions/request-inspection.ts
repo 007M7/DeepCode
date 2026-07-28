@@ -150,8 +150,11 @@ function deriveCallSchemas(
   }
   for (const event of events) {
     if (event.type === 'request/header') {
+      const tools: unknown = event.data.header.tools
       active = new Map(
-        (event.data.header.tools ?? []).map(schema => [schema.name, schema]),
+        Array.isArray(tools)
+          ? (tools as ToolSchema[]).map(schema => [schema.name, schema])
+          : [],
       )
       continue
     }
