@@ -116,7 +116,9 @@ interface ContentBlockMap {
 
 The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
 
-A `Message` is a role plus blocks. Loop-derived assistant messages carry their durable provider/model identity and optional adapter-private replay metadata:
+Source: [`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
+
+A `Message` is one identified, immutable role/source/content value. Model-produced assistant messages carry provider/model ownership and optional adapter-private replay metadata in their source:
 
 ```ts type-equiv
 /** Provider ownership and adapter-private replay data for an assistant message. */
@@ -135,15 +137,16 @@ interface AssistantProvenance {
 ```
 
 ```ts type-equiv
-/**
- * A single message in a conversation history. Loop-derived assistant messages
- * always carry provenance; callers may omit it on hand-built foreign history.
- */
+/** One immutable message representation shared by delivery, durable history, and model requests. */
 interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: ContentBlock[]
-  /** Present only on assistant messages produced by a routed adapter. */
-  provenance?: AssistantProvenance
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
 }
 ```
 
@@ -157,6 +160,8 @@ Where a message came from is itself a merge-extensible sum type:
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
 }
 ```
 
@@ -448,32 +453,7 @@ interface SendOptions {
 }
 ```
 
-The fixed-preset aliases own `target` and `wakeup`; their `UserMessageData` input carries both content and provenance.
-
-`send` returns the accepted message's opaque `AgentMessageId`, stable across that message's `agent/inbox/*` events:
-
-```ts type-equiv
-/**
- * Opaque id assigned to one accepted {@link Agent.send} message; returned by
- * `send` and carried on its `agent/inbox/*` events for correlation.
- */
-type AgentMessageId = Branded<'AgentMessageId'>
-```
-
-The `agent/inbox/*` live events carry one accepted message; injection bypasses the FIFOs and never appears on them:
-
-```ts type-equiv
-/**
- * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
- * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. The agent snapshots and
- * freezes the accepted content and source before enqueue observers receive it.
- */
-interface AgentMessage extends UserMessageData {
-  /** The id `send` returned for this message. */
-  id: AgentMessageId
-}
-```
+The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable across that message's `agent/inbox/*` events without being returned by the delivery methods. Injection bypasses the FIFOs and never appears on those events.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -532,12 +512,11 @@ interface Agent {
    *   immediately without opening a turn. If admission closes without a turn,
    *   a context-only boundary appends immediately; context staged beside
    *   steering remains pending with it.
-   * The agent snapshots and freezes `input` before publishing or queueing it.
-   * @param input - model-facing content and its producer provenance.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
-   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(input: UserMessageData, options: SendOptions): AgentMessageId
+  send(message: UserMessage, options: SendOptions): void
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -557,10 +536,9 @@ interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param input - prompt content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified prompt content and its producer provenance.
    */
-  followup(input: UserMessageData): AgentMessageId
+  followup(message: UserMessage): void
 
   /**
    * Submit steering during prompt admission or an open turn — the
@@ -570,10 +548,9 @@ interface Agent {
    * or a later prompt takes it. Outside that window steering falls back to a
    * woken follow-up turn, while cancellation or disposal may discard pending
    * steering.
-   * @param input - steering content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified steering content and its producer provenance.
    */
-  steer(input: UserMessageData): AgentMessageId
+  steer(message: UserMessage): void
 
   /**
    * Append model-facing context without running the model — the
@@ -582,10 +559,9 @@ interface Agent {
    * immediately without opening a turn. If admission closes without a turn,
    * a context-only boundary appends immediately; context staged beside
    * steering remains pending with it.
-   * @param input - injected context and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified injected context and its producer provenance.
    */
-  inject(input: UserMessageData): AgentMessageId
+  inject(message: UserMessage): void
 }
 ```
 
@@ -601,7 +577,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Prompt and post-tool decisions use the same `UserMessageData` content/source shape as durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its provenance. Hook bridges map their native decision fields onto these typed results.
+Prompt and post-tool decisions use the same identified `UserMessage` shape as durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its identity and provenance. Hook bridges map their native decision fields onto these typed results.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -615,7 +591,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
   | { kind: 'block'; reason: string }
 ```
 

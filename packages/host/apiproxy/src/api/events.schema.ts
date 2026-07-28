@@ -23,6 +23,14 @@ export const askUserQuestionItemSchema = z.object({
   multiSelect: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
+/** Unified message envelope carried by transient queue frames. */
+const messageSchema = z.object({
+  id: z.string().min(1),
+  role: z.union([z.literal('system'), z.literal('user'), z.literal('assistant')]),
+  content: z.array(contentBlockSchema),
+  source: z.looseObject({ kind: z.string() }),
+})
+
 /** MuxFrame union (payload slot of a mux-stream ServerRequest). */
 export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session/event'), sessionId: sessionIdSchema, event: sessionEventSchema, view: toolEventViewSchema.optional() }),
@@ -34,8 +42,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   // and must fail loud here, not reach the composer.
   z.object({ type: z.literal('question/requested'), sessionId: sessionIdSchema, questions: z.array(askUserQuestionItemSchema).min(1) }),
   z.object({ type: z.literal('question/resolved'), sessionId: sessionIdSchema, questionRpcId: rpcIdSchema, outcome: z.union([z.literal('answered'), z.literal('cancelled')]) }),
-  // content/source reuse the wide passthroughs (both are merge-extensible in core).
-  z.object({ type: z.literal('session/queued'), sessionId: sessionIdSchema, content: z.array(contentBlockSchema), source: z.looseObject({ kind: z.string() }), steering: z.boolean() }),
+  z.object({ type: z.literal('session/queued'), sessionId: sessionIdSchema, message: messageSchema, steering: z.boolean() }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),

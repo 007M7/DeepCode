@@ -89,8 +89,10 @@ function providerTitle(page: HistoryPage): string | undefined {
 
 function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
   return page.events.some(({ event }) => {
-    if (event.type !== 'assistant/message' || !isRecord(event.data) || !Array.isArray(event.data.content)) return false
-    return event.data.content.some(block =>
+    if (event.type !== 'assistant/message' || !isRecord(event.data) || !isRecord(event.data.message)) return false
+    const content = event.data.message.content
+    if (!Array.isArray(content)) return false
+    return content.some(block =>
       isRecord(block) && block.type === 'text' && typeof block.text === 'string' && block.text.includes(marker))
   })
 }

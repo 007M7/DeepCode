@@ -1,3 +1,4 @@
+import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Coordinator semantics against a bare fake backend — the RFC's named unit
  * tier for the seam: adoption (fresh, seeded, re-adoption via the handoff
@@ -70,7 +71,9 @@ function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)
 
 function appendTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
 }
 
 describe('TelemetryCoordinator capture', () => {
@@ -106,8 +109,22 @@ describe('TelemetryCoordinator capture', () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('tool/result', { turn: 1, step: 1, callId: 'c1' as never, content: [], isError: true }, { surfaceOp: 'append' })
-    session.append('tool/result', { turn: 1, step: 1, callId: 'c2' as never, content: [], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [],
+        isError: true,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c2' as never,
+        content: [],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])

@@ -12,7 +12,7 @@ import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue, UserMessageData } from '@deepseek-ai/dsh-session'
+import type { JsonValue, UserMessage } from '@deepseek-ai/dsh-session'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -343,7 +343,7 @@ export interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: UserMessageData): void
+  deferContext(context: UserMessage): void
   /**
    * Mark a successful final result as terminal for the current agent turn.
    * The marker rides this execution's own result (`concludesTurn` exists only
@@ -484,7 +484,7 @@ export interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: UserMessageData[]
+  readonly additionalContexts?: UserMessage[]
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
@@ -496,7 +496,7 @@ export interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: UserMessageData[]
+  readonly additionalContexts?: UserMessage[]
   readonly concludesTurn?: never
 }
 
@@ -519,9 +519,9 @@ export type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 export type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessage[] }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -714,7 +714,7 @@ export class ToolRegistry extends Service {
   }
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
-  private deferredContexts = new WeakMap<ToolRunContext, UserMessageData[]>()
+  private deferredContexts = new WeakMap<ToolRunContext, UserMessage[]>()
   /** Executions whose tool body declared the current turn complete. */
   private concludingExecutions = new WeakSet<ToolExecution>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
@@ -1054,7 +1054,7 @@ export class ToolRegistry extends Service {
   }
 
   private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: MutableToolRunContext } {
-    const deferredContexts: UserMessageData[] = []
+    const deferredContexts: UserMessage[] = []
     const token = createExecutionToken()
     const callId = exec.callId
     const name = exec.name
@@ -1071,7 +1071,7 @@ export class ToolRegistry extends Service {
       signal,
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
-      deferContext(context: UserMessageData): void {
+      deferContext(context: UserMessage): void {
         deferredContexts.push(context)
       },
       concludeTurn(): void {

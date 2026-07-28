@@ -6,10 +6,9 @@
  */
 
 import type { Context } from 'cordis'
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, LlmFailure, MessageSource, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -61,32 +60,6 @@ export interface SendOptions {
   wakeup: boolean
 }
 
-/**
- * Opaque id assigned to one accepted {@link Agent.send} message; returned by
- * `send` and carried on its `agent/inbox/*` events for correlation.
- */
-export type AgentMessageId = Branded<'AgentMessageId'>
-
-/**
- * Brand a string as an {@link AgentMessageId}.
- * @param id - the generated message id.
- * @returns the same string, branded; no validation is performed.
- */
-export function AgentMessageId(id: string): AgentMessageId {
-  return id as AgentMessageId
-}
-
-/**
- * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
- * events. `id` is the value `send` returned to the caller, stable across this
- * message's enqueue, dequeue, and discard events. The agent snapshots and
- * freezes the accepted content and source before enqueue observers receive it.
- */
-export interface AgentMessage extends UserMessageData {
-  /** The id `send` returned for this message. */
-  id: AgentMessageId
-}
-
 /** Options for {@link Agent.cancel}. */
 export interface CancelOptions {
   /**
@@ -112,7 +85,7 @@ export type AgentStatus = 'idle' | 'running'
  * `next()` preserves both fields unless it intentionally replaces them.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
   | { kind: 'block'; reason: string }
 
 /** Model-request failure with an optional machine-routable provider code. */
@@ -177,12 +150,11 @@ export interface Agent {
    *   immediately without opening a turn. If admission closes without a turn,
    *   a context-only boundary appends immediately; context staged beside
    *   steering remains pending with it.
-   * The agent snapshots and freezes `input` before publishing or queueing it.
-   * @param input - model-facing content and its producer provenance.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
    * @param options - target queue and wakeup decision.
-   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  send(input: UserMessageData, options: SendOptions): AgentMessageId
+  send(message: UserMessage, options: SendOptions): void
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -202,10 +174,9 @@ export interface Agent {
    * Queue an ordinary follow-up turn and wake the driver — the
    * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
    * ordinary message of its own turn.
-   * @param input - prompt content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified prompt content and its producer provenance.
    */
-  followup(input: UserMessageData): AgentMessageId
+  followup(message: UserMessage): void
 
   /**
    * Submit steering during prompt admission or an open turn — the
@@ -215,10 +186,9 @@ export interface Agent {
    * or a later prompt takes it. Outside that window steering falls back to a
    * woken follow-up turn, while cancellation or disposal may discard pending
    * steering.
-   * @param input - steering content and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified steering content and its producer provenance.
    */
-  steer(input: UserMessageData): AgentMessageId
+  steer(message: UserMessage): void
 
   /**
    * Append model-facing context without running the model — the
@@ -227,10 +197,9 @@ export interface Agent {
    * immediately without opening a turn. If admission closes without a turn,
    * a context-only boundary appends immediately; context staged beside
    * steering remains pending with it.
-   * @param input - injected context and its producer provenance.
-   * @returns the accepted message's {@link AgentMessageId}.
+   * @param message - identified injected context and its producer provenance.
    */
-  inject(input: UserMessageData): AgentMessageId
+  inject(message: UserMessage): void
 }
 
 declare module 'cordis' {
@@ -275,20 +244,27 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage, placement: InboxPlacement): void
+    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement): void
     /**
      * The driver claimed one item out of the inbox: a queued item at a turn
      * boundary, or steering drained between steps. Fires after the item leaves
      * its FIFO and before it becomes a durable message.
      * @param agent - the agent whose inbox item was claimed.
-     * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
+     * @param message - the claimed message.
+     * @param placement - the FIFO that claimed this occurrence; together with
+     *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
+    'agent/inbox/dequeue'(
+      this: Scoped<Agent>,
+      agent: Agent,
+      message: UserMessage,
+      placement: InboxPlacement,
+    ): void
     /**
      * Pending inbox items were dropped without delivering them, so every
-     * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+     * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
      * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
      * emits this after `agent/cancel-requested` when applicable and before
      * aborting the active work. Fires once per drop with every dropped item.
@@ -297,7 +273,7 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void
+    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[]): void
     /**
      * Effective broad cancellation was requested, before queued/outbox work
      * is cleared or the active turn is aborted. This observe-only notification
@@ -329,13 +305,12 @@ declare module 'cordis' {
      * signal controls only this admission attempt; listeners may cooperate with
      * it but must not retain it for a later attempt or turn.
      * @param agent - the agent whose turn claimed the message.
-     * @param content - the claimed message's blocks, as queued.
-     * @param source - the message's resolved source.
+     * @param message - the frozen claimed message, including identity and source.
      * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
      * Awaited serial checkpoint before EVERY request of a turn is built (the
      * first as well as each post-tools continuation). The single "between
