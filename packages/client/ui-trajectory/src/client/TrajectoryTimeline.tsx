@@ -7,6 +7,7 @@ import {
 import type { TrajectoryTurnModel } from './layout.ts'
 import {
   deriveTrajectoryTimeline,
+  formatTimelineOffset,
   type TrajectoryTimelineMode,
   type TrajectoryTimeRange,
 } from './timeline.ts'
@@ -81,6 +82,18 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   onRecordFocus,
 }: TrajectoryTimelineProps) {
   const model = useMemo(() => deriveTrajectoryTimeline(turns, mode), [mode, turns])
+  const durationByIndex = useMemo(
+    () => new Map(turns.flatMap(turn =>
+      turn.groups.flatMap(group =>
+        group.cells.flatMap(cell =>
+          cell.timeSeconds === null || !Number.isFinite(cell.timeSeconds)
+            ? []
+            : [[cell.index, Math.max(0, cell.timeSeconds * 1_000)] as const],
+        ),
+      ),
+    )),
+    [turns],
+  )
   const dragRef = useRef<{ pointerId: number; anchor: number; width: number } | null>(null)
   const [draft, setDraft] = useState<FractionRange | null>(null)
   const [hover, setHover] = useState<number | null>(null)
@@ -324,6 +337,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
               .map((span) => {
                 const left = (span.start - domainStart) / domainDuration
                 const width = (span.end - span.start) / domainDuration
+                const durationMs = durationByIndex.get(span.index)
                 return (
                   <span
                     className={css.span}
@@ -339,7 +353,9 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                         ? 'true'
                         : 'false'}
                     key={span.index}
-                    title={span.label}
+                    title={durationMs === undefined
+                      ? span.label
+                      : `${span.label} · ${formatTimelineOffset(durationMs)}`}
                     style={{
                       '--trajectory-span-left': `${left * 100}%`,
                       '--trajectory-span-width': `${Math.max(width * 100, 0.35)}%`,

@@ -32,6 +32,17 @@ export interface TrajectoryTimelineModel extends TrajectoryTimeRange {
   turnBoundaries: readonly TrajectoryTimelineTurnBoundary[]
 }
 
+/**
+ * Format a timeline duration with a compact unit.
+ * @param milliseconds - Non-negative duration in milliseconds.
+ * @returns Millisecond or second label.
+ */
+export function formatTimelineOffset(milliseconds: number): string {
+  if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`
+  const seconds = milliseconds / 1_000
+  return seconds >= 10 ? `${Math.round(seconds)} s` : `${seconds.toFixed(1)} s`
+}
+
 function laneFor(kind: TrajectoryCellKind): number {
   if (kind === 'tool' || kind === 'subtool') return 2
   if (kind === 'message' || kind === 'compacted') return 1
