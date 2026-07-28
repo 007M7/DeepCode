@@ -1,16 +1,19 @@
 /**
- * Model-facing read, write, and edit tools over `ctx.fs`. This package owns schemas, validation,
- * read windows, formatting, and observation events, never a concrete provider. An optional
- * event policy supplies mutation guards; without one the tools use unconditional provider calls.
+ * Model-facing list, read, write, and edit tools over `ctx.fs`. This package owns schemas,
+ * validation, read windows, listing order, formatting, and observation events, never a concrete
+ * provider. An optional event policy supplies mutation guards; without one the tools use
+ * unconditional provider calls.
  * @module @deepseek-ai/dsh-tool-fs
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import { applyListTool } from './list.ts'
 import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
+import { LIST_MAX_ENTRIES } from './list-render.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
 import { FsSandboxSurface } from './sandbox.ts'
 
@@ -22,6 +25,8 @@ export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
+  /** Maximum entries one `list` call renders inline; the footer still reports the complete count. */
+  listMaxEntries?: number
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
   /** Maximum characters returned for a single line before truncation. */
@@ -33,6 +38,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  listMaxEntries: z.number().default(LIST_MAX_ENTRIES),
   readLimit: z.number().default(READ_LIMIT),
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
@@ -42,21 +48,23 @@ export const Config: z<Config> = z.object({
 /** The shape after schemastery applied the defaults. */
 type ResolvedConfig = Required<Config>
 
-/** Every read cap counts lines/chars/bytes — a positive integer, or windowing arithmetic misbehaves silently. */
+/** Every read or listing cap counts lines/chars/bytes/entries — a positive integer, or windowing arithmetic misbehaves silently. */
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`tool-fs: ${name} must be a positive integer`)
   }
 }
 
-/** Register the full `read`/`write`/`edit` filesystem tool suite. */
+/** Register the full `list`/`read`/`write`/`edit` filesystem tool suite. */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
+  assertPositiveInteger('listMaxEntries', resolved.listMaxEntries)
   assertPositiveInteger('readLimit', resolved.readLimit)
   assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
   assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
   assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
+  applyListTool(ctx, { maxEntries: resolved.listMaxEntries })
   applyReadTool(ctx, {
     limit: resolved.readLimit,
     maxLineLength: resolved.readMaxLineLength,

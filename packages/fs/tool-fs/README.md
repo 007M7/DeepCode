@@ -2,23 +2,24 @@
 
 English | [中文](README.zh.md)
 
-The **model-facing filesystem tools** — `read`, `write`, `edit` — and their **executor**. This is the consumer layer of the filesystem stack: it owns tool names, JSON schemas, argument validation, prompt sections, **read windowing**, and result formatting. It reads/writes/edits through the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) **directly** — it injects `fs` (plus `tools`/`systemPrompt`), **not** a policy service. The freshness/observation policy is contributed by a separate plugin ([`@deepseek-ai/dsh-fs-policy`](../fs-policy)) through the `fs/*` event gate; the tool is not method-coupled to it.
+The **model-facing filesystem tools** — `list`, `read`, `write`, `edit` — and their **executor**. This is the consumer layer of the filesystem stack: it owns tool names, JSON schemas, argument validation, prompt sections, **read windowing**, **listing order**, and result formatting. It reads/writes/edits through the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) **directly** — it injects `fs` (plus `tools`/`systemPrompt`), **not** a policy service. The freshness/observation policy is contributed by a separate plugin ([`@deepseek-ai/dsh-fs-policy`](../fs-policy)) through the `fs/*` event gate; the tool is not method-coupled to it.
 
 ```ts ignore-check
 // Default deployment: a ctx.fs provider, the policy plugin, then the tools.
 await ctx.plugin(LocalFileSystem, { cwd: process.cwd() }) // @deepseek-ai/dsh-fs-local
 await ctx.plugin(FsPolicy)                             // @deepseek-ai/dsh-fs-policy (policy gate)
-await ctx.plugin(ToolFs)                                  // this package — registers read/write/edit
+await ctx.plugin(ToolFs)                                  // this package — registers list/read/write/edit
 ```
 
 `@deepseek-ai/dsh-fs-policy` is **optional**: omit it and the tools run against the bare provider (unconditional write/overwrite/edit, no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit.
 
 ## Config
 
-All keys are optional; the defaults are the shipped read caps.
+All keys are optional; the defaults are the shipped listing and read caps.
 
 | Key | Default | Meaning |
 |---|---|---|
+| `listMaxEntries` | `200` | Entries one `list` call renders inline; the footer still reports the complete directory's size and composition. |
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call (the tool schema advertises it as the `limit` default). |
 | `readMaxLineLength` | `2000` | Characters kept per line before truncation (the suffix names the cap). |
 | `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a "capped" footer. |
@@ -28,18 +29,20 @@ All keys are optional; the defaults are the shipped read caps.
 
 | Tool | Arguments | Behavior |
 |---|---|---|
+| `list` | `path?` | Direct children of one directory with their type, defaulting to the session workspace. Ordered directories first, then files, then non-regular children, each alphabetical, and capped at the configured `listMaxEntries` (200). |
 | `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer. `offset` is 1-based; `limit` defaults to and caps at the configured `readLimit` (2000). |
 | `write` | `file_path`, `content` | Create or fully replace a file. With the policy plugin: overwriting an existing file requires a prior `read` at the unchanged version; creating a new file does not. Without it: unconditional. |
 | `edit` | `file_path`, non-empty `old_string`, `new_string`, `replace_all?` | Literal replacement; unique match required unless `replace_all` is true. With the policy plugin: requires a prior `read` (any window) and the file unchanged since. Without it: unconditional. |
 
 Field names are snake_case to match Claude Code and existing harness tool schemas.
 
-Canonical successes are `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. Native renderers preserve the line-numbered read and mutation acknowledgements below. Write/edit derive replayable diff-card metadata from these values; the values themselves are execution-local and are not added to `tool/result`.
+Canonical successes are `list` → `{ path, entries: [{ name, type: 'file' | 'directory' | 'other' }] }`, `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. Native renderers preserve the line-numbered read and mutation acknowledgements below. Write/edit derive replayable diff-card metadata from these values; the values themselves are execution-local and are not added to `tool/result`.
 
 ## The tool is the executor; policy is an event gate
 
 The tools do **not** inject a policy service or inspect any cache. Each tool resolves the path via `ctx.fs.resolve(path, { cwd, signal })` — passing the calling agent's session cwd (`exec.agent.session.header.cwd`) so a relative path resolves against the session's workspace, matching `dsh-tool-bash`, and forwarding tool cancellation through resolution (see [the per-session cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)) — then:
 
+- **list** — one `ctx.fs.listDir`; the seam already answers absence with `FS_NOT_FOUND` and a non-directory target with `FS_NOT_DIRECTORY`, so no probe precedes it. No `fs/observed`: a listing reads no file content and must not satisfy the read-before-write gate. (0 stat.)
 - **read** — one `ctx.fs.stat` (type + size routing + version), then `readText`/`streamText`, then builds the line window, then emits `fs/observed` with a plain `ctx.emit`. (1 stat.)
 - **write** — `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` for the optional guard, then `ctx.fs.writeText(target, content, intent)`, then `fs/observed`. (0 stat.)
 - **edit** — `ctx.waterfall('fs/edit-intent', target, exec, () => undefined)` for the optional guard, then `ctx.fs.editText(target, edit, intent)`, then `fs/observed`. (0 stat.)
@@ -50,9 +53,9 @@ The tool passes `exec` (the tool-execution context) as the opaque `actor` on eve
 
 `fs/observed` fires AFTER the read/write/edit already succeeded, via a plain `ctx.emit`. A listener is contractually a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s is a `WeakMap.set`); the tool does not guard the emit, so a listener that throws would surface as the tool's `isError` result — async or fallible observation does not belong on this event.
 
-`read` opts into concurrent scheduling because its only mutation is the synchronous version recorder. Recorder races fail closed when a later `write` or `edit` re-checks the version under its target lock; both mutation tools remain exclusive. See the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+`list` and `read` opt into concurrent scheduling — `list` mutates nothing at all, and `read`'s only mutation is the synchronous version recorder. Recorder races fail closed when a later `write` or `edit` re-checks the version under its target lock; both mutation tools remain exclusive. See the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
-The package root exports only the Cordis plugin contract (`name`, `inject`, `Config`, and `apply`). Read rendering (line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
+The package root exports only the Cordis plugin contract (`name`, `inject`, `Config`, and `apply`). Pure presentation lives beside the executors and is independently unit-tested: read windowing and output formatting in `src/read-render.ts`, listing order and envelope in `src/list-render.ts` (both Cordis-free); `src/list.ts`/`read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
 
 ## Model Experience
 
@@ -60,7 +63,13 @@ The package root exports only the Cordis plugin contract (`name`, `inject`, `Con
 
 #### What the model sees
 
-Every request in this plugin's registration scope receives the independently registered read, write, and edit guidance below. Scoped tool restrictions can hide schemas without removing these sections.
+Every request in this plugin's registration scope receives the independently registered list, read, write, and edit guidance below. Scoped tool restrictions can hide schemas without removing these sections.
+
+##### List guidance
+
+```markdown
+Use the list tool — not shell ls — to see what a directory contains. It returns the direct children of one directory, files and subdirectories alike, and defaults to the session workspace, so it is the first step for orienting in an unfamiliar project. Reach for glob or grep once you know the path pattern or the text you are looking for.
+```
 
 ##### Read guidance
 
@@ -92,7 +101,7 @@ Prefix-stable while the plugin scope and guidance text are unchanged. Tool restr
 
 #### What the model sees
 
-The model sees the generated [`read`, `write`, and `edit` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs), with snake_case arguments. Scoped tool restrictions can remove any definition for one agent.
+The model sees the generated [`list`, `read`, `write`, and `edit` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs), with snake_case arguments. Scoped tool restrictions can remove any definition for one agent.
 
 #### Token effect
 
@@ -101,6 +110,20 @@ Fixed schema cost on every request in that tool view.
 #### KV Cache effect
 
 Prefix-stable while the visible tool definitions and order are unchanged. Registration lifecycle or scoped restrictions may invalidate reuse from the first changed schema token.
+
+### List result
+
+#### What the model sees
+
+A successful listing is exactly `<path><displayPath></path>`, newline, `<type>directory</type>`, newline, `<content>`, one line per entry, a blank line, one footer, and `</content>`. A directory entry carries a trailing `/` and a non-regular child a trailing `@`; a regular file carries neither. The footer is exactly `(Empty directory)`, `(<n> entries: <d> directories, <f> files)` — with `, <o> other` appended only when such a child exists, and singulars where the count is one — or, when the view is capped, `(Showing <k> of <n> entries: <d> directories, <f> files. Entries are directories first, then files, each alphabetical; list a subdirectory to see the rest.)`. The complete count and composition are stated whether or not the view was capped, so a partial listing can never read as a whole directory.
+
+#### Token effect
+
+Listing output is capped by `listMaxEntries`; the retained call and result are resent until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Read result
 
@@ -134,7 +157,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs.
+Failures are normalized as `Error: <message>`. This package's stable validation and read messages are `file_path must be a non-empty string`, `path must be a non-empty string when given`, `limit must be less than or equal to <max>`, `old_string must be a non-empty string`, `old_string and new_string must differ`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and `offset <offset> is out of range for "<path>" (<total> lines)`; provider and policy templates are quoted in their package READMEs.
 
 #### Token effect
 
@@ -146,6 +169,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **No model-facing directory listing ships** — `ctx.fs.listDir` serves provider code such as skill discovery, while the sibling [`dsh-tool-fs-search`](../tool-fs-search/) package supplies bash-backed `glob` and `grep` rather than extending the filesystem seam.
+- **`list` reads one directory level and has no spill path** — recursion, pagination, and per-directory child counts are absent, and a listing past `listMaxEntries` is summarized by its footer rather than saved anywhere retrievable; the model lists a subdirectory instead.
 - **`read` handles UTF-8 text files only** — binary-safe reads and PDF/image/multimodal content are deferred; a directory target is `FS_NOT_REGULAR_FILE`.
 - **No timeout surface** — `read`/`write`/`edit` take no timeout argument and declare no `timeout-policy` budget; cancellation rides `exec.signal` only (the deliberate [fs-family stance](../README.md)).

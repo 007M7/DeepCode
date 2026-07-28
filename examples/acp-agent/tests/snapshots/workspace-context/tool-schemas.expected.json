@@ -116,6 +116,19 @@
       }
     },
     {
+      "name": "list",
+      "description": "List the direct children of one directory, with their type. Entries are directories first, then files, each alphabetical; the first 200 are returned inline and the footer reports the complete count. Unlike glob, this shows subdirectories, so it is how to see what a directory contains.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory to list. Defaults to the session workspace; a relative path resolves against it."
+          }
+        }
+      }
+    },
+    {
       "name": "ralph",
       "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
       "parameters": {

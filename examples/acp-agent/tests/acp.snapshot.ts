@@ -121,6 +121,10 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: true,
   },
+  // A workspace whose subdirectories are what the answer depends on: `glob`
+  // could not produce them at all, so this scenario pins the listing envelope
+  // end to end (see the directory-listing Agent Note).
+  { name: 'fs-list', hasModelTurn: true, recorded: true },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },

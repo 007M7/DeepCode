@@ -230,7 +230,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolFs)
     },
     note:
-      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. `list` enumerates one directory level through `ctx.fs.listDir` and records no observation, so seeing a filename never satisfies that read-before-write gate.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs-search',
