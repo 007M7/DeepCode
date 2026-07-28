@@ -130,6 +130,29 @@ describe('directory-picker-browse client half', () => {
     }
   })
 
+  it('rolls back the zh dictionary when a rival already owns the namespace en slot', async () => {
+    const b = await bench()
+    b.declare()
+    const locale = b.ctx.get('locale') as LocaleService
+    const disposeRival = locale.register('directory-browser', 'en', { 'browser.title': 'rival' })
+    const rejections: unknown[] = []
+    const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
+    // cordis re-raises the apply throw as a late rejection (installFailLoud's contract).
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const fiber = b.ctx.plugin({ inject: [...inject], apply })
+      await expect(fiber.await()).rejects.toThrow(/already has locale/)
+      // The zh registration rolled back with the failure: once the rival
+      // leaves, a fresh registrant owns the whole namespace again.
+      disposeRival()
+      const disposeZh = locale.register('directory-browser', 'zh', { 'browser.title': '空闲' })
+      disposeZh()
+    } finally {
+      await new Promise(resolve => setTimeout(resolve, 0))
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('registers the dialog dictionaries and binds this package namespace', async () => {
     const b = await bench()
     b.declare()

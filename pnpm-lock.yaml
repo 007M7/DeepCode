@@ -2798,6 +2798,9 @@ importers:
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
     devDependencies:
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^

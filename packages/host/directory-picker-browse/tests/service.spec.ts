@@ -7,7 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
-import BrowseDirectoryPicker, { fullyQualified } from '../src/index.ts'
+import BrowseDirectoryPicker, { boundedInsert, fullyQualified } from '../src/index.ts'
+import type { ListingCandidate } from '../src/index.ts'
 
 let root: string
 let capability: DirectoryPickerBrowseCapability
@@ -21,6 +22,13 @@ beforeAll(async () => {
   await writeFile(join(root, 'notes.txt'), 'not a directory')
   await symlink(join(root, 'projects'), join(root, 'linked'), 'junction')
   await symlink(join(root, 'gone'), join(root, 'broken'), 'junction')
+  try {
+    await symlink(join(root, 'notes.txt'), join(root, 'file-link'))
+  } catch {
+    // Windows denies unprivileged file symlinks; the file-link row only
+    // feeds the POSIX lanes' coverage of the symlink-to-file arm, and every
+    // assertion below expects it to be filtered out anyway.
+  }
 
   const ctx = new Context()
   const fiber = ctx.plugin(BrowseDirectoryPicker)
@@ -63,9 +71,29 @@ describe('BrowseDirectoryPicker', () => {
       const exact = await bounded.list(join(root, 'projects'))
       expect(exact.entries.map(entry => entry.name)).toEqual(['harness'])
       expect(exact.truncated).toBe(false)
+      // A level that fits the window but exceeds the bound (two rows, bound
+      // one): the in-window extra row proves the cut without any eviction.
+      await mkdir(join(root, 'projects', 'harness', 'a'))
+      await mkdir(join(root, 'projects', 'harness', 'b'))
+      const inWindow = await bounded.list(join(root, 'projects', 'harness'))
+      expect(inWindow.entries.map(entry => entry.name)).toEqual(['a'])
+      expect(inWindow.truncated).toBe(true)
     } finally {
       await fiber.dispose()
     }
+  })
+
+  it('boundedInsert keeps the window name-sorted and bounded, reporting evictions', () => {
+    const candidate = (name: string): ListingCandidate => ({ name, isDirectory: true, isSymbolicLink: false })
+    const window: ListingCandidate[] = []
+    expect(boundedInsert(window, candidate('m'), 2)).toBe(false)
+    expect(boundedInsert(window, candidate('z'), 2)).toBe(false)
+    // A smaller name lands in place and pushes the current largest out.
+    expect(boundedInsert(window, candidate('a'), 2)).toBe(true)
+    expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
+    // A name beyond the window's tail enters last and leaves immediately.
+    expect(boundedInsert(window, candidate('t'), 2)).toBe(true)
+    expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
   })
 
   it('reports the ancestry as jump-target crumbs ending at the listed directory', async () => {

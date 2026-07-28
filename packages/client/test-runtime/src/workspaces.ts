@@ -119,7 +119,7 @@ export class TestWorkspaces implements IWorkspaces {
     this.calls.push({ method: 'listDirectory', args: [path] })
     const stub = this.stubs.get('listDirectory')
     if (stub !== undefined) return await (stub(path) as Promise<DirectoryListing>)
-    return { path: '/home/test', home: '/home/test', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [] }
+    return { path: '/home/test', home: '/home/test', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false }
   }
 
   /**

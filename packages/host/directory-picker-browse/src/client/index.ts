@@ -28,8 +28,12 @@ export const inject = ['slots', 'workspaces', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(LOCALE_NS, 'zh', {
+    // The two dictionaries land as a unit: if the second registration hits a
+    // rival owner of the namespace, the first rolls back before the throw —
+    // a failed activation must not squat the namespace's other locale.
+    const disposers: (() => void)[] = []
+    const dictionaries: [locale: string, dict: Record<string, string>][] = [
+      ['zh', {
         'browser.title': '选择工作区目录',
         'browser.home': '主目录',
         'browser.newFolder': '新建文件夹',
@@ -42,8 +46,8 @@ export function apply(ctx: ClientContext): void {
         'browser.editPath': '编辑路径',
         'browser.loading': '加载中…',
         'browser.truncated': '文件夹过多，仅显示开头部分。',
-      }),
-      ctx.locale.register(LOCALE_NS, 'en', {
+      }],
+      ['en', {
         'browser.title': 'Select Workspace Directory',
         'browser.home': 'Home',
         'browser.newFolder': 'New folder',
@@ -56,8 +60,14 @@ export function apply(ctx: ClientContext): void {
         'browser.editPath': 'Edit path',
         'browser.loading': 'Loading…',
         'browser.truncated': 'Too many folders to list; only the beginning is shown.',
-      }),
+      }],
     ]
+    try {
+      for (const [locale, dict] of dictionaries) disposers.push(ctx.locale.register(LOCALE_NS, locale, dict))
+    } catch (error) {
+      for (const dispose of disposers.reverse()) dispose()
+      throw error
+    }
     return () => { for (const dispose of disposers) dispose() }
   }, 'directory-picker-browse: dialog dictionaries')
 

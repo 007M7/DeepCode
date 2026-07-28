@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-host-directory-picker-browse
  */
 
-import { mkdir, readdir, stat } from 'node:fs/promises'
+import { mkdir, opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
 import type { Context } from 'cordis'
@@ -51,6 +51,35 @@ export function fullyQualified(path: string, platform: NodeJS.Platform = process
   return platform === 'win32'
     ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)/.test(path)
     : posix.isAbsolute(path)
+}
+
+/** One streamed listing candidate: the dirent facts a row needs, nothing else retained. */
+export interface ListingCandidate {
+  /** Base name within the streamed level. */
+  name: string
+  /** Dirent says directory (no probe needed). */
+  isDirectory: boolean
+  /** Dirent says symlink (enterability needs a stat probe). */
+  isSymbolicLink: boolean
+}
+
+/**
+ * Insert a streamed candidate into the name-sorted bounded window, evicting
+ * the name-largest candidate when the window exceeds `keep`. Memory over an
+ * arbitrarily large level therefore stays O(keep) regardless of how many
+ * children the directory holds.
+ * @param window - the name-ascending window, mutated in place.
+ * @param candidate - the streamed candidate to place.
+ * @param keep - the window bound.
+ * @returns true when an eviction happened (the level has candidates beyond the window).
+ */
+export function boundedInsert(window: ListingCandidate[], candidate: ListingCandidate, keep: number): boolean {
+  const at = window.findIndex(existing => candidate.name.localeCompare(existing.name) < 0)
+  if (at === -1) window.push(candidate)
+  else window.splice(at, 0, candidate)
+  if (window.length <= keep) return false
+  window.pop()
+  return true
 }
 
 /** Message text of an unknown thrown value. */
@@ -127,25 +156,32 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not a fully qualified path`)
     }
     const target = resolve(path ?? home)
-    let names: { name: string; isDirectory: boolean; isSymbolicLink: boolean }[]
+    // Stream the level (opendir, one dirent at a time) into a name-sorted
+    // window of maxEntries + 1 candidates: memory stays bounded no matter how
+    // many children the directory holds, the window keeps the name-sorted
+    // head, and the +1 slot lets an in-window extra row prove the cut. A
+    // window candidate that turns out non-enterable (broken symlink) is not
+    // backfilled from beyond the window — an eviction already marks the
+    // level truncated, which stays the honest answer.
+    const keep = this.config.maxEntries + 1
+    const window: ListingCandidate[] = []
+    let evicted = false
     try {
-      const dirents = await readdir(target, { withFileTypes: true })
-      names = dirents.map(dirent => ({
-        name: dirent.name,
-        isDirectory: dirent.isDirectory(),
-        isSymbolicLink: dirent.isSymbolicLink(),
-      }))
+      const level = await opendir(target)
+      for await (const dirent of level) {
+        // Only rows a browser could enter contend for the window; dirent
+        // says "directory" outright, a symlink needs the later stat probe.
+        if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
+        const candidate = { name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() }
+        if (boundedInsert(window, candidate, keep)) evicted = true
+      }
     } catch (error: unknown) {
       throw new DirectoryPickerError('directory-unreadable', target, `cannot list ${target}: ${messageOf(error)}`)
     }
-    // Sort candidates before probing so the bound keeps the name-sorted head
-    // of the level and probing (symlink stat) stops with the bound instead of
-    // touching every child of an oversized directory.
-    names.sort((a, b) => a.name.localeCompare(b.name))
     const entries: DirectoryEntry[] = []
-    let truncated = false
-    for (const entry of names) {
-      const row = await directoryRow(target, entry.name, entry.isDirectory, entry.isSymbolicLink)
+    let truncated = evicted
+    for (const candidate of window) {
+      const row = await directoryRow(target, candidate.name, candidate.isDirectory, candidate.isSymbolicLink)
       if (row === null) continue
       if (entries.length === this.config.maxEntries) {
         truncated = true

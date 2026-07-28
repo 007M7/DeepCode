@@ -98,9 +98,12 @@ export function WorkspaceCreateFlow({
   const flowAvailable = useDirectoryFlow(occupied => occupied)
   // An occupant that unloads mid-interaction leaves nobody to cancel: an
   // open flow over an empty hole withdraws so the menu actions come back.
+  // flowOpen is a dependency because the flow can also OPEN over an already
+  // empty hole (Choose again after the occupant unloaded with the error
+  // dialog up) — that transition must snap back too, not just occupancy loss.
   useEffect(() => {
-    if (!flowAvailable) setFlowOpen(false)
-  }, [flowAvailable])
+    if (flowOpen && !flowAvailable) setFlowOpen(false)
+  }, [flowOpen, flowAvailable])
   const createEntries: MenuEntry[] = [
     ...(flowAvailable
       ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: flowBusy }]
@@ -224,7 +227,9 @@ export function WorkspaceCreateFlow({
         footer={(
           <>
             <Button variant="outline" className={css.modalAction} onClick={closeModal}>Cancel</Button>
-            <Button variant="primary" className={css.modalAction} onClick={openLocalFolder}>Choose again</Button>
+            {/* Retrying needs an occupant to serve the flow; without one the
+              * button would open a flow nobody can answer or cancel. */}
+            <Button variant="primary" className={css.modalAction} disabled={!flowAvailable} onClick={openLocalFolder}>Choose again</Button>
           </>
         )}
       >
