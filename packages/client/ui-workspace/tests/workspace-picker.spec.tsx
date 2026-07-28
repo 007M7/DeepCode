@@ -149,12 +149,16 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
-  it('disables the create actions and reports busy to the flow while adopting', async () => {
+  it('disables every menu action from flow open through adoption, and reports busy to the flow', async () => {
     let resolve!: (workspace: WorkspaceView) => void
     const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
     const created = workspace('adopted')
-    const b = mount([], vi.fn(() => pending))
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(() => pending))
     chooseItem('Open local folder…')
+    // The flow is open but nothing is picked yet: a chooser pending on the
+    // host display must already block concurrent workspace actions.
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
     act(() => { b.probe.owner!.onPicked('/tmp/project') })
     expect(b.probe.owner!.busy).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Open local folder…' }).disabled).toBe(true)

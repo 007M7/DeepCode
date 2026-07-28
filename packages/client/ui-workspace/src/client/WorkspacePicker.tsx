@@ -81,6 +81,11 @@ export function WorkspaceCreateFlow({
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderConflict, setFolderConflict] = useState(false)
   const composingRef = useRef(false)
+  // One picking interaction at a time: while the flow is open (native chooser
+  // pending, browse dialog up) or its pick is being adopted, every other
+  // menu action stays disabled — a late outcome must not race a concurrent
+  // selection or creation.
+  const flowBusy = flowOpen || pickingFolder
   const normalizedWorkspaceName = workspaceName.trim()
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
@@ -91,9 +96,9 @@ export function WorkspaceCreateFlow({
   // activation, and the menu re-renders on every toggle.
   const createEntries: MenuEntry[] = [
     ...(hasDirectoryFlow()
-      ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder }]
+      ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: flowBusy }]
       : []),
-    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
+    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: flowBusy },
   ]
   // With workspaces listed, the create actions pin below the scroll region
   // (divider + always visible); otherwise they ARE the menu.
@@ -103,7 +108,7 @@ export function WorkspaceCreateFlow({
       id: workspace.workspaceId,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
-      disabled: pickingFolder,
+      disabled: flowBusy,
     }))
     : createEntries
 
