@@ -8,9 +8,32 @@
 
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import type { Context } from 'cordis'
+import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AppCLIEntry } from './app-cli-entry.ts'
 
 const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/** Stable model-visible orientation for sessions created through `dsh web`. */
+export const WEB_SURFACE_PROMPT = 'You are interacting with the user through the DeepSeek Harness Web GUI. '
+  + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
+  + 'The browser provides no implicit DOM, route, or screenshot context.'
+
+/**
+ * Add the launcher-owned source location and Web-surface orientation after the
+ * shared config tree settles. The request header logs both sections with every
+ * model-visible prompt.
+ * @param ctx - settled Web application context.
+ * @param sourceRoot - absolute checkout root resolved from the launcher module.
+ */
+export function installWebPromptContext(ctx: Context, sourceRoot: string): void {
+  const systemPrompt = ctx.get('systemPrompt')
+  if (systemPrompt === undefined) throw new Error('dsh web: systemPrompt service missing after settled boot')
+  addHarnessSourceSection(ctx, sourceRoot)
+  systemPrompt.section({ name: 'app:web-surface', order: -98, text: WEB_SURFACE_PROMPT })
+}
 
 // Display-only mirrors of the webserver schema's allowed hosts: the loopback
 // address the local URL always prints, and the all-interfaces value that gates
@@ -40,6 +63,7 @@ export async function runWeb(
     ...workspaceRoot !== undefined && { workspaceRoot },
   })
   const { ctx, port: boundPort } = await entry.run()
+  installWebPromptContext(ctx, SOURCE_ROOT)
 
   let exiting = false
   const shutdown = (code: number): void => {

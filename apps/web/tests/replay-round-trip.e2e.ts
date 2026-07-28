@@ -9,20 +9,22 @@
 // Record: DSH_SNAPSHOT=record rewrites session.jsonl, then a keyless
 // DSH_SNAPSHOT=refresh regenerates ui.expected.md.
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/fresh-round-trip', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/fresh-round-trip/ui.expected.md', import.meta.url))
+const SYSTEM_PROMPT_EXPECTED = fileURLToPath(new URL('./snapshots/fresh-round-trip/system-prompt.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
 // The scenario's one drive prompt. Record sends it; replay asserts the
@@ -35,6 +37,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let settledSessionId: SessionId | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
@@ -69,10 +72,23 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     await input.fill(PROMPT)
     await input.press('Enter')
     const sessionId = await settled
+    settledSessionId = sessionId
     if (MODE === 'record') {
       await recordFixture(scaffold, sessionId, FIXTURE)
     }
   }, 200_000)
+
+  it('records the Web surface, source checkout, and session cwd in the request header', async () => {
+    if (settledSessionId === undefined) throw new Error('the drive turn did not publish a session id')
+    const agent = scaffold.ctx.agents.get(settledSessionId)
+    if (agent === undefined) throw new Error(`the settled Web agent ${settledSessionId} is no longer live`)
+    const system = agent.session.requestHeader()?.system
+    if (system === undefined) throw new Error('the settled Web request has no system prompt')
+    const prefix = system.split('\n\n').slice(0, 4).join('\n\n')
+      .split(REPO_ROOT).join('{{sourceRoot}}')
+      .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
+    await compareOrRefreshGolden(SYSTEM_PROMPT_EXPECTED, prefix, MODE)
+  })
 
   it.skipIf(MODE === 'record')('rendered the settled turn: markdown, tool row, composer restore', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-round-trip-settled'))
@@ -129,6 +145,6 @@ describe('web e2e: fresh round trip through the real assembly', () => {
   it.skipIf(MODE === 'record')('stayed clean: no pageerrors, no reconnect self-healing, no server errors', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'system-prompt.expected.md', 'ui.expected.md'])
   })
 })
