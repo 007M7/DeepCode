@@ -250,6 +250,12 @@ export interface ComposerBarInjected {
   keyboard: ComposerKeyboard
   /** Cancel the in-flight turn. */
   stop: () => void
+  /**
+   * Submit one slash-command line against this session's agent (the chrome
+   * controls' write path — the permission chip submits `/permission <preset>`).
+   * Resolves admission: false = rejected/unmatched/transport failure.
+   */
+  command: (line: string) => Promise<boolean>
   /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */

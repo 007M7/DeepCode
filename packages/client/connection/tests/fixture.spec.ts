@@ -71,7 +71,17 @@ describe('createFixtureApi', () => {
     if (!empty.result.ok) throw new Error('empty failed')
     // Fixture composes the todos unit (host parallel when tool-todo is mounted): null before any write.
     expect(empty.result.value).toEqual({
-      events: [], hasMore: false, projections: { asOfSeq: -1, values: { todos: null } },
+      events: [], hasMore: false, projections: { asOfSeq: -1, values: {
+        todos: null,
+        // Permission unit composed: the composition-default select.
+        permissions: {
+          options: [
+            { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+            { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
+          ],
+          currentValue: 'workspace-write',
+        },
+      } },
     })
   })
 
@@ -206,7 +216,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 4) abort.abort()
+        if (envelopes.length >= 5) abort.abort()
       }
       return envelopes
     }
@@ -214,13 +224,14 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos units).
+    // Projection baseline frames follow the subscribed frame (title + todos + permissions units).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
-    expect(first[3]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[3]?.rpcId).toBe(first[3]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[4]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[4]?.rpcId).toBe(first[4]?.rpcId)
+    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
+    expect(first[4]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[4]?.rpcId).toBe(first[4]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[5]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[5]?.rpcId).toBe(first[5]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

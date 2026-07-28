@@ -248,6 +248,21 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return result
   }
 
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle;
+   * outcomes render as flow nodes, never as a response echo).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
+    try {
+      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
   open(): Promise<void> {
     if (this.openState === 'open') return Promise.resolve()

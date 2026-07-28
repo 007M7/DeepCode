@@ -303,6 +303,42 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 }
 
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+/** Fixture preset table (the host PermissionService defaults). */
+const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; description: string }> = {
+  'workspace-write': { sandbox: 'workspace-write', approval: 'ask', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+  'danger-full-access': { sandbox: 'danger-full-access', approval: 'never', description: 'Full file access without approval prompts.' },
+}
+
+/** Host permissions-unit parallel: fold the three knob events, derive the select over the fixture defaults. */
+function permissionSelectOf(log: readonly SessionEvent[]): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
+  let preset: string | null = null
+  let sandbox = 'workspace-write'
+  let approval = 'ask'
+  for (const event of log) {
+    const item = event as { type: string; data: Record<string, unknown> }
+    if (item.type === 'permission/preset') preset = item.data['preset'] as string
+    else if (item.type === 'sandbox/mode') sandbox = item.data['mode'] as string
+    else if (item.type === 'approval/policy') approval = item.data['policy'] as string
+  }
+  const matches = (spec: { sandbox: string; approval: string }): boolean => spec.sandbox === sandbox && spec.approval === approval
+  let currentValue = 'custom'
+  const folded = preset === null ? undefined : PERMISSION_PRESETS[preset]
+  if (preset !== null && folded !== undefined && matches(folded)) {
+    currentValue = preset
+  } else {
+    for (const [name, spec] of Object.entries(PERMISSION_PRESETS)) {
+      if (matches(spec)) { currentValue = name; break }
+    }
+  }
+  return {
+    options: [
+      ...Object.entries(PERMISSION_PRESETS).map(([value, spec]) => ({ value, name: value, description: spec.description })),
+      ...currentValue === 'custom' ? [{ value: 'custom', name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' }] : [],
+    ],
+    currentValue,
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -311,6 +347,8 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (permission service composed): the whole select.
+  values['permissions'] = permissionSelectOf(log)
   return values
 }
 
@@ -330,6 +368,16 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'todos',
       value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // Knob fold: any of the three whole-value knob events advances the select.
+  if (type === 'permission/preset' || type === 'sandbox/mode' || type === 'approval/policy') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'permissions',
+      value: permissionSelectOf(log),
       seq: event.seq,
     }]
   }
@@ -938,6 +986,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
             { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
           ],
         })
       },
@@ -953,6 +1002,26 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        // /permission mirrors the host handler: switch through the knob
+        // events (each append pushes a permissions projection frame).
+        if (name === 'permission') {
+          const preset = args.trim()
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const spec = PERMISSION_PRESETS[preset]
+          if (preset === '') {
+            const current = permissionSelectOf(logOf(id)).currentValue
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+          } else if (spec === undefined) {
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+          } else {
+            if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
+            append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
+            append(id, { type: 'approval/policy', data: { policy: spec.approval } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+          }
+          return ok(request, { matched: true as const, commandId })
+        }
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),

@@ -123,6 +123,7 @@ function mount(
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
+          command={() => Promise.resolve(true)}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />
