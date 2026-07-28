@@ -9,12 +9,13 @@ Abstract user-settings seam (`ctx.settings`). One provider holds a raw document 
 - `register(ns, schema, { base?, applies? })` — returns the owner `SettingsScope` (`get`/`watch`/`update`). The registration is an effect on the calling plugin's fiber: disposing that fiber removes the namespace and its observers. A stored section the schema rejects fails the registration itself; a duplicate namespace fails loud.
 - `describe()` — one descriptor per namespace (`schema.toJSON()` envelope, resolved value, `applies`) for configuration surfaces.
 - `get(ns)` — resolved value, `undefined` while unregistered.
-- `update(ns, patch)` — deep-merges the plain-object patch into the user section only (never the `base`), validates the resolved candidate, persists through the provider, then commits. Validation failure rejects before anything is persisted; a read-only provider (`writable: false`) rejects every update.
-- Resolved values are deep-frozen snapshots; watchers receive `(next, prev)` after each commit, and watcher failures are contained.
+- `update(ns, patch)` — deep-merges the plain-object patch into the user section only (never the `base`), validates the resolved candidate, persists through the provider, then commits. Validation failure rejects before anything is persisted; a read-only provider (`writable: false`) rejects every write. Writes to one namespace are serialized in call order.
+- `replace(ns, section)` — sets the user section wholesale: the removal/reset path a merge cannot express (`replace({})` re-inherits `base` and schema defaults).
+- Resolved values are deep-frozen snapshots; watchers receive `(next, prev)` after each commit, and watcher failures — sync throws and async rejections alike — are contained.
 
 ## Provider contract
 
-Subclasses implement `writable`, `load()`, and `persist(ns, section)`, and push externally observed documents through the protected `publish(doc)`. At publish, each registered namespace re-resolves independently: an invalid section keeps that namespace's last good value and warns — a live reload never takes the process down — while boot-time and registration-time validation fail loud.
+Subclasses implement `writable`, `load()`, and `persist(ns, section)`, and push externally observed documents through the protected `publish(doc)`. The base service init loads and publishes the document once before the service becomes injectable; a provider with its own init (watcher, connection) delegates first via `yield* super[Service.init]()`. At publish, each registered namespace re-resolves independently: an invalid section keeps that namespace's last good value and warns — a live reload never takes the process down — while boot-time and registration-time validation fail loud.
 
 ## Events
 
@@ -31,5 +32,5 @@ No direct invalidation; a consumer that folds a settings value into the request 
 ## Known Limitations and Deferred Work
 
 - **Single user layer** — resolution knows schema defaults, one composition `base`, and one user document; there is no project/managed layering or per-value provenance yet.
-- **Cross-process concurrency is provider-defined** — the seam serializes nothing across processes; concurrent writers converge by provider behavior (the local file provider is last-write-wins).
+- **Cross-process concurrency is provider-defined** — the seam serializes writes per namespace in-process only; concurrent processes converge by provider behavior (the local file provider is last-write-wins).
 - **No secret-field redaction** — `describe()` returns resolved values verbatim; a wire surface (RPC/UI) must redact `role('secret')` fields before exposure.

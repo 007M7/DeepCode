@@ -660,7 +660,9 @@ Committed change to one registered namespace's resolved value. Emitted after the
 'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
 ```
 
-Source: [`packages/settings/settings/src/index.ts:90`](../../packages/settings/settings/src/index.ts)
+Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:96`](../../packages/settings/settings/src/index.ts)
 
 ## `slash/*`
 

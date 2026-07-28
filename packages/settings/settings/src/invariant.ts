@@ -5,6 +5,7 @@
 
 import type { Context } from 'cordis'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { deepEqualJson } from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-settings'
 
@@ -15,7 +16,9 @@ export const inject = ['invariants']
 
 /**
  * Install the commit-event contract: `settings/updated` fires only for a
- * currently registered namespace and only when the resolved value changed.
+ * currently registered namespace, only when the resolved value changed, and
+ * only with the service's authoritative resolved value — all judged with the
+ * seam's own equality predicate.
  */
 const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
   ctx.on('settings/updated', (ns, next, prev) => {
@@ -23,10 +26,14 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
     if (settings === undefined) {
       fail(`settings/updated for "${ns}" emitted without a live settings service`)
     }
-    if (settings.get(ns) === undefined) {
+    const current = settings.get(ns)
+    if (current === undefined) {
       fail(`settings/updated for "${ns}" emitted while the namespace is unregistered`)
     }
-    if (JSON.stringify(next) === JSON.stringify(prev)) {
+    if (!deepEqualJson(current, next)) {
+      fail(`settings/updated for "${ns}" does not match the authoritative resolved value`)
+    }
+    if (deepEqualJson(next, prev)) {
       fail(`settings/updated for "${ns}" emitted without a resolved-value change`)
     }
   })

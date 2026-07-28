@@ -1,8 +1,31 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { settingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
+import { Settings, deepEqualJson, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
+
+/** A provider implementing only the three primitives: the seam owns init. */
+class BareProvider extends Settings {
+  doc: Record<string, unknown>
+
+  constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: { doc?: Record<string, unknown> }) {
+    super(ctx)
+    this.doc = structuredClone(options?.doc ?? {})
+  }
+
+  get writable(): boolean {
+    return true
+  }
+
+  protected load(): Promise<Record<string, unknown>> {
+    return Promise.resolve(structuredClone(this.doc))
+  }
+
+  protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+    this.doc[ns] = structuredClone(section)
+    return Promise.resolve()
+  }
+}
 
 interface ThemeConfig {
   theme: 'dark' | 'light'
@@ -119,7 +142,7 @@ describe('registration', () => {
       inject: ['settings'],
       apply: (child: Context) => {
         scope = child.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
-        scope.watch(next => seen.push(next))
+        scope.watch((next) => { seen.push(next) })
       },
     })
     await fiber
@@ -191,6 +214,9 @@ describe('update', () => {
     expect(provider.persisted).toEqual([])
     expect(events).toEqual([])
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
+    // The failed write must not poison the namespace queue for later writers.
+    await scope.update({ fontSize: 18 })
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 18 })
   })
 
   it('ignores explicit undefined entries so a sparse patch cannot erase keys', async () => {
@@ -206,6 +232,7 @@ describe('update', () => {
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
     await expect(scope.update([1])).rejects.toThrow(TypeError)
     await expect(scope.update(new Date() as unknown as object)).rejects.toThrow(TypeError)
+    await expect(scope.replace([1])).rejects.toThrow(/replace for "ui-theme"/)
   })
 
   it('accepts a null-prototype patch object', async () => {
@@ -228,6 +255,89 @@ describe('update', () => {
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
     await expect(scope.update({ theme: 'light' })).rejects.toThrow(/read-only/)
     expect(provider.persisted).toEqual([])
+  })
+})
+
+describe('deepEqualJson', () => {
+  it.each([
+    [{ a: [1, 2] }, { a: [1, 2] }, true],
+    [{ a: [1, 2] }, { a: [1] }, false],
+    [{ a: [1] }, { a: { 0: 1 } }, false],
+    [{ a: 1 }, { b: 1 }, false],
+    [{ a: 1 }, {}, false],
+    [{ a: null }, { a: null }, true],
+    [{ a: null }, { a: {} }, false],
+  ])('compares %j vs %j as %s', (a, b, equal) => {
+    expect(deepEqualJson(a, b)).toBe(equal)
+  })
+})
+
+describe('review regressions', () => {
+  it('propagates an invariant-coded listener failure instead of containing it', async () => {
+    const { ctx, provider } = await boot()
+    ctx.on('settings/updated', () => {
+      throw Object.assign(new Error('forged relation'), { code: 'INVARIANT' })
+    })
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    expect(() => { provider.pushExternal({ 'ui-theme': { theme: 'light' } }) })
+      .toThrow(/forged relation/)
+  })
+
+  it('serializes concurrent updates so neither patch is lost', async () => {
+    const { ctx, provider } = await boot({ persistDelayMs: 10 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await Promise.all([
+      scope.update({ theme: 'light' }),
+      scope.update({ fontSize: 20 }),
+    ])
+    expect(provider.doc['ui-theme']).toEqual({ theme: 'light', fontSize: 20 })
+    expect(scope.get()).toEqual({ theme: 'light', fontSize: 20 })
+  })
+
+  it('contains a throwing settings/updated listener and keeps later commits alive', async () => {
+    const { ctx, provider } = await boot()
+    ctx.on('settings/updated', () => {
+      throw new Error('listener boom')
+    })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    expect(() => { provider.pushExternal({ 'ui-theme': { theme: 'light' } }) }).not.toThrow()
+    expect(scope.get().theme).toBe('light')
+    provider.pushExternal({ 'ui-theme': { theme: 'dark' } })
+    expect(scope.get().theme).toBe('dark')
+  })
+
+  it('contains an async watcher rejection', async () => {
+    const { ctx, provider } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    scope.watch(async () => {
+      throw new Error('async watcher boom')
+    })
+    provider.pushExternal({ 'ui-theme': { theme: 'light' } })
+    expect(scope.get().theme).toBe('light')
+    // Give the rejected watcher promise a microtask turn; containment means
+    // vitest observes no unhandled rejection out of this test.
+    await new Promise(resolve => setTimeout(resolve, 10))
+  })
+
+  it('loads the provider document through the base init without provider boilerplate', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc: { 'ui-theme': { fontSize: 7 } } })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 7 })
+  })
+
+  it('replaces the user section wholesale so overrides can be removed', async () => {
+    const { ctx, provider } = await boot({ doc: { 'ui-theme': { theme: 'light', fontSize: 20 } } })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
+      base: { fontSize: 16 },
+    })
+    await scope.replace({ theme: 'light' })
+    // fontSize override is gone: resolution falls back to the base layer.
+    expect(scope.get()).toEqual({ theme: 'light', fontSize: 16 })
+    expect(provider.doc['ui-theme']).toEqual({ theme: 'light' })
+    await scope.replace({})
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 16 })
+    expect(provider.doc['ui-theme']).toEqual({})
   })
 })
 

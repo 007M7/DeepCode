@@ -7,7 +7,6 @@
  */
 
 import { Context, Service } from 'cordis'
-import { deepEqual } from 'cosmokit'
 import type z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
@@ -59,16 +58,23 @@ export interface SettingsScope<T> {
   /** Current resolved value: schema defaults, then `base`, then the user layer. */
   get(): T
   /**
-   * Observe committed changes to this namespace's resolved value.
+   * Observe committed changes to this namespace's resolved value. A callback
+   * may be async; a rejection is contained and logged like a sync throw.
    * @param callback - invoked after each commit with the next and previous values.
    * @returns the disposer removing this observer.
    */
-  watch(callback: (next: T, prev: T) => void): () => void
+  watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
    * @param patch - plain-object patch over the user section.
    */
   update(patch: object): Promise<void>
+  /**
+   * Replace this namespace's user section wholesale; absent keys re-inherit
+   * the composition `base` and schema defaults (`replace({})` resets all).
+   * @param section - the complete next user section.
+   */
+  replace(section: object): Promise<void>
 }
 
 declare module 'cordis' {
@@ -89,6 +95,28 @@ declare module 'cordis' {
      */
     'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
   }
+}
+
+/**
+ * Deep equality over JSON-shaped data (objects, arrays, primitives) — the
+ * seam's single change-detection predicate, exported so the invariant
+ * companion checks exactly the implementation's relation.
+ * @param a - one JSON-shaped value.
+ * @param b - the other JSON-shaped value.
+ * @returns whether the two values are structurally equal.
+ */
+export function deepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((entry, index) => deepEqualJson(entry, b[index]))
+  }
+  const left = a as Record<string, unknown>
+  const right = b as Record<string, unknown>
+  const keys = Object.keys(left)
+  if (keys.length !== Object.keys(right).length) return false
+  return keys.every(key => key in right && deepEqualJson(left[key], right[key]))
 }
 
 /** Whether a value is a plain data object (not an array, null, or class instance). */
@@ -128,7 +156,7 @@ interface SettingsRegistration {
   base: unknown
   applies: SettingsApplies
   resolved: unknown
-  watchers: Set<(next: never, prev: never) => void>
+  watchers: Set<(next: never, prev: never) => void | Promise<void>>
 }
 
 /**
@@ -141,9 +169,20 @@ export abstract class Settings extends Service {
   private readonly registrations = new Map<SettingsNamespace, SettingsRegistration>()
   /** Latest published raw document; empty until the provider's first publish. */
   private document: Record<string, unknown> = {}
+  /** Per-namespace write chains; settled tails, so a failure never poisons the queue. */
+  private readonly writeQueues = new Map<SettingsNamespace, Promise<unknown>>()
 
   constructor(ctx: Context) {
     super(ctx, 'settings')
+  }
+
+  /**
+   * Load the provider's document once and publish it before the service
+   * becomes injectable. Providers with their own init (watchers, connections)
+   * delegate here first via `yield* super[Service.init]()`.
+   */
+  async* [Service.init](): AsyncGenerator<() => void, void, void> {
+    this.publish(await this.load())
   }
 
   /** Whether {@link update} may persist through this provider. */
@@ -195,6 +234,7 @@ export abstract class Settings extends Service {
         return () => registration.watchers.delete(callback)
       },
       update: patch => this.update(ns, patch),
+      replace: section => this.replace(ns, section),
     }
   }
 
@@ -223,11 +263,30 @@ export abstract class Settings extends Service {
   /**
    * Merge a patch into one registered namespace's user layer, validate the
    * resolved candidate, persist through the provider, then commit and emit.
-   * A validation failure rejects before anything is persisted.
+   * A validation failure rejects before anything is persisted. Writes to one
+   * namespace are serialized: concurrent updates apply in call order, each
+   * merging over the previous write's committed section.
    * @param ns - the registered namespace to update.
    * @param patch - plain-object patch over the user section.
    */
   async update(ns: SettingsNamespace, patch: object): Promise<void> {
+    return this.write(ns, patch, 'merge')
+  }
+
+  /**
+   * Replace one registered namespace's user section wholesale, validate,
+   * persist, then commit and emit. Keys absent from `section` fall back to the
+   * composition `base` and schema defaults — this is the removal/reset path a
+   * merge-only patch cannot express (`replace({})` re-inherits everything).
+   * @param ns - the registered namespace to replace.
+   * @param section - the complete next user section.
+   */
+  async replace(ns: SettingsNamespace, section: object): Promise<void> {
+    return this.write(ns, section, 'replace')
+  }
+
+  /** Validate a write, then queue it on the namespace's serialized write chain. */
+  private write(ns: SettingsNamespace, input: object, mode: 'merge' | 'replace'): Promise<void> {
     const registration = this.registrations.get(ns)
     if (registration === undefined) {
       throw new Error(`settings namespace "${ns}" is not registered`)
@@ -235,14 +294,23 @@ export abstract class Settings extends Service {
     if (!this.writable) {
       throw new Error(`settings provider is read-only: "${ns}" cannot be updated in-process`)
     }
-    if (!isPlainObject(patch)) {
-      throw new TypeError(`settings update for "${ns}" must be a plain object patch`)
+    if (!isPlainObject(input)) {
+      throw new TypeError(`settings ${mode === 'merge' ? 'update' : 'replace'} for "${ns}" must be a plain object`)
     }
-    const section = mergeLayers(this.section(ns) ?? {}, patch) as Record<string, unknown>
-    const next = deepFreeze(this.resolve(registration.schema, registration.base, section))
-    await this.persist(ns, section)
-    this.document[ns] = section
-    this.commit(registration, next, 'update')
+    const previous = this.writeQueues.get(ns) ?? Promise.resolve()
+    // Chain past a failed predecessor: one rejected write must not poison the
+    // namespace queue for every later caller.
+    const run = previous.catch(() => undefined).then(async () => {
+      const section = mode === 'merge'
+        ? mergeLayers(this.section(ns) ?? {}, input) as Record<string, unknown>
+        : structuredClone(input)
+      const next = deepFreeze(this.resolve(registration.schema, registration.base, section))
+      await this.persist(ns, section)
+      this.document[ns] = section
+      this.commit(registration, next, 'update')
+    })
+    this.writeQueues.set(ns, run)
+    return run
   }
 
   /**
@@ -287,17 +355,38 @@ export abstract class Settings extends Service {
   /** Commit a resolved value when changed: swap, notify watchers, emit the event. */
   private commit(registration: SettingsRegistration, next: unknown, source: SettingsUpdateSource): void {
     const prev = registration.resolved
-    if (deepEqual(next, prev)) return
+    if (deepEqualJson(next, prev)) return
     registration.resolved = next
     for (const watcher of [...registration.watchers]) {
       try {
-        watcher(next as never, prev as never)
+        // A watcher may be async: adopt its promise so a rejection is contained
+        // here instead of surfacing as an unhandled rejection.
+        const outcome = watcher(next as never, prev as never) as unknown
+        if (outcome instanceof Promise) {
+          outcome.catch((error: unknown) => {
+            this.warnWatcherFailure(registration.ns, error)
+          })
+        }
       } catch (error) {
-        this.ctx.logger.warn('settings: watcher for "%s" failed', registration.ns)
-        this.ctx.logger.warn(error)
+        this.warnWatcherFailure(registration.ns, error)
       }
     }
-    this.ctx.emit('settings/updated', registration.ns, next, prev, source)
+    try {
+      this.ctx.emit('settings/updated', registration.ns, next, prev, source)
+    } catch (error) {
+      // Invariant violations are harness-fatal by design; any other listener
+      // failure is contained so one broken observer cannot wedge the commit
+      // path (and, through it, a provider's reload loop).
+      if ((error as { code?: unknown } | null)?.code === 'INVARIANT') throw error
+      this.ctx.logger.warn('settings: a settings/updated listener for "%s" failed', registration.ns)
+      this.ctx.logger.warn(error)
+    }
+  }
+
+  /** Contained-watcher diagnostic shared by the sync and async failure paths. */
+  private warnWatcherFailure(ns: SettingsNamespace, error: unknown): void {
+    this.ctx.logger.warn('settings: watcher for "%s" failed', ns)
+    this.ctx.logger.warn(error)
   }
 }
 

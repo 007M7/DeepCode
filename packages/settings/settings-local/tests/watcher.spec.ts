@@ -105,6 +105,60 @@ describe('watcher pipeline', () => {
     expect(scope.get()).toEqual({ theme: 'light' })
   })
 
+  it('keeps the reload queue alive after an invariant violation escapes a commit', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, 'ui-theme:\n  theme: light\n')
+    const ctx = await boot({ path, debounceMs: 5 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    let arm = true
+    ctx.on('settings/updated', () => {
+      if (!arm) return
+      throw Object.assign(new Error('forged relation'), { code: 'INVARIANT' })
+    })
+    const [instance] = await fakeInstances()
+
+    await writeFile(path, 'ui-theme:\n  theme: broken-commit\n')
+    instance!.watcher.emit('all', 'change', path)
+    await vi.waitFor(() => {
+      expect(scope.get().theme).toBe('broken-commit')
+    })
+
+    arm = false
+    await writeFile(path, 'ui-theme:\n  theme: recovered\n')
+    instance!.watcher.emit('all', 'change', path)
+    await vi.waitFor(() => {
+      expect(scope.get().theme).toBe('recovered')
+    })
+  })
+
+  it('quiesces the refresh pipeline before dispose completes', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, 'ui-theme:\n  theme: light\n')
+    const ctx = new Context()
+    const fiber = ctx.plugin(SettingsLocal, { path, debounceMs: 5 })
+    await fiber
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    let disposed = false
+    let postDisposeCommits = 0
+    ctx.on('settings/updated', () => {
+      if (disposed) postDisposeCommits += 1
+    })
+
+    await writeFile(path, 'ui-theme:\n  theme: darker\n')
+    const [instance] = await fakeInstances()
+    // Two queued refreshes: dispose interrupts one mid-flight and the other
+    // before it starts, so both closed guards must hold.
+    instance!.watcher.emit('all', 'change', path)
+    instance!.watcher.emit('all', 'change', path)
+    await fiber.dispose()
+    disposed = true
+    instance!.watcher.emit('all', 'change', path)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(postDisposeCommits).toBe(0)
+  })
+
   it('treats an event for a still-absent file as a no-op', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')

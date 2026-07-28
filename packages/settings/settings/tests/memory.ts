@@ -5,7 +5,6 @@
  * packages.
  */
 
-import { Service } from 'cordis'
 import { Settings, type SettingsNamespace } from '../src/index.ts'
 
 /** In-memory provider exposing the protected seam hooks to tests. */
@@ -17,13 +16,18 @@ export class MemorySettings extends Settings {
   /** When false, update() must reject before reaching persist(). */
   writableFlag: boolean
 
+  /** Artificial persist latency so tests can interleave concurrent updates. */
+  persistDelayMs: number
+
   constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: {
     doc?: Record<string, unknown>
     writable?: boolean
+    persistDelayMs?: number
   }) {
     super(ctx)
     this.doc = structuredClone(options?.doc ?? {})
     this.writableFlag = options?.writable ?? true
+    this.persistDelayMs = options?.persistDelayMs ?? 0
   }
 
   get writable(): boolean {
@@ -34,20 +38,17 @@ export class MemorySettings extends Settings {
     return Promise.resolve(structuredClone(this.doc))
   }
 
-  protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+  protected async persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+    if (this.persistDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.persistDelayMs))
+    }
     this.persisted.push({ ns, section: structuredClone(section) })
     this.doc[ns] = structuredClone(section)
-    return Promise.resolve()
   }
 
   /** Simulate an external storage change reaching the provider. */
   pushExternal(doc: Record<string, unknown>): void {
     this.doc = structuredClone(doc)
     this.publish(structuredClone(doc))
-  }
-
-  async* [Service.init](): AsyncGenerator<() => void, void, void> {
-    this.publish(await this.load())
-    yield () => { this.persisted.length = 0 }
   }
 }

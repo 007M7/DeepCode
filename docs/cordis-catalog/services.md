@@ -1421,14 +1421,28 @@ get(ns: SettingsNamespace): unknown
 /**
  * Merge a patch into one registered namespace's user layer, validate the
  * resolved candidate, persist through the provider, then commit and emit.
- * A validation failure rejects before anything is persisted.
+ * A validation failure rejects before anything is persisted. Writes to one
+ * namespace are serialized: concurrent updates apply in call order, each
+ * merging over the previous write's committed section.
  * @param ns - the registered namespace to update.
  * @param patch - plain-object patch over the user section.
  */
 async update(ns: SettingsNamespace, patch: object): Promise<void>
+
+/**
+ * Replace one registered namespace's user section wholesale, validate,
+ * persist, then commit and emit. Keys absent from `section` fall back to the
+ * composition `base` and schema defaults — this is the removal/reset path a
+ * merge-only patch cannot express (`replace({})` re-inherits everything).
+ * @param ns - the registered namespace to replace.
+ * @param section - the complete next user section.
+ */
+async replace(ns: SettingsNamespace, section: object): Promise<void>
 ```
 
-Source: [`packages/settings/settings/src/index.ts:140`](../../packages/settings/settings/src/index.ts)
+Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:168`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

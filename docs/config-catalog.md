@@ -1193,7 +1193,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/settings/settings-local/src/index.ts:18`](../packages/settings/settings-local/src/index.ts)
+Source: [`packages/settings/settings-local/src/index.ts:19`](../packages/settings/settings-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill`
 

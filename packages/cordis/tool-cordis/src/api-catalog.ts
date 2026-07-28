@@ -684,7 +684,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async update(ns: SettingsNamespace, patch: object): Promise<void>',
-        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n */',
+        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n */',
+      },
+      {
+        signature: 'async replace(ns: SettingsNamespace, section: object): Promise<void>',
+        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n */',
       },
     ],
   },
@@ -2228,7 +2232,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsScope',
-    declaration: 'export interface SettingsScope<T> {\n    get(): T;\n    watch(callback: (next: T, prev: T) => void): () => void;\n    update(patch: object): Promise<void>;\n}',
+    declaration: 'export interface SettingsScope<T> {\n    get(): T;\n    watch(callback: (next: T, prev: T) => void | Promise<void>): () => void;\n    update(patch: object): Promise<void>;\n    replace(section: object): Promise<void>;\n}',
   },
   {
     name: 'SkillCandidate',

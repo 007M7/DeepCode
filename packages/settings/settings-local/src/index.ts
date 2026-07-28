@@ -8,7 +8,8 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -86,6 +87,13 @@ export class SettingsLocal extends Settings {
   private text: string | undefined
   /** Serializes watcher-triggered reloads so reads never interleave. */
   private refreshTask: Promise<void> = Promise.resolve()
+  /** Set at dispose: refuse new watcher events and let in-flight work no-op. */
+  private closed = false
+
+  /** Opaque read of {@link closed}: control flow cannot narrow it across awaits. */
+  private isClosed(): boolean {
+    return this.closed
+  }
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -118,18 +126,26 @@ export class SettingsLocal extends Settings {
       ? this.renderYaml(ns, section)
       : this.renderJson(ns, section)
     await mkdir(dirname(this.spec.filename), { recursive: true })
-    const temp = `${this.spec.filename}.tmp`
-    // Owner-only permissions apply to the temp file and survive the rename, so
-    // a document that may carry personal values is never world-readable.
-    await writeFile(temp, output, { mode: 0o600 })
-    await rename(temp, this.spec.filename)
+    // Exclusive-create (`wx`) a random-suffix sibling: the open refuses to
+    // follow any planted symlink at a guessable temp path, and the fresh inode
+    // carries owner-only permissions that survive the rename — a document that
+    // may hold personal values is never world-readable and never a symlink.
+    const temp = `${this.spec.filename}.${randomBytes(6).toString('hex')}.tmp`
+    try {
+      await writeFile(temp, output, { mode: 0o600, flag: 'wx' })
+      await rename(temp, this.spec.filename)
+    } catch (error) {
+      await rm(temp, { force: true })
+      throw error
+    }
     this.text = output
   }
 
-  async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
-    // A parse failure here is a boot failure: an existing-but-invalid document
-    // must fail loud, never be silently ignored or overwritten.
-    this.publish(await this.load())
+  override async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
+    // The base init loads and publishes; a parse failure there is a boot
+    // failure: an existing-but-invalid document must fail loud, never be
+    // silently ignored or overwritten.
+    yield* super[Service.init]()
     if (!this.spec.watch) return
     const watcher = chokidarWatch(this.spec.filename, {
       ignoreInitial: true,
@@ -139,13 +155,26 @@ export class SettingsLocal extends Settings {
       },
     })
     watcher.on('all', () => {
-      this.refreshTask = this.refreshTask.then(() => this.refresh())
+      if (this.closed) return
+      this.refreshTask = this.refreshTask.then(() => this.refresh()).catch((error: unknown) => {
+        // Only an invariant violation escaping the commit path can reject a
+        // refresh; keep the reload queue alive and surface it as an error so
+        // one poisoned commit cannot silently end hot reloading forever.
+        this.ctx.logger.error('settings-local: reload commit failed at %s', this.spec.filename)
+        this.ctx.logger.error(error)
+      })
     })
     watcher.on('error', (error) => {
       this.ctx.logger.warn('settings-local: watcher error on %s', this.spec.filename)
       this.ctx.logger.warn(error)
     })
-    yield () => watcher.close()
+    yield async () => {
+      // Quiesce: stop accepting events, close the watcher, then wait out any
+      // queued or in-flight refresh so nothing publishes after disposal.
+      this.closed = true
+      await watcher.close()
+      await this.refreshTask
+    }
   }
 
   /** Parse one document text into raw sections, failing on a non-map root. */
@@ -174,6 +203,7 @@ export class SettingsLocal extends Settings {
    * never take the process down.
    */
   private async refresh(): Promise<void> {
+    if (this.closed) return
     let text: string
     try {
       text = await readFile(this.spec.filename, 'utf8')
@@ -183,12 +213,12 @@ export class SettingsLocal extends Settings {
         this.ctx.logger.warn(error)
         return
       }
-      if (this.text === undefined) return
+      if (this.text === undefined || this.isClosed()) return
       this.text = undefined
       this.publish({})
       return
     }
-    if (text === this.text) return
+    if (text === this.text || this.isClosed()) return
     let doc: Record<string, unknown>
     try {
       doc = this.parse(text)

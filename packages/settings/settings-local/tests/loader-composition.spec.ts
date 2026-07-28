@@ -55,7 +55,7 @@ async function loadComposition(): Promise<{ ctx: Context; state: ConsumerState; 
         base: { fontSize: 16 },
       })
       state.scope = scope
-      scope.watch(next => state.seen.push(next))
+      scope.watch((next) => { state.seen.push(next) })
     },
   }
 

@@ -9,12 +9,13 @@
 - `register(ns, schema, { base?, applies? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose 该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。
 - `describe()` — 每个 namespace 一条描述（`schema.toJSON()` 信封、解析值、`applies`），供配置界面使用。
 - `get(ns)` — 解析值；未注册时为 `undefined`。
-- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经 provider 持久化后提交。校验失败在持久化前拒绝；只读 provider（`writable: false`）拒绝一切更新。
-- 解析值是深冻结快照；每次提交后观察者收到 `(next, prev)`，观察者异常被隔离。
+- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经 provider 持久化后提交。校验失败在持久化前拒绝；只读 provider（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
+- `replace(ns, section)` — 整体替换用户分节：merge 表达不了的删除/重置路径（`replace({})` 重新继承 `base` 与 schema 默认值）。
+- 解析值是深冻结快照；每次提交后观察者收到 `(next, prev)`；观察者异常——同步抛出与异步拒绝——均被隔离。
 
 ## Provider 契约
 
-子类实现 `writable`、`load()`、`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档。publish 时每个已注册 namespace 独立重解析：非法分节保留该 namespace 的最后可用值并告警——热重载绝不拖垮进程；启动期与注册期校验则立即报错。
+子类实现 `writable`、`load()`、`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档。基类 service init 在服务可注入前加载并发布一次文档；自有 init（watcher、连接）的 provider 先经 `yield* super[Service.init]()` 委托。publish 时每个已注册 namespace 独立重解析：非法分节保留该 namespace 的最后可用值并告警——热重载绝不拖垮进程；启动期与注册期校验则立即报错。
 
 ## 事件
 
@@ -31,5 +32,5 @@
 ## Known Limitations and Deferred Work
 
 - **单一用户层** — 解析只认识 schema 默认值、一个组合 `base` 与一个用户文档；尚无 project/managed 分层或按值溯源。
-- **跨进程并发由 provider 定义** — seam 不做跨进程串行化；并发写入者按 provider 行为收敛（本地文件 provider 为后写胜出）。
+- **跨进程并发由 provider 定义** — seam 仅在进程内按 namespace 串行化写入；跨进程并发按 provider 行为收敛（本地文件 provider 为后写胜出）。
 - **无 secret 字段脱敏** — `describe()` 原样返回解析值；wire 面（RPC/UI）在暴露前必须对 `role('secret')` 字段脱敏。

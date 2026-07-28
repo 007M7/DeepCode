@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -146,6 +146,23 @@ describe('persist', () => {
     expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
   })
 
+  it('never follows a planted symlink at a temp path and never leaves the document a symlink', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const victim = join(dir, 'victim.txt')
+    await writeFile(victim, 'precious')
+    // A hostile sibling plants the historic fixed temp name as a symlink.
+    await symlink(victim, `${path}.tmp`)
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await scope.update({ theme: 'light' })
+
+    expect(await readFile(victim, 'utf8')).toBe('precious')
+    expect((await lstat(path)).isSymbolicLink()).toBe(false)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect(await readFile(path, 'utf8')).toContain('theme: light')
+  })
+
   it('preserves comments and unregistered sections across updates', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
@@ -178,6 +195,20 @@ describe('persist', () => {
     await scope.update({ theme: 'light' })
     const written = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
     expect(written).toEqual({ 'ui-theme': { theme: 'light' } })
+  })
+
+  it('rejects and leaves no temp residue when the directory turns unwritable', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, 'ui-theme:\n  theme: light\n')
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await chmod(dir, 0o500)
+    cleanups.push(() => chmod(dir, 0o700))
+    await expect(scope.update({ theme: 'dark' })).rejects.toThrow()
+    await chmod(dir, 0o700)
+    expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
+    expect(scope.get().theme).toBe('light')
   })
 
   it('round-trips a json document', async () => {
