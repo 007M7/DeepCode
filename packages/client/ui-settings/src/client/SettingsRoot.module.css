@@ -44,7 +44,8 @@
   white-space: nowrap;
 }
 
-/* Full-viewport layer (figma Mask 501:29946 #000@24%, no blur). */
+/* Full-viewport layer (figma Mask 501:29946 #000@24%): mask tokens match the
+   Modal primitive (--dsw-alias-bg-mask-1 + --dsw-mask-blur). */
 .overlay {
   position: fixed;
   inset: 0;
@@ -58,21 +59,22 @@
   position: absolute;
   inset: 0;
   background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
 }
 
-/* Panel (figma Settings 501:29947): 1080x700, r24, white, lv3 shadow
-   (figma effects match --dsw-shadow-lv3 exactly). */
+/* Panel (figma Settings 501:29947): r24, white, lv3 shadow (figma effects
+   match --dsw-shadow-lv3 exactly); figma's 1080x700 is shrunk to 800x600. */
 .panel {
   position: relative;
   z-index: 1;
   display: flex;
-  width: 1080px;
-  height: 700px;
+  width: 800px;
+  height: 600px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
   border-radius: 24px;
   overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-shadow-lv3);
 }
 

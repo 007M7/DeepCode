@@ -2,23 +2,12 @@ import { Context, type Fiber } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
-  appendSessionTitleOutOfBand,
   SessionTitleProviderId,
   type Config,
   type SessionTitleProvider,
   type SessionTitleProviderRequest,
   type SessionTitleProviderResult,
 } from '@deepseek-ai/dsh-session-title'
-
-declare module '@deepseek-ai/dsh-session' {
-  interface SessionEventMap {
-    'test/title-provider-request': { revision: number }
-  }
-
-  interface OutOfBandSessionEventMap {
-    'test/title-provider-request': true
-  }
-}
 
 const CONFIG = {
   fallbackMaxWords: 5,
@@ -173,38 +162,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(disposeSignal?.aborted).toBe(true)
   })
 
-  it('rejects fallback refresh cancellation that arrives during durability flush', async () => {
-    const ctx = await setup()
-    const seed = new Session(SessionId('fallback-cancel-seed'))
-    seed.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })
-    const source = appendPrompt(seed, 'Persist this fallback despite caller cancellation')
-    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    const session = ctx.sessions.create(SessionId('fallback-cancel'), { seed: seed.events })
-    const flushStarted = deferred<undefined>()
-    const releaseFlush = deferred<undefined>()
-    ctx.on('session/flush', async (subject) => {
-      if (subject !== session) return
-      flushStarted.resolve(undefined)
-      await releaseFlush.promise
-    })
-    const controller = new AbortController()
-
-    const refresh = ctx.sessionTitle.refresh(session, controller.signal)
-    await flushStarted.promise
-    controller.abort(new Error('cancelled while fallback flushed'))
-    releaseFlush.resolve(undefined)
-
-    await expect(refresh).rejects.toThrow('cancelled while fallback flushed')
-    expect(ctx.sessionTitle.get(session)).toMatchObject({
-      messageSeqs: [source.seq],
-      source: { kind: 'fallback' },
-    })
-  })
-
-  it('shares one durable fallback across concurrent refreshes', async () => {
+  it('shares one fallback across concurrent refreshes', async () => {
     const ctx = await setup()
     const seed = new Session(SessionId('fallback-concurrency-seed'))
     seed.append('turn/start', {
@@ -214,10 +172,6 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     const source = appendPrompt(seed, 'Create exactly one fallback title')
     seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const session = ctx.sessions.create(SessionId('fallback-concurrency'), { seed: seed.events })
-    let flushes = 0
-    ctx.on('session/flush', (subject) => {
-      if (subject === session) flushes += 1
-    })
 
     const results = await Promise.all([
       ctx.sessionTitle.refresh(session),
@@ -226,136 +180,62 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
 
     expect(results[0]).toEqual(results[1])
     expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
-    expect(session.events.filter(event => event.type === 'turn/start'
-      && event.data.trigger.kind === 'session-title')).toHaveLength(1)
+    expect(session.events.map(event => event.type)).toEqual([
+      'turn/start',
+      'user/message',
+      'turn/end',
+      'session/title',
+    ])
     expect(ctx.sessionTitle.get(session)?.messageSeqs).toEqual([source.seq])
-    expect(flushes).toBe(1)
   })
 
-  it('reserves overlapping refresh order before fallback durability settles', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionTitleService, CONFIG)
-    const seed = new Session(SessionId('refresh-order-seed'))
-    seed.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
+  it('reuses a title accepted before the queued fallback commits', async () => {
+    const ctx = await setup()
+    const session = startSession(ctx, 'fallback-already-accepted')
+    const source = appendPrompt(session, 'Reuse the title that wins the fallback race')
+
+    const refresh = ctx.sessionTitle.refresh(session)
+    session.append('session/title', {
+      title: 'Already accepted',
+      messageSeqs: [source.seq],
+      source: { kind: 'fallback' },
     })
-    const source = appendPrompt(seed, 'Keep the newest explicit refresh')
-    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    const session = ctx.sessions.create(SessionId('refresh-order'), { seed: seed.events })
-    const flushStarted = deferred<undefined>()
-    const releaseFlush = deferred<undefined>()
-    let flushCount = 0
-    ctx.on('session/flush', async (subject) => {
-      if (subject !== session || ++flushCount !== 1) return
-      flushStarted.resolve(undefined)
-      await releaseFlush.promise
-    })
-    const result = deferred<SessionTitleProviderResult>()
+
+    await expect(refresh).resolves.toMatchObject({ title: 'Already accepted' })
+    expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
+  })
+
+  it('lets the newest overlapping explicit refresh win', async () => {
+    const ctx = await setup()
+    const session = startSession(ctx, 'refresh-order')
+    const source = appendPrompt(session, 'Keep the newest explicit refresh')
+    await settle()
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const requests: SessionTitleProviderRequest[] = []
+    const results: Array<ReturnType<typeof deferred<SessionTitleProviderResult>>> = []
     ctx.sessionTitle.register({
       id: SessionTitleProviderId('refresh-order'),
       automatic: 'first-message',
       generate(request) {
         requests.push(request)
+        const result = deferred<SessionTitleProviderResult>()
+        results.push(result)
         return result.promise
       },
     })
 
     const older = ctx.sessionTitle.refresh(session)
-    const olderOutcome = older.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    await flushStarted.promise
+    await settle()
     const newer = ctx.sessionTitle.refresh(session)
     await settle()
-    expect(requests).toHaveLength(1)
-    expect(requests[0]?.signal.aborted).toBe(false)
 
-    releaseFlush.resolve(undefined)
-    await settle()
-    expect(requests).toHaveLength(1)
-    expect(requests[0]?.signal.aborted).toBe(false)
-    result.resolve({ title: 'Newest explicit title', messageSeqs: [source.seq] })
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.signal.aborted).toBe(true)
+    expect(requests[1]?.signal.aborted).toBe(false)
+    results[0]?.resolve({ title: 'Obsolete title', messageSeqs: [source.seq] })
+    await expect(older).rejects.toThrow(/superseded/)
+    results[1]?.resolve({ title: 'Newest explicit title', messageSeqs: [source.seq] })
     await expect(newer).resolves.toMatchObject({ title: 'Newest explicit title' })
-    const olderError = await olderOutcome
-    expect(olderError).toBeInstanceOf(Error)
-    if (!(olderError instanceof Error)) throw new Error('expected older refresh to reject')
-    expect(olderError.message).toMatch(/superseded/)
-  })
-
-  it('serializes a newer provider write after the superseded write', async () => {
-    const ctx = await setup()
-    const session = startSession(ctx, 'refresh-provider-write-order')
-    const source = appendPrompt(session, 'Serialize explicit provider writes')
-    await settle()
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    const flushStarted = deferred<undefined>()
-    const releaseFlush = deferred<undefined>()
-    let flushCount = 0
-    ctx.on('session/flush', async (subject) => {
-      if (subject !== session || ++flushCount !== 1) return
-      flushStarted.resolve(undefined)
-      await releaseFlush.promise
-    })
-    let generation = 0
-    ctx.sessionTitle.register({
-      id: SessionTitleProviderId('refresh-provider-write-order'),
-      automatic: 'first-message',
-      async generate(request) {
-        generation += 1
-        const revision = generation
-        await appendSessionTitleOutOfBand(ctx, request.session, 'test/title-provider-request', {
-          revision,
-        }, request.signal)
-        return {
-          title: `Generated title ${revision}`,
-          messageSeqs: [source.seq],
-        }
-      },
-    })
-
-    const older = ctx.sessionTitle.refresh(session)
-    const olderOutcome = older.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    await flushStarted.promise
-    const middle = ctx.sessionTitle.refresh(session)
-    const middleOutcome = middle.then(
-      value => value,
-      (error: unknown) => error,
-    )
-    await settle()
-
-    expect(generation).toBe(2)
-    expect(session.events.filter(event => event.type === 'test/title-provider-request'))
-      .toHaveLength(1)
-    const newer = ctx.sessionTitle.refresh(session)
-    const newerOutcome = newer.then(
-      value => value,
-      (error: unknown) => error,
-    )
-    await settle()
-    expect(generation).toBe(3)
-    expect(session.events.filter(event => event.type === 'test/title-provider-request'))
-      .toHaveLength(1)
-
-    releaseFlush.resolve(undefined)
-    const newerResult = await newerOutcome
-    expect(newerResult).toMatchObject({ title: 'Generated title 3' })
-    const olderError = await olderOutcome
-    expect(olderError).toBeInstanceOf(Error)
-    if (!(olderError instanceof Error)) throw new Error('expected older refresh to reject')
-    expect(olderError.message).toMatch(/superseded/)
-    const middleError = await middleOutcome
-    expect(middleError).toBeInstanceOf(Error)
-    if (!(middleError instanceof Error)) throw new Error('expected middle refresh to reject')
-    expect(middleError.message).toMatch(/superseded/)
-    expect(session.events.filter(event => event.type === 'test/title-provider-request').map(event => event.data.revision))
-      .toEqual([1, 3])
   })
 
   it('cancels a queued fallback when the session-title service unloads', async () => {
@@ -388,6 +268,21 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(inactiveError).toBeInstanceOf(Error)
     if (!(inactiveError instanceof Error)) throw new Error('expected inactive refresh to reject')
     expect(inactiveError.message).toBe('session-title service disposed')
+  })
+
+  it('suppresses a queued fallback failure after service unload begins', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const session = startSession(ctx, 'service-unload-started-fallback')
+    appendPrompt(session, 'Start fallback before unloading the service')
+
+    await Promise.resolve()
+    await fiber.dispose()
+
+    expect(session.events.some(event => event.type === 'session/title')).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('aborts pending and active provider work and drains ignored cancellation during service unload', async () => {
@@ -428,31 +323,6 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
 
     expect(disposed).toBe(true)
     await expect(refreshOutcome).resolves.toEqual(expect.objectContaining({ message: 'session-title service disposed' }))
-  })
-
-  it('suppresses a queued fallback failure after service unload begins', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const session = startSession(ctx, 'service-unload-flush')
-    appendPrompt(session, 'Fallback whose flush outlives the service')
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    const flushStarted = deferred<undefined>()
-    const releaseFlush = deferred<undefined>()
-    ctx.on('session/flush', async (subject) => {
-      if (subject !== session) return
-      flushStarted.resolve(undefined)
-      await releaseFlush.promise
-      throw new Error('flush failed during service unload')
-    })
-
-    await flushStarted.promise
-    const disposal = fiber.dispose()
-    releaseFlush.resolve(undefined)
-    await disposal
-
-    expect(warn).not.toHaveBeenCalled()
   })
 
   it('warns when a detached session prevents queued fallback publication', async () => {

@@ -135,13 +135,15 @@ export function apply(ctx: Context): void {
       'conversation.input.model': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId): ComposerBarInjected => {
+      const shell = inputHub.shell(sessionId)
       return {
-        keyboard: inputHub.keyboard(sessionId),
+        keyboard: shell,
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
+        hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },
   }, InputBar)

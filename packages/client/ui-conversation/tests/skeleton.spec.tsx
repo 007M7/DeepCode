@@ -120,6 +120,8 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          useNotices={bindSnapshotSelector(wiring.notices)}
+          useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}

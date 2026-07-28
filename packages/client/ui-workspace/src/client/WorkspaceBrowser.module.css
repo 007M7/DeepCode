@@ -129,6 +129,7 @@
    reads the shell's class names): the two icon controls stack as 36x36
    circles matching the shell's rail rhythm. */
 .rail .sectionHeader {
+  gap: 0;
   padding-left: 0;
   margin-bottom: 12px;
 }

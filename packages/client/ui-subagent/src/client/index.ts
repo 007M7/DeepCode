@@ -39,6 +39,10 @@ export function apply(ctx: ClientContext): void {
       // The list snapshot is always warm — the full running-children roster.
       return childLabels(session, '')
     },
+    subscribeLexicon(_session, listener) {
+      // The roll derives from the list snapshot, so its change feed IS the list's.
+      return sessions.list.subscribe(listener)
+    },
     onPick({ candidate }) {
       // Decision 21: plain-text reference — the literal lands in the draft
       // and ships to the model verbatim (trailing space closes the token).

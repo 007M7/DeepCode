@@ -265,6 +265,7 @@ export function WorkspaceBrowser({
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
+  const composingRef = useRef(false)
 
   // Rail search = expand + land in the search box: the flag arms before the
   // expand request; once the shell flips wide the input mounts and takes focus.
@@ -358,7 +359,6 @@ export function WorkspaceBrowser({
             className={css.iconButton}
             aria-label="Create workspace"
             onClick={() => {
-              if (!wide) expandSidebar()
               setWsPickerOpen(v => !v)
             }}
           >
@@ -372,6 +372,8 @@ export function WorkspaceBrowser({
           useWorkspaces={useWorkspaces}
           createWorkspace={createWorkspace}
           pickDirectory={pickDirectory}
+          createOnly
+          side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
             startSession(workspaceId)
@@ -459,9 +461,12 @@ export function WorkspaceBrowser({
           aria-label="Workspace name"
           autoFocus
           disabled={renaming}
+          onFocus={(e) => { e.target.select() }}
           onChange={(e) => { setRenameDraft(e.target.value); setRenameError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !composingRef.current) {
               e.preventDefault()
               confirmRename()
             }

@@ -271,14 +271,47 @@ describe('Menu', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('portal mode positions from the opposite edges for align=end / side=top', () => {
+  it('portal mode resolves align=end / side=top to clamped left/top coordinates', () => {
     render(
       <Menu portal open align="end" side="top" anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={() => {}} />)
     const menu = screen.getByRole('menu')
-    expect(menu.style.right).not.toBe('')
-    expect(menu.style.bottom).not.toBe('')
-    expect(menu.style.left).toBe('')
-    expect(menu.style.top).toBe('')
+    expect(menu.style.left).not.toBe('')
+    expect(menu.style.top).not.toBe('')
+    expect(menu.style.right).toBe('')
+    expect(menu.style.bottom).toBe('')
+  })
+
+  it('renders footer rows in a pinned section below the items; they still select', () => {
+    const onSelect = vi.fn()
+    render(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={items}
+        footer={[{ id: 'new', label: 'Create new' }]}
+        onSelect={onSelect}
+        onClose={() => {}}
+      />)
+    const footerItem = screen.getByRole('menuitem', { name: 'Create new' })
+    expect((footerItem.closest('div[class*="footer"]'))).not.toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Alpha' }).closest('div[class*="footer"]')).toBeNull()
+    fireEvent.click(footerItem)
+    expect(onSelect).toHaveBeenCalledWith('new')
+  })
+
+  it('caps the list height for internal scrolling unless a submenu row is present', () => {
+    const { rerender } = render(
+      <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole('menu').className).toMatch(/scrollable/)
+    rerender(
+      <Menu
+        open
+        anchor={<span>trigger</span>}
+        items={[{ id: 'p', label: 'Parent', submenu: [{ id: 's', label: 'Sub' }] }]}
+        onSelect={() => {}}
+        onClose={() => {}}
+      />)
+    expect(screen.getByRole('menu').className).not.toMatch(/scrollable/)
   })
 })
 

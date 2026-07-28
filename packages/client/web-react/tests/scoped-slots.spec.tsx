@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   createSlotRenderer, SessionProvider, SlotOwnershipError, StaleAuthorizationError,
   type RenderOpts, type SessionProvideInfo,
@@ -85,7 +86,9 @@ function makeHost() {
   const storeCache = new Map<StoredEntry, Map<string, StoreInstanceLike>>()
   const list = observable<{ ids: string[] }>({ ids: [] })
   const workspaces = observable<{ ids: string[] }>({ ids: [] })
-  const current = observable<string | undefined>(undefined)
+  const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: {}, props: {} }
+  const provide = observable<SessionMaybeProvideInfo>(absentInfo)
+  let currentId: string | undefined
   const infos = new Map<string, SessionProvideInfo>()
 
   const bump = (key: string) => {
@@ -123,10 +126,7 @@ function makeHost() {
     },
     sessions: {
       list,
-      current,
-      provideInfo: id => infos.get(id),
-      maybeProvideInfo: id => (id === undefined ? undefined : infos.get(id))
-        ?? { sessionId: undefined, hooks: {}, props: {} },
+      provideInfo: provide,
     },
     workspaces: { list: workspaces },
   }
@@ -134,7 +134,14 @@ function makeHost() {
     host,
     list,
     workspaces,
-    current,
+    // Same driver surface as the old current cell: set(id) publishes the
+    // resolved bundle (or the absent projection) through the provide source.
+    current: {
+      set: (id: string | undefined) => {
+        currentId = id
+        provide.set((id === undefined ? undefined : infos.get(id)) ?? absentInfo)
+      },
+    },
     declare: (key: string, spec: DeclaredSpec) => { specs.set(key, spec); bump(key) },
     add: (key: string, partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }) => {
       const entry = entryOf(partial)
@@ -161,6 +168,7 @@ function makeHost() {
         props: {},
       }
       infos.set(id, info)
+      if (currentId === id) provide.set(info)
       return info
     },
   }
@@ -738,6 +746,25 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     act(() => { h.add('k.single', { component: () => null }) })   // sibling bump re-renders the outlet
     expect(inject).toHaveBeenCalledTimes(1)
     expect(inject).toHaveBeenCalledWith()
+  })
+
+  it('binds the inject hooks compartment into use<Name> selector hooks (sources never reach the component)', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const badge = observable('cold')
+    const seen: Record<string, unknown>[] = []
+    h.add('k.single', {
+      component: (props: { useBadge?: <S>(sel: (s: string) => S) => S; hooks?: unknown; plain?: string }) => {
+        seen.push({ hooks: props.hooks, plain: props.plain, read: props.useBadge!(s => s) })
+        return null
+      },
+      inject: () => ({ plain: 'kept', hooks: { badge } }),
+    })
+    mountRoot(h, { 'k.single': SINGLE_ROOT }, renderSlot => renderSlot('k.single', {}))
+    // The raw compartment is consumed by the binding; the plain member passes through.
+    expect(seen.at(-1)).toEqual({ hooks: undefined, plain: 'kept', read: 'cold' })
+    act(() => { badge.set('hot') })
+    expect(seen.at(-1)!['read']).toBe('hot')
   })
 
   it('session inject receives sessionId and caches per (entry x session): switch-back reuses', () => {

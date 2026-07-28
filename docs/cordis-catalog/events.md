@@ -658,7 +658,7 @@ Applies one command claim to the scoped Input. Dispatched with the session's sco
 'slash/input-begin-command'(request: BeginCommandRequest): true | undefined
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:220`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/client/ui-slash/src/types.ts:230`](../../packages/client/ui-slash/src/types.ts)
 
 ### `slash/input-consume-token` — bail
 
@@ -674,7 +674,7 @@ Consumes one command token after business success (popup settle / menu-pick exec
 'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:234`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/client/ui-slash/src/types.ts:244`](../../packages/client/ui-slash/src/types.ts)
 
 ### `slash/input-insert-reference` — bail
 
@@ -690,7 +690,7 @@ Inserts one reference into the scoped Input (same carrier routing and applied-tr
 'slash/input-insert-reference'(request: InsertReferenceRequest): true | undefined
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:227`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/client/ui-slash/src/types.ts:237`](../../packages/client/ui-slash/src/types.ts)
 
 ### `slash/input-insert-text` — bail
 
@@ -707,7 +707,7 @@ Replaces the trigger token span with literal text — the plain-text reference p
 'slash/input-insert-text'(request: InsertTextRequest): true | undefined
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:242`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/client/ui-slash/src/types.ts:252`](../../packages/client/ui-slash/src/types.ts)
 
 ## `subagent/*`
 

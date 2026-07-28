@@ -79,7 +79,8 @@ describe('scope tree', () => {
     expect(scopeOf(scoped as Context)).toBe('s1')
     expect(scopeOf(b.ctx)).toBeUndefined()
     const binding = b.svc.binding(sid('s1'))
-    expect(binding?.session).toBe(b.svc.provideInfo('s1')?.hooks['session'])
+    b.svc.open(sid('s1'))
+    expect(binding?.session).toBe(b.svc.currentProvideInfo.getSnapshot().hooks['session'])
     expect(b.svc.binding(sid('s1'))).toBe(binding)
     expect(binding?.ctx).toBe(scoped)
   })
@@ -183,24 +184,82 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
 })
 
 describe('cell (render-layer session kit)', () => {
-  it('resolves an identity-stable {sessionId, session} cell; unknown ids yield undefined', async () => {
+  it('resolves an identity-stable {sessionId, session} cell through the current projection', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    const info = b.svc.provideInfo('s1')
-    expect(info).toBeDefined()
-    expect(info?.sessionId).toBe('s1')
+    b.svc.open(sid('s1'))
+    const info = b.svc.currentProvideInfo.getSnapshot()
+    expect(info.sessionId).toBe('s1')
     // The bundle carries bare observables; hook binding happens in React.
-    expect(info?.hooks['session']).toBe(b.svc.binding(sid('s1'))?.session)
-    expect(b.svc.provideInfo('s1')).toBe(info)
-    expect(b.svc.provideInfo('ghost')).toBeUndefined()
+    expect(info.hooks['session']).toBe(b.svc.binding(sid('s1'))?.session)
+    // Re-staging the same id republishes nothing: identity holds.
+    b.svc.open(sid('s1'))
+    expect(b.svc.currentProvideInfo.getSnapshot()).toBe(info)
   })
 
-  it('provideInfo()/binding() are pure resolution: no staging, no deferred sweep', async () => {
+  it('currentProvideInfo follows selection: absent projection ↔ definite bundle, notified on each move', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    const absent = b.svc.currentProvideInfo.getSnapshot()
+    expect(absent.sessionId).toBeUndefined()
+    expect(Object.hasOwn(absent.hooks, 'session')).toBe(true)
+    const notified = vi.fn()
+    b.svc.currentProvideInfo.subscribe(notified)
+    b.svc.open(sid('s1'))
+    const s1Bundle = b.svc.currentProvideInfo.getSnapshot()
+    expect(s1Bundle.sessionId).toBe('s1')
+    expect(s1Bundle.hooks['session']).toBe(b.svc.binding(sid('s1'))?.session)
+    expect(notified).toHaveBeenCalledTimes(1)
+    b.svc.open(sid('s2'))
+    const s2Bundle = b.svc.currentProvideInfo.getSnapshot()
+    expect(s2Bundle.sessionId).toBe('s2')
+    expect(s2Bundle).not.toBe(s1Bundle)
+    expect(notified).toHaveBeenCalledTimes(2)
+    b.svc.clear()
+    await Promise.resolve() // clearSelection projects through the manager notifier
+    expect(b.svc.currentProvideInfo.getSnapshot().sessionId).toBeUndefined()
+  })
+
+  it('a provider roster change under a stable current id republishes the bundle', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.open(sid('s1'))
+    const before = b.svc.currentProvideInfo.getSnapshot()
+    const notified = vi.fn()
+    b.svc.currentProvideInfo.subscribe(notified)
+    const source = { getSnapshot: () => 'live', subscribe: () => () => {} }
+    const dispose = b.svc.provide({
+      hooks: ['extra'],
+      props: ['marker'],
+      resolve: () => ({ hooks: { extra: source }, props: { marker: 7 } }),
+    })
+    const added = b.svc.currentProvideInfo.getSnapshot()
+    expect(added).not.toBe(before)
+    expect(added).toMatchObject({ sessionId: 's1', props: { marker: 7 } })
+    expect(added.hooks['extra']).toBe(source)
+    expect(notified).toHaveBeenCalledTimes(1)
+    dispose()
+    const removed = b.svc.currentProvideInfo.getSnapshot()
+    expect(removed).not.toBe(added)
+    expect(Object.hasOwn(removed.hooks, 'extra')).toBe(false)
+    expect(notified).toHaveBeenCalledTimes(2)
+  })
+
+  it('an unsubscribed currentProvideInfo listener stops receiving notifications', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const notified = vi.fn()
+    const off = b.svc.currentProvideInfo.subscribe(notified)
+    off()
+    b.svc.open(sid('s1'))
+    expect(notified).not.toHaveBeenCalled()
+  })
+
+  it('binding() is pure resolution: no staging, no deferred sweep', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
     b.svc.open(sid('s1')) // staged
-    b.svc.provideInfo('s2') // resolution only — must NOT move the stage
-    b.svc.binding(sid('s2'))
+    b.svc.binding(sid('s2')) // resolution only — must NOT move the stage
     await feedList(b, [{ id: 's2' }]) // s1 removed: still staged → deferred, scope survives
     expect(b.svc.scope(sid('s1'))).toBeDefined()
   })
@@ -211,7 +270,6 @@ describe('cell (render-layer session kit)', () => {
     const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
     // Resolution is addressing, not staging: no window pull.
     b.svc.scope(sid('s1'))
-    b.svc.provideInfo('s1')
     b.svc.binding(sid('s1'))
     expect(historyCalls()).toHaveLength(0)
     b.svc.open(sid('s1'))
