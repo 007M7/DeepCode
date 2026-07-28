@@ -136,7 +136,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useSession={useSession}
       useSessions={emptySessions()}
       useWorkspaces={emptyWorkspaces()}
-      useProjection={(() => undefined) as never}
+      useProjection={(() => undefined)}
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}

@@ -93,7 +93,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
-          useProjection={(() => undefined) as never}
+          useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
           useStore={bindSnapshotSelector(chat)}
@@ -116,7 +116,7 @@ function mount(
           useSession={useSession}
           useSessions={props.useSessions}
           useWorkspaces={props.useWorkspaces}
-          useProjection={(() => undefined) as never}
+          useProjection={(() => undefined)}
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
@@ -135,7 +135,7 @@ function mount(
     useSession,
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
-    useProjection: (() => undefined) as never,
+    useProjection: (() => undefined),
     useInput,
     inputActions,
     renderSlot,

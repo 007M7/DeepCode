@@ -36,7 +36,8 @@ export const commandExecuteRequestSchema = z.object({
 /** CommandId: one brand cast after shape validation (the only cast point in this domain). */
 export const commandIdSchema = z.string().min(1) as unknown as z.ZodType<CommandId>
 
-/** command.execute response value: pure admission — outcomes ride the logged lifecycle events; commandId (present exactly when matched) correlates with them. */
+/** command.execute response value: pure admission — outcomes ride the logged
+ * lifecycle events; commandId (present exactly when matched) correlates with them. */
 export const commandExecuteValueSchema = z.object({
   matched: z.boolean(),
   commandId: commandIdSchema.optional(),

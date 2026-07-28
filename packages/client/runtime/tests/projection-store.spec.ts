@@ -45,12 +45,12 @@ describe('ProjectionValueStore semantics', () => {
     const store = new ProjectionValueStore()
     store.apply('test/marks', { marks: ['frame-20'] }, 20)
     // Stale cut: carried key loses to the newer frame; omitted key survives.
-    store.seed({ asOfSeq: 10, values: { 'test/marks': { marks: ['baseline-10'] } } as never })
+    store.seed({ asOfSeq: 10, values: { 'test/marks': { marks: ['baseline-10'] } } })
     expect(store.get('test/marks')).toEqual({ marks: ['frame-20'] })
     store.seed({ asOfSeq: 15, values: {} })
     expect(store.get('test/marks')).toEqual({ marks: ['frame-20'] })
     // Fresh cut: carried key reseeds…
-    store.seed({ asOfSeq: 30, values: { 'test/marks': { marks: ['baseline-30'] } } as never })
+    store.seed({ asOfSeq: 30, values: { 'test/marks': { marks: ['baseline-30'] } } })
     expect(store.get('test/marks')).toEqual({ marks: ['baseline-30'] })
     // …and an omitting fresh cut clears (capability absent as of the cut).
     store.seed({ asOfSeq: 40, values: {} })

@@ -51,7 +51,7 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
     async tailProjections() {
       const response = await api.sessions.history(request({ sessionId: session.id }))
       if (!response.result.ok) throw new Error('history failed')
-      return response.result.value.projections as { asOfSeq: number; values: Record<string, unknown> } | undefined
+      return response.result.value.projections
     },
   }
 }

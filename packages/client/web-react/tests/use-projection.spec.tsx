@@ -46,15 +46,15 @@ function makeHost() {
   const host: SlotRendererHost = {
     subscribe: () => () => {},
     getVersion: () => 0,
-    entriesOf: (key) => key === 'root' ? [rootEntry] : sessionEntries,
-    specOf: (key) => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
+    entriesOf: key => key === 'root' ? [rootEntry] : sessionEntries,
+    specOf: key => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
     isLive: () => true,
     storeOf: () => undefined,
     sessions: {
       list: observable<unknown>({ ids: [] }),
       current,
-      provideInfo: (id) => info(id),
-      maybeProvideInfo: (id) => (id === undefined
+      provideInfo: id => info(id),
+      maybeProvideInfo: id => (id === undefined
         ? { sessionId: undefined, hooks: { session: undefined }, props: {} }
         : info(id)),
     },

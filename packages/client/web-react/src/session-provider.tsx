@@ -94,7 +94,7 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
  * capability absence — keeping the hook order constant.
  */
 export function projectionHook(info: SessionMaybeProvideInfo): (
-  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean
+  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean,
 ) => unknown {
   let hook = projectionHookCache.get(info)
   if (hook === undefined) {
@@ -113,7 +113,7 @@ export function projectionHook(info: SessionMaybeProvideInfo): (
   return hook
 }
 const projectionHookCache = new WeakMap<SessionMaybeProvideInfo, (
-  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean
+  key: string, selector?: (value: unknown) => unknown, eq?: (a: unknown, b: unknown) => boolean,
 ) => unknown>()
 
 /**

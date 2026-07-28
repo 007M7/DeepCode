@@ -204,10 +204,12 @@ export class FoldAdapter {
       const commands = [...this.commandIdx.values()]
       let next = 0
       for (const node of out) {
-        while (next < commands.length && commands[next]!.seq < node.seq) nodes.push(commands[next++]!)
+        for (let cmd = commands[next]; cmd !== undefined && cmd.seq < node.seq; cmd = commands[++next]) {
+          nodes.push(cmd)
+        }
         nodes.push(node)
       }
-      while (next < commands.length) nodes.push(commands[next++]!)
+      for (let cmd = commands[next]; cmd !== undefined; cmd = commands[++next]) nodes.push(cmd)
     }
     const value = { nodes, degraded: this.degraded }
     this.nodesResult = { rev: this.rev, value }

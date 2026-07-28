@@ -80,7 +80,7 @@ export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
  */
 export type ProjectionChangeListener = (
   session: Session,
-  key: keyof SessionProjectionMap & string,
+  key: Extract<keyof SessionProjectionMap, string>,
   value: unknown,
   seq: number,
 ) => void
@@ -165,7 +165,7 @@ export class SessionProjectionRegistry extends Service {
       if (this.registrations.has(key)) {
         throw new Error(`session projection key ${JSON.stringify(key)} is already registered`)
       }
-      this.registrations.set(key, { def: definition as unknown as ErasedDefinition, cells: new WeakMap() })
+      this.registrations.set(key, { def: definition, cells: new WeakMap() })
       yield () => {
         this.registrations.delete(key)
       }
@@ -203,7 +203,7 @@ export class SessionProjectionRegistry extends Service {
       const cell = this.cellFor(registration, session)
       values[registration.def.key] = registration.def.schema.parse(registration.def.view(cell.state))
     }
-    return { asOfSeq: session.seq - 1, values: values as ProjectionSnapshot['values'] }
+    return { asOfSeq: session.seq - 1, values: values }
   }
 
   /** Fold one unit from init over `events`, producing a cell watermarked at the last folded event. */
@@ -240,7 +240,7 @@ export class SessionProjectionRegistry extends Service {
       if (changed && this.listeners.size > 0) {
         const value = registration.def.schema.parse(registration.def.view(next))
         for (const listener of this.listeners) {
-          listener(session, registration.def.key as keyof SessionProjectionMap & string, value, event.seq)
+          listener(session, registration.def.key as Extract<keyof SessionProjectionMap, string>, value, event.seq)
         }
       }
     }

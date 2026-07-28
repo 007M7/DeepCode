@@ -38,7 +38,7 @@ const marksUnit = (): ProjectionDefinition<'test/marks', MarksState> => ({
   key: 'test/marks',
   schema: z.object({ marks: z.array(z.string()) }),
   init: () => null,
-  apply: (state, event) => (event.type === 'test/mark' ? (event as SessionEvent<'test/mark'>).data : state),
+  apply: (state, event) => (event.type === 'test/mark' ? (event).data : state),
   view: state => state ?? { marks: [] },
   stateVersion: 1,
 })
