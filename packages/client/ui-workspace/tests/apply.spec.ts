@@ -15,16 +15,28 @@ async function bench() {
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
   const pickDirectory = vi.fn(async () => '/tmp/picked')
+  const directoryPickerKind = vi.fn(async () => 'browse' as const)
+  const listDirectory = vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] }))
+  const createDirectory = vi.fn(async () => '/home/u/new')
   const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
   ctx.provide('workspaces', {
-    create, pickDirectory, startSession, rename, insertSessionBefore,
+    create, pickDirectory, directoryPickerKind, listDirectory, createDirectory,
+    startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, pickDirectory, startSession, rename, insertSessionBefore, open, clear }
+  // Structural locale fake: register/bind are the only members apply touches.
+  const localeRegister = vi.fn(() => () => {})
+  const boundT = (key: string): string => key
+  ctx.provide('locale', { register: localeRegister, bind: () => boundT } as never)
+  return {
+    ctx, slots: ctx.get('slots') as SlotsService, create, pickDirectory,
+    directoryPickerKind, listDirectory, createDirectory, localeRegister, boundT,
+    startSession, rename, insertSessionBefore, open, clear,
+  }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -37,7 +49,7 @@ function declare(slots: SlotsService, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {

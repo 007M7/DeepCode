@@ -13,15 +13,38 @@ import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  DirectoryListing, DirectoryPickerKind, SessionId, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
+
+/**
+ * Directory-picking share both registrations consume: the Host's composed
+ * picker interaction decides which calls the flow drives (`dialog` opens the
+ * native chooser through `pickDirectory`; `browse` drives the in-app browser
+ * through `listDirectory`/`createDirectory`; an unknown kind hides the
+ * local-folder entry — the merge-extensible union's documented default).
+ */
+export type DirectoryPickingInjected = {
+  /** The Host's advertised picker interaction, read per flow open. */
+  directoryPickerKind: () => Promise<DirectoryPickerKind>
+  /** Ask the local Host to open its native single-directory picker (`dialog`). */
+  pickDirectory: () => Promise<string | null>
+  /** List one directory level with breadcrumb ancestry (`browse`). */
+  listDirectory: (path?: string) => Promise<DirectoryListing>
+  /** Create one child directory under an existing parent (`browse`). */
+  createDirectory: (path: string, name: string) => Promise<string>
+  /** Localized picker copy (this package's locale namespace). */
+  t: Translate
+}
 
 /**
  * Browser-private injected share (arrives via the register inject factory).
  * Data reads use the global framework hooks; these are the Host actions the
  * browsing region drives.
  */
-export type WorkspaceBrowserInjected = {
+export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   /**
    * Start a New Session in a Workspace: reuse-or-create its blank session
    * and open it; with no workspace, clear the selection into the New Session
@@ -42,8 +65,6 @@ export type WorkspaceBrowserInjected = {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Ask the local Host to open its native single-directory picker. */
-  pickDirectory: () => Promise<string | null>
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions. */
@@ -57,11 +78,9 @@ export type WorkspaceBrowserProps =
  * callback; this callback creates only the real Host Workspace. A type alias
  * supplies the implicit index signature required by the registry.
  */
-export type WorkspacePickerInjected = {
+export type WorkspacePickerInjected = DirectoryPickingInjected & {
   /** Explicitly create or adopt a real Workspace before targeting a Session. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Ask the local Host to open its native single-directory picker. */
-  pickDirectory: () => Promise<string | null>
 }
 
 /**

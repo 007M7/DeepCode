@@ -212,9 +212,9 @@ importers:
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../packages/host/apiproxy
-      '@deepseek-ai/dsh-host-directory-picker-dialog':
+      '@deepseek-ai/dsh-host-directory-picker-browse':
         specifier: workspace:^
-        version: link:../../packages/host/directory-picker-dialog
+        version: link:../../packages/host/directory-picker-browse
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../packages/host/webserver
@@ -1391,6 +1391,9 @@ importers:
         specifier: ^2.0.0
         version: 2.1.1
     devDependencies:
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../locale
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../runtime

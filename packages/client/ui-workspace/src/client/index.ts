@@ -7,14 +7,18 @@
  * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import type { DirectoryPickingInjected, WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 
 export type {
+  DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
+
+/** Locale namespace for the picker surfaces (dictionaries registered in apply). */
+const LOCALE_NS = 'workspace'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -24,7 +28,7 @@ export type {
  * provides a waitable service. apply therefore registers via
  * declaration-aware deferral instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -33,6 +37,39 @@ export const inject = ['slots', 'sessions', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(LOCALE_NS, 'zh', {
+        'browser.title': '选择工作区目录',
+        'browser.home': '主目录',
+        'browser.newFolder': '新建文件夹',
+        'browser.folderName': '文件夹名称',
+        'browser.cancel': '取消',
+        'browser.open': '打开',
+        'browser.editPath': '编辑路径',
+        'browser.loading': '加载中…',
+      }),
+      ctx.locale.register(LOCALE_NS, 'en', {
+        'browser.title': 'Select Workspace Directory',
+        'browser.home': 'Home',
+        'browser.newFolder': 'New folder',
+        'browser.folderName': 'Folder name',
+        'browser.cancel': 'Cancel',
+        'browser.open': 'Open',
+        'browser.editPath': 'Edit path',
+        'browser.loading': 'Loading…',
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-workspace: picker dictionaries')
+
+  const picking = (): DirectoryPickingInjected => ({
+    directoryPickerKind: () => ctx.workspaces.directoryPickerKind(),
+    pickDirectory: () => ctx.workspaces.pickDirectory(),
+    listDirectory: path => ctx.workspaces.listDirectory(path),
+    createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
+    t: ctx.locale.bind(LOCALE_NS),
+  })
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session rides
     // the runtime's shared action (recent-Workspace projection inside).
@@ -44,11 +81,11 @@ export function apply(ctx: ClientContext): void {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
     createWorkspace: input => ctx.workspaces.create(input),
-    pickDirectory: () => ctx.workspaces.pickDirectory(),
+    ...picking(),
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
-    pickDirectory: () => ctx.workspaces.pickDirectory(),
+    ...picking(),
   })
   // Declaration-aware registration: each owner's declaring apply may activate
   // after this one (entry activation order is unconstrained), and a register
@@ -83,7 +120,17 @@ export function apply(ctx: ClientContext): void {
     const unsubscribers = registrations.map(entry =>
       ctx.slots.subscribe(entry.name, () => { tryRegister(entry) }))
     for (const entry of registrations) tryRegister(entry)
+    // Language switch: re-register both entries so open surfaces re-render
+    // with the other dictionary (the bound t keeps a stable identity).
+    const offLocale = ctx.on('locale/change', () => {
+      for (const [name, dispose] of disposers) {
+        dispose()
+        disposers.delete(name)
+      }
+      for (const entry of registrations) tryRegister(entry)
+    })
     return () => {
+      offLocale()
       for (const unsubscribe of unsubscribers) unsubscribe()
       for (const dispose of disposers.values()) dispose()
     }

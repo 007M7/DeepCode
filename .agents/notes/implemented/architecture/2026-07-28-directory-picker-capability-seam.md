@@ -30,7 +30,7 @@ Placement and policy rulings folded into this decision:
 
 ## Consequences
 
-- `cordis.yml` chooses the interaction; `apps/cli` currently mounts `-dialog` (unchanged behavior), and the in-app browser PR flips the default to `-browse` with the GUI branching on `describe`.
+- `cordis.yml` chooses the interaction; `apps/cli` mounts `-browse` (the in-app browser is the shipped default), the GUI branches on `describe`, and `-dialog` stays a composable alternative for host-display deployments.
 - The wire gains `host.listDirectory`/`host.createDirectory`, four error codes, and the `describe.directoryPicker` field; the connection fixture serves a deterministic browse tree for keyless assembled tests.
 - A future interaction (or an Electron `dialog` provider) is one backend package plus a client branch — no gateway surgery.
 - `ApiProxyDefaults.pickDirectory` (test-only injection) is gone; tests provide a stub `ctx.directoryPicker` like any other service.

@@ -30,14 +30,40 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let pickedDirectory: string | null = null
+
+  /**
+   * Drive the in-app browser to a directory via its path-edit affordance,
+   * confirm it, and wait for the adoption to settle host-side (workspace
+   * registered + the flow's New-Session agent up), so later test steps can't
+   * race the in-flight blank-session attach.
+   */
+  async function openLocalFolder(path: string, options: { waitForAgent?: boolean } = {}): Promise<void> {
+    const agentsBefore = scaffold.ctx.agents.list().length
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '编辑路径' }).click()
+    await dialog.getByLabel('编辑路径').fill(path)
+    await dialog.getByLabel('编辑路径').press('Enter')
+    await dialog.getByRole('button', { name: '打开' }).click()
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(path),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
+    // First adoption births a blank Session+Agent whose workspace attach must
+    // settle before a test may delete the registration; the reuse path (same
+    // canonical cwd already has a blank session) creates no agent, so callers
+    // opt in only where a fresh attach is possible.
+    if (options.waitForAgent === true) {
+      await expect.poll(() => scaffold.ctx.agents.list().length, { timeout: 10_000 })
+        .toBeGreaterThan(agentsBefore)
+    }
+  }
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    scaffold.ctx.apiProxy.host.pickDirectory = request => Promise.resolve({
-      rpcId: request.rpcId,
-      result: { ok: true, value: { path: pickedDirectory } },
-    })
     // Seed one cold session (Ungrouped bucket) for the flat view + hover card.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
@@ -137,14 +163,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
     // Register the scaffold's existing project directory through the real UI.
-    pickedDirectory = scaffold.workspaceCwd
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
-
-    await expect.poll(
-      () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
-      { timeout: 10_000 },
-    ).not.toBeUndefined()
+    await openLocalFolder(scaffold.workspaceCwd, { waitForAgent: true })
     const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     if (workspace === undefined) throw new Error('GUI did not register the existing project directory')
     await workspace.attachSession(SessionId(SEED_ID))
@@ -200,9 +219,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // Re-registering the exact deleted path immediately, without a reload, is
     // a supported reversible flow. It creates a fresh Workspace id without
     // re-adopting the retained Session.
-    pickedDirectory = scaffold.workspaceCwd
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await openLocalFolder(scaffold.workspaceCwd)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
       { timeout: 10_000 },
@@ -272,9 +289,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
 
-    pickedDirectory = oldPath
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await openLocalFolder(oldPath)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(oldPath),
       { timeout: 10_000 },

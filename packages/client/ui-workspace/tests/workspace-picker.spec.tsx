@@ -5,6 +5,7 @@ import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DirectoryPickingInjected } from '../src/client/contract/slots.ts'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
 afterEach(cleanup)
@@ -35,14 +36,34 @@ function anchor(): { current: HTMLElement } {
   return { current: element }
 }
 
+/** Minimal picking share for direct renders (kind resolves to dialog). */
+function pickingShare(): DirectoryPickingInjected {
+  return {
+    directoryPickerKind: vi.fn(async () => 'dialog' as const),
+    pickDirectory: vi.fn(async () => null),
+    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] })),
+    createDirectory: vi.fn(async () => '/home/u/new'),
+    t: (key: string) => key,
+  }
+}
+
 function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
   pickDirectory = vi.fn(async () => null as string | null),
+  picking: Partial<DirectoryPickingInjected> = {},
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
   const anchorRef = anchor()
+  const share: DirectoryPickingInjected = {
+    directoryPickerKind: vi.fn(async () => 'dialog' as const),
+    pickDirectory,
+    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] })),
+    createDirectory: vi.fn(async () => '/home/u/new'),
+    t: key => key,
+    ...picking,
+  }
   const renderPicker = (nextItems: readonly WorkspaceView[]) => (
     <WorkspacePicker
       open
@@ -52,20 +73,30 @@ function mount(
       onPick={onPick}
       onClose={onClose}
       createWorkspace={createWorkspace}
-      pickDirectory={pickDirectory}
+      {...share}
     />
   )
   const view = render(
     renderPicker(items),
   )
   return {
-    view, onPick, onClose, createWorkspace, pickDirectory,
+    view, onPick, onClose, createWorkspace, pickDirectory, share,
     rerenderItems: (nextItems: readonly WorkspaceView[]) => { view.rerender(renderPicker(nextItems)) },
   }
 }
 
 function chooseItem(name: 'Open local folder…' | 'Create a new workspace'): void {
   fireEvent.click(screen.getByRole('menuitem', { name }))
+}
+
+/** The local-folder entry disables until the Host's picker kind resolves. */
+async function chooseLocalFolder(): Promise<void> {
+  await waitFor(() => {
+    const item = screen.getByRole('menuitem', { name: 'Open local folder…' })
+    expect(item).not.toHaveProperty('ariaDisabled', 'true')
+    expect(item.getAttribute('aria-disabled')).not.toBe('true')
+  })
+  chooseItem('Open local folder…')
 }
 
 describe('WorkspacePicker', () => {
@@ -92,7 +123,7 @@ describe('WorkspacePicker', () => {
     const createWorkspace = vi.fn(async () => created)
     const pickDirectory = vi.fn(async () => '/tmp/project')
     const b = mount([], createWorkspace, pickDirectory)
-    chooseItem('Open local folder…')
+    await chooseLocalFolder()
     expect(pickDirectory).toHaveBeenCalledOnce()
     await waitFor(() => { expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' }) })
     expect(createWorkspace).toHaveBeenCalledWith({ path: '/tmp/project' })
@@ -101,7 +132,7 @@ describe('WorkspacePicker', () => {
 
   it('treats native picker cancellation as a silent no-op', async () => {
     const b = mount([], vi.fn(), vi.fn(async () => null))
-    chooseItem('Open local folder…')
+    await chooseLocalFolder()
     await waitFor(() => { expect(b.pickDirectory).toHaveBeenCalledOnce() })
     expect(b.createWorkspace).not.toHaveBeenCalled()
     expect(b.onPick).not.toHaveBeenCalled()
@@ -118,7 +149,7 @@ describe('WorkspacePicker', () => {
       })
     })
     const b = mount([], createWorkspace, pickDirectory)
-    chooseItem('Open local folder…')
+    await chooseLocalFolder()
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
     })
@@ -132,7 +163,7 @@ describe('WorkspacePicker', () => {
     let resolve!: (path: string | null) => void
     const pending = new Promise<string | null>((settle) => { resolve = settle })
     const b = mount([], vi.fn(), vi.fn(() => pending))
-    chooseItem('Open local folder…')
+    await chooseLocalFolder()
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Open local folder…' }).disabled).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open local folder…' }))
@@ -142,7 +173,7 @@ describe('WorkspacePicker', () => {
 
   it('reports non-Error native picker failures', async () => {
     const b = mount([], vi.fn(), vi.fn(async () => { throw 'picker unavailable' }))
-    chooseItem('Open local folder…')
+    await chooseLocalFolder()
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('picker unavailable')
     })
@@ -212,11 +243,58 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
+  it('opens the in-app browser under the browse capability and adopts the confirmed directory', async () => {
+    const created = { ...workspace('adopted'), path: '/home/u', title: 'u' }
+    const createWorkspace = vi.fn(async () => created)
+    const b = mount([], createWorkspace, vi.fn(), {
+      directoryPickerKind: vi.fn(async () => 'browse' as const),
+    })
+    await chooseLocalFolder()
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
+    // The dialog listed home; Open adopts the listed directory.
+    await waitFor(() => { expect(b.share.listDirectory).toHaveBeenCalled() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
+    await waitFor(() => { expect(createWorkspace).toHaveBeenCalledWith({ path: '/home/u' }) })
+    await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
+    expect(b.pickDirectory).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('routes an adoption conflict from the browser into the folder-error dialog, and Choose again reopens the browser', async () => {
+    const createWorkspace = vi.fn(async () => {
+      throw new WorkspaceCreateError({
+        code: 'workspace-name-conflict', message: 'u already exists', details: { name: 'u' },
+      })
+    })
+    const b = mount([], createWorkspace, vi.fn(), {
+      directoryPickerKind: vi.fn(async () => 'browse' as const),
+    })
+    await chooseLocalFolder()
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('hides the local-folder entry when the picker kind is unknown', async () => {
+    mount([], vi.fn(), vi.fn(), {
+      directoryPickerKind: vi.fn(async () => { throw new Error('unreachable host') }),
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    })
+    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
+  })
+
   it('waits to show its menu until an optional anchor is available', () => {
     render(
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} {...pickingShare()}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -229,7 +307,7 @@ describe('WorkspacePicker', () => {
     render(
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
-        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} {...pickingShare()}
       />,
     )
     expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')

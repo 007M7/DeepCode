@@ -253,7 +253,11 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertSessionBefore,
   createWorkspace,
+  directoryPickerKind,
   pickDirectory,
+  listDirectory,
+  createDirectory,
+  t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const groupBy = useStore(s => s.groupBy)
@@ -371,7 +375,11 @@ export function WorkspaceBrowser({
           anchorRef={wsPlusRef}
           useWorkspaces={useWorkspaces}
           createWorkspace={createWorkspace}
+          directoryPickerKind={directoryPickerKind}
           pickDirectory={pickDirectory}
+          listDirectory={listDirectory}
+          createDirectory={createDirectory}
+          t={t}
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
             startSession(workspaceId)

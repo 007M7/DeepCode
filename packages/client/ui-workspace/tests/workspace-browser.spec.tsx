@@ -59,7 +59,11 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
+    directoryPickerKind: vi.fn(async () => 'dialog' as const),
     pickDirectory: vi.fn(async () => null),
+    listDirectory: vi.fn(async () => ({ path: '/home/u', home: '/home/u', crumbs: [], entries: [] })),
+    createDirectory: vi.fn(async () => '/home/u/new'),
+    t: (key: string) => key,
     ...overrides,
   }
   const view = render(<WorkspaceBrowser {...props} />)

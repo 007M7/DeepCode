@@ -234,9 +234,9 @@
 # shares. provider/model are the host default routing — the profile json's
 # mapping target (user config overrides these engineering defaults).
 # Directory-picking backend consumed by the gateway's host.* picker RPCs.
-# Swap point: mount '-browse' instead for the in-app browser (remote-capable).
+# Swap point: mount '-dialog' instead for the native OS chooser (host-display only).
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-dialog'
+  name: '@deepseek-ai/dsh-host-directory-picker-browse'
 
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'

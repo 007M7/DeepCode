@@ -5,24 +5,25 @@
  * slot registration.
  */
 import type { RefObject } from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   WorkspaceCreateError,
-  type WorkspaceId, type WorkspaceListState, type WorkspaceView,
+  type DirectoryPickerKind, type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePickerProps } from './contract/slots.ts'
+import type { DirectoryPickingInjected, WorkspacePickerProps } from './contract/slots.ts'
+import { DirectoryBrowser } from './DirectoryBrowser.tsx'
 import css from './WorkspacePicker.module.css'
 
 const OPEN_LOCAL_FOLDER = '::open-local-folder'
 const CREATE_NEW = '::create-new'
 
-type ModalKind = 'create' | 'folder-error' | null
+type ModalKind = 'create' | 'folder-error' | 'browse' | null
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
-export interface WorkspaceCreateFlowProps {
+export interface WorkspaceCreateFlowProps extends DirectoryPickingInjected {
   /** Popover visibility (anchor button toggle state, owner-local). */
   open: boolean
   /** The anchor button element — the popover's placement anchor. */
@@ -31,8 +32,6 @@ export interface WorkspaceCreateFlowProps {
   useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
   /** Create or adopt a real Host Workspace. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Open the Host's native single-directory picker. */
-  pickDirectory: () => Promise<string | null>
   /** A real Workspace was picked or created. */
   onPick: (workspaceId: WorkspaceId) => void
   /** Close the popover (outside click / Escape / post-pick). */
@@ -49,7 +48,11 @@ export function WorkspaceCreateFlow({
   anchorRef,
   useWorkspaces,
   createWorkspace,
+  directoryPickerKind,
   pickDirectory,
+  listDirectory,
+  createDirectory,
+  t,
   onPick,
   onClose,
 }: WorkspaceCreateFlowProps) {
@@ -65,6 +68,21 @@ export function WorkspaceCreateFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderConflict, setFolderConflict] = useState(false)
+  // The Host's picker interaction: read while the menu is open; 'unknown'
+  // (fetch failure or an unadvertised kind) hides the local-folder entry —
+  // the merge-extensible union's documented default.
+  const [pickerKind, setPickerKind] = useState<DirectoryPickerKind | 'unknown' | null>(null)
+  useEffect(() => {
+    if (!open) return
+    let stale = false
+    directoryPickerKind().then(
+      // The wire type is the closed two-kind union today; a fetch failure is
+      // the reachable 'unknown' arm (an unadvertisable host hides the entry).
+      (kind) => { if (!stale) setPickerKind(kind) },
+      () => { if (!stale) setPickerKind('unknown') },
+    )
+    return () => { stale = true }
+  }, [open, directoryPickerKind])
   const normalizedWorkspaceName = workspaceName.trim()
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
@@ -77,17 +95,40 @@ export function WorkspaceCreateFlow({
       disabled: pickingFolder,
     })),
     ...(workspaces.length > 0 ? [{ type: 'separator' as const, id: 'sep-create' }] : []),
-    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
+    ...(pickerKind === 'unknown' ? [] : [
+      { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder || pickerKind === null },
+    ]),
     { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
   ]
 
   const closeModal = (): void => {
-    if (creating) return
+    if (creating || pickingFolder) return
     setModalKind(null)
     setModalError(null)
   }
 
+  /** Adopt a chosen directory as a Workspace; failures land in the folder-error dialog. */
+  const adoptDirectory = (path: string): Promise<void> =>
+    createWorkspace({ path }).then((workspace) => {
+      setModalKind(null)
+      onPick(workspace.workspaceId)
+    }).catch((reason: unknown) => {
+      setFolderConflict(
+        reason instanceof WorkspaceCreateError
+        && reason.rpcError.code === 'workspace-name-conflict',
+      )
+      setModalError(reason instanceof Error ? reason.message : String(reason))
+      setModalKind('folder-error')
+    })
+
   const openLocalFolder = (): void => {
+    if (pickerKind === 'browse') {
+      onClose()
+      setModalError(null)
+      setFolderConflict(false)
+      setModalKind('browse')
+      return
+    }
     onClose()
     setModalKind(null)
     setModalError(null)
@@ -95,13 +136,8 @@ export function WorkspaceCreateFlow({
     setPickingFolder(true)
     void pickDirectory().then(async (path) => {
       if (path === null) return
-      const workspace = await createWorkspace({ path })
-      onPick(workspace.workspaceId)
+      await adoptDirectory(path)
     }).catch((reason: unknown) => {
-      setFolderConflict(
-        reason instanceof WorkspaceCreateError
-        && reason.rpcError.code === 'workspace-name-conflict',
-      )
       setModalError(reason instanceof Error ? reason.message : String(reason))
       setModalKind('folder-error')
     }).finally(() => { setPickingFolder(false) })
@@ -155,6 +191,18 @@ export function WorkspaceCreateFlow({
         getAnchorRect={getAnchorRect}
       />
       {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">Loading workspaces…</div>}
+      <DirectoryBrowser
+        open={modalKind === 'browse'}
+        listDirectory={listDirectory}
+        createDirectory={createDirectory}
+        busy={pickingFolder}
+        t={t}
+        onClose={closeModal}
+        onOpen={(path) => {
+          setPickingFolder(true)
+          void adoptDirectory(path).finally(() => { setPickingFolder(false) })
+        }}
+      />
       <Modal
         open={modalKind === 'folder-error'}
         onClose={closeModal}
@@ -228,7 +276,11 @@ export function WorkspacePicker({
   onPick,
   onClose,
   createWorkspace,
+  directoryPickerKind,
   pickDirectory,
+  listDirectory,
+  createDirectory,
+  t,
 }: WorkspacePickerProps) {
   return (
     <WorkspaceCreateFlow
@@ -236,7 +288,11 @@ export function WorkspacePicker({
       anchorRef={anchorRef}
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
+      directoryPickerKind={directoryPickerKind}
       pickDirectory={pickDirectory}
+      listDirectory={listDirectory}
+      createDirectory={createDirectory}
+      t={t}
       onPick={onPick}
       onClose={onClose}
     />

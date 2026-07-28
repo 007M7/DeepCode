@@ -1,0 +1,185 @@
+/* Directory-browser dialog (figma 802-56979). The shared Modal owns the mask,
+ * card, and title row; this module widens the card and rebuilds the figma
+ * header/footer separators with bleed margins inside the 24px content column. */
+
+.dialog {
+  width: min(600px, 100%);
+}
+
+/* Breadcrumb bar sits visually inside the header block: bleed to the card
+ * edges, close the header's 12px bottom pad, draw the l3 separator. */
+.crumbBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  margin: -12px -24px 0;
+  padding: 0 24px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+.crumbSeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+}
+
+.crumb {
+  border: none;
+  background: transparent;
+  padding: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.crumbChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The empty remainder of the bar: invisible, but a real click target that
+ * flips the bar into path-edit mode. */
+.crumbEditZone {
+  flex: 1 1 0;
+  min-width: 34px;
+  align-self: stretch;
+  border: none;
+  background: transparent;
+  cursor: text;
+}
+
+.pathInput {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* One directory level: 28px rows, r6, folder icon + name + enter chevron. */
+.level {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: -4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  flex: none;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rowIcon {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.rowName {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.folderRow {
+  cursor: default;
+}
+
+.folderInput {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.folderInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.status,
+.error {
+  padding: 4px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.status {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Footer: the l3 separator above the action row, New-folder pinned left
+ * (bleeds across the card; 12px stays below, matching the figma card pad). */
+.footerBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 48px);
+  margin: 0 -24px -12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.footerGap {
+  flex: 1 1 0;
+}
+
+.footerAction {
+  min-width: 72px;
+}
