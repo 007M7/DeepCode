@@ -154,11 +154,11 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly goals: IApiClient['goals'] = {
-    create: payload => this.record('goal.create', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
-    edit: payload => this.record('goal.edit', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
-    pause: payload => this.record('goal.pause', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
-    resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
-    complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    create: payload => this.record('goal.create', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
+    edit: payload => this.record('goal.edit', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
+    pause: payload => this.record('goal.pause', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
+    resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
+    complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
     clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
   }
 

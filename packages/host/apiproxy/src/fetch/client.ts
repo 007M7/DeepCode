@@ -92,7 +92,6 @@ export interface IApiClient {
     host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
   }
   goals: {
-    get(payload: RequestPayload<'goal.get'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.get'>>>
     create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
     edit(payload: RequestPayload<'goal.edit'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.edit'>>>
     pause(payload: RequestPayload<'goal.pause'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.pause'>>>
@@ -353,7 +352,6 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   readonly goals: IApiClient['goals'] = {
-    get: (payload, signal) => this.callUnary('goal.get', payload, signal),
     create: (payload, signal) => this.callUnary('goal.create', payload, signal),
     edit: (payload, signal) => this.callUnary('goal.edit', payload, signal),
     pause: (payload, signal) => this.callUnary('goal.pause', payload, signal),

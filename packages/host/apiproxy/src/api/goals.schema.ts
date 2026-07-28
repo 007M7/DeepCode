@@ -1,10 +1,12 @@
 /**
- * goals domain zod schemas.
+ * goals domain zod schemas. Mutation-only shapes: every value schema is a
+ * `{ ref }` acknowledgement (clear: `{ cleared }`) — the current goal state
+ * travels exclusively on the 'goal' session projection.
  */
 
 import { z } from 'zod'
 import type { Wire } from './rpc.schema.ts'
-import type { GoalRef, GoalView, RequestPayload, ResponseValue } from './index.ts'
+import type { GoalRef, RequestPayload, ResponseValue } from './index.ts'
 
 /** GoalRef schema. */
 export const goalRefSchema = z.object({
@@ -12,25 +14,8 @@ export const goalRefSchema = z.object({
   revision: z.number().int().positive(),
 }) as unknown as z.ZodType<Wire<GoalRef>>
 
-/** Goal block reason schema. */
-export const goalBlockReasonSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-})
-
-/** GoalView schema. */
-export const goalViewSchema = z.object({
-  id: z.string(),
-  revision: z.number().int().positive(),
-  objective: z.string(),
-  phase: z.union([z.literal('active'), z.literal('paused'), z.literal('blocked'), z.literal('complete')]),
-  blockedReason: goalBlockReasonSchema.optional(),
-  maxGoalRounds: z.number().int().positive(),
-  roundsStarted: z.number().int().nonnegative(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
-  activation: z.union([z.literal('armed'), z.literal('disarmed')]),
-}) as unknown as z.ZodType<Wire<GoalView>>
+/** Shared `{ ref }` acknowledgement value of every non-clear mutation. */
+const goalRefValueSchema = z.object({ ref: goalRefSchema })
 
 /** goal.create request payload. */
 export const goalCreateRequestSchema = z.object({
@@ -40,9 +25,7 @@ export const goalCreateRequestSchema = z.object({
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.create'>>>
 
 /** goal.create response value. */
-export const goalCreateValueSchema = z.object({
-  goal: goalViewSchema,
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.create'>>>
+export const goalCreateValueSchema = goalRefValueSchema as unknown as z.ZodType<Wire<ResponseValue<'goal.create'>>>
 
 /** goal.edit request payload. */
 export const goalEditRequestSchema = z.object({
@@ -55,9 +38,7 @@ export const goalEditRequestSchema = z.object({
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.edit'>>>
 
 /** goal.edit response value. */
-export const goalEditValueSchema = z.object({
-  goal: goalViewSchema,
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.edit'>>>
+export const goalEditValueSchema = goalRefValueSchema as unknown as z.ZodType<Wire<ResponseValue<'goal.edit'>>>
 
 /** goal.pause request payload. */
 export const goalPauseRequestSchema = z.object({
@@ -66,9 +47,7 @@ export const goalPauseRequestSchema = z.object({
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.pause'>>>
 
 /** goal.pause response value. */
-export const goalPauseValueSchema = z.object({
-  goal: goalViewSchema,
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.pause'>>>
+export const goalPauseValueSchema = goalRefValueSchema as unknown as z.ZodType<Wire<ResponseValue<'goal.pause'>>>
 
 /** goal.resume request payload. */
 export const goalResumeRequestSchema = z.object({
@@ -77,9 +56,7 @@ export const goalResumeRequestSchema = z.object({
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.resume'>>>
 
 /** goal.resume response value. */
-export const goalResumeValueSchema = z.object({
-  goal: goalViewSchema,
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.resume'>>>
+export const goalResumeValueSchema = goalRefValueSchema as unknown as z.ZodType<Wire<ResponseValue<'goal.resume'>>>
 
 /** goal.complete request payload. */
 export const goalCompleteRequestSchema = z.object({
@@ -88,9 +65,7 @@ export const goalCompleteRequestSchema = z.object({
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.complete'>>>
 
 /** goal.complete response value. */
-export const goalCompleteValueSchema = z.object({
-  goal: goalViewSchema,
-}) as unknown as z.ZodType<Wire<ResponseValue<'goal.complete'>>>
+export const goalCompleteValueSchema = goalRefValueSchema as unknown as z.ZodType<Wire<ResponseValue<'goal.complete'>>>
 
 /** goal.clear request payload. */
 export const goalClearRequestSchema = z.object({

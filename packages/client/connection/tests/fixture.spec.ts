@@ -698,6 +698,13 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
     expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
+    const ref = { id: 'fx-goal-1' as never, revision: 1 }
+    expect((await client.goals.create({ sessionId: id, objective: 'x' })).result.ok).toBe(false)
+    expect((await client.goals.edit({ sessionId: id, ref, objective: 'x' })).result.ok).toBe(false)
+    expect((await client.goals.pause({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.resume({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.clear({ sessionId: id, ref })).result.ok).toBe(false)
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {
@@ -745,13 +752,6 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
       workspaceId: 'fx-ws-fixture' as WorkspaceId,
       sessionId: sid('fx-query-dropped'),
     })).rejects.toThrow(/dropped session\.create response/)
-    const ref = { id: 'fx-goal-1' as never, revision: 1 }
-    expect((await client.goals.create({ sessionId: id, objective: 'x' })).result.ok).toBe(false)
-    expect((await client.goals.edit({ sessionId: id, ref, objective: 'x' })).result.ok).toBe(false)
-    expect((await client.goals.pause({ sessionId: id, ref })).result.ok).toBe(false)
-    expect((await client.goals.resume({ sessionId: id, ref })).result.ok).toBe(false)
-    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
-    expect((await client.goals.clear({ sessionId: id, ref })).result.ok).toBe(false)
   })
 
   it('fires onOpen at stream-iteration start and taps server-request full forms', async () => {
