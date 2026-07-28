@@ -141,8 +141,14 @@ export class SessionProjectionCache extends Service {
   async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot> {
     const cached = this.checkpointOf(id)
     const floor = this.ctx.sessionProjections.restoreFloor(cached)
-    if (floor === undefined) return { asOfSeq: -1, values: {} }
     const persistence = this.ctx.sessionPersistence
+    if (floor === undefined) {
+      // No unit registered: nothing to fold, but the not-found contract must
+      // hold in this topology too — the probe read rejects for an absent log
+      // and dates the empty cut for a present one.
+      const probe = await persistence.readFrom(id, 0, signal)
+      return { asOfSeq: probe.events.at(-1)?.seq ?? -1, values: {} }
+    }
     let restored: { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
     const tail = await persistence.readFrom(id, floor, signal)
     try {

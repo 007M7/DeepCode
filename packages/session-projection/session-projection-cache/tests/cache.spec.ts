@@ -252,4 +252,26 @@ describe('SessionProjectionCache cold read', () => {
     const { cache } = await harness()
     await expect(cache.coldSnapshot(SessionId('absent'))).rejects.toThrow('not found')
   })
+
+  it('holds the not-found contract with zero registered units, and dates the empty cut for a present log', async () => {
+    // Same composition minus any registered unit: restoreFloor is undefined,
+    // yet coldSnapshot must still reject for an absent log (probe read) and
+    // serve an empty cut at the stored end for a present one.
+    const pool = new MemoryMediaPool()
+    const logs = new Map([['bare', storedLog([['a']])]]) // seqs 0..2
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
+    const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', facility)
+    ctx.provide('storageDomain', facility)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.provide('sessionPersistence', fakePersistence(logs) as never)
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    await expect(ctx.sessionProjectionCache.coldSnapshot(SessionId('absent'))).rejects.toThrow('not found')
+    await expect(ctx.sessionProjectionCache.coldSnapshot(SessionId('bare')))
+      .resolves.toEqual({ asOfSeq: 2, values: {} })
+  })
 })
