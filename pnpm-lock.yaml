@@ -152,6 +152,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../../packages/client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-goal':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-goal
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../../packages/client/ui-layout
@@ -194,6 +197,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:^
         version: link:../../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-command-goal':
+        specifier: workspace:^
+        version: link:../../packages/goal/command-goal
       '@deepseek-ai/dsh-commands':
         specifier: workspace:^
         version: link:../../packages/ui/commands
@@ -209,6 +215,12 @@ importers:
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../packages/fs/fs-policy
+      '@deepseek-ai/dsh-goal':
+        specifier: workspace:^
+        version: link:../../packages/goal/goal
+      '@deepseek-ai/dsh-goal-session':
+        specifier: workspace:^
+        version: link:../../packages/goal/goal-session
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../packages/host/apiproxy
