@@ -159,7 +159,10 @@ export function apply(ctx: Context): void {
     id: 'chat',
     order: 0,
     label: 'Chat',
-    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+    children: {
+      'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const scoped = scopedConversation(sessions, sessionId)

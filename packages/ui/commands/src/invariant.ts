@@ -1,11 +1,12 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-commands`.
+ * Package-owned invariant companion for `@deepseek-ai/dsh-commands`:
+ * command lifecycle events pair by commandId within one session log.
  * @module @deepseek-ai/dsh-commands/invariant
  */
 
-/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-commands'
 
@@ -14,11 +15,36 @@ export const name = 'commands-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/**
- * No runtime invariant: registry notifications intentionally hide mutation details and contain
- * observers, so list/find self-comparisons would duplicate implementation rather than detect drift.
- */
-const install: InvariantInstaller = () => {}
+/* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
+/** Install pairing validation over loaded logs and newly appended lifecycle events. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  // Install-scoped so a dispose/re-register cycle re-sweeps from a clean slate.
+  const runIds = new WeakMap<Session, Set<string>>()
+  const validateEvent = (session: Session, event: SessionEvent): void => {
+    if (event.type === 'command/run') {
+      const ids = runIds.get(session) ?? new Set<string>()
+      if (ids.has(event.data.commandId)) {
+        fail(`command/run repeats commandId ${JSON.stringify(event.data.commandId)}`)
+      }
+      ids.add(event.data.commandId)
+      runIds.set(session, ids)
+      return
+    }
+    if (event.type !== 'command/done') return
+    if (runIds.get(session)?.has(event.data.commandId) !== true) {
+      fail(`command/done ${JSON.stringify(event.data.commandId)} pairs no prior command/run in this log`)
+    }
+  }
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(session, event)
+  }
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const [session, event] = args as [Session, SessionEvent]
+    validateEvent(session, event)
+  }, { global: true })
+}, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register this package's invariant companion.
@@ -27,4 +53,3 @@ const install: InvariantInstaller = () => {}
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
-/* jscpd:ignore-end */
