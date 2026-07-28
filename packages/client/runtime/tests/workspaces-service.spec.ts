@@ -242,7 +242,7 @@ describe('WorkspacesService', () => {
     const ctx = new Context()
     const api = new FakeApiClient()
     const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api))
-    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }] }
+    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }], truncated: false }
     api.onListDirectory = () => Promise.resolve(ok(listing))
     await expect(workspaces.listDirectory()).resolves.toEqual(listing)
     await expect(workspaces.listDirectory('/home/u')).resolves.toEqual(listing)

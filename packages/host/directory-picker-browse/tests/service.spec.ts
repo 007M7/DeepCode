@@ -45,6 +45,27 @@ describe('BrowseDirectoryPicker', () => {
     expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
     // Every entry path is absolute and host-joined — clients never join segments.
     expect(listing.entries.every(entry => entry.path === join(root, entry.name))).toBe(true)
+    // Well under the default bound: the complete level, not a cut one.
+    expect(listing.truncated).toBe(false)
+  })
+
+  it('cuts a level at maxEntries keeping the name-sorted head, and flags the cut', async () => {
+    const ctx = new Context()
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxEntries: 1 })
+    await fiber.await()
+    const bounded = ctx.get('directoryPicker')!.capability()
+    if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+    try {
+      const cut = await bounded.list(root)
+      expect(cut.entries.map(entry => entry.name)).toEqual(['.hidden-dir'])
+      expect(cut.truncated).toBe(true)
+      // Exactly at the bound is complete, not truncated.
+      const exact = await bounded.list(join(root, 'projects'))
+      expect(exact.entries.map(entry => entry.name)).toEqual(['harness'])
+      expect(exact.truncated).toBe(false)
+    } finally {
+      await fiber.dispose()
+    }
   })
 
   it('reports the ancestry as jump-target crumbs ending at the listed directory', async () => {

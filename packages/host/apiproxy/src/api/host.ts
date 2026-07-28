@@ -28,6 +28,8 @@ export interface DirectoryListing {
   crumbs: DirectoryEntry[]
   /** Direct child directories, name-sorted; symlinks to directories included. */
   entries: DirectoryEntry[]
+  /** True when the backend cut `entries` at its complete-result bound (the name-sorted tail is absent). */
+  truncated: boolean
 }
 
 /** Host-level unary methods. */
