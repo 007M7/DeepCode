@@ -75,6 +75,18 @@ describe('isTrustedApiRequest', () => {
     for (const entry of ['harness.internal/path', 'harness.internal/', 'user@harness.internal', 'harness.internal?x', 'harness.internal#f', 'harness.internal\\path', 'bad entry', '']) {
       expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
     }
+    // WHATWG trimming would silently strip these; the entry must fail instead.
+    for (const entry of ['harness.internal:3080 ', ' harness.internal', 'harness.internal:30\t80']) {
+      expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
+    }
+  })
+
+  it('never lets stray whitespace broaden an exact-port entry to every port', () => {
+    // Defense in depth below the load-time assert: the explicit-port judgment
+    // reads the parsed URL, so a trimmed `host:port ` entry stays exact.
+    const trusted = ['harness.internal:3080 ']
+    expect(isTrustedApiRequest(request({ host: 'harness.internal:9999', origin: 'http://harness.internal:9999' }), trusted)).toBe(false)
+    expect(isTrustedApiRequest(request({ host: 'harness.internal:3080', origin: 'http://harness.internal:3080' }), trusted)).toBe(true)
   })
 
   it('refuses malformed or untrusted authorities on browser requests', () => {
