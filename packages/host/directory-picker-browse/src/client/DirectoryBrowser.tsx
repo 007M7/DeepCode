@@ -27,8 +27,8 @@ import css from './DirectoryBrowser.module.css'
 export interface DirectoryBrowserProps {
   /** Dialog visibility (owner-local; closed unmounts nothing but resets on reopen). */
   open: boolean
-  /** List one directory level (absent path = the Host home directory). */
-  listDirectory: (path?: string) => Promise<DirectoryListing>
+  /** List one directory level (absent path = the Host home directory); the signal aborts a superseded scan on the wire. */
+  listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
   /** Create one child directory under an existing parent. */
   createDirectory: (path: string, name: string) => Promise<string>
   /** The operator confirmed a directory (the selection, else the listed level). */
@@ -115,6 +115,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const requestSeq = useRef(0)
+  // The in-flight listing's controller: superseding intent aborts the wire
+  // request too — the Host stops scanning — instead of only discarding the
+  // eventual result while the scan keeps consuming host resources.
+  const scanController = useRef<AbortController | null>(null)
   // Bumped on every open/close edge: settlements from a previous open (a
   // pending creation included) must never mutate a reopened dialog.
   const openGeneration = useRef(0)
@@ -130,18 +134,34 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   useEffect(() => () => {
     requestSeq.current += 1
     openGeneration.current += 1
+    scanController.current?.abort()
   }, [])
   const compositionGuard = {
     onCompositionStart: () => { composingRef.current = true },
     onCompositionEnd: () => { composingRef.current = false },
   }
 
+  /** Newer intent wins: invalidate the pending listing's settlement AND abort its wire request. */
+  const supersede = useCallback((): number => {
+    scanController.current?.abort()
+    scanController.current = null
+    return ++requestSeq.current
+  }, [])
+
+  /** Launch one listing under a fresh controller so a later supersession can abort it. */
+  const launchListing = useCallback((path: string | undefined): { seq: number; scan: Promise<DirectoryListing> } => {
+    const seq = supersede()
+    const controller = new AbortController()
+    scanController.current = controller
+    return { seq, scan: listDirectory(path, controller.signal) }
+  }, [supersede, listDirectory])
+
   /** Replace the whole view with one freshly listed level (no selection). */
   const navigate = useCallback((path?: string) => {
-    const seq = ++requestSeq.current
+    const { seq, scan } = launchListing(path)
     setLoading(true)
     setError(null)
-    listDirectory(path).then((next) => {
+    scan.then((next) => {
       if (seq !== requestSeq.current) return
       setParent(next)
       setSelected(null)
@@ -153,16 +173,16 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setLoading(false)
       setError(failureText(reason))
     })
-  }, [listDirectory])
+  }, [launchListing])
 
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
-    const seq = ++requestSeq.current
+    const { seq, scan } = launchListing(entry.path)
     setSelected(entry)
     setChild(null)
     setLoading(true)
     setError(null)
-    listDirectory(entry.path).then((next) => {
+    scan.then((next) => {
       if (seq !== requestSeq.current) return
       setChild(next)
       setLoading(false)
@@ -174,7 +194,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // breadcrumb still names the level: fall back to the single pane.
       setSelected(null)
     })
-  }, [listDirectory])
+  }, [launchListing])
 
   /** A right-column pick advances the view one level: child becomes the level. */
   const advance = useCallback((entry: DirectoryEntry) => {
@@ -196,12 +216,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       navigate()
       return
     }
-    requestSeq.current += 1
+    supersede()
     setError(null)
     setPathDraft(null)
     setFolderDraft(null)
     setCreateError(null)
-  }, [open, navigate])
+  }, [open, navigate, supersede])
 
   /** The folder a create or Open acts on: the selection, else the listed level. */
   const targetPath = selected?.path ?? parent?.path ?? null
@@ -227,9 +247,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setFolderDraft(null)
       // Land like a right-column pick (figma 802:57446 → 813:23278 flow): the
       // create target becomes the listed level and the new folder its selection.
-      const seq = ++requestSeq.current
+      const { seq, scan } = launchListing(targetPath)
       setLoading(true)
-      listDirectory(targetPath).then((level) => {
+      scan.then((level) => {
         /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
         setParent(level)
@@ -324,7 +344,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     // Opening the editor supersedes any pending listing: a
                     // settlement landing before the first keystroke would
                     // otherwise close the editor via navigate's draft reset.
-                    requestSeq.current += 1
+                    supersede()
                     setLoading(false)
                     setPathDraft(selected?.path ?? parent?.path ?? '')
                   }}
@@ -342,7 +362,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   // Editing the draft supersedes any in-flight navigation:
                   // its completion must neither clear the newer text nor
                   // repopulate the view with the older path.
-                  requestSeq.current += 1
+                  supersede()
                   setLoading(false)
                   setPathDraft(event.target.value)
                 }}
@@ -361,7 +381,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     // launched: its late success must not jump to the
                     // cancelled path, so the pending request is superseded
                     // and the view leaves the loading state.
-                    requestSeq.current += 1
+                    supersede()
                     setLoading(false)
                     setPathDraft(null)
                     setError(null)

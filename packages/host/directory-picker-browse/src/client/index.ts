@@ -72,7 +72,7 @@ export function apply(ctx: ClientContext): void {
   }, 'directory-picker-browse: dialog dictionaries')
 
   const injected = (): BrowseFlowInjected => ({
-    listDirectory: path => ctx.workspaces.listDirectory(path),
+    listDirectory: (path, signal) => ctx.workspaces.listDirectory(path, signal),
     createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
     t: ctx.locale.bind(LOCALE_NS),
   })

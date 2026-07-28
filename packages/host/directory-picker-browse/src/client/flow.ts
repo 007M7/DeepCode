@@ -13,8 +13,8 @@ import { DirectoryBrowser } from './DirectoryBrowser.tsx'
 
 /** Injected face: the browse wire calls and copy the dialog drives (bound in apply's closure). */
 export interface BrowseFlowInjected {
-  /** List one directory level (absent path = the Host home directory). */
-  listDirectory: (path?: string) => Promise<DirectoryListing>
+  /** List one directory level (absent path = the Host home directory); the signal aborts a superseded scan. */
+  listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
   /** Create one child directory under an existing parent. */
   createDirectory: (path: string, name: string) => Promise<string>
   /** Localized dialog copy (this package's namespace). */
