@@ -78,6 +78,15 @@ interface FoldedContext {
   originSeq?: number
 }
 
+interface AssistantStepMetadata {
+  stepStartTime: number | null
+  firstTokenTime: number | null
+}
+
+function assistantStepKey(turn: number, step: number): string {
+  return `${turn}\u0000${step}`
+}
+
 /**
  * Replay surface replacements into frozen generations while keeping replacement
  * validation and mutation in the canonical core manager.
@@ -206,6 +215,10 @@ export class FoldAdapter {
   private contextGeneration = 0
   private activePrompt: ConversationPromptSnapshot | undefined
   private promptsByContext = new Map<number, ConversationPromptSnapshot>()
+  private assistantSteps = new Map<string, AssistantStepMetadata>()
+  private assistantTimings = new Map<number, AssistantTiming>()
+  private activeRequestConfig: AssistantRequestConfig | undefined
+  private assistantRequestConfigs = new Map<number, AssistantRequestConfig>()
 
   /**
    * @param projectContexts - Whether to maintain context-generation indexes
@@ -240,6 +253,10 @@ export class FoldAdapter {
     this.contextGeneration = 0
     this.activePrompt = undefined
     this.promptsByContext = new Map()
+    this.assistantSteps = new Map()
+    this.assistantTimings = new Map()
+    this.activeRequestConfig = undefined
+    this.assistantRequestConfigs = new Map()
     this.commandIdx = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
@@ -247,6 +264,7 @@ export class FoldAdapter {
       if (event !== undefined) {
         this.indexCall(event, views?.[i])
         if (this.projectContexts) this.indexContextPrompt(event)
+        this.indexAssistantMetadata(event)
         this.indexCommand(event)
       }
     }
@@ -266,6 +284,7 @@ export class FoldAdapter {
     this.padded.push(event)
     this.indexCall(event, view)
     if (this.projectContexts) this.indexContextPrompt(event)
+    this.indexAssistantMetadata(event)
     this.indexCommand(event)
   }
 
@@ -403,49 +422,11 @@ export class FoldAdapter {
       event,
       this.callIdx,
       this.resultViews.get(seq) ?? null,
-      event.type === 'assistant/message' ? this.assistantTiming(event) : undefined,
-      event.type === 'assistant/message' ? this.assistantRequestConfig(event) : undefined,
+      this.assistantTimings.get(seq),
+      this.assistantRequestConfigs.get(seq),
     )
     this.nodeCache.set(seq, node)
     return node
-  }
-
-  private assistantTiming(event: SessionEvent<'assistant/message'>): AssistantTiming {
-    let stepStartTime: number | null = null
-    let firstTokenTime: number | null = null
-    for (let i = this.baseSeq; i < this.padded.length; i++) {
-      const candidate = this.padded[i]
-      if (candidate === undefined || candidate.seq > event.seq) break
-      if (
-        candidate.type === 'step/start'
-        && candidate.data.turn === event.data.turn
-        && candidate.data.step === event.data.step
-      ) {
-        stepStartTime = candidate.time
-        continue
-      }
-      if (
-        firstTokenTime === null
-        && candidate.type === 'assistant/chunk'
-        && candidate.data.turn === event.data.turn
-        && candidate.data.step === event.data.step
-        && isTokenDelta(candidate.data.chunk)
-      ) {
-        firstTokenTime = candidate.time
-      }
-    }
-    return { stepStartTime, firstTokenTime, completedTime: event.time }
-  }
-
-  private assistantRequestConfig(
-    event: SessionEvent<'assistant/message'>,
-  ): AssistantRequestConfig | undefined {
-    for (let i = event.seq; i >= this.baseSeq; i--) {
-      const candidate = this.padded[i]
-      if (candidate?.type !== 'request/header') continue
-      return candidate.data.header.config
-    }
-    return undefined
   }
 
   /** Fold one command lifecycle event into its node (run mints, done settles in place; done-only soft-falls). */
@@ -491,6 +472,46 @@ export class FoldAdapter {
     })
     // No backfill into already-materialized tool-result nodes for this callId
     // (window order puts the call before its result; cannot happen on the normal path).
+  }
+
+  private indexAssistantMetadata(event: SessionEvent): void {
+    if (event.type === 'request/header') {
+      this.activeRequestConfig = event.data.header.config
+      return
+    }
+    if (event.type === 'step/start') {
+      this.assistantSteps.set(
+        assistantStepKey(event.data.turn, event.data.step),
+        { stepStartTime: event.time, firstTokenTime: null },
+      )
+      return
+    }
+    if (event.type === 'assistant/chunk') {
+      if (!isTokenDelta(event.data.chunk)) return
+      const key = assistantStepKey(event.data.turn, event.data.step)
+      const current = this.assistantSteps.get(key) ?? {
+        stepStartTime: null,
+        firstTokenTime: null,
+      }
+      if (current.firstTokenTime === null) {
+        this.assistantSteps.set(key, {
+          ...current,
+          firstTokenTime: event.time,
+        })
+      }
+      return
+    }
+    if (event.type !== 'assistant/message') return
+    const timing = this.assistantSteps.get(
+      assistantStepKey(event.data.turn, event.data.step),
+    ) ?? { stepStartTime: null, firstTokenTime: null }
+    this.assistantTimings.set(event.seq, {
+      ...timing,
+      completedTime: event.time,
+    })
+    if (this.activeRequestConfig !== undefined) {
+      this.assistantRequestConfigs.set(event.seq, this.activeRequestConfig)
+    }
   }
 
   private indexContextPrompt(event: SessionEvent): void {

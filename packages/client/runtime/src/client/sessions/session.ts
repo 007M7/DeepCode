@@ -51,6 +51,10 @@ export interface SessionOptions {
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
 const QUEUE_PREVIEW_CHARS = 200
 
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true
+}
+
 /** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
 interface QueuedEntry {
   row: QueuedMessage
@@ -326,14 +330,20 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /**
    * Exhaust history paging for inspection surfaces that require a complete
    * session ledger. Stops after a failed or non-advancing page so a transient
-   * backend failure cannot become an automatic retry loop.
+   * backend failure cannot become an automatic retry loop, and observes
+   * cancellation between pages without abandoning an active unary request.
+   * @param signal - Mounted consumer lifetime; abort stops before the next page.
    * @returns When the available history has been exhausted or paging stops making progress.
    */
-  async loadAllHistory(): Promise<void> {
-    while (this.openState === 'open' && this.hasMore) {
+  async loadAllHistory(signal?: AbortSignal): Promise<void> {
+    while (
+      !isAborted(signal)
+      && this.openState === 'open'
+      && this.hasMore
+    ) {
       const previousBaseSeq = this.baseSeq
       await this.loadOlder()
-      if (this.baseSeq === previousBaseSeq) return
+      if (isAborted(signal) || this.baseSeq === previousBaseSeq) return
     }
   }
 
@@ -350,6 +360,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
+    this.loadOlderPromise = null
+    this.loadingOlder = false
     this.openState = 'cold'
     this.openError = null
     this.events = []

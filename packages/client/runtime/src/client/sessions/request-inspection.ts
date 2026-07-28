@@ -2,7 +2,7 @@
 // calls share one chronological projection; presentation-specific grouping
 // remains in the trajectory consumer.
 
-import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -138,6 +138,32 @@ function requestKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
 }
 
+function addTokenUsage(current: unknown, next: TokenUsage): TokenUsage {
+  const previous = current as TokenUsage | undefined
+  return {
+    inputTokens: (previous?.inputTokens ?? 0) + next.inputTokens,
+    outputTokens: (previous?.outputTokens ?? 0) + next.outputTokens,
+    ...(previous?.cacheReadTokens === undefined && next.cacheReadTokens === undefined
+      ? {}
+      : {
+        cacheReadTokens:
+          (previous?.cacheReadTokens ?? 0) + (next.cacheReadTokens ?? 0),
+      }),
+    ...(previous?.cacheWriteTokens === undefined && next.cacheWriteTokens === undefined
+      ? {}
+      : {
+        cacheWriteTokens:
+          (previous?.cacheWriteTokens ?? 0) + (next.cacheWriteTokens ?? 0),
+      }),
+    ...(previous?.reasoningTokens === undefined && next.reasoningTokens === undefined
+      ? {}
+      : {
+        reasoningTokens:
+          (previous?.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0),
+      }),
+  }
+}
+
 function deriveCallSchemas(
   events: readonly SessionEvent[],
 ): ReadonlyMap<string, ToolSchema> {
@@ -244,8 +270,25 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       })
       continue
     }
+    if (
+      sourceEvent.type === 'assistant/chunk'
+      && sourceEvent.data.chunk.type === 'usage'
+    ) {
+      const index = ordinaryByStep.get(
+        requestKey(sourceEvent.data.turn, sourceEvent.data.step),
+      )
+      const request = index === undefined ? undefined : requests[index]
+      update(index, {
+        usage: addTokenUsage(request?.usage, sourceEvent.data.chunk.usage),
+      })
+      continue
+    }
     if (sourceEvent.type === 'assistant/message') {
-      update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, sourceEvent.data.step)), {
+      const index = ordinaryByStep.get(
+        requestKey(sourceEvent.data.turn, sourceEvent.data.step),
+      )
+      const request = index === undefined ? undefined : requests[index]
+      update(index, {
         completedAt: sourceEvent.time,
         status: 'complete',
         resultSeq: sourceEvent.seq,
@@ -253,7 +296,9 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
           provider: sourceEvent.data.message.source.provider,
           model: sourceEvent.data.message.source.model,
         },
-        ...(sourceEvent.data.usage === undefined ? {} : { usage: sourceEvent.data.usage }),
+        ...(request?.usage !== undefined || sourceEvent.data.usage === undefined
+          ? {}
+          : { usage: sourceEvent.data.usage }),
       })
       continue
     }

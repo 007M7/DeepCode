@@ -109,6 +109,56 @@ describe('inspectRequests', () => {
     expect(snapshot.callSchemas.get('nested')?.name).toBe('read')
   })
 
+  it('keeps chunk-reported usage through request failure and prefers it to message fallback', () => {
+    const chunkUsage = { inputTokens: 21, outputTokens: 3 }
+    const retryUsage = {
+      inputTokens: 5,
+      outputTokens: 2,
+      cacheReadTokens: 8,
+      reasoningTokens: 1,
+    }
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'step/start', { turn: 1, step: 1 }),
+      at(1, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'usage', usage: chunkUsage },
+      }),
+      at(2, 'llm/retry', {
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 100,
+        failure: { message: 'rate limited' },
+      }),
+      at(3, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'usage', usage: retryUsage },
+      }),
+      at(4, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: createAssistantMessage({
+          content: [{ type: 'text', text: 'recovered' }],
+          source: { provider: 'fake', model: 'model' },
+        }),
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    ]))
+
+    expect(snapshot.requests[0]).toMatchObject({
+      status: 'complete',
+      usage: {
+        inputTokens: 26,
+        outputTokens: 5,
+        cacheReadTokens: 8,
+        reasoningTokens: 1,
+      },
+    })
+  })
+
   it('treats a scrubbed durable-fixture tool catalog as unavailable', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'step/start', { turn: 1, step: 1 }),

@@ -1,7 +1,7 @@
 /** Rewind-delimited trajectory branches assembled across surface rewrites. */
 
 import type {
-  ConversationContext, ConversationNode,
+  ConversationContext, ConversationNode, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** One continuous context branch; compactions stay inline while rewinds start a successor branch. */
@@ -10,13 +10,10 @@ export interface TrajectoryContextBranch {
   contexts: readonly ConversationContext[]
   latest: ConversationContext
   nodes: readonly ConversationNode[]
-  ranges: readonly TrajectoryBranchRange[]
-}
-
-/** One half-open session-event range carried by a rewind branch. */
-export interface TrajectoryBranchRange {
-  start: number
-  end: number
+  /** Seq that opened this branch; earlier requests require retained surface provenance. */
+  startSeq: number
+  /** Exact pre-rewind surface records inherited by this branch. */
+  retainedSurfaceSeqs: ReadonlySet<number>
 }
 
 interface MutableBranch {
@@ -24,7 +21,8 @@ interface MutableBranch {
   contexts: ConversationContext[]
   latest: ConversationContext
   nodes: Map<number, ConversationNode>
-  ranges: TrajectoryBranchRange[]
+  startSeq: number
+  retainedSurfaceSeqs: Set<number>
 }
 
 function isCompactionCheckpoint(node: ConversationNode): boolean {
@@ -51,29 +49,18 @@ export function deriveTrajectoryContextBranches(
     const startsBranch = mutable.length === 0 || context.origin === 'rewind'
     if (startsBranch) {
       const previous = mutable.at(-1)
-      const originSeq = context.originSeq ?? Number.POSITIVE_INFINITY
-      if (previous !== undefined) {
-        const openRange = previous.ranges.at(-1)
-        if (openRange === undefined) {
-          throw new Error('trajectory branch must contain an open event range')
-        }
-        openRange.end = originSeq
-      }
-      const retainedCutoff = Math.max(
-        Number.NEGATIVE_INFINITY,
-        ...context.nodes
-          .filter(node => node.seq < originSeq)
+      const retainedSurfaceSeqs = new Set(
+        context.nodes
+          .filter(node =>
+            context.originSeq !== undefined && node.seq < context.originSeq,
+          )
           .map(node => node.seq),
       )
       const inheritedNodes = previous === undefined
         ? []
-        : [...previous.nodes.values()].filter(node => node.seq <= retainedCutoff)
-      const inheritedRanges = previous === undefined
-        ? []
-        : previous.ranges.flatMap((range) => {
-          const end = Math.min(range.end, retainedCutoff + 1)
-          return end <= range.start ? [] : [{ start: range.start, end }]
-        })
+        : [...previous.nodes.values()].filter(node =>
+          retainedSurfaceSeqs.has(node.seq),
+        )
       mutable.push({
         id: context.id,
         contexts: [context],
@@ -82,13 +69,8 @@ export function deriveTrajectoryContextBranches(
           [...inheritedNodes, ...context.nodes.filter(node => !isCompactionCheckpoint(node))]
             .map(node => [node.seq, node]),
         ),
-        ranges: [
-          ...inheritedRanges,
-          {
-            start: context.originSeq ?? Number.NEGATIVE_INFINITY,
-            end: Number.POSITIVE_INFINITY,
-          },
-        ],
+        startSeq: context.originSeq ?? Number.NEGATIVE_INFINITY,
+        retainedSurfaceSeqs,
       })
       continue
     }
@@ -105,19 +87,27 @@ export function deriveTrajectoryContextBranches(
     contexts: branch.contexts,
     latest: branch.latest,
     nodes: [...branch.nodes.values()].sort((left, right) => left.seq - right.seq),
-    ranges: branch.ranges,
+    startSeq: branch.startSeq,
+    retainedSurfaceSeqs: branch.retainedSurfaceSeqs,
   }))
 }
 
 /**
- * Test whether a session event belongs to one rewind branch's continuous history.
- * @param branch - Branch carrying inherited and post-rewind log ranges.
- * @param seq - Session event sequence.
- * @returns Whether the event belongs to the branch.
+ * Test whether a provider request belongs to one rewind branch.
+ * @param branch - Branch carrying exact inherited surface provenance.
+ * @param request - Provider request to classify.
+ * @returns Whether the request began on this branch or produced a retained surface record.
  */
-export function trajectoryBranchContainsSeq(
+export function trajectoryBranchContainsRequest(
   branch: TrajectoryContextBranch,
-  seq: number,
+  request: RequestView,
 ): boolean {
-  return branch.ranges.some(range => seq >= range.start && seq < range.end)
+  if (request.startSeq >= branch.startSeq) return true
+  return (
+    request.resultSeq !== undefined
+    && branch.retainedSurfaceSeqs.has(request.resultSeq)
+  ) || (
+    request.replacementSeq !== undefined
+    && branch.retainedSurfaceSeqs.has(request.replacementSeq)
+  )
 }

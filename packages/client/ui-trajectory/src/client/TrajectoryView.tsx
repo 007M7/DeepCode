@@ -6,7 +6,7 @@ import type {
   AssistantMessageNode, ConversationContext, ConversationNode, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveTrajectoryContextBranches, trajectoryBranchContainsSeq,
+  deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
 } from './context-branches.ts'
 import {
   TrajectoryTable,
@@ -28,7 +28,7 @@ const EMPTY_REQUESTS: readonly RequestView[] = []
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
-  loadAllHistory: () => Promise<void>
+  loadAllHistory: (signal: AbortSignal) => Promise<void>
 }
 
 interface UsageLike {
@@ -160,7 +160,11 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   const loadAllHistoryRef = useRef(loadAllHistory)
   loadAllHistoryRef.current = loadAllHistory
   useEffect(() => {
-    if (openState === 'open' && hasMore) void loadAllHistoryRef.current()
+    const controller = new AbortController()
+    if (openState === 'open' && hasMore) {
+      void loadAllHistoryRef.current(controller.signal)
+    }
+    return () => { controller.abort() }
   }, [hasMore, openState])
   const requests = inspection?.requests ?? EMPTY_REQUESTS
   const callSchemas = inspection?.callSchemas
@@ -185,7 +189,7 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   }, [currentBranch, nodes])
   const selectedRequests = useMemo(
     () => requests.filter(request =>
-      trajectoryBranchContainsSeq(currentBranch, request.startSeq),
+      trajectoryBranchContainsRequest(currentBranch, request),
     ),
     [currentBranch, requests],
   )

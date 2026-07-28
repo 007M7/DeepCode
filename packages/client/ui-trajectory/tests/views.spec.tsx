@@ -92,7 +92,7 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
 async function bench() {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
-  const loadAllHistory = vi.fn(() => Promise.resolve())
+  const loadAllHistory = vi.fn((_signal: AbortSignal) => Promise.resolve())
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
     name: 'root',
@@ -211,6 +211,10 @@ describe('tab switching in ConversationRoot', () => {
     await vi.waitFor(() => {
       expect(b.loadAllHistory).toHaveBeenCalledOnce()
     })
+    const signal = b.loadAllHistory.mock.calls[0]?.[0]
+    expect(signal?.aborted).toBe(false)
+    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+    expect(signal?.aborted).toBe(true)
   })
 
   it('opens a local record inspector and switches payload tabs without opening chat details', async () => {

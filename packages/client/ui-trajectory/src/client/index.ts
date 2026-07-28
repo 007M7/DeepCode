@@ -34,7 +34,9 @@ export function apply(ctx: Context): void {
       if (session === undefined) {
         throw new Error(`ui-trajectory: session "${sessionId}" resolved no binding`)
       }
-      return { loadAllHistory: () => session.loadAllHistory() }
+      return {
+        loadAllHistory: signal => session.loadAllHistory(signal),
+      }
     },
   }, TrajectoryView)
 }

@@ -178,6 +178,45 @@ describe('FoldAdapter', () => {
     expect(adapter.nodes().nodes[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
   })
 
+  it('indexes assistant timing and the active request header in one replay pass', () => {
+    const adapter = new FoldAdapter()
+    adapter.reset([
+      ev.stepStart(0, 1, 2),
+      at(1, { type: 'request/header', data: {
+        reason: 'initial',
+        header: {
+          config: { provider: 'fake', model: 'first' },
+          tools: [],
+        },
+      } }),
+      ev.chunkStart(2, 1, 2),
+      ev.chunkText(3, 1, 'token', 2),
+      ev.assistant(4, 1, 'done', 2),
+    ], 0)
+
+    expect(adapter.nodes().nodes[0]).toMatchObject({
+      kind: 'assistant',
+      timing: {
+        stepStartTime: 1_700_000_000_000,
+        firstTokenTime: 1_700_000_000_003,
+        completedTime: 1_700_000_000_004,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
+
+    adapter.append(ev.stepStart(5, 2, 1))
+    adapter.append(ev.chunkText(6, 2, 'next', 1))
+    adapter.append(ev.assistant(7, 2, 'next done', 1))
+    expect(adapter.nodes().nodes.at(-1)).toMatchObject({
+      timing: {
+        stepStartTime: 1_700_000_000_005,
+        firstTokenTime: 1_700_000_000_006,
+        completedTime: 1_700_000_000_007,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
+  })
+
   it('exposes the in-window call index for runningCalls material', () => {
     const adapter = new FoldAdapter()
     adapter.reset([ev.toolCall(0, 1, 'c9', 'slow', '{}')], 0)
