@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-ui-plan
 
+English | [中文](README.zh.md)
+
 Plan-mode composer control, a pure browser surface plugin. The browser half occupies the conversation-declared `conversation.input.plan` single seat with a pending-aware mode selector; the node half is an empty apply (the roster row). Plan behavior itself — the `/plan` command, the boundary-committed `plan/mode` state, the `plan` projection unit, and the policy section — is owned by [`@deepseek-ai/dsh-plan-mode`](../../plan/plan-mode/README.md), composed independently on the host roster.
 
 Reads ride the generic projection pair: the control renders the host-computed `plan` projection (`{ active, pending }`) through the standard-kit `useProjection`; an absent key is capability absence and hides the control, so a host without plan-mode (or a Draft with no session) shows no seat content. Writes ride the standard command channel: selecting a mode executes `/plan` or `/plan off` through `command.execute`, whose logged `command/run` immediately folds into a pending projection frame and whose request-boundary `plan/mode` commit resolves it — the control never holds client-side plan state, displays only host-confirmed values, and stays available while generation runs (switching never cancels a turn; the pending target applies at the next model-request boundary).
@@ -10,7 +12,11 @@ The model exits plan mode through the stable `exit_plan_mode` tool; its plan rev
 
 ## Model Experience
 
-None directly. Model-visible plan behavior (policy activation, the exit-tool schema, logged state) is owned by `@deepseek-ai/dsh-plan-mode`; this package only renders the projection and dispatches `/plan` lines a user could equally type.
+Indirectly, through the `/plan` command lines the control dispatches: `@deepseek-ai/dsh-plan-mode` owns the model-visible policy section, the exit-tool schema, and the logged state those lines drive, while this package only renders the projection and sends what a user could equally type.
+
+#### KV Cache effect
+
+Entering or leaving plan mode changes the active `plan:policy` system-prompt section and therefore the request prefix; the control itself adds no prompt content.
 
 ## Known Limitations and Deferred Work
 
