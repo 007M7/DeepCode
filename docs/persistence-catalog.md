@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:261`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:297`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:292`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -150,7 +150,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -161,12 +161,44 @@ Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/
  * the model output and its accounting travel together (there is no separate
  * usage record). `usage` is absent when the adapter reported none.
  */
-'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
+
+### `command/*`
+
+#### `command/done` — log-only
+
+```ts persistence-catalog
+/**
+ * The paired command settled. `kind`/`text` carry the handler's verbatim
+ * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+ * rendered failure); presentation stays client-computed at render time.
+ */
+'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+```
+
+Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+
+#### `command/run` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved slash command entered its handler. Log-only (never model
+ * surface); paired with `command/done` by `commandId`, mirroring the
+ * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+ * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+ * separator whitespace included), so a consumer (a projection unit
+ * folding its own command records, a rich command card) never re-parses
+ * a line.
+ */
+'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+```
+
+Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -325,7 +357,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:41`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -339,7 +371,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -373,7 +405,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:88`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -392,10 +424,10 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 
 ```ts persistence-catalog
 /** Steering content injected between steps of a running turn. */
-'steering/message': UserMessageData & { turn: number }
+'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -406,7 +438,7 @@ Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -415,7 +447,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -428,7 +460,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -445,7 +477,7 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -512,17 +544,13 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 'tool/result': {
   turn: number
   step: number
-  callId: CallId
-  content: ContentBlock[]
-  isError: boolean
+  message: ToolResultMessage
   error?: { name: string; code: string }
   meta?: JsonValue
 }
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -540,7 +568,7 @@ Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -553,7 +581,7 @@ Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -568,7 +596,7 @@ Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/
  * project their `content` verbatim; `source` tells them apart. An idle
  * injection may append this event between turns without running the model.
  */
-'user/message': UserMessageData
+'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)

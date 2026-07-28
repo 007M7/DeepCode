@@ -101,7 +101,7 @@ export function activeToolCallIds(session: Session, active: ReadonlySet<number>)
   const ids = new Set<string>()
   for (const event of session.events) {
     if (event.type !== 'assistant/message' || !active.has(event.seq)) continue
-    for (const block of event.data.content) {
+    for (const block of event.data.message.content) {
       if (block.type === 'tool-call') ids.add(block.id)
     }
   }

@@ -5,7 +5,10 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+// The pure-type outlet: api/ is browser-importable, and the package root's
+// cordis Context merge (via dsh-agent) must not enter client aggregates.
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -30,6 +33,23 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface HistoryEntry {
   event: SessionEvent
   view?: ToolEventView
+}
+
+/**
+ * The projection baseline riding the history tail page: one synchronous cut
+ * over every registered projection unit, read from the registry's watermark
+ * cache. `asOfSeq` is the seq of the last committed event every value
+ * reflects — the window tail event seq (`-1` for an empty log, mirroring
+ * `session/subscribed.lastSeq`), directly comparable with
+ * `session/projection` frame seqs under the client's higher-seq-wins rule. A
+ * key absent from `values` means the capability is absent (its domain plugin
+ * is unmounted).
+ */
+export interface SessionProjectionsBlock {
+  /** Seq of the last event the values reflect; -1 for an empty log. */
+  asOfSeq: number
+  /** Whole current value per registered projection key. */
+  values: Partial<SessionProjectionMap>
 }
 
 /** Complete model target selected for one session. */
@@ -149,13 +169,14 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
-   * The tail page (beforeSeq absent) also carries `todos` — the session's current todo
-   * projection (latest `todo/write` over the FULL log, independent of the page window) —
-   * so a paged client restores the plan without walking history; absent when the session
-   * never wrote one. Older pages omit it (the projection is session-level, not per-page).
+   * The tail page — and only the tail page — additionally carries `projections`
+   * when the deployment mounts the session-projection registry: every moment
+   * the client needs a fresh baseline already pulls the tail page, and
+   * loadOlder (the only beforeSeq path) is the only path that never needs one.
+   * A deployment without the registry serves histories without the block.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>

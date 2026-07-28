@@ -13,7 +13,8 @@ export type {
 } from './contract/views.ts'
 export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type {
-  ChatStore, ChatViewInjected, ChatViewSlotProps, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
+  ComposerChainProps, ConversationInjected,
   ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
   EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
 } from './contract/slots.ts'

@@ -7,7 +7,7 @@
 ## 公开 API
 
 - `listCandidates(agent, query?, limit?)` 会列出 `agent.id` 之外的会话，按 id、cwd 或日志中最新的标题进行不区分大小写的筛选，再按同 cwd、无 cwd、其他 cwd 记录排序，同时保持每组内的 `listSessions()` 创建顺序。每个已选候选会话都使用该标题作为 mention label；标题不存在或无法读取时回退到会话 id。不搜索消息主体。
-- `prepare(agent, content, references, signal?)` 会保留首次 mention 顺序、对 id 去重，并拒绝自引用或超过已配置不同源上限的情况。它会并行读取所有源，返回与输入脱离的内容，外加零个或一个聚合 `UserMessageData` 上下文。任何无效引用、读取失败、取消或预算失败都会在宿主调用 `followup()` 或 `steer()` 之前被拒绝。
+- `prepare(agent, content, references, signal?)` 会保留首次 mention 顺序、对 id 去重，并拒绝自引用或超过已配置不同源上限的情况。它会并行读取所有源，返回与输入脱离的内容，外加零个或一个聚合且带标识的 `UserMessage` 上下文。任何无效引用、读取失败、取消或预算失败都会在宿主调用 `followup()` 或 `steer()` 之前被拒绝。
 - `encodeSessionReferenceUri()` 与 `decodeSessionReferenceUri()` 实现 `dsh-session:<base64url(JSON.stringify(sessionId))>`，因此每个 JavaScript 字符串 id 都能精确往返。`formatSessionReferenceMention()` 发出 `@[label](uri)`，`parseSessionReferenceText()` 将 Markdown mention 或裸规范 URI 替换为可读的 `@label` 文本，并返回结构化引用。显式 Markdown mention 会拒绝每个格式错误的 URI；只当 scheme 后跟非空、符合 base64url 形状的 payload 时，裸文本才被视为引用，匹配但非规范的候选项仍会失败。空 scheme mention 或只含标点符号的 scheme mention 仍是普通讨论文本。
 
 ## 快照语义

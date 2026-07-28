@@ -22,7 +22,7 @@ The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to qu
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later between-turn records still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. An optional positive `initialize.maxTokens` becomes the request output cap of each SDK-created agent and its in-process descendants; invalid values reject initialization, while omission sends no cap and preserves provider defaults. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later between-turn records still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
 
 ## Model Experience
 
