@@ -28,22 +28,24 @@ describe('connection node half', () => {
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
-    let status: number | undefined
-    let body: unknown
-    const deniedRequest = {
-      url: '/api/host.pickDirectory',
-      headers: {
-        host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
-      },
-      socket: { remoteAddress: '192.168.1.8' },
-    } as unknown as IncomingMessage
-    const deniedResponse = {
-      writeHead(value: number) { status = value; return this },
-      end(value?: unknown) { body = value; return this },
-    } as unknown as ServerResponse
-    await routes[0]!.handler(deniedRequest, deniedResponse)
-    expect(status).toBe(403)
-    expect(body).toBe('forbidden')
+    for (const url of ['/api/host.pickDirectory', '/api/host.openPath']) {
+      let status: number | undefined
+      let body: unknown
+      const deniedRequest = {
+        url,
+        headers: {
+          host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
+        },
+        socket: { remoteAddress: '192.168.1.8' },
+      } as unknown as IncomingMessage
+      const deniedResponse = {
+        writeHead(value: number) { status = value; return this },
+        end(value?: unknown) { body = value; return this },
+      } as unknown as ServerResponse
+      await routes[0]!.handler(deniedRequest, deniedResponse)
+      expect(status).toBe(403)
+      expect(body).toBe('forbidden')
+    }
 
     await fiber.dispose()
     expect(routes).toHaveLength(0)

@@ -110,7 +110,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
     sessionId, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
   })
@@ -125,6 +125,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,

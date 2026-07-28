@@ -11,7 +11,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionSummary,
+  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -139,17 +139,22 @@ export const historyEntrySchema = z.object({
   view: toolEventViewSchema.optional(),
 }) satisfies z.ZodType<Wire<HistoryEntry>>
 
-/** One todo item of the tail page's session-level projection (the todo/write payload shape). */
-export const todoItemSchema = z.object({
-  content: z.string(),
-  status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
-})
+/**
+ * Projection baseline passthrough: `values` stays a wide record — each value
+ * was already parsed by its provider's own schema on the host side, and
+ * deep-validating here would import every domain's schema into the carrier.
+ */
+export const sessionProjectionsBlockSchema = z.object({
+  // -1 = empty log (the lastSeq convention of session/subscribed).
+  asOfSeq: z.number().int().min(-1),
+  values: z.record(z.string(), z.unknown()),
+}) as unknown as z.ZodType<SessionProjectionsBlock>
 
-/** session.history response value. */
+/** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
-  todos: z.array(todoItemSchema).optional(),
+  projections: sessionProjectionsBlockSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** session.models request payload. */

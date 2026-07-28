@@ -30,7 +30,7 @@ function stateStatus(state: ToolRowState): string | null {
 }
 
 /** Bash row: icon + Bash · {description}, matching the shared ToolRow chrome. */
-export function BashRow({ toolName, block, openDetails, sessionId, useSessions }: ToolRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(model.state)
@@ -40,8 +40,6 @@ export function BashRow({ toolName, block, openDetails, sessionId, useSessions }
       data-sample={isChild ? 'bash-scoped' : 'bash-global'}
       data-variant="bash"
       data-state={model.state}
-      data-clickable
-      onClick={openDetails}
     >
       <span className={css.leading}>{leadingFor(model.state)}</span>
       {status !== null && <span className={css.visuallyHidden}>{status}</span>}

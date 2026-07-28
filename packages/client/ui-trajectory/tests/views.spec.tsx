@@ -77,6 +77,7 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
+    useProjection: (() => undefined) as never,
   } as unknown as ConvViewProps
 }
 
@@ -135,6 +136,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useSession={useSession}
       useSessions={emptySessions()}
       useWorkspaces={emptyWorkspaces()}
+      useProjection={(() => undefined)}
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}
@@ -330,6 +332,7 @@ describe('deriveSubSpans (waterfall lanes)', () => {
       useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>,
       useSessions: emptySessions(),
       useWorkspaces: emptyWorkspaces(),
+      useProjection: (() => undefined) as never,
     } as unknown as ConvViewProps
     const view = render(createElement(WaterfallView as FC<ConvViewProps>, props))
     const lane = view.container.querySelector('[data-subspan]')
@@ -356,6 +359,7 @@ describe('deriveSubSpans (waterfall lanes)', () => {
       useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>,
       useSessions: emptySessions(),
       useWorkspaces: emptyWorkspaces(),
+      useProjection: (() => undefined) as never,
     } as unknown as ConvViewProps
     const view = render(createElement(WaterfallView as FC<ConvViewProps>, props))
     const bar = view.container.querySelector('[data-timing="unknown"]')
