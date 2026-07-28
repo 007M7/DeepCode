@@ -83,8 +83,8 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
-  // text-turn is the pinned-header scenario: the minimal single text turn.
-  // Its prompt and tool-schema sidecars pin the composed header.
+  // text-turn is the default header pin and owns the prompt and tool-schema
+  // sidecars reused by alternate classes with identical component sequences.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   {
     name: 'session-title-after-turn',
@@ -126,7 +126,15 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
-  { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
+  {
+    name: 'skill-load',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'skill',
+    systemPromptSource: 'text-turn',
+    toolSchemasSource: 'text-turn',
+  },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
   // web_fetch markdown rendering end to end: the overlay's loopback fixture
   // server supplies deterministic HTML (entities, a GFM table, nesting), the
@@ -176,6 +184,7 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     pinsHeader: true,
     headerClass: 'workspace-context',
+    toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
     prepareWorkspace: prepareDelimiterPathWorkspace,
     posixOnly: true,
@@ -250,9 +259,19 @@ const SCENARIOS: Scenario[] = [
     recorded: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
+    systemPromptSource: 'code-mode-turn',
+    toolSchemasSource: 'code-mode-turn',
     configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
   },
-  { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
+  {
+    name: 'both-mode-turn',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'both',
+    systemPromptSource: 'code-mode-turn',
+    configPath: BOTH_MODE_CONFIG,
+  },
   // Machine permission scenarios use an explicit deployment policy; there is
   // no session-scoped UI picker on the automation protocol.
   {
@@ -261,6 +280,7 @@ const SCENARIOS: Scenario[] = [
     recorded: true,
     pinsHeader: true,
     headerClass: 'sandbox',
+    toolSchemasSource: 'text-turn',
     env: { DSH_PERMISSION_MODE: 'workspace-write' },
   },
   {

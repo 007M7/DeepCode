@@ -91,6 +91,20 @@ describe('todos projection provider', () => {
     expect(projections?.asOfSeq).toBe(session.seq - 1)
   })
 
+  it('clears the standing plan on the next turn/start (turn/end keeps it)', async () => {
+    const bench = await harness(true)
+    const session = bench.session
+    seedMessage(session)
+    const list: TodoItem[] = [{ content: 'done', status: 'completed' }]
+    session.append('todo/write', { todos: list })
+    session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+    expect((await bench.tailProjections())?.values.todos).toEqual(list)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const cleared = await bench.tailProjections()
+    expect(cleared?.values.todos).toBeNull()
+    expect(cleared?.asOfSeq).toBe(session.seq - 1)
+  })
+
   it('has no todos key when tool-todo is not composed', async () => {
     const bench = await harness(false)
     seedMessage(bench.session)
