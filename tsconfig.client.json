@@ -34,6 +34,7 @@
     { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection" },
     { "path": "./packages/client/runtime" },
+    { "path": "./packages/client/test-runtime" },
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-conversation" },

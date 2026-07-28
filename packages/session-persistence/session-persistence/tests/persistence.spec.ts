@@ -99,6 +99,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.inspect(id, signal)
   }
 
+  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
   // A Map-backed store has no torn tails, so `tornMarker` is never set.
@@ -157,6 +161,13 @@ class ControlledBackend implements PersistenceBackend<never> {
   repairAttempts = 0
   beforeAppend?: (attempt: number) => Promise<void>
   beforeLoadStored?: (attempt: number, signal?: AbortSignal) => Promise<void>
+  /** When set, the declared seek hook delegates here so readFrom exercises it; unset throws (tests set it first). */
+  seekHook?: (id: SessionId, fromSeq: number, signal?: AbortSignal) => Promise<StoredPrefix<never> | undefined>
+
+  loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredPrefix<never> | undefined> {
+    if (this.seekHook === undefined) throw new Error('seekHook not configured for this test')
+    return this.seekHook(id, fromSeq, signal)
+  }
 
   async loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<never> | undefined> {
     await this.beforeLoadStored?.(++this.loadAttempts, signal)
@@ -453,6 +464,58 @@ describe('PersistenceCoordinator observation cancellation', () => {
     }
   })
 
+  it('readFrom via the seek hook: serves the suffix, maps undefined to not-found, and relays hook failures by abort state', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('seek-read-from')
+    const log = oneTurnLog()
+    backend.store.set(id, { meta: meta(id), events: log })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      // Happy path through the hook: only the suffix comes back, detached.
+      backend.seekHook = async (hookId, fromSeq) => {
+        const entry = backend.store.get(hookId)
+        if (entry === undefined) return undefined
+        return { meta: structuredClone(entry.meta), events: entry.events.filter(e => e.seq >= fromSeq) }
+      }
+      const suffix = await coordinator.readFrom(id, 3)
+      expect(suffix.events).toEqual(log.slice(3))
+      // The hook's undefined is the seam's not-found.
+      await expect(coordinator.readFrom(SessionId('missing-seek'), 0)).rejects.toThrow('not found')
+
+      // A hook failure with no cancellation in play propagates as-is.
+      const hookFailure = new Error('seek backend exploded')
+      backend.seekHook = () => Promise.reject(hookFailure)
+      await expect(coordinator.readFrom(id, 0)).rejects.toBe(hookFailure)
+
+      // A hook failure after cancellation surfaces the caller's abort reason,
+      // not the backend's internal teardown error. The abort fires only once
+      // the hook is provably entered, so the failure exercises the catch (not
+      // the pre-invocation throwIfAborted).
+      const controller = new AbortController()
+      const reason = new Error('read-from cancelled mid-hook')
+      let hookEntered = false
+      backend.seekHook = async (_hookId, _fromSeq, signal) => {
+        hookEntered = true
+        await new Promise<void>((resolve) => { signal?.addEventListener('abort', () => { resolve() }, { once: true }) })
+        throw new Error('backend teardown after abort')
+      }
+      const pending = coordinator.readFrom(id, 0, controller.signal)
+      const observed = pending.catch((error: unknown) => error)
+      await vi.waitFor(() => { expect(hookEntered).toBe(true) })
+      controller.abort(reason)
+      expect(await observed).toBe(reason)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('rejects a cancelled inspect while an in-flight retirement drain is still pending', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -532,6 +595,66 @@ describe('PersistenceCoordinator retirement', () => {
       await expect(reuseFlush).resolves.toBeUndefined()
     } finally {
       loadGate.resolve(true)
+      await backendFiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('a superseded retirement leaves the successor lifecycle\'s pending drain in place', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    let coordinator!: PersistenceCoordinator<never>
+    const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const internals = coordinator as unknown as CoordinatorInternals
+    const readGate = Promise.withResolvers<boolean>()
+
+    try {
+      const id = SessionId('superseded-retirement')
+      // First lifecycle: unmaterialized (zero events), so a same-id successor
+      // may legally reclaim the abandoned id later.
+      let first!: Session
+      const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        first = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      await ctx.sessions.flush(first)
+
+      // Occupy the per-id serialize chain with a gated read: everything the
+      // two retirements queue stays pending behind it. (Attempt counting
+      // starts here — an absent beforeLoadStored short-circuits the optional
+      // call without evaluating its ++ argument.)
+      backend.beforeLoadStored = async (attempt) => {
+        if (attempt === 1) await readGate.promise
+      }
+      const parked = coordinator.inspect(id).catch((error: unknown) => error)
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+
+      // First retirement queues behind the gate and stays pending.
+      await firstFiber.dispose()
+      await vi.waitFor(() => { expect(internals.retirements.has(id)).toBe(true) })
+      const firstRetirement = internals.retirements.get(id)
+
+      // Successor lifecycle retires while the first drain is still in flight:
+      // retire() replaces the map entry synchronously.
+      const secondFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      await secondFiber.dispose()
+      await vi.waitFor(() => {
+        expect(internals.retirements.get(id)).not.toBe(firstRetirement)
+      })
+
+      // Release the chain: the first drain settles and its forget() must not
+      // delete the successor's entry (exact-entry guard); the successor's own
+      // forget() then clears the map.
+      readGate.resolve(true)
+      expect(await parked).toBeInstanceOf(Error) // the parked inspect (not found) is observed
+      await firstRetirement
+      await vi.waitFor(() => { expect(internals.retirements.has(id)).toBe(false) })
+    } finally {
+      readGate.resolve(true)
       await backendFiber.dispose()
       await ctx.fiber.dispose()
     }

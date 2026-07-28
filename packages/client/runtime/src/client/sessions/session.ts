@@ -10,7 +10,7 @@ import type {
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { ObservableSnapshot } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
 import type {
   CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
@@ -67,9 +67,11 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
 
 /**
  * Owns a session's event window, derived conversation state, and observable
- * snapshot. React bindings remain outside this data layer.
+ * snapshot. React bindings remain outside this data layer. Features see only
+ * the {@link SessionFace} slice (ISession verbs + the snapshot source); the
+ * remaining public members are manager/runtime entry points.
  */
-export class Session implements ObservableSnapshot<ConversationSnapshot> {
+export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).

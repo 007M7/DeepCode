@@ -1,7 +1,7 @@
 #!/bin/sh
-# dsh launcher: runs the apps/cli `dsh` bin FROM SOURCE with this checkout's
-# tsx, so a symlink from anywhere (e.g. ~/.local/bin/dsh) always executes the
-# current working tree — code changes apply on the next launch, no build step.
+# dsh launcher: runs the apps/cli `dsh` bin FROM SOURCE through Node's native
+# TypeScript transform, so a symlink from anywhere (e.g. ~/.local/bin/dsh)
+# always executes the current working tree without a build step.
 set -eu
 
 # Resolve symlink chains without readlink -f (not on every macOS).
@@ -15,7 +15,8 @@ while [ -L "$script" ]; do
 done
 root=$(CDPATH='' cd -- "$(dirname -- "$script")/.." && pwd)
 
-# tsx is imported by absolute path because bare `--import tsx` resolves from
-# the invoking cwd, which is usually outside this repository.
-export TSX_TSCONFIG_PATH="$root/tsconfig.json"
-exec node --import "$root/node_modules/tsx/dist/loader.mjs" "$root/apps/cli/src/bin.ts" "$@"
+# The preloader projects this checkout's tsconfig paths into Node resolution;
+# TypeScript transformation itself remains Node-owned (no tsx/esbuild hook).
+exec node --experimental-transform-types \
+  --import "$root/scripts/tspath-loader.ts" \
+  "$root/apps/cli/src/bin.ts" "$@"
