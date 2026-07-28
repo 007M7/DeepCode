@@ -6,7 +6,7 @@
 
 ## 公开 API
 
-- `listCandidates(agent, query?, limit?)` 会列出 `agent.id` 之外的会话，按 id 或 cwd 进行不区分大小写的筛选，再按同 cwd、无 cwd、其他 cwd 记录排序，同时保持每组内的 `listSessions()` 创建顺序。每个已选候选会话都使用最新的日志支持标题作为 mention label，并回退到会话 id；不搜索标题与消息主体。
+- `listCandidates(agent, query?, limit?)` 会列出 `agent.id` 之外的会话，按 id、cwd 或日志中最新的标题进行不区分大小写的筛选，再按同 cwd、无 cwd、其他 cwd 记录排序，同时保持每组内的 `listSessions()` 创建顺序。每个已选候选会话都使用该标题作为 mention label；标题不存在或无法读取时回退到会话 id。不搜索消息主体。
 - `prepare(agent, content, references, signal?)` 会保留首次 mention 顺序、对 id 去重，并拒绝自引用或超过已配置不同源上限的情况。它会并行读取所有源，返回与输入脱离的内容，外加零个或一个聚合 `UserMessageData` 上下文。任何无效引用、读取失败、取消或预算失败都会在宿主调用 `followup()` 或 `steer()` 之前被拒绝。
 - `encodeSessionReferenceUri()` 与 `decodeSessionReferenceUri()` 实现 `dsh-session:<base64url(JSON.stringify(sessionId))>`，因此每个 JavaScript 字符串 id 都能精确往返。`formatSessionReferenceMention()` 发出 `@[label](uri)`，`parseSessionReferenceText()` 将 Markdown mention 或裸规范 URI 替换为可读的 `@label` 文本，并返回结构化引用。显式 Markdown mention 会拒绝每个格式错误的 URI；只当 scheme 后跟非空、符合 base64url 形状的 payload 时，裸文本才被视为引用，匹配但非规范的候选项仍会失败。空 scheme mention 或只含标点符号的 scheme mention 仍是普通讨论文本。
 
@@ -21,7 +21,7 @@
 | Key | 默认值 | 契约 |
 |---|---:|---|
 | `maxReferences` | `3` | 一条已准备消息中不同源会话的最大数量；必须不大于 `3`。 |
-| `candidateLimit` | `50` | 返回给宿主的默认元数据候选数量。 |
+| `candidateLimit` | `50` | 返回给宿主的默认候选数量。 |
 | `maxReferenceBytes` | `65536` | 一个引用对象的最大序列化 JSON 字节数。 |
 
 保留会对每个源独立应用 `maxReferenceBytes`，保留 compact 检查点与最新消息，再丢弃较旧的非检查点单元，并使用 `dsh-retention` 头部／尾部截断和精确 UTF-8 省略通知。如果某个源的固定序列化字段无法容纳，准备会以 `SESSION_REFERENCE_BUDGET_EXCEEDED` 失败，而不返回部分上下文。
@@ -44,7 +44,7 @@
 
 ## 已知限制与暂缓事项
 
-- **没有标题或全文发现**：候选会话只按会话 id 与 cwd 筛选，但已选行会显示最新标题。SQLite FTS 未来可以替换发现机制，而不改变 URI、快照或持久化契约。
+- **不支持正文发现**：候选查询会检查折叠后的标题，但不搜索消息主体。非空查询可能通过 session-query 服务有界、可取消的批处理检查每个可见的持久化会话日志；专用标题索引未来可以替换这条发现路径，而不改变 URI、快照或持久化契约。
 - **受信任调用方边界**：该服务假设宿主有权读取 `ctx.sessionQuery` 公开的每个会话；它不是面向模型的搜索工具。
 - **只投影文本**：不会在会话间传播非文本 user 与 assistant 块。
 - **没有实时链接**：引用是快照，不是 fork、恢复、订阅或源会话变更。
