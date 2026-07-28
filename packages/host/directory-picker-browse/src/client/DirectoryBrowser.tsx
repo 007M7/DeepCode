@@ -282,9 +282,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   type="button"
                   className={css.crumbEditZone}
                   aria-label={t('browser.editPath')}
-                  disabled={parent === null || parentInert}
-                  /* v8 ignore next -- narrowing guard: the zone disables while the level is null. */
-                  onClick={() => { if (parent !== null) setPathDraft(selected?.path ?? parent.path) }}
+                  // Stays available with no listed level: when the home
+                  // listing itself fails, typing an absolute path is the one
+                  // remaining way forward.
+                  disabled={parentInert}
+                  onClick={() => { setPathDraft(selected?.path ?? parent?.path ?? '') }}
                 />
               </>
             )

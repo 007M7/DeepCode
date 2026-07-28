@@ -269,6 +269,21 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(false)
   })
 
+  it('keeps path entry available when the home listing fails', async () => {
+    const listDirectory = vi.fn(async (): Promise<DirectoryListing> => {
+      throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'home unreadable', details: { path: HOME } })
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('home unreadable') })
+    // With no listed level, typing an absolute path is the one way forward.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText('browser.editPath')
+    fireEvent.change(input, { target: { value: DOCS } })
+    listDirectory.mockImplementation(async (path?: string) => listingFor(path))
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+  })
+
   it('ignores dismissal while adoption is busy', async () => {
     const b = mount({ busy: true })
     await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
