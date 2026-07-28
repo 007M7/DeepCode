@@ -609,7 +609,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(10)
+    expect(SCHEMA_VERSION).toBe(12)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {
