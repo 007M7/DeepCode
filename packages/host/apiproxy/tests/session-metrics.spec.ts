@@ -33,6 +33,10 @@ function agent(session: Session): Agent {
   return { id: session.id, session } as Agent
 }
 
+function settleAsyncWork(): Promise<void> {
+  return new Promise<void>((resolve) => { setImmediate(resolve) })
+}
+
 describe('SessionMetricsProjector', () => {
   it('filters text/reasoning stream deltas while retaining usage, headers, and surface mutations', () => {
     const session = new Session(SessionId('metrics-filter'))
@@ -185,6 +189,73 @@ describe('SessionMetricsProjector', () => {
       contextTokens: 35_000,
       contextWindow: 128_000,
     })
+  })
+
+  it('retries a failed same-route capacity lookup only on the next snapshot', async () => {
+    const ctx = new Context()
+    const attempts: PromiseWithResolvers<{ context: { contextWindow: number } }>[] = []
+    ctx.provide('llm', {
+      resolveModelInfo() {
+        const attempt = Promise.withResolvers<{ context: { contextWindow: number } }>()
+        attempts.push(attempt)
+        return attempt.promise
+      },
+    })
+    const session = new Session(SessionId('capacity-retry'))
+    const attached = agent(session)
+    const resolved = vi.fn()
+    const projector = new SessionMetricsProjector(
+      ctx,
+      () => ({ provider: 'test', model: 'alpha' }),
+      resolved,
+    )
+
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(attempts).toHaveLength(1) })
+    attempts[0]?.reject(new Error('metadata temporarily unavailable'))
+    await settleAsyncWork()
+    expect(attempts).toHaveLength(1)
+    expect(resolved).not.toHaveBeenCalled()
+
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await settleAsyncWork()
+    expect(attempts).toHaveLength(2)
+    attempts[1]?.resolve({ context: { contextWindow: 128_000 } })
+    await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
+    expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
+  })
+
+  it('invalidates same-route capacity and fences the prior epoch in flight', async () => {
+    const ctx = new Context()
+    const attempts: PromiseWithResolvers<{ context: { contextWindow: number } }>[] = []
+    ctx.provide('llm', {
+      resolveModelInfo() {
+        const attempt = Promise.withResolvers<{ context: { contextWindow: number } }>()
+        attempts.push(attempt)
+        return attempt.promise
+      },
+    })
+    const session = new Session(SessionId('capacity-invalidation'))
+    const attached = agent(session)
+    const resolved = vi.fn()
+    const projector = new SessionMetricsProjector(
+      ctx,
+      () => ({ provider: 'test', model: 'alpha' }),
+      resolved,
+    )
+
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(attempts).toHaveLength(1) })
+    projector.invalidateCapacities()
+    attempts[0]?.resolve({ context: { contextWindow: 64_000 } })
+    await settleAsyncWork()
+    expect(resolved).not.toHaveBeenCalled()
+
+    expect(projector.snapshot(session, attached).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(attempts).toHaveLength(2) })
+    attempts[1]?.resolve({ context: { contextWindow: 128_000 } })
+    await vi.waitFor(() => { expect(resolved).toHaveBeenCalledOnce() })
+    expect(projector.snapshot(session, attached).contextWindow).toBe(128_000)
   })
 
   it('starts a fresh capacity generation when an unavailable route returns', async () => {

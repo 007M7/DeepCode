@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import type { Fiber } from 'cordis'
 import AgentRegistry, { agentEvents, installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentLlmTargetRef } from '@deepseek-ai/dsh-agent'
 import LlmService, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -99,9 +100,10 @@ const REASONING: LlmModelReasoningInfo = {
   defaultEffort: ReasoningEffortId('high'),
 }
 
-async function hostContext(): Promise<Context> {
+async function hostContext(onSessions?: (fiber: Fiber) => void): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(SessionStore)
+  const sessionsFiber = await ctx.plugin(SessionStore)
+  onSessions?.(sessionsFiber)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(LlmService)
   await ctx.plugin(UserInteractionService)
@@ -199,6 +201,15 @@ function attachLifecycleAgent(
 
 function settleCapacityCompletion(): Promise<void> {
   return new Promise<void>((resolve) => { setImmediate(resolve) })
+}
+
+function installDeferredAdapter(
+  ctx: Context,
+  adapter: DeferredCatalogAdapter,
+): Fiber & PromiseLike<Fiber> {
+  return ctx.plugin(Object.assign((inner: Context) => {
+    inner.llm.registerAdapter(['deferred'], adapter)
+  }, { inject: ['llm'] }))
 }
 
 describe('Web session model selection', () => {
@@ -507,6 +518,60 @@ describe('Web session model selection', () => {
     await reconnect.return?.()
     detachReplacementAgent()
     replacement.detach()
+    await ctx.fiber.dispose()
+  })
+
+  it('refreshes same-route capacity after adapter owner replacement', async () => {
+    const ctx = await hostContext()
+    const retiredAdapter = new DeferredCatalogAdapter()
+    const retiredFiber = await installDeferredAdapter(ctx, retiredAdapter)
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-adapter-lifecycle'))
+    const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(retiredAdapter.pending).toHaveLength(1) })
+    retiredAdapter.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(64_000)
+
+    await retiredFiber.dispose()
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    const replacementAdapter = new DeferredCatalogAdapter()
+    const replacementFiber = await installDeferredAdapter(ctx, replacementAdapter)
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(replacementAdapter.pending).toHaveLength(1) })
+    replacementAdapter.resolve(0, 128_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+    expect(lifecycle.session.requestHeader()?.config).toMatchObject({
+      provider: 'deferred',
+      model: 'lifecycle-model',
+    })
+
+    controller.abort()
+    await iterator.return?.()
+    detachAgent()
+    lifecycle.detach()
+    await replacementFiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('does not read the sessions service after its disposal status', async () => {
+    let sessionsFiber: Fiber | undefined
+    const ctx = await hostContext((fiber) => { sessionsFiber = fiber })
+    if (sessionsFiber === undefined) throw new Error('sessions fiber missing')
+    createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const sessions = ctx.get('sessions')
+    if (sessions === undefined) throw new Error('sessions service missing')
+    const list = vi.spyOn(sessions, 'list').mockImplementation(() => {
+      throw new Error('disposed sessions service read')
+    })
+
+    await expect(sessionsFiber.dispose()).resolves.toBeUndefined()
+    expect(list).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
   })
 })

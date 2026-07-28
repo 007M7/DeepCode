@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { FiberState } from 'cordis'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
@@ -483,6 +484,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       }),
       ctx.on('agent/created', (agent: Agent) => { scheduleMetrics(agent.session) }),
       ctx.on('session/disposed', (session: Session) => { pendingMetricSessions.delete(session) }),
+      ctx.on('internal/status', (fiber) => {
+        if (metricsDisposed) return
+        if (fiber.state !== FiberState.ACTIVE
+          && fiber.state !== FiberState.FAILED
+          && fiber.state !== FiberState.DISPOSED) return
+        const sessions = ctx.get('sessions')
+        if (sessions === undefined) return
+        metricsProjector.invalidateCapacities()
+        for (const session of sessions.list()) scheduleMetrics(session)
+      }, { global: true }),
     ]
     return () => {
       metricsDisposed = true

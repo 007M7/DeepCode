@@ -23,7 +23,8 @@ interface UsageState {
 interface CapacityState {
   routeKey: string | undefined
   generation: number
-  status: 'pending' | 'ready'
+  epoch: number
+  status: 'pending' | 'ready' | 'retryable'
   contextWindow?: number
 }
 
@@ -88,6 +89,7 @@ function routeKeyFor(target: CapacityTarget | undefined): string | undefined {
 export class SessionMetricsProjector {
   private readonly usage = new WeakMap<Session, UsageState>()
   private readonly capacities = new WeakMap<Agent, CapacityState>()
+  private capacityEpoch = 0
 
   /**
    * @param ctx - Host context providing optional token-meter and LLM services.
@@ -99,6 +101,11 @@ export class SessionMetricsProjector {
     private readonly targetFor: (agent: Agent) => CapacityTarget | undefined,
     private readonly onCapacityResolved: (agent: Agent) => void,
   ) {}
+
+  /** Retire adapter-owned metadata and fence every resolution already in flight. */
+  invalidateCapacities(): void {
+    this.capacityEpoch++
+  }
 
   /**
    * Read a fresh detached projection through the session's durable tail.
@@ -159,10 +166,14 @@ export class SessionMetricsProjector {
     const target = this.targetFor(agent)
     const routeKey = routeKeyFor(target)
     let state = this.capacities.get(agent)
-    if (state === undefined || state.routeKey !== routeKey) {
+    if (state === undefined
+      || state.routeKey !== routeKey
+      || state.epoch !== this.capacityEpoch
+      || state.status === 'retryable') {
       state = {
         routeKey,
         generation: (state?.generation ?? 0) + 1,
+        epoch: this.capacityEpoch,
         status: target === undefined ? 'ready' : 'pending',
       }
       this.capacities.set(agent, state)
@@ -178,7 +189,7 @@ export class SessionMetricsProjector {
   ): void {
     const llm = this.ctx.get('llm') as LlmLike | undefined
     if (llm === undefined) {
-      pending.status = 'ready'
+      pending.status = 'retryable'
       return
     }
     void Promise.resolve()
@@ -191,12 +202,13 @@ export class SessionMetricsProjector {
           this.onCapacityResolved(agent)
         },
         () => {
-          if (!this.capacityResolutionIsStale(agent, pending)) pending.status = 'ready'
+          if (!this.capacityResolutionIsStale(agent, pending)) pending.status = 'retryable'
         },
       )
   }
 
   private capacityResolutionIsStale(agent: Agent, pending: CapacityState): boolean {
+    if (pending.epoch !== this.capacityEpoch) return true
     if (this.capacities.get(agent)?.generation !== pending.generation) return true
     if (routeKeyFor(this.targetFor(agent)) === pending.routeKey) return false
     // Unknown is the neutral generation; the next observed concrete route
@@ -204,6 +216,7 @@ export class SessionMetricsProjector {
     this.capacities.set(agent, {
       routeKey: undefined,
       generation: pending.generation + 1,
+      epoch: this.capacityEpoch,
       status: 'ready',
     })
     return true
