@@ -303,6 +303,20 @@ describe('WorkspacePicker', () => {
     expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
   })
 
+  it('keeps Choose again inert while the flow occupant is gone, and snaps back a flow opened over an empty hole', async () => {
+    const b = mount([], vi.fn(async () => { throw new Error('adoption failed') }))
+    chooseItem('Open local folder…')
+    await act(async () => { b.probe.owner!.onPicked('/one/project') })
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'Couldn’t open folder' })).toBeTruthy() })
+    // The occupant unloads while the error dialog is up: retrying would open
+    // a flow nobody can serve or cancel, so the button goes inert.
+    act(() => { b.occupancy.flip(false) })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Choose again' }).disabled).toBe(true)
+    // Cancel stays the way out, and the menu actions are usable again.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(false)
+  })
+
   it('withdraws an open flow when its occupant unloads, re-enabling the menu actions', () => {
     const b = mount([])
     chooseItem('Open local folder…')
