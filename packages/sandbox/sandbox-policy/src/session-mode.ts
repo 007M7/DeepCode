@@ -27,11 +27,14 @@ declare module '@deepseek-ai/dsh-session' {
      * The session's sandbox mode was switched — log-only (like `approval/*`;
      * NOT a surface event, carries no `surfaceOp`): durable and replayable,
      * never in the model transcript. The LAST such event is the session's
-     * override ({@link effectiveSandboxMode}); who asked for it is derivable
-     * from position (an event after the log's last `request/header*` was a
-     * runtime switch by the user; see the tool layer's narrator).
+     * override ({@link effectiveSandboxMode}). `source: 'delegation'` marks
+     * an override seeded into a child; an absent source is a runtime switch.
      */
-    'sandbox/mode': { mode: SandboxMode }
+    'sandbox/mode': {
+      mode: SandboxMode
+      /** Marks an override seeded into a child at delegation. */
+      source?: 'delegation'
+    }
   }
 }
 
