@@ -119,7 +119,20 @@ export class TestWorkspaces implements IWorkspaces {
     this.calls.push({ method: 'listDirectory', args: [path] })
     const stub = this.stubs.get('listDirectory')
     if (stub !== undefined) return await (stub(path) as Promise<DirectoryListing>)
-    return { path: '/home/test', home: '/home/test', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false }
+    // The chain runs root-to-target inclusive, per the DirectoryListing
+    // contract — a bare root crumb would mislabel the level in browsers
+    // driven by this double.
+    return {
+      path: '/home/test',
+      home: '/home/test',
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'test', path: '/home/test', hidden: false },
+      ],
+      entries: [],
+      truncated: false,
+    }
   }
 
   /**

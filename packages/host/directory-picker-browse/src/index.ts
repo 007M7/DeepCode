@@ -138,6 +138,11 @@ function asError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason))
 }
 
+/* v8 ignore start -- a close failure of an abandoned handle has no consumer, and forcing one needs a filesystem torn down mid-request. */
+/** Swallow the close failure of a handle its caller already departed. */
+function swallowCloseFailure(): void {}
+/* v8 ignore stop */
+
 /** Message text of an unknown thrown value. */
 function messageOf(error: unknown): string {
   /* v8 ignore next -- node:fs rejects with Error instances; the String arm only satisfies the unknown narrowing. */
@@ -149,13 +154,19 @@ function messageOf(error: unknown): string {
  * non-directories and broken/cyclic links (skipped silently — the browser
  * shows what can be entered, and a broken link cannot).
  */
-async function directoryRow(parent: string, name: string, isDirectory: boolean, isSymbolicLink: boolean): Promise<DirectoryEntry | null> {
+async function directoryRow(
+  parent: string, name: string, isDirectory: boolean, isSymbolicLink: boolean, signal: AbortSignal | undefined,
+): Promise<DirectoryEntry | null> {
   const path = join(parent, name)
   let enterable = isDirectory
   if (!enterable && isSymbolicLink) {
     try {
-      enterable = (await stat(path)).isDirectory()
+      // The probe races the caller too: a symlink target on a stalled
+      // network filesystem must not keep a departed caller's request alive.
+      enterable = (await raceAbort(stat(path), signal)).isDirectory()
     } catch {
+      /* v8 ignore next 2 -- an abort landing mid-probe needs a stalled stat; the per-candidate check in list covers the settled path. */
+      if (signal?.aborted) throw asError(signal.reason)
       // Broken or cyclic symlink: stat is the probe, failure means "not enterable".
       return null
     }
@@ -231,8 +242,10 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       const level = await raceAbort(opening, signal).catch((error: unknown) => {
         // The abandoned open can still mint a handle after the abort won;
         // close it so a departed caller cannot leak a descriptor. (A lost
-        // race against opendir's own rejection has nothing to close.)
-        void opening.then(async (dir) => { await dir.close() }, () => {
+        // race against opendir's own rejection has nothing to close, and
+        // the close's own failure is swallowed — the request already
+        // returned, so a cleanup error has no consumer.)
+        void opening.then(dir => dir.close().catch(swallowCloseFailure), () => {
           // Already rejected: raceAbort surfaced or swallowed it.
         })
         throw error
@@ -248,10 +261,18 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
           if (boundedInsert(window, candidate, keep)) evicted = true
         }
       } finally {
-        // Manual read() never auto-closes; close on every exit, the aborted
-        // one included (its abandoned read settles against the closed handle
-        // and raceAbort already swallowed that settlement).
-        await level.close()
+        // Manual read() never auto-closes; close on every exit. The aborted
+        // exit must not await it — Node queues close behind any in-flight
+        // read, so awaiting would chain the departed caller back onto the
+        // very stall the abort escaped (the abandoned read's settlement is
+        // already swallowed by raceAbort).
+        const closing = level.close()
+        /* v8 ignore next 3 -- an abort between open and close needs a stalled read; the abandoned-close arm has no observable outcome. */
+        if (signal?.aborted) {
+          closing.catch(swallowCloseFailure)
+        } else {
+          await closing
+        }
       }
     } catch (error: unknown) {
       // An abort is the caller's own reason, not an unreadable directory.
@@ -261,7 +282,10 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     const entries: DirectoryEntry[] = []
     let truncated = evicted
     for (const candidate of window) {
-      const row = await directoryRow(target, candidate.name, candidate.isDirectory, candidate.isSymbolicLink)
+      // A caller that departed between reads and probes stops before the
+      // next probe (each probe's own await is raced inside directoryRow).
+      signal?.throwIfAborted()
+      const row = await directoryRow(target, candidate.name, candidate.isDirectory, candidate.isSymbolicLink, signal)
       if (row === null) continue
       if (entries.length === this.config.maxEntries) {
         truncated = true
