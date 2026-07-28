@@ -83,6 +83,19 @@ describe('BrowseDirectoryPicker', () => {
     }
   })
 
+  it('stops the scan with the caller: an aborted signal rejects with its own reason', async () => {
+    const gone = new AbortController()
+    gone.abort(new Error('caller left'))
+    // The abort surfaces as-is, not dressed as an unreadable directory.
+    await expect(capability.list(root, gone.signal)).rejects.toThrow('caller left')
+    // A live signal changes nothing about ordinary failures.
+    const live = new AbortController()
+    const missing = join(root, 'no-such-dir')
+    const failure = await capability.list(missing, live.signal).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DirectoryPickerError)
+    expect((failure as DirectoryPickerError).code).toBe('directory-unreadable')
+  })
+
   it('boundedInsert keeps the window name-sorted and bounded, reporting evictions', () => {
     const candidate = (name: string): ListingCandidate => ({ name, isDirectory: true, isSymbolicLink: false })
     const window: ListingCandidate[] = []
@@ -91,8 +104,10 @@ describe('BrowseDirectoryPicker', () => {
     // A smaller name lands in place and pushes the current largest out.
     expect(boundedInsert(window, candidate('a'), 2)).toBe(true)
     expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
-    // A name beyond the window's tail enters last and leaves immediately.
+    // A name at or beyond the full window's tail rejects on one comparison.
     expect(boundedInsert(window, candidate('t'), 2)).toBe(true)
+    expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
+    expect(boundedInsert(window, candidate('m'), 2)).toBe(true)
     expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
   })
 
