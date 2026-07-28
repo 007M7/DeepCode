@@ -13,7 +13,7 @@ import { z } from 'zod'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -122,6 +122,82 @@ describe('session.history projections block', () => {
     // with zero keys); the disposed key reads as capability absence.
     expect(after.result.value.projections?.asOfSeq).toBe(session.seq - 1)
     expect(after.result.value.projections?.values).toEqual({})
+  })
+})
+
+describe('session.list projections column', () => {
+  it('serves attached rows from the live registry cut, watermarked for client seeding', async () => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
+    seedMessages(session, 1)
+    const response = await api(ctx).sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === session.id)
+    expect(row?.projections?.values['test/last-user']).toEqual({ text: 'm0' })
+    expect(row?.projections?.asOfSeq).toBe(session.seq - 1)
+  })
+
+  it('omits the column entirely when no registry is mounted', async () => {
+    const { ctx, session } = await harness(false)
+    seedMessages(session, 1)
+    const response = await api(ctx).sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === session.id)
+    expect(row).toBeDefined()
+    expect(row !== undefined && 'projections' in row).toBe(false)
+  })
+
+  it('serves cold rows from the persisted projection cache with zero log loads', async () => {
+    const { ctx } = await harness(true)
+    const coldId = SessionId('session-cold-listing')
+    const load = () => { throw new Error('list must not load event logs') }
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ version: 0, id: coldId, createdAt: 5, cwd: '/tmp' }],
+      locate: () => undefined,
+      load,
+      inspect: load,
+      readFrom: load,
+    } as never)
+    ctx.provide('sessionProjectionCache', {
+      // The carrier hands the listed header through as the identity witness.
+      cachedSnapshot: (meta: { id: unknown; createdAt: number }) =>
+        (meta.id === coldId && meta.createdAt === 5
+          ? { asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } }
+          : undefined),
+    } as never)
+    const response = await api(ctx).sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === coldId)
+    expect(row?.running).toBe(false)
+    expect(row?.projections).toEqual({ asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } })
+  })
+
+  it('cold rows without a cache plugin (or without a stored row) just lack the column', async () => {
+    const { ctx } = await harness(true)
+    const coldId = SessionId('session-cold-uncached')
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ version: 0, id: coldId, createdAt: 5, cwd: '/tmp' }],
+      locate: () => undefined,
+    } as never)
+    const response = await api(ctx).sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === coldId)
+    expect(row).toBeDefined()
+    expect(row !== undefined && 'projections' in row).toBe(false)
+  })
+
+  it('a throwing column read degrades that row, never the listing', async () => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register({
+      ...lastUserUnit(),
+      view: () => { throw new Error('unit exploded') },
+    })
+    seedMessages(session, 1)
+    const response = await api(ctx).sessions.list(request({}))
+    if (!response.result.ok) throw new Error('unreachable')
+    const row = response.result.value.items.find(item => item.sessionId === session.id)
+    expect(row).toBeDefined()
+    expect(row !== undefined && 'projections' in row).toBe(false)
   })
 })
 

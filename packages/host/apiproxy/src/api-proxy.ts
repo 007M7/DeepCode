@@ -30,6 +30,8 @@ import type {
 } from './api/index.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -295,6 +297,28 @@ function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | u
   const registry = ctx.get('sessionProjections')
   if (registry === undefined) return undefined
   return registry.snapshot(agent.session)
+}
+
+/**
+ * The projection baseline of one session.list row, fail-soft: attached
+ * sessions cut the registry's live watermark cache; cold sessions view the
+ * persisted projection cache's identity-checked stored rows (zero log loads
+ * either way — the listing use case the cache exists for). The block shape
+ * (values + asOfSeq) matches the history tail's, so a client seeds its
+ * value store under the same higher-seq-wins rule. Any failure — and an
+ * empty value set — yields an absent block: a listing without projections
+ * is degraded, never broken.
+ */
+function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session | undefined): SessionProjectionsBlock | undefined {
+  try {
+    const block = session !== undefined
+      ? ctx.get('sessionProjections')?.snapshot(session)
+      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta)
+    return block !== undefined && Object.keys(block.values).length > 0 ? block : undefined
+  } catch (error) {
+    ctx.logger.warn(`session.list: projection column for "${meta.id}" failed (serving the row without it): ${String(error)}`)
+    return undefined
+  }
 }
 
 /**
@@ -654,13 +678,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async list(request) {
         const items = ctx.sessions.list().map((session) => {
           const agent = ctx.agents.get(session.id)
-          return summarize(session, agent?.status === 'running')
+          const projections = listProjectionsFor(ctx, session.header, session)
+          return {
+            ...summarize(session, agent?.status === 'running'),
+            ...projections === undefined ? {} : { projections },
+          }
         })
         const attached = new Set(items.map(item => item.sessionId))
         const persistence = ctx.get('sessionPersistence')
         if (persistence !== undefined) {
           const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+          items.push(...await Promise.all(cold.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta),
+              ...projections === undefined ? {} : { projections },
+            }
+          })))
         }
         items.sort((a, b) => b.updatedAt - a.updatedAt)
         return ok(request, { items })
