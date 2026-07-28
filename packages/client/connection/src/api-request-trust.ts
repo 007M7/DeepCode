@@ -2,12 +2,15 @@
  * Browser-trust fence for every /api request. Defends the two confused-deputy
  * paths a browser opens against a local HTTP API — DNS rebinding (Host names
  * the attacker's domain while the socket reaches this server) and cross-site
- * requests fired from a malicious page — without blocking non-browser clients
- * (no browser markers → no deputy to confuse, and a native client forges Host
- * freely anyway) or legitimately remote browsers (their authority is declared
- * via `trustedHosts`, or derived by the composing app for IP-literal LAN
- * serving). Network reachability and authentication stay out of scope: binding
- * policy belongs to the webserver config, and this fence is not an auth layer.
+ * requests fired from a malicious page. The Host fence binds every request,
+ * browser-looking or not: over plain HTTP a browser attaches neither Origin
+ * nor Fetch-Metadata to reads (EventSource, images, navigations — those
+ * headers go only to trustworthy destinations), so an unmarked request may
+ * still be a rebound browser read and Host is the one header rebinding cannot
+ * forge. Non-browser and remote clients pass the same fence via loopback, the
+ * CLI-derived LAN IP literals, or a declared `trustedHosts` authority.
+ * Network reachability and authentication stay out of scope: binding policy
+ * belongs to the webserver config, and this fence is not an auth layer.
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
@@ -42,30 +45,35 @@ function parseAuthority(authority: string): URL | undefined {
 
 /**
  * Assert one configured `trustedHosts` entry is a bare authority (`host` or
- * `host:port`) and nothing else. WHATWG parsing would quietly read a hostname
- * out of `harness.internal/path` or `user@harness.internal` — a typo must fail
- * the load loudly instead of authorizing its hostname or being ignored until
- * requests 403. The character test refuses every URL part beyond the authority
- * (path, backslash path, query, fragment, userinfo) and all whitespace, which
- * WHATWG trimming would otherwise strip silently; IPv6 brackets use none of
- * them.
+ * `host:port`) in canonical form: it must survive WHATWG parsing unchanged
+ * (case aside). Anything parsing would silently rewrite is refused as a typo
+ * that must fail the load loudly instead of being ignored until requests 403
+ * or quietly changing the grant: URL parts beyond the authority
+ * (`harness.internal/path`, `user@harness.internal` — which would authorize
+ * the embedded hostname), stripped whitespace, a dangling colon or
+ * zero-padded port (which would broaden an intended exact-port grant to every
+ * port), and non-canonical host spellings (`0x7f.0.0.1`, percent-encoding,
+ * unbracketed IPv6; IDN hosts are declared in punycode, the form the wire
+ * carries).
  * @param entry - the configured value, verbatim.
  */
 export function assertTrustedAuthority(entry: string): void {
-  if (parseAuthority(entry) !== undefined && !/[/\\?#@\s]/.test(entry)) return
+  const entryUrl = parseAuthority(entry)
+  if (entryUrl !== undefined && canonicalAuthority(entry, entryUrl) === entry.toLowerCase()) return
   throw new Error(`client-connection: trustedHosts entry ${JSON.stringify(entry)} is not a bare host[:port] authority`)
 }
 
 /**
- * Whether the parsed authority carries an explicit port: judged from URL
- * parses under both special schemes (their default ports differ, so `:80` and
- * `:443` still count as explicit), never from the raw string, where WHATWG
- * trimming of stray whitespace would misread `host:port ` as port-less and
- * broaden an exact-port grant to every port.
+ * Canonical form of a parsed authority: `hostname` when no port was written,
+ * else `hostname:port`. The port is judged from URL parses under both special
+ * schemes (their default ports differ, so `:80` and `:443` still count as
+ * explicit), never from the raw string, where WHATWG trimming would misread
+ * shapes like `host:port ` as port-less.
  */
-function hasExplicitPort(entry: string, entryUrl: URL): boolean {
+function canonicalAuthority(entry: string, entryUrl: URL): string {
   // An authority that parsed under http cannot fail under https.
-  return entryUrl.port !== '' || new URL(`https://${entry}`).port !== ''
+  const port = entryUrl.port !== '' ? entryUrl.port : new URL(`https://${entry}`).port
+  return port === '' ? entryUrl.hostname : `${entryUrl.hostname}:${port}`
 }
 
 /**
@@ -79,9 +87,9 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
   return trustedHosts.some((entry) => {
     const entryUrl = parseAuthority(entry)
     if (entryUrl === undefined) return false
-    return hasExplicitPort(entry, entryUrl)
-      ? entryUrl.host === hostUrl.host
-      : entryUrl.hostname === hostUrl.hostname
+    return canonicalAuthority(entry, entryUrl) === entryUrl.hostname
+      ? entryUrl.hostname === hostUrl.hostname
+      : entryUrl.host === hostUrl.host
   })
 }
 
@@ -89,19 +97,16 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
  * Decide whether one /api request may reach the RPC bridge.
  * @param request - node HTTP request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @returns true for requests without browser markers, and for browser requests whose Host is ours and whose markers are same-origin.
+ * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
  */
 export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
-  // Marker gate: Origin and sec-fetch-site exist only when a browser is the
-  // sender's deputy. Absent both, the sender is the principal itself (curl,
-  // tests, native shells) and could forge every header below — fencing it
-  // would add nothing and would break non-browser LAN automation.
-  const origin = header(request.headers, 'origin')
-  const secFetchSite = header(request.headers, 'sec-fetch-site')
-  if (origin === undefined && secFetchSite === undefined) return true
-  // Host fence (DNS-rebinding defense): the browser fills Host from the URL it
-  // believes it is talking to, so a rebound page carries the attacker's domain
-  // here even though the socket lands on this server.
+  // Host fence (DNS-rebinding defense), applied to every request: the browser
+  // fills Host from the URL it believes it is talking to, so a rebound page
+  // carries the attacker's domain here even though the socket lands on this
+  // server. There is no marker shortcut — a browser read over plain HTTP
+  // (EventSource, images, navigations) arrives with neither Origin nor
+  // Fetch-Metadata, indistinguishable from curl, and its response is readable
+  // by the rebound page.
   const host = header(request.headers, 'host')
   if (host === undefined) return false
   const hostUrl = parseAuthority(host)
@@ -109,10 +114,12 @@ export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: read
   if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false
   // Cross-site fence: modern browsers label the initiator relationship on
   // every fetch; an explicit cross-site marker is refused regardless of Origin.
-  if (secFetchSite === 'cross-site') return false
+  if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false
   // Origin fence: when a browser attaches an Origin it must be exactly this
-  // authority (compared through the same normalization as the Host). The
+  // authority (compared through the same normalization as the Host). Absent
+  // Origin is fine — the Host fence above already bound the request. The
   // literal "null" (sandboxed iframes, file: pages) is an opaque origin, refused.
+  const origin = header(request.headers, 'origin')
   if (origin === undefined) return true
   try {
     return new URL(origin).host === hostUrl.host
