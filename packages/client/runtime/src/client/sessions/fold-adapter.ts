@@ -8,8 +8,9 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { ConversationNode } from './conversation.ts'
+import type { CommandNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
@@ -99,6 +100,15 @@ export class FoldAdapter {
   private callIdx = new Map<string, CallIndexEntry>()
   /** Wire result views keyed by the tool/result event's seq (views ride the envelope, not the event). */
   private resultViews = new Map<number, ToolResultView>()
+  /**
+   * Command lifecycle nodes by commandId (insertion = run order). The
+   * `command/run`/`command/done` pair is log-only, so the surface fold never
+   * emits it; this index folds the pair (done settles its run's node in
+   * place) and nodes() merges the products into the flow by seq. Window cuts
+   * soft-fall like tool pairs: a done with no in-window run still builds a
+   * node.
+   */
+  private commandIdx = new Map<string, CommandNode>()
   /** Window revision (bumped on reset/append) keying the nodes() result cache: an unchanged
    *  window returns the previous ARRAY reference, not just cached elements — the snapshot's
    *  reference-stability contract (§A.9.4) starts here. */
@@ -128,10 +138,14 @@ export class FoldAdapter {
     this.degraded = false
     this.callIdx = new Map()
     this.resultViews.clear()
+    this.commandIdx = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
-      if (event !== undefined) this.indexCall(event, views?.[i])
+      if (event !== undefined) {
+        this.indexCall(event, views?.[i])
+        this.indexCommand(event)
+      }
     }
   }
 
@@ -145,6 +159,7 @@ export class FoldAdapter {
     this.rev++
     this.padded.push(event)
     this.indexCall(event, view)
+    this.indexCommand(event)
   }
 
   /**
@@ -180,7 +195,23 @@ export class FoldAdapter {
       this.nodeCache.set(seq, node)
       out.push(node)
     }
-    const value = { nodes: out, degraded: this.degraded }
+    // Command nodes fold outside the surface (log-only events); merge by seq.
+    // Both inputs are seq-ascending (surface order and run-index insertion
+    // order share the log order), so one linear merge keeps flow order.
+    let nodes = out
+    if (this.commandIdx.size > 0) {
+      nodes = []
+      const commands = [...this.commandIdx.values()]
+      let next = 0
+      for (const node of out) {
+        for (let cmd = commands[next]; cmd !== undefined && cmd.seq < node.seq; cmd = commands[++next]) {
+          nodes.push(cmd)
+        }
+        nodes.push(node)
+      }
+      for (let cmd = commands[next]; cmd !== undefined; cmd = commands[++next]) nodes.push(cmd)
+    }
+    const value = { nodes, degraded: this.degraded }
     this.nodesResult = { rev: this.rev, value }
     return value
   }
@@ -193,6 +224,36 @@ export class FoldAdapter {
       if (event !== undefined && isSurfaceEligibleType(event.type)) seqs.push(event.seq)
     }
     return seqs
+  }
+
+  /** Fold one command lifecycle event into its node (run mints, done settles in place; done-only soft-falls). */
+  private indexCommand(event: SessionEvent): void {
+    // Log-only plugin events: the host-side dsh-commands declaration cannot
+    // enter the client program, so this wire consumer narrows structurally
+    // (the same posture as tool/code-dispatch in session.ts).
+    if ((event.type as string) === 'command/run') {
+      const data = event.data as unknown as { commandId: CommandId; name: string; args: string }
+      this.commandIdx.set(data.commandId, {
+        kind: 'command', seq: event.seq, time: event.time,
+        commandId: data.commandId, name: data.name, args: data.args, outcome: null,
+      })
+      return
+    }
+    if ((event.type as string) !== 'command/done') return
+    const data = event.data as unknown as { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+    const run = this.commandIdx.get(data.commandId)
+    const outcome = { kind: data.kind, ...data.text === undefined ? {} : { text: data.text } }
+    if (run === undefined) {
+      // Cross-window cut: the run page fell out of the window — build the
+      // node from the done alone (same soft-fall as a call-less tool result).
+      this.commandIdx.set(data.commandId, {
+        kind: 'command', seq: event.seq, time: event.time,
+        commandId: data.commandId, name: null, args: null, outcome,
+      })
+      return
+    }
+    // Settle in place: a fresh node object (published references stay immutable).
+    this.commandIdx.set(data.commandId, { ...run, outcome })
   }
 
   private indexCall(event: SessionEvent, view?: ToolEventView): void {

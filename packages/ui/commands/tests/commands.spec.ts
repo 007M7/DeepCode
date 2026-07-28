@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import CommandService, { parseCommand, type CommandDefinition } from '@deepseek-ai/dsh-commands'
 
 function command(name: string, text = `ran:${name}`): CommandDefinition {
@@ -16,16 +16,25 @@ function command(name: string, text = `ran:${name}`): CommandDefinition {
 
 async function mount(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   await ctx.plugin(CommandService)
   return ctx
 }
 
-/** Mint a scope whose key is sufficient for registry lookup and invocation. */
+/** Mint a scope whose key is a live agent (real session: the executor logs lifecycle events on it). */
 async function mintAgentScope(ctx: Context, name: string): Promise<{ scope: Scope; agent: Agent }> {
-  const agent = { id: name as SessionId } as Agent
+  const session = ctx.sessions.create(SessionId(name))
+  const agent = { id: session.id, session } as Agent
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, { inject: ['commands'] }))
   return { scope, agent }
+}
+
+/** The lifecycle slice of one agent's log (boundary markers stripped). */
+function lifecycleOf(agent: Agent): Array<{ type: string; data: unknown }> {
+  return agent.session.events
+    .filter(event => event.type === 'command/run' || event.type === 'command/done')
+    .map(event => ({ type: event.type, data: event.data }))
 }
 
 describe('parseCommand()', () => {
@@ -87,11 +96,11 @@ describe('CommandService', () => {
     expect(ctx.commands.list(agent).map(item => item.name)).toEqual(['shared'])
     expect(ctx.commands.find(agent, 'shared')?.handler).toBeDefined()
     expect(ctx.commands.list(other).map(item => item.name)).toEqual(['shared'])
-    expect(await ctx.commands.execute(agent, '/shared', new AbortController().signal))
+    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.result)
       .toEqual({ kind: 'success', text: 'scoped' })
 
     await scope.dispose()
-    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.text).toBe('global')
+    expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.result.text).toBe('global')
   })
 
   it('removes a registration when its contributing plugin fiber is disposed', async () => {
@@ -167,10 +176,12 @@ describe('CommandService', () => {
     ctx.commands.register({ name: 'run', description: 'Run it', handler: seen })
     const controller = new AbortController()
 
-    const result = await ctx.commands.execute(agent, '/run  untouched ', controller.signal)
+    const execution = await ctx.commands.execute(agent, '/run  untouched ', controller.signal)
 
-    expect(result).toEqual({ kind: 'success', text: 'ok' })
-    expect(Object.isFrozen(result)).toBe(true)
+    expect(execution?.result).toEqual({ kind: 'success', text: 'ok' })
+    expect(execution?.commandId).toBeTruthy()
+    expect(Object.isFrozen(execution)).toBe(true)
+    expect(Object.isFrozen(execution?.result)).toBe(true)
     expect(seen).toHaveBeenCalledWith(expect.objectContaining({
       agent,
       rawInput: '  untouched ',
@@ -262,9 +273,9 @@ describe('CommandService', () => {
       description: 'Denied',
       handler: () => ({ kind: 'error', text: 'not now' }),
     })
-    const result = await ctx.commands.execute(agent, '/denied', new AbortController().signal)
-    expect(result).toEqual({ kind: 'error', text: 'not now' })
-    expect(Object.isFrozen(result)).toBe(true)
+    const execution = await ctx.commands.execute(agent, '/denied', new AbortController().signal)
+    expect(execution?.result).toEqual({ kind: 'error', text: 'not now' })
+    expect(Object.isFrozen(execution?.result)).toBe(true)
 
     ctx.commands.register({
       name: 'silent',
@@ -272,8 +283,8 @@ describe('CommandService', () => {
       handler: () => ({ kind: 'success' }),
     })
     const silent = await ctx.commands.execute(agent, '/silent', new AbortController().signal)
-    expect(silent).toEqual({ kind: 'success' })
-    expect(Object.isFrozen(silent)).toBe(true)
+    expect(silent?.result).toEqual({ kind: 'success' })
+    expect(Object.isFrozen(silent?.result)).toBe(true)
   })
 
   it.each([
@@ -284,6 +295,112 @@ describe('CommandService', () => {
   ] as const)('rejects invalid definition %#', async (definition, expected) => {
     const ctx = await mount()
     expect(() => ctx.commands.register(definition as unknown as CommandDefinition)).toThrow(expected)
+  })
+
+  it('logs a paired command/run + command/done around a successful handler', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register(command('deploy', 'deployed'))
+
+    const execution = await ctx.commands.execute(agent, '/deploy now', new AbortController().signal)
+
+    const lifecycle = lifecycleOf(agent)
+    expect(lifecycle).toMatchObject([
+      { type: 'command/run', data: { name: 'deploy', args: ' now', source: { kind: 'user' } } },
+      { type: 'command/done', data: { kind: 'success', text: 'deployed' } },
+    ])
+    const ids = lifecycle.map(event => (event.data as { commandId: string }).commandId)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[0]).toBe(ids[1])
+    // The execution's pairing id is the logged one (RPC-level correlation).
+    expect(execution?.commandId).toBe(ids[0])
+    // Direct log-only appends: no turn is opened for the pair on an idle log.
+    expect(agent.session.events.map(event => event.type)).toEqual([
+      'command/run', 'command/done',
+    ])
+  })
+
+  it('mints distinct monotonic commandIds across executions', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register(command('first'))
+    ctx.commands.register(command('second'))
+    await ctx.commands.execute(agent, '/first', new AbortController().signal)
+    await ctx.commands.execute(agent, '/second', new AbortController().signal)
+    const ids = lifecycleOf(agent)
+      .filter(event => event.type === 'command/run')
+      .map(event => (event.data as { commandId: string }).commandId)
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it('logs command/done kind error for an expected error result', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register({ name: 'denied', description: 'Denied', handler: () => ({ kind: 'error', text: 'not now' }) })
+    await ctx.commands.execute(agent, '/denied', new AbortController().signal)
+    expect(lifecycleOf(agent)).toMatchObject([
+      { type: 'command/run', data: { name: 'denied' } },
+      { type: 'command/done', data: { kind: 'error', text: 'not now' } },
+    ])
+  })
+
+  it('logs command/done kind error when the handler throws, and preserves the throw', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register({
+      name: 'boom',
+      description: 'Throw',
+      handler: () => { throw new Error('handler exploded') },
+    })
+    await expect(ctx.commands.execute(agent, '/boom', new AbortController().signal))
+      .rejects.toThrow('handler exploded')
+    expect(lifecycleOf(agent)).toMatchObject([
+      { type: 'command/run', data: { name: 'boom' } },
+      { type: 'command/done', data: { kind: 'error', text: 'handler exploded' } },
+    ])
+  })
+
+  it('logs command/done kind error when the signal aborts a hanging handler', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register({
+      name: 'hang',
+      description: 'Hang',
+      handler: () => new Promise(() => undefined),
+    })
+    const controller = new AbortController()
+    const pending = ctx.commands.execute(agent, '/hang', controller.signal)
+    // The run append must land before the abort so the pair stays complete.
+    await vi.waitFor(() => { expect(lifecycleOf(agent)).toHaveLength(1) })
+    controller.abort('operator cancelled command')
+    await expect(pending).rejects.toThrow('operator cancelled command')
+    await vi.waitFor(() => {
+      expect(lifecycleOf(agent)).toMatchObject([
+        { type: 'command/run', data: { name: 'hang' } },
+        { type: 'command/done', data: { kind: 'error', text: 'operator cancelled command' } },
+      ])
+    })
+  })
+
+  it('logs nothing for admission misses (syntax or unknown name)', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register(command('real'))
+    const signal = new AbortController().signal
+    await ctx.commands.execute(agent, 'not a command', signal)
+    await ctx.commands.execute(agent, '/missing', signal)
+    expect(agent.session.events).toEqual([])
+  })
+
+  it('joins an open turn without wrapping the lifecycle pair in synthetic turns', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register(command('mid'))
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await ctx.commands.execute(agent, '/mid', new AbortController().signal)
+    expect(agent.session.events.map(event => event.type)).toEqual([
+      'turn/start', 'command/run', 'command/done',
+    ])
   })
 
   it.each([

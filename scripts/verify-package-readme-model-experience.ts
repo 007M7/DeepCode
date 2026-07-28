@@ -88,6 +88,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/sdk/sdk-client': { kind: 'none', reason: 'Client-process library; the model surface lives in the spawned runtime\'s composed plugins.' },
   'packages/sdk/sdk-protocol': { kind: 'none', reason: 'Client-facing wire library; the runtime plugins behind the serving entry own the model surface.' },
   'packages/sdk/telemetry': { kind: 'none', reason: 'The launcher-side reporter sends developer-cycle telemetry and registers no live agent or model surface.' },
+  'packages/session-projection/session-projection': { kind: 'none', reason: 'The projection registry serves client-facing read models of already-logged session state and registers no model surface.' },
   'packages/session-query/session-query': { kind: 'none', reason: 'The trusted query service exposes cloned records only to callers and registers no model surface.' },
   'packages/session-query/session-query-sqlite': { kind: 'none', reason: 'The search backend returns hits only to callers and registers no model surface.' },
   'packages/telemetry/session-telemetry': { kind: 'none', reason: 'The seam observes the session stream and hands redacted copies outward; it registers no model surface.' },

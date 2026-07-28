@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConversationSnapshot, ObservableSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
@@ -33,6 +33,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `fallback` for unregistered tools.
      */
     'conversation.chat.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolRowOwnerProps }
+    /**
+     * The chat view's per-command row hole: keyed dispatch on the command
+     * name (`command/run.name`; a run-less cross-window node has none and
+     * always lands on the fallback). Declared by the chat view entry; the
+     * render site dispatches via `entryKey: name` with GenericCommandCard as
+     * the `fallback` — a slash command renders durably with zero
+     * registration, and a domain upgrades by registering one row component.
+     */
+    'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
@@ -160,6 +169,22 @@ export interface ToolRowOwnerProps {
  * share one declaration shape, so this alias serves them all.
  */
 export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
+
+/**
+ * Owner share of the per-command row slot: the frozen {@link CommandNode}
+ * slice off the snapshot (cache-stable reference — memo premise). The node
+ * carries the whole lifecycle (structured name/args, pairing id,
+ * outcome-or-executing), so a
+ * registrant needs no second data channel; domain state arrives through its
+ * own projection cell.
+ */
+export interface CommandRowOwnerProps {
+  /** Folded command lifecycle node (run + optional done). */
+  node: CommandNode
+}
+
+/** Full props of a registered command-row component (same shape rule as {@link ToolRowProps}). */
+export type CommandRowProps = PropsRuntime<'conversation.chat.commandview'>
 
 /**
  * Base props of a conversation view entry: the framework standard kit for the
@@ -296,9 +321,9 @@ export interface ChatViewInjected {
   loadOlder: () => void
 }
 
-/** Full chat-view component props: runtime share & the declared toolview hole's render share & store share & injected share. */
+/** Full chat-view component props: runtime share & the declared toolview/commandview holes' render share & store share & injected share. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview'>
   & PropsStore<ChatStore> & ChatViewInjected
 
 /**

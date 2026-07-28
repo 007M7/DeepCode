@@ -7,6 +7,9 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+// Type-only: the brand constructor is host-side; the fixture casts at its
+// wire-fabrication boundary (the schema layer's one-cast-point posture).
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -271,18 +274,27 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
-/** Fold the latest fixture title into the host's control-frame projection. */
-function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
-  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
-  if (event === undefined) return undefined
-  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
-  return {
-    type: 'session/title',
-    sessionId: id,
-    title: titleEvent.data.title,
-    eventSeq: titleEvent.seq,
-    updatedAt: titleEvent.time,
+/** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (titleEvent !== undefined) {
+    values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
   }
+  const todos = backscanTodos(log)
+  if (todos !== undefined) values['todos'] = todos
+  return values
+}
+
+/** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
+function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
+  const type = (event as { type: string }).type
+  const key = type === 'session/title' ? 'title' : type === 'todo/write' ? 'todos' : undefined
+  if (key === undefined) return []
+  const values = projectionValuesOf(log)
+  /* v8 ignore next -- the advancing event is in the log, so its key always has a value. */
+  if (!Object.hasOwn(values, key)) return []
+  return [{ type: 'session/projection', sessionId: id, key, value: values[key], seq: event.seq }]
 }
 
 /**
@@ -512,10 +524,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
-    if ((event as { type: string }).type === 'session/title') {
-      // The raw title is already in this log, so the latest-title fold must find it.
-      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
-    }
+    // Host eager-drive parallel: a unit-advancing event pushes its finished value.
+    for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -668,14 +678,18 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
-        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
-        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
+        // Tail page carries the projections block (host parallel: one consistent
+        // cut over the registered units; asOfSeq = window tail seq, -1 on an
+        // empty log — the host's session.seq-1 convention).
+        const projections = request.payload.beforeSeq === undefined
+          ? { asOfSeq: log.length - 1, values: projectionValuesOf(log) }
+          : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
@@ -880,25 +894,29 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           ],
         })
       },
+      // Pure admission, mirroring the host: an admitted command logs the
+      // command/run + command/done lifecycle pair (mux-broadcast by append),
+      // and the response only reports resolution.
       execute: (request) => {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
-        const line = request.payload.line.trim()
-        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const id = request.payload.sessionId
+        // Structured split mirroring the host parser: name + verbatim rawInput
+        // (separator whitespace included) — the run payload carries no line.
+        const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
-        if (name === 'compact' || name === 'echo') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
-          })
+        const args = match?.[2] ?? ''
+        const outcomes: Record<string, string> = {
+          compact: 'fixture：已压缩（假动作）',
+          echo: args.trim(),
+          'goal-fixture': `fixture：goal 已设置（${id}）`,
         }
-        if (name === 'goal-fixture') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
-          })
-        }
-        return ok(request, { matched: false as const })
+        const text = name === undefined ? undefined : outcomes[name]
+        if (name === undefined || text === undefined) return ok(request, { matched: false as const })
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
+        return ok(request, { matched: true as const, commandId })
       },
     },
     skills: {
@@ -921,9 +939,13 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
-          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
-          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
-          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
+          const log = logs.get(s.sessionId) ?? []
+          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: log.length - 1 } })
+          // Post-subscribe projection baseline (host parallel: recomputed unit values ride push frames).
+          const values = projectionValuesOf(log)
+          for (const key of Object.keys(values)) {
+            conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
+          }
         }
         conn.push({
           rpcId: pendingApprovalRpcId,
