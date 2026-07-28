@@ -14,6 +14,11 @@ import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReaso
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
+// to the policy services when composed — the driver consumes both
+// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   attachStructuredRuntime,
   type StructuredAttachment,
@@ -97,8 +102,20 @@ export async function startInProcessRun(
     subagentDepth: childDepth,
   }
 
+  // Capture before the first await: a later parent switch belongs to the
+  // parent's future.
+  const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
+  const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
+
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
+    const childSession = (childCtx.agent as Agent).session
+    if (inheritedMode !== undefined) {
+      childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
+    }
+    if (inheritedPolicy !== undefined) {
+      childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
+    }
     if (request.persona !== undefined) {
       childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
     }
@@ -118,7 +135,7 @@ export async function startInProcessRun(
       delegationDepth: childDepth,
       ...seedLength > 0 ? { seedLength } : {},
     },
-    ...options.seed !== undefined ? { seed: options.seed } : {},
+    ...options.seed === undefined ? {} : { seed: options.seed },
     agentOptions,
     signal: request.signal,
     setup,
