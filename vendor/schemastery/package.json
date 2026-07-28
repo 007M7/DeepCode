@@ -3,6 +3,7 @@
   "description": "Type driven schema validator",
   "version": "3.18.0",
   "private": true,
+  "type": "module",
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
   "types": "lib/types/index.d.ts",

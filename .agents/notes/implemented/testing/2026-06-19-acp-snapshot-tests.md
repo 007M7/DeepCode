@@ -57,7 +57,7 @@ A snapshot run asserts **two** normalized surfaces, because the harness's extern
 
 The surfaces are complementary: stdout covers the minimal automation wire, while JSONL covers loop, tool, and boundary structure that the wire intentionally omits.
 
-Normalization replaces session, cwd, protocol-id, timestamp, path, and process volatility while preserving deterministic sequence numbers. Scenarios constrain real bash use to stable commands. The stdout expected output remains wire-shaped JSONL and every raw line must parse as JSON. Vitest updates only the stdout expected output; normalized session equality never overwrites the replay fixture.
+Normalization replaces session, cwd, protocol-id, timestamp, path, and process volatility while preserving deterministic sequence numbers. Record and refresh also store a generated workspace and its filesystem-resolved aliases as `{{cwd}}` in the replay fixture, so platform temp roots and random basenames do not affect recordings; authored temp paths and cwd values under an explicit `workspaceParent` remain literal. Scenarios constrain real bash use to stable commands. The stdout expected output remains wire-shaped JSONL and every raw line must parse as JSON. Ordinary Vitest snapshot updates write only the stdout expected output; the explicit `record` and `refresh` modes own replay-fixture writes.
 
 ### Isolation: normalization now, sandbox later
 
