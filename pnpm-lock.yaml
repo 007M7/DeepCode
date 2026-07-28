@@ -128,9 +128,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/ui/app-boot
-      '@deepseek-ai/dsh-bash-local':
+      '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:^
-        version: link:../../packages/bash/bash-local
+        version: link:../../packages/bash/bash-sandbox
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../packages/client/connection
@@ -203,12 +203,12 @@ importers:
       '@deepseek-ai/dsh-frontend':
         specifier: workspace:^
         version: link:../web
-      '@deepseek-ai/dsh-fs-local':
-        specifier: workspace:^
-        version: link:../../packages/fs/fs-local
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../packages/fs/fs-policy
+      '@deepseek-ai/dsh-fs-sandbox':
+        specifier: workspace:^
+        version: link:../../packages/fs/fs-sandbox
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../packages/host/apiproxy
@@ -227,9 +227,18 @@ importers:
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../packages/ui/permission
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../packages/plan/plan-mode
+      '@deepseek-ai/dsh-sandbox-local':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-local
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../packages/core/session
@@ -320,6 +329,9 @@ importers:
       '@deepseek-ai/dsh-tui':
         specifier: workspace:^
         version: link:../../packages/ui/tui
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:^
+        version: link:../../packages/ui/user-approval
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../packages/ui/user-interaction
