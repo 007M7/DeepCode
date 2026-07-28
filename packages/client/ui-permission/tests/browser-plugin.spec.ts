@@ -81,6 +81,9 @@ describe('ui-permission browser plugin', () => {
     const again = await c.ui.options(proj, new AbortController().signal)
     expect(again.find(option => option.id === 'workspace-write')?.active).toBe(true)
     expect(again.find(option => option.id === 'read-only')?.detail).toBe('Reads only.')
+    // A projection that vanished between availability and open throws.
+    expect(() => c.ui.options({ sessionId: sid('ghost') }, new AbortController().signal))
+      .toThrow(/not available on this host/)
   })
 
   it('a pick submits the /permission line; rejection and unmatched throw', async () => {
