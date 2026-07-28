@@ -8,7 +8,7 @@ Status: implemented
 
 本仓库最初使用 **Yarn 4** 搭配 `node-modules` 链接器启动。这是一个刻意保守的选择：行为类似 npm 的扁平布局，同时享有 Yarn 的 workspaces 和 `yarn constraints`。它能正常工作。但 Yarn 4 源自 Plug'n'Play 的血统，使得 `node-modules` 链接器成为非主流模式；而更广泛的 JS 生态——工具默认值、CI action、Corepack 示例、贡献者的熟悉度——正日益以 pnpm 为中心。对于一个主要由 agent（智能体）构建、偶尔有人类贡献者阅读的仓库而言，「大多数工具和人所期望的包管理器」具有实际价值：更少的意外、更成熟的故障路径、更多可直接复用的解答。
 
-切换成本目前处于最低点。本仓库尚无任何包（package）发布（每个包都是 `private: true`）；开发/测试/演示全部通过 tsx **未构建**运行，因此包管理器只需做到：（a）解析并链接 `node_modules`，（b）运行 workspace 脚本，（c）强制执行 workspace 约束。唯一的 Yarn 特有资产是 `yarn.config.cjs`（`@yarnpkg/types` 约束引擎），体量小且可机械地重新表达。这与 [tsdown 决策](../../archived/process/2026-06-11-tsdown-over-dumble.md)的逻辑一致：在爆炸半径尚小时，将承重工具换为生态更健康的选项。
+切换成本目前处于最低点。本仓库尚无任何包（package）发布（每个包都是 `private: true`）；开发流程、测试和源码模式 demo 都通过各自声明的 TypeScript 启动器运行，产物检查则会显式构建。因此，包管理器只需做到：（a）解析并链接 `node_modules`，（b）运行 workspace 脚本，（c）强制执行 workspace 约束。唯一的 Yarn 特有资产是 `yarn.config.cjs`（`@yarnpkg/types` 约束引擎），体量小且可机械地重新表达。这与 [tsdown 决策](../../archived/process/2026-06-11-tsdown-over-dumble.md)的逻辑一致：在爆炸半径尚小时，将承重工具换为生态更健康的选项。
 
 ## 决策
 

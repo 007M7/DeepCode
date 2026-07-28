@@ -1,7 +1,7 @@
 import { Context, Inject, Service } from 'cordis'
-import { defineProperty, Dict, isNullable } from 'cosmokit'
+import { defineProperty, isNullable, type Dict } from 'cosmokit'
 import { ModuleLoader } from './internal.ts'
-import { Entry, EntryOptions } from './config/entry.ts'
+import { Entry, type EntryOptions } from './config/entry.ts'
 import isolate from './config/isolate.ts'
 import { EntryTree } from './config/tree.ts'
 

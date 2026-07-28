@@ -100,9 +100,18 @@ export class SandboxPolicyService extends Service {
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
     return {
-      mode: request.mode ?? (session === undefined ? undefined : effectiveSandboxMode(session.events)) ?? this.defaultMode,
+      mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
+  }
+
+  /**
+   * Read the session override without applying the deployment default.
+   * @param session - session whose log supplies the override.
+   * @returns the last logged mode, or `undefined` without one.
+   */
+  overrideOf(session: Session): SandboxMode | undefined {
+    return effectiveSandboxMode(session.events)
   }
 }
 
