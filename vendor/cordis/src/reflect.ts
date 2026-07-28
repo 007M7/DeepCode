@@ -1,4 +1,5 @@
-import { defineProperty, Dict, isNullable } from 'cosmokit'
+import { defineProperty, isNullable } from 'cosmokit'
+import type { Dict } from 'cosmokit'
 import { Context } from './context.ts'
 import { getTraceable, symbols, withProps } from './utils.ts'
 import { Fiber, FiberState } from './fiber.ts'
