@@ -6,7 +6,7 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  RpcError, SessionId, ToolCallView, ToolResultView,
+  RpcError, SessionId, SessionMetrics, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 
@@ -246,4 +246,10 @@ export interface ConversationSnapshot {
   /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
    *  write (last write wins); empty = the log holds no plan. */
   todos: readonly TodoItem[]
+  /**
+   * Host-owned cumulative usage and current-context projection. Independent
+   * of `nodes` pagination; null until a tail response or live metrics frame
+   * supplies a current value.
+   */
+  metrics: SessionMetrics | null
 }

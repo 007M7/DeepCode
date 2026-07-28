@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  SessionId, SessionMetrics, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -102,6 +102,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
    *  field is the authoritative empty list) and every live write overwrites it. */
   private todos: readonly TodoItem[] = []
+  /** Host-owned metrics projection; ordering resets on each subscribed baseline. */
+  private metrics: SessionMetrics | null = null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -296,6 +298,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.events = []
     this.views = []
     this.baseSeq = 0
+    this.metrics = null
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
     this.pending.clear()
@@ -364,6 +367,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
           this.queueRev++
           this.notifier.markDirty()
         }
+        if (this.metrics !== null) {
+          this.metrics = null
+          this.notifier.markDirty()
+        }
+        return
+      }
+      case 'session/metrics': {
+        this.installMetrics(frame.metrics)
         return
       }
       case 'approval/requested': {
@@ -482,13 +493,20 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.todos, result.value.metrics)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        if (result.ok) {
+          this.installWindow(
+            result.value.events,
+            result.value.hasMore,
+            result.value.todos,
+            result.value.metrics,
+          )
+        }
       }
       this.openState = 'open'
     } catch (error) {
@@ -506,7 +524,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined): void {
+  private installWindow(
+    entries: HistoryEntry[],
+    hasMore: boolean,
+    todos: readonly TodoItem[] | undefined,
+    metrics: SessionMetrics | undefined,
+  ): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
@@ -519,6 +542,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     // field is the authoritative empty list, not a missing carrier. Assigning
     // it clears a plan the log never kept (a write lost to a host crash).
     this.todos = todos ?? []
+    if (metrics !== undefined) this.installMetrics(metrics)
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
     const buffered = this.liveBuffer
@@ -569,7 +593,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        this.installWindow(
+          result.value.events,
+          result.value.hasMore,
+          result.value.todos,
+          result.value.metrics,
+        )
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
@@ -761,6 +790,20 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return tail === undefined ? null : tail.seq
   }
 
+  /** Install a metrics snapshot unless a newer durable or publication revision already landed. */
+  private installMetrics(metrics: SessionMetrics): void {
+    const current = this.metrics
+    if (
+      current !== null
+      && (
+        metrics.logRevision < current.logRevision
+        || metrics.projectionRevision < current.projectionRevision
+      )
+    ) return
+    this.metrics = metrics
+    this.notifier.markDirty()
+  }
+
   private buildSnapshot(): ConversationSnapshot {
     const { nodes: folded, degraded } = this.foldAdapter.nodes()
     // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
@@ -811,6 +854,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
       todos: this.todos,
+      metrics: this.metrics,
     }
   }
 }

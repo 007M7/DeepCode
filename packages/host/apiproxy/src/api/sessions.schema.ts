@@ -11,7 +11,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionSummary,
+  ModelReasoningEffort, ModelTarget, SessionMetrics, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -145,11 +145,24 @@ export const todoItemSchema = z.object({
   status: z.union([z.literal('pending'), z.literal('in_progress'), z.literal('completed')]),
 })
 
+/** Host-owned durable usage and current-context projection. */
+export const sessionMetricsSchema = z.object({
+  logRevision: z.number().int().nonnegative(),
+  projectionRevision: z.number().int().nonnegative(),
+  uncachedInputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  cacheReadTokens: z.number().nonnegative(),
+  cacheWriteTokens: z.number().nonnegative(),
+  contextTokens: z.number().nonnegative().optional(),
+  contextWindow: z.number().int().positive().optional(),
+}) satisfies z.ZodType<Wire<SessionMetrics>>
+
 /** session.history response value. */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   todos: z.array(todoItemSchema).optional(),
+  metrics: sessionMetricsSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** session.models request payload. */

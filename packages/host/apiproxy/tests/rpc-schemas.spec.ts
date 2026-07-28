@@ -10,7 +10,7 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema, sessionMetricsSchema,
 } from '../src/api/sessions.schema.ts'
 import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
 import {
@@ -138,8 +138,35 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
+      metrics: {
+        logRevision: 12,
+        projectionRevision: 4,
+        uncachedInputTokens: 1_000,
+        outputTokens: 200,
+        cacheReadTokens: 4_000,
+        cacheWriteTokens: 500,
+        contextTokens: 8_000,
+        contextWindow: 128_000,
+      },
       modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    }).hasMore).toBe(false)
+    }).metrics?.contextWindow).toBe(128_000)
+    expect(() => sessionMetricsSchema.parse({
+      logRevision: 1,
+      projectionRevision: 0,
+      uncachedInputTokens: -1,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })).toThrow()
+    expect(() => sessionMetricsSchema.parse({
+      logRevision: 1,
+      projectionRevision: 0,
+      uncachedInputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      contextWindow: 0,
+    })).toThrow()
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
@@ -305,6 +332,18 @@ describe('events frame schemas', () => {
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
       { type: 'session/title', sessionId: 's', title: 'Durable title', eventSeq: 2, updatedAt: 3 },
+      {
+        type: 'session/metrics',
+        sessionId: 's',
+        metrics: {
+          logRevision: 3,
+          projectionRevision: 1,
+          uncachedInputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 300,
+          cacheWriteTokens: 40,
+        },
+      },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },

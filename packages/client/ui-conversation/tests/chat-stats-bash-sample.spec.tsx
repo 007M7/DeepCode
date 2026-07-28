@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// StatsLine (rendered inside the chat view body): totals derivation + the RFC
+// StatsLine (rendered inside the chat view body): durable metrics presentation + the RFC
 // hard acceptance — zero renders during streaming. Bash sample row: the
 // canonical sub-agent differential decided INSIDE the component off the
 // standard useSessions kit (no registry predicates — tool ring dissolved).
@@ -12,7 +12,10 @@ import type {
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { StatsLine, deriveStats, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import {
+  cacheHitPercent, contextPercent, deriveVisibleCounts, formatMetricTokens,
+  StatsLine, type StatsLineProps,
+} from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
 afterEach(cleanup)
@@ -28,7 +31,7 @@ function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, metrics: null,
   }
 }
 
@@ -50,27 +53,49 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
   }
 }
 
-describe('deriveStats', () => {
-  it('folds turns/steps/tokens and cache hit percentage', () => {
-    const stats = deriveStats([
+describe('stats derivation', () => {
+  it('counts visible turns and steps without reading node usage', () => {
+    const stats = deriveVisibleCounts([
       assistant(1, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 900 }),
       assistant(2, 1, { inputTokens: 100, outputTokens: 50 }),
       assistant(3, 2),
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    expect(stats.tokens).toBe(1200)
-    expect(stats.cacheHitPct).toBe(82)
   })
 
-  it('cache hit stays null with no cache accounting; non-assistant nodes ignored', () => {
+  it('ignores non-assistant nodes', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
     }
-    const stats = deriveStats([tool, assistant(1, 1)])
+    const stats = deriveVisibleCounts([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
-    expect(stats.cacheHitPct).toBeNull()
+  })
+
+  it('keeps the cache formula disjoint from cache writes and rounds/clamps context like the TUI', () => {
+    const durable = {
+      logRevision: 20,
+      projectionRevision: 2,
+      uncachedInputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 900,
+      cacheWriteTokens: 50_000,
+      contextTokens: 34_500,
+      contextWindow: 100_000,
+    }
+    expect(cacheHitPercent(durable)).toBe(90)
+    expect(contextPercent(durable)).toBe(35)
+    expect(contextPercent({ ...durable, contextTokens: 200_000 })).toBe(100)
+    const { contextWindow: _contextWindow, ...withoutContextWindow } = durable
+    expect(contextPercent(withoutContextWindow)).toBeNull()
+    expect(cacheHitPercent({ ...durable, uncachedInputTokens: 0, cacheReadTokens: 0 })).toBeNull()
+  })
+
+  it('formats large values compactly in the existing en-US style', () => {
+    expect(formatMetricTokens(999)).toBe('999')
+    expect(formatMetricTokens(15_962)).toBe('16k')
+    expect(formatMetricTokens(2_172_544)).toBe('2.2m')
   })
 })
 
@@ -79,19 +104,65 @@ describe('StatsLine', () => {
     return { useSession: bindSnapshotSelector(source) }
   }
 
-  it('renders the joined stats row and hides with zero steps', () => {
+  it('renders separate durable counters, cache hit, context occupancy, and visible counts', () => {
     const { source } = makeSource({
       nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
+      metrics: {
+        logRevision: 30,
+        projectionRevision: 4,
+        uncachedInputTokens: 120_237,
+        outputTokens: 13_881,
+        cacheReadTokens: 2_172_544,
+        cacheWriteTokens: 99_999,
+        contextTokens: 89_600,
+        contextWindow: 256_000,
+      },
     })
     const view = render(<StatsLine {...props(source)} />)
-    expect(view.getByText('cache hit 90% · 105 tokens · 1 turns · 1 steps')).toBeTruthy()
+    expect(view.getByText(
+      '120.2k uncached input · 13.9k output · 2.2m cache read · cache hit 95% · context 35% of 256k · 1 turns · 1 steps',
+    )).toBeTruthy()
     const empty = makeSource()
     const emptyView = render(<StatsLine {...props(empty.source)} />)
     expect(emptyView.container.textContent).toBe('')
   })
 
+  it('renders honest unknowns when the host projection is missing', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source)} />)
+    expect(view.getByText('usage unknown · context unknown · 1 turns · 1 steps')).toBeTruthy()
+  })
+
+  it.each([
+    { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, contextTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 1, cacheReadTokens: 0, contextTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 1, contextTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, contextTokens: 1 },
+  ])('keeps a metrics-only row visible for each nonzero projection bucket', (nonzero) => {
+    const { source } = makeSource({
+      metrics: {
+        logRevision: 1,
+        projectionRevision: 0,
+        cacheWriteTokens: 0,
+        ...nonzero,
+      },
+    })
+    const view = render(<StatsLine {...props(source)} />)
+    expect(view.container.textContent).toContain('0 turns · 0 steps')
+  })
+
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {
-    const { set, source } = makeSource({ nodes: [assistant(1, 1)] })
+    const { set, source } = makeSource({
+      nodes: [assistant(1, 1)],
+      metrics: {
+        logRevision: 4,
+        projectionRevision: 0,
+        uncachedInputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    })
     let renders = 0
     function Counting(p: StatsLineProps) {
       renders += 1

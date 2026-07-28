@@ -18,6 +18,8 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 输入栏为 `'conversation.input.plan'` 和 `'conversation.input.model'` 声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。InputBar 将模型 seat 渲染在 pending 指示器与发送／停止按钮之前。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。常驻无会话壳使用 `DisabledInputBar`，因此不会分发任何会话作用域的控件 seat。
 
+聊天统计行只从 `ConversationSnapshot.metrics` 读取持久的 token 计数与当前上下文压力；可见节点仅提供既有的轮次和步骤计数。它以相互独立的紧凑值显示未缓存输入、输出与缓存读取，通过 `cacheRead / (uncachedInput + cacheRead)` 计算缓存命中率而不计入缓存写入，并根据所选路由的精确容量显示上下文占用率。Host 数据缺失时标为「未知」，绝不根据分页窗口重建。
+
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
 
 ## 模型体验

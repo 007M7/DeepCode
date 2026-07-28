@@ -19,6 +19,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { createApiProxy } from '../src/api-proxy.ts'
 
 let nextRpc = 1
@@ -52,6 +53,7 @@ class CatalogAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
+      context: { contextWindow: model === 'private-preview' ? 128_000 : 64_000 },
       ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
     })
   }
@@ -115,6 +117,16 @@ async function harness(logged?: {
 function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false } }): T {
   if (!response.result.ok) throw new Error('expected successful response')
   return response.result.value
+}
+
+async function nextMetrics(
+  iterator: AsyncIterator<RpcRequest<MuxFrame>>,
+): Promise<Extract<MuxFrame, { type: 'session/metrics' }>['metrics']> {
+  for (;;) {
+    const next = await iterator.next()
+    if (next.done) throw new Error('mux ended before a metrics frame')
+    if (next.value.payload.type === 'session/metrics') return next.value.payload.metrics
+  }
 }
 
 describe('Web session model selection', () => {
@@ -228,6 +240,28 @@ describe('Web session model selection', () => {
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
       .toEqual({ provider: 'deepseek', model: 'private-preview', reasoningEffort: 'max' })
+    await ctx.fiber.dispose()
+  })
+
+  it('publishes unknown capacity immediately on selection, then the exact selected route capacity', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(64_000)
+
+    expectValue(await api.sessions.selectModel(request({
+      sessionId,
+      provider: 'deepseek',
+      model: 'private-preview',
+    })))
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(128_000)
+
+    controller.abort()
+    await iterator.return?.()
     await ctx.fiber.dispose()
   })
 })

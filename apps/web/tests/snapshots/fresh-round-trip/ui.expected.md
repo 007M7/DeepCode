@@ -7,22 +7,30 @@
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- text: Echo the test string
+- img
+- text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
-- text: cache hit 99% · 15,818 tokens · 1 turns · 2 steps
+- text: 219 uncached input · 111 output · 15.5k cache read · cache hit 99% · context 6% of 128k · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
 - combobox "Access mode":
   - option "Read-only" [selected]
   - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]

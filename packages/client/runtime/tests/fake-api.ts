@@ -3,7 +3,7 @@
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
   ClientResponse, CommandDescriptor, CommandExecuteResult, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionMetrics, SessionModels, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -63,7 +63,12 @@ export class FakeApiClient implements IApiClient {
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   readonly defaultModel: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<{ events: never[]; hasMore: boolean; todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[] }>> =
+  => Promise<RpcResponse<{
+    events: never[]
+    hasMore: boolean
+    todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]
+    metrics?: SessionMetrics
+  }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({

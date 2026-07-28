@@ -32,6 +32,31 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
+/**
+ * Host-owned token metrics for one durable session revision. Provider usage
+ * buckets are cumulative across the full log; current context fields describe
+ * the replayed request surface at this revision and are absent when the Host
+ * cannot measure pressure or resolve exact-route capacity.
+ */
+export interface SessionMetrics {
+  /** Number of durable events included in this projection. */
+  logRevision: number
+  /** Monotone ordering within one Host process and mux subscription generation. */
+  projectionRevision: number
+  /** Cumulative uncached provider input. */
+  uncachedInputTokens: number
+  /** Cumulative provider output. */
+  outputTokens: number
+  /** Cumulative provider cache reads. */
+  cacheReadTokens: number
+  /** Cumulative provider cache writes; excluded from the Web cache-hit formula. */
+  cacheWriteTokens: number
+  /** Current request pressure from `ctx.tokenMeter.measure(session).totalTokens`. */
+  contextTokens?: number
+  /** Exact selected-route capacity from `ctx.llm.resolveModelInfo()`. */
+  contextWindow?: number
+}
+
 /** Complete model target selected for one session. */
 export interface ModelTarget {
   /** Registered provider route. */
@@ -153,9 +178,11 @@ export interface SessionsApi {
    * projection (latest `todo/write` over the FULL log, independent of the page window) —
    * so a paged client restores the plan without walking history; absent when the session
    * never wrote one. Older pages omit it (the projection is session-level, not per-page).
+   * The same tail-only rule carries `metrics`, whose cumulative usage and current context
+   * are Host projections over the full log rather than products of the returned page.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[]; metrics?: SessionMetrics }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>

@@ -20,7 +20,7 @@ function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, metrics: null,
   }
 }
 
@@ -36,7 +36,7 @@ describe('render branch tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('StatsLine skips usage-less nodes and defaults each absent counter to zero', () => {
+  it('StatsLine takes durable counters from metrics while keeping visible node counts', () => {
     const snap = {
       nodes: [
         { kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [] },
@@ -44,12 +44,22 @@ describe('render branch tails', () => {
         // outputTokens absent: the tokens sum's ?? 0 arm for output.
         { kind: 'assistant', seq: 3, turn: 2, step: 1, blocks: [], usage: { inputTokens: 5 } },
       ],
+      metrics: {
+        logRevision: 9,
+        projectionRevision: 1,
+        uncachedInputTokens: 9,
+        outputTokens: 6,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
       <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
-    expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
+    expect(view.getByText(
+      '9 uncached input · 6 output · 0 cache read · cache hit 0% · context unknown · 2 turns · 3 steps',
+    )).toBeTruthy()
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {

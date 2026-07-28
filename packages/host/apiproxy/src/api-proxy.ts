@@ -40,6 +40,7 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { pickNativeDirectory } from './native-directory-picker.ts'
+import { affectsSessionMetrics, SessionMetricsProjector } from './session-metrics.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -417,6 +418,54 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     for (const queue of muxQueues) queue.push(envelope)
   }
 
+  const pendingMetricSessions = new Set<Session>()
+  let metricFlushScheduled = false
+  let metricsDisposed = false
+  const metricsProjector = new SessionMetricsProjector(
+    ctx,
+    agent => targetFor(agent).current,
+    (agent) => { scheduleMetrics(agent.session) },
+  )
+
+  /** Queue one full-log metrics publication after synchronous session listeners drain. */
+  function scheduleMetrics(session: Session): void {
+    if (metricsDisposed || muxQueues.size === 0) return
+    pendingMetricSessions.add(session)
+    if (metricFlushScheduled) return
+    metricFlushScheduled = true
+    queueMicrotask(() => {
+      metricFlushScheduled = false
+      if (metricsDisposed) {
+        pendingMetricSessions.clear()
+        return
+      }
+      const sessions = [...pendingMetricSessions]
+      pendingMetricSessions.clear()
+      for (const current of sessions) {
+        broadcast({
+          type: 'session/metrics',
+          sessionId: current.id,
+          metrics: metricsProjector.snapshot(current, ctx.agents.get(current.id)),
+        })
+      }
+    })
+  }
+
+  ctx.effect(() => {
+    const disposers = [
+      ctx.on('session/event', (session: Session, event: SessionEvent) => {
+        if (affectsSessionMetrics(event)) scheduleMetrics(session)
+      }),
+      ctx.on('agent/created', (agent: Agent) => { scheduleMetrics(agent.session) }),
+      ctx.on('session/disposed', (session: Session) => { pendingMetricSessions.delete(session) }),
+    ]
+    return () => {
+      metricsDisposed = true
+      pendingMetricSessions.clear()
+      for (const dispose of disposers) dispose()
+    }
+  }, 'api-proxy: session metrics')
+
   /**
    * Per-session inbox mirror serving the mux-open queue snapshot (the same
    * refresh-recovery baseline as pending questions). Keyed by the stable
@@ -723,7 +772,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // log (the page window may not contain the last todo/write; a paged
         // client cannot reconstruct session-level state from it).
         const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
-        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
+        const metrics = beforeSeq === undefined
+          ? metricsProjector.snapshot(found.agent.session, found.agent)
+          : undefined
+        return ok(request, {
+          events: entries,
+          hasMore: page.hasMore,
+          ...todos === undefined ? {} : { todos },
+          ...metrics === undefined ? {} : { metrics },
+        })
       },
 
       async models(request) {
@@ -817,6 +874,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               : { reasoningEffort: resolved.reasoningEffort },
           }
           targetFor(found.agent).current = selected
+          broadcast({
+            type: 'session/metrics',
+            sessionId: found.agent.session.id,
+            metrics: metricsProjector.snapshot(found.agent.session, found.agent),
+          })
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1102,6 +1164,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         muxQueues.add(queue)
         for (const session of ctx.sessions.list()) {
           subscribeSession(queue, session)
+          queue.push(frame({
+            type: 'session/metrics',
+            sessionId: session.id,
+            metrics: metricsProjector.snapshot(session, ctx.agents.get(session.id)),
+          }))
         }
         for (const pending of pendingQuestions.values()) {
           queue.push({
@@ -1154,6 +1221,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
+            queue.push(frame({
+              type: 'session/metrics',
+              sessionId: session.id,
+              metrics: metricsProjector.snapshot(session, ctx.agents.get(session.id)),
+            }))
           }),
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)

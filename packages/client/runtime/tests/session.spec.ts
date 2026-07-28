@@ -7,8 +7,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId, SessionMetrics } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, ev, plainTurn } from './event-script.ts'
@@ -22,9 +23,37 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
+function histResponse(
+  events: SessionEvent[],
+  hasMore = false,
+  todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[],
+  metrics?: SessionMetrics,
+) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
+  return Promise.resolve(ok({
+    events: entries(events) as never[],
+    hasMore,
+    ...todos === undefined ? {} : { todos },
+    ...metrics === undefined ? {} : { metrics },
+  }))
+}
+
+function metrics(
+  projectionRevision: number,
+  logRevision: number,
+  over: Partial<SessionMetrics> = {},
+): SessionMetrics {
+  return {
+    projectionRevision,
+    logRevision,
+    uncachedInputTokens: 10,
+    outputTokens: 4,
+    cacheReadTokens: 90,
+    cacheWriteTokens: 3,
+    contextTokens: 35,
+    contextWindow: 100,
+    ...over,
+  }
 }
 
 describe('open', () => {
@@ -40,6 +69,19 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
+    expect(snapshot.metrics).toBeNull()
+  })
+
+  it('installs full-log metrics independently of older history pages', async () => {
+    const { api, session } = makeSession()
+    const tailMetrics = metrics(4, 106)
+    api.onHistory = () => histResponse(plainTurn(100, 3, '问', '答'), true, undefined, tailMetrics)
+    await session.open()
+    expect(session.getSnapshot().metrics).toBe(tailMetrics)
+
+    api.onHistory = () => histResponse(plainTurn(94, 2, '旧问', '旧答'))
+    await session.loadOlder()
+    expect(session.getSnapshot().metrics).toBe(tailMetrics)
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -102,6 +144,43 @@ describe('live event path', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(3, '重放') })
     await Promise.resolve()
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
+  })
+
+  it('orders live metrics, rejects stale projections, and clears the value at a reconnect baseline', async () => {
+    const { session } = await opened()
+    const current = metrics(8, 10)
+    session.handleMuxEnvelope('m1' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: current,
+    })
+    expect(session.getSnapshot().metrics).toBe(current)
+
+    session.handleMuxEnvelope('m2' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: metrics(9, 9, { uncachedInputTokens: 1 }),
+    })
+    session.handleMuxEnvelope('m3' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: metrics(7, 11, { uncachedInputTokens: 2 }),
+    })
+    expect(session.getSnapshot().metrics).toBe(current)
+
+    session.handleMuxEnvelope('sub' as never, {
+      type: 'session/subscribed',
+      sessionId: SID,
+      lastSeq: 5,
+    })
+    expect(session.getSnapshot().metrics).toBeNull()
+    const nextGeneration = metrics(0, 10, { contextTokens: 20 })
+    session.handleMuxEnvelope('m4' as never, {
+      type: 'session/metrics',
+      sessionId: SID,
+      metrics: nextGeneration,
+    })
+    expect(session.getSnapshot().metrics).toBe(nextGeneration)
   })
 
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
@@ -332,6 +411,23 @@ describe('prompt and cancel errors', () => {
 })
 
 describe('pending interactions', () => {
+  it('routes an approval wait response through the original requested rpcId', async () => {
+    const { api, session } = makeSession()
+    session.handleMuxEnvelope('ra-answer' as never, {
+      type: 'approval/requested',
+      sessionId: SID,
+      approvalId: 'ap-answer' as never,
+      toolName: 'bash',
+    })
+    const wait = session.getSnapshot().pending[0]!
+    await wait.respond({ ok: true, value: { decision: 'allow' } })
+    expect(api.callsOf('respond')).toEqual([{
+      type: 'client-response',
+      rpcId: 'ra-answer',
+      result: { ok: true, value: { decision: 'allow' } },
+    }])
+  })
+
   it('adds approval/question on requested and removes them on resolved', async () => {
     const { session } = makeSession()
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
@@ -374,6 +470,16 @@ describe('pending interactions', () => {
 })
 
 describe('remaining branches', () => {
+  it('rejects a second scope bind and allows rebinding after explicit release', () => {
+    const { session } = makeSession()
+    const first = new Context()
+    const second = new Context()
+    session.bindScope(first)
+    expect(() => { session.bindScope(second) }).toThrow(`session ${SID} already has a bound scope`)
+    session.unbindScope()
+    expect(() => { session.bindScope(second) }).not.toThrow()
+  })
+
   it('prompt transport throw folds to internal promptError', async () => {
     const { api, session } = makeSession()
     api.onPrompt = () => Promise.reject(new Error('prompt wire down'))

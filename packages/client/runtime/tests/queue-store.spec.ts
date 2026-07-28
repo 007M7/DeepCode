@@ -85,6 +85,13 @@ describe('queue retirement (host queuedMirror rules)', () => {
     expect(session.getSnapshot().queue).toHaveLength(1)
   })
 
+  it('an unrelated durable event leaves the queue unchanged', () => {
+    const session = makeSession()
+    session.handleMuxEnvelope(rid('e1'), queuedFrame('留', 'p-1'))
+    session.handleMuxEnvelope(rid('e2'), { type: 'session/event', sessionId: SID, event: ev.user(0, 'unrelated') })
+    expect(session.getSnapshot().queue.map(row => row.key)).toEqual(['p-1'])
+  })
+
   it('steering/message drains the source-matched steering row only', () => {
     const session = makeSession()
     session.handleMuxEnvelope(rid('e1'), queuedFrame('普通', 'p-1')) // idle → non-steering
