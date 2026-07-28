@@ -83,6 +83,11 @@ describe('directory-picker-native client half', () => {
     const second = owner()
     view.rerender(<NativeDirectoryFlow {...second} busy pick={pick} />)
     expect(pick).toHaveBeenCalledOnce()
+    // Even a fresh injected face (re-registration re-runs the inject factory)
+    // must not relaunch while the same request is still open.
+    const replacedPick = vi.fn(() => new Promise<string | null>(() => {}))
+    view.rerender(<NativeDirectoryFlow {...second} busy pick={replacedPick} />)
+    expect(replacedPick).not.toHaveBeenCalled()
     await act(async () => { resolve('/tmp/project') })
     expect(second.onPicked).toHaveBeenCalledWith('/tmp/project')
     expect(first.onPicked).not.toHaveBeenCalled()
