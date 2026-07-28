@@ -24,23 +24,21 @@ interface WebRoute {
 }
 ```
 
-匹配顺序固定：先查 exact 表，再取最长匹配前缀，最后落到静态 dist 回退。注册顺序不携带任何面向请求的语义：具名路由在组合上互不相交，启动窗口期内尚未被认领的请求全部由回退应答。回退遵循固定语义：非 GET/HEAD 返回 405，越出 dist 根目录的遍历返回 403，任何未命中都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 提供（[`static.ts`](../../packages/host/webserver/src/static.ts)）。
+匹配顺序固定：先查 exact 表，再取最长匹配前缀，最后落到已注册的回退。注册顺序不携带任何面向请求的语义：具名路由在组合上互不相交，任何未被具名路由认领的请求都由回退席位应答；席位只有一个所有者，第二次注册会抛出异常。发布的 Web 组合用 [`dsh-frontend-static`](../../packages/host/frontend-static/src/index.ts) 认领席位，即遵循固定语义的 SPA dist 服务器：非 GET/HEAD 返回 405，越出 dist 根目录的遍历返回 403，任何未命中都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 发送。
 
 ## 配置
 
 ```ts type-equiv
-/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+/** Gateway config: the listen address. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
-  distIndex: string
 }
 ```
 
-`host` 只接受 `127.0.0.1`（默认姿态）和 `0.0.0.0`（刻意的网络暴露）；没有 TLS、认证或 origin 策略，因此绑定到非回环地址会把服务器暴露给该网络。`distIndex` 是组合应用解析后注入的组装事实。
+`host` 只接受 `127.0.0.1`（默认姿态）和 `0.0.0.0`（刻意的网络暴露）；没有 TLS、认证或 origin 策略，因此绑定到非回环地址会把服务器暴露给该网络。dist 位置是认领席位的前端插件的组装事实。
 
 ## 服务
 

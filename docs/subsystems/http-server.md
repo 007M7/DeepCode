@@ -2,7 +2,7 @@
 
 English | [中文](http-server.zh.md)
 
-[dsh-host-webserver](../../packages/host/webserver) is the web-shape HTTP carrier for the GUI host: a single `node:http` plugin providing `ctx.httpServer`, a named-route registry plus index.html transform taps over a static dist fallback. It is not part of the agent-loop spine and not a capability seam — it knows no harness concepts, and every feature surface (the `/api` bridge, plugin bundles, the HMR event stream) is a route some other plugin registers ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). Web (browser) shape only: Electron loads dist over `file://` and carries fetch over an IPC bridge, not this server.
+[dsh-host-webserver](../../packages/host/webserver) is the web-shape HTTP carrier for the GUI host: a single `node:http` plugin providing `ctx.httpServer`, a named-route registry, index.html transform taps, and a single claimable fallback seat. It is not part of the agent-loop spine and not a capability seam — it knows no harness concepts, and every feature surface (the `/api` bridge, plugin bundles, the HMR event stream) is a route some other plugin registers ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). Web (browser) shape only: Electron loads dist over `file://` and carries fetch over an IPC bridge, not this server.
 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -24,23 +24,21 @@ interface WebRoute {
 }
 ```
 
-Match order is fixed: exact table first, then longest matching prefix, then the static dist fallback. Registration order carries no request-facing semantics — named routes are composed to be disjoint, and the fallback answers anything not yet claimed during the boot window. The fallback keeps locked semantics: non-GET/HEAD is 405, traversal outside the dist root is 403, any miss falls back to `index.html` with HTTP 200 (SPA routing), and unknown extensions ship as octet-stream ([`static.ts`](../../packages/host/webserver/src/static.ts)).
+Match order is fixed: exact table first, then longest matching prefix, then the registered fallback. Registration order carries no request-facing semantics — named routes are composed to be disjoint, and the fallback seat answers anything no named route claims; one owner only, a second registration throws. The shipped Web composition claims the seat with [`dsh-frontend-static`](../../packages/host/frontend-static/src/index.ts), the SPA dist server with locked semantics: non-GET/HEAD is 405, traversal outside the dist root is 403, any miss falls back to `index.html` with HTTP 200 (SPA routing), and unknown extensions ship as octet-stream.
 
 ## Config
 
 ```ts type-equiv
-/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+/** Gateway config: the listen address. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
-  distIndex: string
 }
 ```
 
-`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure); there is no TLS, auth, or origin policy, so a non-loopback bind exposes the server to that network. `distIndex` is an assembly fact the composing app resolves and injects.
+`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure); there is no TLS, auth, or origin policy, so a non-loopback bind exposes the server to that network. The dist location is an assembly fact of the frontend plugin that claims the seat.
 
 ## The service
 

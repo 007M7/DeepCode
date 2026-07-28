@@ -824,6 +824,8 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
+Types: [TelemetryRecord](../subsystems/telemetry.md)
+
 Source: [`packages/session/session-telemetry/src/index.ts:43`](../../packages/session/session-telemetry/src/index.ts)
 
 ## `tools/*`
@@ -1090,8 +1092,7 @@ The framework events every plugin also sees, beyond the harness vocabulary above
 - `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:340`](../../vendor/cordis/src/events.ts))
 - `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:342`](../../vendor/cordis/src/events.ts))
 - `hmr/change` — A watched source file changed on disk. ([`vendor/hmr/src/index.ts:20`](../../vendor/hmr/src/index.ts))
-- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:22`](../../vendor/hmr/src/index.ts))
-- `hmr/config-update-failed` — A watched config-file refresh failed. ([`vendor/hmr/src/index.ts:29`](../../vendor/hmr/src/index.ts))
+- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:21`](../../vendor/hmr/src/index.ts))
 - `exit` — The process is exiting on a signal. ([`vendor/loader/src/index.ts:23`](../../vendor/loader/src/index.ts))
 - `loader/config-update` — The loader config tree changed. ([`vendor/loader/src/index.ts:24`](../../vendor/loader/src/index.ts))
 - `loader/entry-init` — A config entry is being initialized. ([`vendor/loader/src/index.ts:25`](../../vendor/loader/src/index.ts))

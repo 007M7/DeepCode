@@ -51,7 +51,6 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [invariants.md](invariants.md) | the runtime-invariant registry: selection `Config`, `InvariantInstaller`/`InvariantFailure`, the empty-companion contract |
 | [http-server.md](http-server.md) | the HTTP carrier: `WebRouteKind`/`WebRoute`, match order, the static dist fallback, index taps |
 | [storage.md](storage.md) | the storage subsystem: the backend seam (`StorageBackend`), `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` |
-| [tui.md](tui.md) | the terminal-extension seam: `TuiOverlayRequest`/`Host`/`Session`, close reasons and outcomes, the modal queue |
 | [workspace.md](workspace.md) | the workspace registry: `Workspace`/`WorkspaceId`, registration and resolution, the session `cwd` relationship |
 | [client-modules.md](client-modules.md) | the web plugin table: `dshClient` declarations, `WebBootGraph` wire composition, the bundle route and index tap |
 | [telemetry.md](telemetry.md) | the outbound reporting seam: `TelemetryRecord`/`TelemetrySeverity`, the `TelemetryBackend` contract, the `telemetry/record` redact waterfall |

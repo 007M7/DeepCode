@@ -199,7 +199,7 @@
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
@@ -219,12 +219,12 @@
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",
@@ -1508,7 +1508,7 @@
     {
       "doc": "docs/subsystems/permission.md",
       "symbol": "PresetOption",
-      "source": "packages/interaction/permission/src/index.ts"
+      "source": "packages/interaction/permission/src/types.ts"
     },
     {
       "doc": "docs/subsystems/plan.md",
@@ -1576,31 +1576,6 @@
       "source": "packages/storage/storage-domain/src/events.ts"
     },
     {
-      "doc": "docs/subsystems/tui.md",
-      "symbol": "TuiOverlayRequest",
-      "source": "packages/interaction/tui/src/extension.ts"
-    },
-    {
-      "doc": "docs/subsystems/tui.md",
-      "symbol": "TuiOverlayHost",
-      "source": "packages/interaction/tui/src/extension.ts"
-    },
-    {
-      "doc": "docs/subsystems/tui.md",
-      "symbol": "TuiOverlaySession",
-      "source": "packages/interaction/tui/src/extension.ts"
-    },
-    {
-      "doc": "docs/subsystems/tui.md",
-      "symbol": "TuiOverlayCloseReason",
-      "source": "packages/interaction/tui/src/extension.ts"
-    },
-    {
-      "doc": "docs/subsystems/tui.md",
-      "symbol": "TuiOverlayOutcome",
-      "source": "packages/interaction/tui/src/extension.ts"
-    },
-    {
       "doc": "docs/subsystems/workspace.md",
       "symbol": "WorkspaceId",
       "source": "packages/workspace/workspace/src/types.ts"
@@ -1623,17 +1598,17 @@
     {
       "doc": "docs/subsystems/telemetry.md",
       "symbol": "TelemetrySeverity",
-      "source": "packages/telemetry/session-telemetry/src/index.ts"
+      "source": "packages/session/session-telemetry/src/index.ts"
     },
     {
       "doc": "docs/subsystems/telemetry.md",
       "symbol": "TelemetryRecord",
-      "source": "packages/telemetry/session-telemetry/src/index.ts"
+      "source": "packages/session/session-telemetry/src/index.ts"
     },
     {
       "doc": "docs/subsystems/telemetry.md",
       "symbol": "TelemetryBackend",
-      "source": "packages/telemetry/session-telemetry/src/index.ts"
+      "source": "packages/session/session-telemetry/src/index.ts"
     },
     {
       "doc": "docs/subsystems/typert.md",

@@ -27,7 +27,7 @@ interface WebBootEntry {
   rev: string
   /** Package-name dependency edges, informational (preflight display / HMR diffing). */
   inject?: string[]
-  /** Stage-one prefetch mark: fetch + execute (factory registration) during module-face boot. */
+  /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
   immediately?: boolean
 }
 ```

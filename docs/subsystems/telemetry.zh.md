@@ -2,9 +2,9 @@
 
 [English](telemetry.md) | 中文
 
-对外的会话上报，拆分为一项[能力 seam](../capability-seams.md)：seam 一侧（[dsh-session-telemetry](../../packages/telemetry/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端契约；部署方加载的后端（[dsh-session-telemetry-otel](../../packages/telemetry/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的契约见 [seam README](../../packages/telemetry/session-telemetry/README.md)。
+对外的会话上报，拆分为一项[能力 seam](../capability-seams.md)：seam 一侧（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端契约；部署方加载的后端（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的契约见 [seam README](../../packages/session/session-telemetry/README.md)。
 
-源码：[`packages/telemetry/session-telemetry/src/index.ts`](../../packages/telemetry/session-telemetry/src/index.ts)
+源码：[`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
 ## 逻辑记录
 
@@ -12,7 +12,7 @@
 /**
  * Severity of a telemetry record, pre-mapped at capture so a receiver can
  * alert with zero configuration: `error` for events whose own outcome flag
- * says so (`tool/result.isError`, `turn/end` error reasons) and for
+ * says so (the tool-result block's `isError`, `turn/end` error reasons) and for
  * `agent-error` operational records. Captured events otherwise default to
  * `info`; `warn` remains available to `telemetry/record` policies and
  * backends.
@@ -69,9 +69,10 @@ interface TelemetryBackend {
   /**
    * Hand one record to the backend's pipeline. MUST be a non-blocking
    * enqueue — the coordinator calls this synchronously from the
-   * `session/event` hot path, so anything slower than a queue push would tax
-   * the agent loop. Errors thrown here are contained by the coordinator and
-   * logged; they never reach the loop.
+   * `session/event` hot path or an explicit canonical-log capture, so anything
+   * slower than a queue push would tax the agent loop or feedback handling.
+   * Errors thrown here are contained by the coordinator and logged; they
+   * never reach the loop.
    * @param record - the logical record to report; owned by the backend after the call.
    */
   emit(record: TelemetryRecord): void
@@ -96,6 +97,8 @@ interface TelemetryBackend {
    * coordinator emits its dispose-time `shutdown` markers immediately before
    * calling this). Awaited by the coordinator's dispose; a rejection is
    * logged as a warning and never fails application teardown.
+   * The coordinator captures dispose-time shutdown markers immediately before
+   * this call for live capture; on-demand capture creates no ops records.
    * @returns resolves when the backend's pipeline has quiesced.
    */
   shutdown(): Promise<void>

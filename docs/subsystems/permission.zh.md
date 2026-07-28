@@ -2,9 +2,9 @@
 
 [English](permission.md) | 中文
 
-[dsh-permission](../../packages/ui/permission) 的权限预设层（`ctx.permission`，`PermissionService`）把两个相互独立的强制执行旋钮（knob），即[沙箱模式](sandbox.md)（`sandbox/mode`）与[审批策略](approval.md)（`approval/policy`），捆绑成具名预设，供客户端作为单个权限（Permissions）选择器提供。它是一项可选能力，不属于 agent loop（智能体循环）主干，也不拥有任何强制执行：执行、提示词叙述与回放仍然读取各自旋钮的折叠结果，预设切换只记录意图，并通过每个旋钮各自的规范 setter 写入。[包（package）README](../../packages/ui/permission/README.md) 负责组合状态与限制；[沙箱切换设计](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责决策依据。
+[dsh-permission](../../packages/interaction/permission) 的权限预设层（`ctx.permission`，`PermissionService`）把两个相互独立的强制执行旋钮（knob），即[沙箱模式](sandbox.md)（`sandbox/mode`）与[审批策略](approval.md)（`approval/policy`），捆绑成具名预设，供客户端作为单个权限（Permissions）选择器提供。它是一项可选能力，不属于 agent loop（智能体循环）主干，也不拥有任何强制执行：执行、提示词叙述与回放仍然读取各自旋钮的折叠结果，预设切换只记录意图，并通过每个旋钮各自的规范 setter 写入。[包（package）README](../../packages/interaction/permission/README.md) 负责组合状态与限制；[沙箱切换设计](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责决策依据。
 
-源码：[`packages/ui/permission/src/index.ts`](../../packages/ui/permission/src/index.ts)
+源码：[`packages/interaction/permission/src/index.ts`](../../packages/interaction/permission/src/index.ts)
 
 ## 预设表
 
@@ -25,7 +25,7 @@ interface PresetSpec {
 ```
 
 ```ts type-equiv
-/** The {@link PermissionService} config: the deployment's preset table. */
+/** The {@link PermissionService} config: preset table and composition default. */
 interface Config {
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
@@ -33,6 +33,11 @@ interface Config {
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
+  /**
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
+   */
+  defaultPreset?: string
 }
 ```
 
@@ -51,13 +56,13 @@ interface PresetOption {
   value: string
   /** The display label. */
   name: string
-  /** One user-facing sentence on what the value means. */
+  /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
 }
 ```
 
 ## 切换与 `permission/preset` 事件
 
-`set(session, name)` 解析预设（未知名称抛出异常），在 `name` 尚不是生效预设时追加一条仅记日志的 `permission/preset` 事件，然后通过各旋钮自己的 setter（[dsh-sandbox-policy](../../packages/sandbox/sandbox-policy) 的 `setSandboxMode` 与 [dsh-user-approval](../../packages/ui/user-approval) 的 `setApprovalPolicy`）写入，且仅当该旋钮的生效值发生变化时才写。同一轮次内，选择事件先于旋钮事件出现；重新选择当前生效的预设则什么都不追加。
+`set(session, name)` 解析预设（未知名称抛出异常），在 `name` 尚不是生效预设时追加一条仅记日志的 `permission/preset` 事件，然后通过各旋钮自己的 setter（[dsh-sandbox-policy](../../packages/sandbox/sandbox-policy) 的 `setSandboxMode` 与 [dsh-user-approval](../../packages/interaction/user-approval) 的 `setApprovalPolicy`）写入，且仅当该旋钮的生效值发生变化时才写。同一轮次内，选择事件先于旋钮事件出现；重新选择当前生效的预设则什么都不追加。
 
 `permission/preset` 是持久、仅记日志的用户意图：它不进入模型 transcript（文本记录），模型可见的后果由旋钮事件经各自消费方承担；它存在是为了在两个预设共享同一个旋钮组合时，让 `current()` 仍能保住用户选择的究竟是哪一个预设；`effectivePermissionPreset(events)` 折叠最后一条，回放不需要任何追赶状态。完整事件声明见[持久化日志事件目录](../persistence-catalog.md)；方法签名见生成的[服务目录](../cordis-catalog/services.md#ctxpermission--permissionservice)。

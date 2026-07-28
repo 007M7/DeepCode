@@ -51,7 +51,6 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件契约 |
 | [http-server.md](http-server.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、静态 dist 回退、index 转换 |
 | [storage.md](storage.md) | 存储子系统：后端 seam（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
-| [tui.md](tui.md) | 终端扩展 seam：`TuiOverlayRequest`/`Host`/`Session`、关闭原因与结果、模态队列 |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
 | [telemetry.md](telemetry.md) | 对外上报 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 契约、`telemetry/record` 脱敏 waterfall |

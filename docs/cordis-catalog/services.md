@@ -377,6 +377,8 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
+Types: [WebBootGraph](../subsystems/client-modules.md)
+
 Source: [`packages/client/modules/src/index.ts:184`](../../packages/client/modules/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
@@ -866,6 +868,8 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
+Types: [WebRoute](../subsystems/http-server.md)
+
 Source: [`packages/host/webserver/src/index.ts:60`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
@@ -883,6 +887,8 @@ Package-owned invariant registry with global and regex-based selection.
  */
 register(packageName: string, installer: InvariantInstaller): () => void
 ```
+
+Types: [InvariantInstaller](../subsystems/invariants.md)
 
 Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
 
@@ -1060,7 +1066,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [Session](../subsystems/session.md) · [SessionEvent](../subsystems/core.md)
+Types: [PresetOption](../subsystems/permission.md) · [PresetSpec](../subsystems/permission.md) · [Session](../subsystems/session.md) · [SessionEvent](../subsystems/core.md)
 
 Source: [`packages/interaction/permission/src/index.ts:159`](../../packages/interaction/permission/src/index.ts)
 
@@ -2036,6 +2042,8 @@ mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => v
 form<K extends keyof StorageForms>(form: K): StorageForms[K]
 ```
 
+Types: [StorageForms](../subsystems/storage.md)
+
 Source: [`packages/storage/storage/src/index.ts:47`](../../packages/storage/storage/src/index.ts)
 
 ## `ctx.storageDomain` — `DomainFacility`
@@ -2078,6 +2086,8 @@ get(name: string): DomainImpl | undefined
  */
 async closeAll(): Promise<void>
 ```
+
+Types: [Domain](../subsystems/storage.md) · [DomainSpec](../subsystems/storage.md)
 
 Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/storage/storage-domain/src/index.ts)
 
@@ -2472,6 +2482,8 @@ flush?(): void
  */
 abstract shutdown(): Promise<void>
 ```
+
+Types: [TelemetryRecord](../subsystems/telemetry.md)
 
 Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -2885,7 +2897,7 @@ archiveSession(sessionId: SessionId): Promise<void>
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Types: [SessionId](../subsystems/core.md)
+Types: [SessionId](../subsystems/core.md) · [Workspace](../subsystems/workspace.md) · [WorkspaceId](../subsystems/workspace.md)
 
 Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 
