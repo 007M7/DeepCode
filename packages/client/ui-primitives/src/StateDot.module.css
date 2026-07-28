@@ -1,7 +1,7 @@
 /* Ongoing blue has no alias token (state-business-primary is the 500 step,
  * not this 450) — component-level var pinned to the static scale instead. */
 .dot,
-.ring {
+.matrix {
   --dsh-state-ongoing: var(--dsw-static-deepseek-450);
 }
 
@@ -42,24 +42,24 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.ring {
+/* Pixel chase: each outer cell holds a discrete brightness step (flat keyframe
+ * holds, no tweening — the retro feel), peaking when the chase hits it and
+ * decaying over the next three cells. Phase offsets come from per-rect
+ * animation-delay (index * -125ms) set inline by the component. */
+.matrix {
   flex: none;
   color: var(--dsh-state-ongoing);
-  animation: dsh-state-dot-spin 1s linear infinite;
 }
 
-.stopFrom {
-  stop-color: currentColor;
-  stop-opacity: 1;
+.cell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: dsh-state-dot-chase 1s infinite;
 }
 
-.stopTo {
-  stop-color: currentColor;
-  stop-opacity: 0;
-}
-
-@keyframes dsh-state-dot-spin {
-  to {
-    transform: rotate(360deg);
-  }
+@keyframes dsh-state-dot-chase {
+  0%, 12.4% { opacity: 1; }
+  12.5%, 24.9% { opacity: 0.6; }
+  25%, 37.4% { opacity: 0.35; }
+  37.5%, 100% { opacity: 0.15; }
 }

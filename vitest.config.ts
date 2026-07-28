@@ -105,6 +105,9 @@ export default defineConfig({
         // Trajectory's compact Markdown projection retains deferred branch coverage.
         'packages/client/ui-primitives/src/markdown/plain-text.ts',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
+        'packages/client/ui-primitives/src/Menu.tsx',
+        'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
+        'packages/client/ui-workspace/src/client/WorkspacePicker.tsx',
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',

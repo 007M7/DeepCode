@@ -205,6 +205,8 @@ describe('WorkspacePicker', () => {
   it('reports non-Error creation failures', async () => {
     const b = mount([], vi.fn(async () => { throw 'permission denied' }))
     chooseItem('Create a new workspace')
+    // The name field starts empty (no prefill); a name is required to submit.
+    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'broken' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')

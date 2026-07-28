@@ -90,9 +90,9 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
  */
 export function SessionMaybeProvider({ children }: { children: ReactNode }) {
   const host = useHost()
-  const id = observableHook(host.sessions.current)(s => s)
+  const info = observableHook(host.sessions.provideInfo)(s => s)
   return (
-    <BindingContext.Provider value={host.sessions.maybeProvideInfo(id)}>
+    <BindingContext.Provider value={info}>
       {children}
     </BindingContext.Provider>
   )
@@ -107,17 +107,17 @@ export interface SessionProviderProps {
 }
 
 /**
- * Framework-wired session area: subscribes to the host's current-session
- * source, resolves the session cell, and remounts the body under
- * `key={sessionId}` so a session switch rebuilds the session subtree. This
- * dependency-inverted layer uses plain string ids; `PropsRuntime` applies the
- * branded type at the component boundary.
+ * Framework-wired session area: subscribes to the host's current provide
+ * source and remounts the body under `key={sessionId}` so a session switch
+ * rebuilds the session subtree. This dependency-inverted layer uses plain
+ * string ids; `PropsRuntime` applies the branded type at the component
+ * boundary.
  */
 export function SessionProvider({ empty, children }: SessionProviderProps) {
   const host = useHost()
-  const id = observableHook(host.sessions.current)(s => s)
-  const info = id === undefined ? undefined : host.sessions.provideInfo(id)
-  if (id === undefined || info === undefined) return <>{empty?.() ?? null}</>
+  const info = observableHook(host.sessions.provideInfo)(s => s)
+  const id = info.sessionId
+  if (id === undefined) return <>{empty?.() ?? null}</>
   return (
     <BindingContext.Provider value={info} key={id}>
       {children(id)}
