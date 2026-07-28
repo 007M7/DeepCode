@@ -347,8 +347,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !composingRef.current) {
                     event.preventDefault()
-                    const target = pathDraft.trim()
-                    if (target !== '') navigate(target)
+                    // Trim only detects a blank draft; the Host gets the
+                    // original text — a real directory name may end in
+                    // whitespace, and trimming would list its sibling.
+                    if (pathDraft.trim() !== '') navigate(pathDraft)
                   }
                   if (event.key === 'Escape') {
                     event.stopPropagation()

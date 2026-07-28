@@ -198,6 +198,18 @@ describe('DirectoryBrowser', () => {
     expect(listDirectory).toHaveBeenLastCalledWith(undefined)
   })
 
+  it('passes the entered path to the Host untrimmed (trim only gates blank drafts)', async () => {
+    const listDirectory = vi.fn(async (path?: string) => listingFor(path))
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS} ` } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // A trailing space may name a real directory; trimming would list its sibling.
+    await waitFor(() => { expect(listDirectory).toHaveBeenLastCalledWith(`${DOCS} `) })
+  })
+
   it('surfaces an unreadable target as an alert and keeps the edit open for correction', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
