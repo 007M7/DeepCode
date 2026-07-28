@@ -118,6 +118,7 @@
       "@deepseek-ai/dsh-client-modules": ["./packages/client/modules/src"],
       "@deepseek-ai/dsh-client-runtime": ["./packages/client/runtime/src"],
       "@deepseek-ai/dsh-client-runtime/client": ["./packages/client/runtime/src/client"],
+      "@deepseek-ai/dsh-client-test-runtime": ["./packages/client/test-runtime/src"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
       "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],

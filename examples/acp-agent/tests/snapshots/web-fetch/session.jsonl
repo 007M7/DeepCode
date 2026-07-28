@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"c12fa9af-1042-4a92-9ba4-4a968ff23495","createdAt":1785078727712,"cwd":"/tmp/acp-snap-cwd-hqkZWE","delegationDepth":0}
+{"type":"session","version":0,"id":"c12fa9af-1042-4a92-9ba4-4a968ff23495","createdAt":1785078727712,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785078727718,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785078727719,"data":{"content":[{"type":"text","text":"Use the web_fetch tool exactly once to fetch http://127.0.0.1:43117/menu.html, then reply with exactly DONE. Do not describe the content."}],"source":{"kind":"user"},"role":"user","id":"6c8e9279-bb26-4369-b425-951cd33d6b15"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785078727721,"data":{"title":"Use the web_fetch tool exactly","messageSeqs":[1],"source":{"kind":"fallback"}}}
