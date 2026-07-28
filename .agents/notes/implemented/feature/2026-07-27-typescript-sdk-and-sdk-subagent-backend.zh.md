@@ -12,8 +12,8 @@ stdio JSON-RPC 服务表面（`@deepseek-ai/dsh-jsonrpc`，见[单文件可执�
 
 三个包，分层与既有 Python 栈完全一致，外加一个接缝注册：
 
-- **`@deepseek-ai/dsh-sdk-protocol`**（`packages/sdk/sdk-protocol/`）—— 把线协议做成共享且具名。`JsonRpcLineTransport` 从 `dsh-jsonrpc` 原样移入（后者现在导入它），`types.ts` 为服务器所说的每个载荷命名：`InitializeParams/Result`、`SessionPromptParams/Result`、四个通知载荷，以及 `HarnessSdkRequestMap`/`HarnessSdkNotificationMap` 索引。服务器的 `notify()` 调用点以这些具名载荷标注类型，服务器漂移会先破坏编译而不是破坏客户端。一处行为变化：错误响应现在以携带线上 `code`/`data` 的 `JsonRpcResponseError` 拒绝（Python 客户端本就保留这些；旧传输只抛携带消息的裸 `Error`）。
-- **`@deepseek-ai/dsh-sdk-client`**（`packages/sdk/sdk-client/`）—— `python/sdk` 的 TypeScript 孪生：`HarnessClient`（生成、分帧、通知扇出、有类型的错误表面、经共享处置阶梯关闭至静止）之上是 `DeepSeekHarness`/`HarnessSession`（惰性启动、记忆化 `initialize`、`run()` 把一个 `session/prompt` 与其 `session.finished` 配对）。基于 `subagent.started` 血缘边的会话树范围限定在客户端完成，镜像 `client.py`。与 Python 的刻意不对称：启动规格是显式 `command`/`args`（无捆绑运行时解析——那是尚无 TS 消费者的发行问题）；`env` 整体替换而非合并（凭据策略归调用方；subprocess 接缝的 `scrubbedParentEnv` 一个 import 即得）；`TurnResult` 携带结构化 `reason`（Python 只暴露 `status`）；拆除走私有的 stdin-EOF → SIGTERM → SIGKILL 阶梯直到真正退出（客户端运行在任何 harness 上下文之外，无法搭乘 `ctx.subprocess`）。
+- **`@deepseek-ai/dsh-sdk-protocol`**（`packages/sdk/sdk-protocol/`）—— 把线协议做成共享且具名。`JsonRpcLineTransport` 从 `dsh-jsonrpc` 原样移入（后者现在导入它），`types.ts` 为服务器所说的每个载荷命名：`InitializeParams/Result`、`SessionPromptParams/Result`、四个通知载荷，以及 `HarnessSdkRequestMap`/`HarnessSdkNotificationMap` 索引。该包根显式导出这一完整接口，且不提供指向源模块的深层导入。服务器的 `notify()` 调用点以这些具名载荷标注类型，服务器漂移会先破坏编译而不是破坏客户端。一处行为变化：错误响应现在以携带线上 `code`/`data` 的 `JsonRpcResponseError` 拒绝（Python 客户端本就保留这些；旧传输只抛携带消息的裸 `Error`）。
+- **`@deepseek-ai/dsh-sdk-client`**（`packages/sdk/sdk-client/`）—— `python/sdk` 的 TypeScript 孪生：`HarnessClient`（生成、分帧、通知扇出、有类型的错误表面、经共享处置阶梯关闭至静止）之上是 `DeepSeekHarness`/`HarnessSession`（惰性启动、记忆化 `initialize`、`run()` 把一个 `session/prompt` 与其 `session.finished` 配对）。其包根消费方接口显式导出两层客户端、面向调用方的类型，以及协议包所拥有的 `JsonRpcResponseError`；源模块、规范化辅助函数和通知投递端都保留为内部实现。`TurnResult.events` 只包含根会话的类型化事件，而 `notifications` 则保留根会话及从 `subagent.started` 发现的后代各自的会话 id；基于 `subagent.started` 血缘边的会话树范围限定在客户端完成，镜像 `client.py`。与 Python 的刻意不对称：启动规格是显式 `command`/`args`（无捆绑运行时解析——那是尚无 TS 消费者的发行问题）；`env` 整体替换而非合并（凭据策略归调用方；subprocess 接缝的 `scrubbedParentEnv` 一个 import 即得）；`TurnResult` 携带结构化 `reason`（Python 只暴露 `status`）；拆除走私有的 stdin-EOF → SIGTERM → SIGKILL 阶梯直到真正退出（客户端运行在任何 harness 上下文之外，无法搭乘 `ctx.subprocess`）。
 - **`@deepseek-ai/dsh-subagent-dsh-sdk`**（`packages/subagent/subagent-dsh-sdk/`）—— 第二个进程外 `SubagentProvider`，以 `subagent-acp` 的同胞结构组织：同样的全 false 能力与 `inheritsParentContext: false`，同样的握手后发布所有权事务，同样的经 `onError` 汇把结果压平为绝不拒绝，同样的父命名空间 run id。子答案从流式 `session.event` 读取——最后一条完整 `assistant/message`，否则累积的 `text-delta` 块，部分答案在取消时得以保留。停止原因由子进程的结构化 `TurnEndReason` 映射（`completed`/`max-tokens`/`aborted` 直通；其余一切、包括未跑回合就尘埃落定的子进程，都是 `error`）。其 `provider`/`model` 配置喂给子进程的 `initialize`；`env` 是部署传入子进程自有密钥与 `DSH_CORDIS_CONFIG` 的地方。
 - **subagent 接缝增长出 `out-of-process.ts`**：两个进程外后端共享的 provider 侧词汇——`NO_START_CAPABILITIES`、时限校验、子进程 cwd 解析（配置覆盖、否则发起委托的父会话工作区）、绝不拒绝的 `settleRunResult`、以及 `subprocessRunHandle` 发布。进程机制（spawn、环境擦除、进程树拆除）属于 `dsh-subprocess` 接缝；`subagent-acp` 经 `ctx.subprocess` 生成子进程，本后端则经 SDK 客户端生成（subprocess README 记载的 SDK 托管传输例外）并自行应用接缝的 `scrubbedParentEnv()`。
 
@@ -38,10 +38,12 @@ stdio JSON-RPC 服务表面（`@deepseek-ai/dsh-jsonrpc`，见[单文件可执�
 
 **给 TS SDK 与 Python 对等的捆绑运行时解析。** Python 的载体解析是为了给没有 Node 的用户发 wheel。TypeScript 消费者定义上就有 Node 且（仓库内）有工作区；为不存在的消费者发明发行故事违反"要求当前需求"规则。推迟到真实 npm 发行消费者出现。
 
+**导出源模块、规范化辅助函数和订阅投递端操作。** 这些都是调用方不需要的实现接缝；暴露它们会让调用方不得不理解客户端如何校验与分发线输入。各包根转而枚举受支持的客户端接口与协议接口，客户端则只重新导出调用方必须区分的那一种协议错误。
+
 **复用 `dsh-acp-snapshot` 的 `runScenario` 做 SDK 快照。** 那个 harness 说 ACP（`ClientSideConnection`、`InputStep` 脚本）。SDK 套件的全部意义就是以 *SDK 客户端*为入口表面；它复用 normalize/refresh 库层（`normalizeSessionLog`、`refreshFixtureReplacements`……），不动 ACP 驱动器。
 
 ## Consequences
 
-**买到**：SDK 运行时协议现在拥有服务器与两个客户端 SDK 共享的、编译器校验的具名类型；TypeScript 消费者获得与 Python 相同的子进程驱动能力，且带类型化错误与结构化回合原因；subagent 接缝获得一个 harness 原生的进程外后端，其子进程是完整对等体（自有配置、持久化、工具）——正是接缝 Note 预期的递归组合故事；jsonrpc 示例终于有了快照覆盖，而且走的就是 SDK 路径本身。
+**买到**：SDK 运行时协议现在拥有服务器与两个客户端 SDK 共享的、编译器校验的具名类型；TypeScript 消费者获得与 Python 相同的子进程驱动能力，且带类型化错误与结构化回合原因，包根也只暴露归调用方所有的操作；subagent 接缝获得一个 harness 原生的进程外后端，其子进程是完整对等体（自有配置、持久化、工具）——正是接缝 Note 预期的递归组合故事；jsonrpc 示例终于有了快照覆盖，而且走的就是 SDK 路径本身。
 
 **付出**：`sdk/` 组多了第三个包、subagent 多了第四个要保持最新的后端；SDK 后端每个子进程启动完整插件树（单次成本高于 ACP 子进程；池化与 ACP 一样留作未来工作）；线上仍无取消方法，SDK 的 `RequestTimeoutError` 与后端的 dispose 都只在本地定格、服务器侧回合继续跑到进程拆除为止；快照夹具录制于 `deepseek-v4-flash`，与其他录制语料一样随模型行为漂移而重录。

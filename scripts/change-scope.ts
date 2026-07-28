@@ -11,11 +11,7 @@ const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
 
 interface ChangeScopeReport {
   formatVersion: typeof FORMAT_VERSION
-  repository: {
-    root: string
-    branch: string | null
-    upstream: string | null
-  }
+  repositoryRoot: string
   input: {
     base: string
     head: string
@@ -50,7 +46,6 @@ interface GitBytesCommandResult {
 interface ChangeScopeOptions {
   base: string
   head: string
-  json: boolean
 }
 
 function executeGit(cwd: string, args: string[], context: string): GitCommandResult {
@@ -111,12 +106,11 @@ function parseOptions(args: string[]): ChangeScopeOptions {
     options: {
       base: { type: 'string' },
       head: { type: 'string', default: 'HEAD' },
-      json: { type: 'boolean', default: false },
     },
     strict: true,
   })
   if (values.base === undefined) throw new Error('missing required --base <ref>')
-  return { base: values.base, head: values.head, json: values.json }
+  return { base: values.base, head: values.head }
 }
 
 function resolveCommit(root: string, label: 'base' | 'head', ref: string): string {
@@ -158,33 +152,6 @@ function resolveMergeBase(root: string, baseSha: string, headSha: string): strin
   return mergeBases[0] as string
 }
 
-function currentBranch(root: string): string | null {
-  const result = executeGit(
-    root,
-    ['symbolic-ref', '--quiet', '--short', 'HEAD'],
-    'cannot inspect the current branch',
-  )
-  if (result.status === 1) return null
-  if (result.status !== 0) throw new Error(`cannot inspect the current branch: ${failureDetail(result)}`)
-  return stripGitLineTerminator(result.stdout)
-}
-
-function configuredUpstream(root: string, branch: string | null): string | null {
-  if (branch === null) return null
-  const output = stripGitLineTerminator(requireGit(
-    root,
-    ['for-each-ref', '--count=1', '--format=%(upstream:short)', `refs/heads/${branch}`],
-    'cannot inspect the configured upstream',
-  ))
-  return output === '' ? null : output
-}
-
-function comparePaths(left: string, right: string): number {
-  if (left < right) return -1
-  if (left > right) return 1
-  return 0
-}
-
 function parsePathSet(output: Buffer, context: string): string[] {
   const paths: string[] = []
   let start = 0
@@ -201,7 +168,7 @@ function parsePathSet(output: Buffer, context: string): string[] {
     }
     start = end + 1
   }
-  return [...new Set(paths)].sort(comparePaths)
+  return [...new Set(paths)].sort()
 }
 
 function diffPaths(root: string, args: string[], context: string): string[] {
@@ -232,14 +199,9 @@ function collectReport(options: ChangeScopeOptions, cwd: string): ChangeScopeRep
   const baseSha = resolveCommit(root, 'base', options.base)
   const headSha = resolveCommit(root, 'head', options.head)
   const mergeBaseSha = resolveMergeBase(root, baseSha, headSha)
-  const branch = currentBranch(root)
   return {
     formatVersion: FORMAT_VERSION,
-    repository: {
-      root,
-      branch,
-      upstream: configuredUpstream(root, branch),
-    },
+    repositoryRoot: root,
     input: {
       base: options.base,
       head: options.head,
@@ -262,56 +224,22 @@ function collectReport(options: ChangeScopeOptions, cwd: string): ChangeScopeRep
   }
 }
 
-function formatValue(value: string | null): string {
-  return JSON.stringify(value)
-}
-
-function formatPaths(label: string, paths: string[]): string[] {
-  return [
-    `${label} (${paths.length}):`,
-    ...(paths.length === 0 ? ['  (none)'] : paths.map(path => `  - ${formatValue(path)}`)),
-  ]
-}
-
-function formatHuman(report: ChangeScopeReport): string {
-  return [
-    `Format version: ${report.formatVersion}`,
-    `Repository root: ${formatValue(report.repository.root)}`,
-    `Branch: ${formatValue(report.repository.branch)}`,
-    `Upstream: ${formatValue(report.repository.upstream)}`,
-    `Base ref: ${formatValue(report.input.base)}`,
-    `Head ref: ${formatValue(report.input.head)}`,
-    `Base commit: ${report.resolved.baseSha}`,
-    `Head commit: ${report.resolved.headSha}`,
-    `Merge base: ${report.resolved.mergeBaseSha}`,
-    ...formatPaths('Committed paths', report.paths.committed),
-    ...formatPaths('Staged paths', report.paths.staged),
-    ...formatPaths('Unstaged paths', report.paths.unstaged),
-    ...formatPaths('Untracked paths', report.paths.untracked),
-  ].join('\n')
-}
-
 /**
- * Validate arguments, collect one complete report, then invoke the writer once.
+ * Validate arguments and render one complete versioned report.
  * @param args - Command-line arguments after the script path.
  * @param cwd - Directory whose containing Git worktree is inspected.
- * @param write - Destination called once only after every Git query succeeds.
- * @returns Nothing.
+ * @returns JSON report with a trailing newline.
  */
-export function writeChangeScope(
-  args: string[],
-  cwd: string,
-  write: (output: string) => void,
-): void {
+export function renderChangeScope(args: string[], cwd: string): string {
   const options = parseOptions(args)
   const report = collectReport(options, cwd)
-  write(`${options.json ? JSON.stringify(report, null, 2) : formatHuman(report)}\n`)
+  return `${JSON.stringify(report, null, 2)}\n`
 }
 
 const entryPath = process.argv[1]
 if (entryPath !== undefined && resolve(entryPath) === fileURLToPath(import.meta.url)) {
   try {
-    writeChangeScope(process.argv.slice(2), process.cwd(), output => process.stdout.write(output))
+    process.stdout.write(renderChangeScope(process.argv.slice(2), process.cwd()))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`change-scope: ${message}\n`)
