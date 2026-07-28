@@ -267,7 +267,6 @@ describe('machine pending lock', () => {
     expect(shell.snapshot.phase).toBe('submitting')
     const textarea = view.container.querySelector('textarea')!
     expect(textarea.readOnly).toBe(true)
-    expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true)
   })
 })

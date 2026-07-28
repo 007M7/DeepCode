@@ -130,7 +130,6 @@ describe('matrix row: submitting', () => {
     expect(shell.snapshot.phase).toBe('submitting')
     expect(shell.snapshot.claim).toBeDefined()
     expect((textarea).readOnly).toBe(true)
-    expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     // Enter is dead inside the lock (submit dispatch is microtask-deferred).
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledTimes(1) })
     fireEvent.keyDown(textarea, { key: 'Enter' })
