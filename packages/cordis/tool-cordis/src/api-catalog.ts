@@ -1604,8 +1604,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DirectoryPickerBrowseCapability {\n    kind: \'browse\';\n    list(path?: string): Promise<DirectoryListing>;\n    createDirectory(path: string, name: string): Promise<string>;\n}',
   },
   {
+    name: 'DirectoryPickerCapabilities',
+    declaration: 'export interface DirectoryPickerCapabilities {\n    dialog: DirectoryPickerDialogCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
+  },
+  {
     name: 'DirectoryPickerCapability',
-    declaration: 'export type DirectoryPickerCapability = DirectoryPickerDialogCapability | DirectoryPickerBrowseCapability;',
+    declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
   },
   {
     name: 'DirectoryPickerDialogCapability',
