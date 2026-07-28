@@ -117,21 +117,44 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const entries = Object.entries(config.servers)
   if (entries.length === 0) throw new Error('lsp-local: servers must contain at least one server')
 
+  const setupAbort = new AbortController()
+  const stopSetupCancellation = ctx.on('internal/plugin', (fiber) => {
+    // An async plugin callback must observe its own disposal before Cordis can
+    // run effect cleanup, because unload otherwise waits for this callback.
+    if (fiber === ctx.fiber && fiber.uid === null) {
+      setupAbort.abort(new Error('lsp-local setup disposed'))
+    }
+  })
+
   // Resolve every server-local setting before registration so a bad later command or bound cannot
   // publish an earlier provider. Registry-level mapping conflicts are rolled back below.
-  const providers = await Promise.all(entries.map(async ([providerId, rawConfig]) => {
-    if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
-    const resolved = rawConfig as ResolvedServerConfig
-    validateServerConfig(providerId, resolved)
-    const executable = await ctx.subprocess.resolveExecutable(resolved.command, resolved.env)
-    return new LocalLspProvider(
-      providerId,
-      ctx.fs,
-      resolved,
-      executable,
-      spec => ctx.subprocess.spawn(spec),
-    )
-  }))
+  const providers = await (async () => {
+    try {
+      return await Promise.all(entries.map(async ([providerId, rawConfig]) => {
+        if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
+        const resolved = rawConfig as ResolvedServerConfig
+        validateServerConfig(providerId, resolved)
+        const executable = await ctx.subprocess.resolveExecutable(
+          resolved.command,
+          resolved.env,
+          setupAbort.signal,
+        )
+        setupAbort.signal.throwIfAborted()
+        return new LocalLspProvider(
+          providerId,
+          ctx.fs,
+          resolved,
+          executable,
+          spec => ctx.subprocess.spawn(spec),
+        )
+      }))
+    } catch (error: unknown) {
+      setupAbort.abort(error)
+      throw error
+    } finally {
+      stopSetupCancellation()
+    }
+  })()
 
   ctx.effect(() => {
     const disposers: Array<() => void> = []

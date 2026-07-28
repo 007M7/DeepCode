@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -192,6 +192,41 @@ describe('lsp-local provider resolution', () => {
       },
     })).rejects.toThrow(/was not found on PATH/)
     await expect(ctx.lsp.query(query())).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNAVAILABLE' }))
+    await ctx.fiber.dispose()
+  })
+
+  it('aborts executable resolution when disposed during setup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const subprocess = ctx.subprocess
+    const lookupStarted = Promise.withResolvers<AbortSignal>()
+    vi.spyOn(subprocess, 'resolveExecutable').mockImplementation(async (_command, _env, signal) => {
+      if (signal === undefined) throw new Error('missing setup signal')
+      lookupStarted.resolve(signal)
+      return await new Promise<string>((_resolve, reject) => {
+        const onAbort = (): void => {
+          reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+      })
+    })
+
+    const loading = ctx.plugin(LspLocal, config('pending', {
+      command: 'pending-lsp',
+      extensionToLanguage: { '.ts': 'typescript' },
+    }))
+    const signal = await lookupStarted.promise
+    const unrelated = await ctx.plugin(() => {})
+    await unrelated.dispose()
+    expect(signal.aborted).toBe(false)
+    const disposing = loading.dispose()
+
+    await expect(loading).rejects.toThrow('lsp-local setup disposed')
+    await expect(disposing).resolves.toBeUndefined()
+    expect(signal.aborted).toBe(true)
     await ctx.fiber.dispose()
   })
 
