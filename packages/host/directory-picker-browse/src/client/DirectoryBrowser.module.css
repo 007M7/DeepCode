@@ -140,7 +140,13 @@
   background: var(--dsw-alias-border-l3);
 }
 
+.rowSeat {
+  display: flex;
+  flex: none;
+}
+
 .row {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 4px;

@@ -71,21 +71,23 @@ function LevelColumn({ entries, selectedPath, busy, onPick, wide }: {
       {entries.filter(entry => !entry.hidden).map((entry) => {
         const selected = entry.path === selectedPath
         return (
-          <button
-            key={entry.path}
-            type="button"
-            role="listitem"
-            aria-current={selected || undefined}
-            className={clsx(css.row, selected && css.rowSelected)}
-            disabled={busy}
-            onClick={() => { onPick(entry) }}
-          >
-            {selected
-              ? <IconFolderOpen16 size={16} className={css.rowIconSelected} />
-              : <IconFolderClose16 size={16} className={css.rowIcon} />}
-            <span className={css.rowName}>{entry.name}</span>
-            <IconChevronRightOutline14 size={12} className={css.rowChevron} />
-          </button>
+          // The wrapper carries the list semantics; the row keeps its NATIVE
+          // button role so assistive technology exposes an actionable control.
+          <span key={entry.path} role="listitem" className={css.rowSeat}>
+            <button
+              type="button"
+              aria-current={selected || undefined}
+              className={clsx(css.row, selected && css.rowSelected)}
+              disabled={busy}
+              onClick={() => { onPick(entry) }}
+            >
+              {selected
+                ? <IconFolderOpen16 size={16} className={css.rowIconSelected} />
+                : <IconFolderClose16 size={16} className={css.rowIcon} />}
+              <span className={css.rowName}>{entry.name}</span>
+              <IconChevronRightOutline14 size={12} className={css.rowChevron} />
+            </button>
+          </span>
         )
       })}
     </div>
@@ -260,7 +262,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           {pathDraft === null
             ? (
               <>
-                <span className={css.crumbTrail} ref={crumbTrailRef}>
+                <span className={css.crumbTrail} role="navigation" ref={crumbTrailRef}>
                   {crumbs.map((crumb, index) => (
                     <span key={crumb.path} className={css.crumbSeat}>
                       {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
@@ -292,7 +294,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 value={pathDraft}
                 aria-label={t('browser.editPath')}
                 autoFocus
-                disabled={busy}
+                disabled={parentInert}
                 onChange={(event) => { setPathDraft(event.target.value) }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {

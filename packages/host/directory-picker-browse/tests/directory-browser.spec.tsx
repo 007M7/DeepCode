@@ -83,6 +83,11 @@ function columns(): HTMLElement[] {
   return screen.getAllByRole('list')
 }
 
+/** The actionable button inside a listitem seat (rows keep native button semantics). */
+function rowButton(item: HTMLElement): HTMLButtonElement {
+  return within(item).getByRole<HTMLButtonElement>('button')
+}
+
 describe('DirectoryBrowser', () => {
   it('opens at the Host home as one wide column, hides hidden entries, and roots the crumbs at Home', async () => {
     const b = mount()
@@ -98,39 +103,39 @@ describe('DirectoryBrowser', () => {
   it('selects a row into the two-pane view: children preview right, crumbs follow the selection', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     const [level, preview] = columns()
     const selectedRow = within(level!).getByRole('listitem')
     expect(selectedRow.textContent).toBe('Documents')
-    expect(selectedRow.getAttribute('aria-current')).toBe('true')
+    expect(rowButton(selectedRow).getAttribute('aria-current')).toBe('true')
     expect(within(preview!).getByRole('listitem').textContent).toBe('harness')
     expect(b.listDirectory).toHaveBeenLastCalledWith(DOCS)
-    expect(screen.getByRole('button', { name: 'Documents' })).toBeTruthy()
+    expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Documents' })).toBeTruthy()
   })
 
   it('advances one level when a right-column row is picked', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
-    fireEvent.click(within(columns()[1]!).getByRole('listitem'))
+    fireEvent.click(rowButton(within(columns()[1]!).getByRole('listitem')))
     await waitFor(() => { expect(screen.getByRole('button', { name: 'harness' })).toBeTruthy() })
     const [level] = columns()
     const selectedRow = within(level!).getByRole('listitem')
     expect(selectedRow.textContent).toBe('harness')
-    expect(selectedRow.getAttribute('aria-current')).toBe('true')
+    expect(rowButton(selectedRow).getAttribute('aria-current')).toBe('true')
   })
 
   it('jumps back through a crumb into a fresh single-column level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
     await waitFor(() => { expect(columns()).toHaveLength(1) })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
-    expect(screen.getByRole('listitem').getAttribute('aria-current')).toBeNull()
+    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
   })
 
   it('opens the selection, else the listed level; Cancel closes; busy freezes Open', async () => {
@@ -138,7 +143,7 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
     expect(b.onOpen).toHaveBeenCalledWith(HOME)
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
     expect(b.onOpen).toHaveBeenLastCalledWith(DOCS)
@@ -282,8 +287,8 @@ describe('DirectoryBrowser', () => {
     expect(cancels.map(button => button.disabled).sort()).toEqual([false, true])
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' }).disabled).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.editPath' }).disabled).toBe(true)
-    for (const row of screen.getAllByRole<HTMLButtonElement>('listitem')) {
-      expect(row.disabled).toBe(true)
+    for (const row of screen.getAllByRole('listitem')) {
+      expect(rowButton(row).disabled).toBe(true)
     }
   })
 
@@ -326,7 +331,7 @@ describe('DirectoryBrowser', () => {
   it('creates a folder through the nested dialog and lands with it selected', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
     // The nested dialog names the create target (the selected folder).
@@ -352,10 +357,10 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(b.createDirectory).toHaveBeenCalledWith(DOCS, 'fresh') })
     // The create target became the level and the new folder its selection.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Documents' })).toBeTruthy()
+      expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Documents' })).toBeTruthy()
       const level = columns()[0]!
       const rows = within(level).getAllByRole('listitem')
-      expect(rows.some(row => row.textContent === 'fresh' && row.getAttribute('aria-current') === 'true')).toBe(true)
+      expect(rows.some(row => row.textContent === 'fresh' && rowButton(row).getAttribute('aria-current') === 'true')).toBe(true)
     })
   })
 
@@ -394,9 +399,9 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     b.listDirectory.mockRejectedValueOnce(
       new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path: DOCS } }))
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
-    expect(screen.getByRole('listitem').getAttribute('aria-current')).toBe('true')
+    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBe('true')
     // No preview column arrived for the failed selection.
     expect(columns()).toHaveLength(1)
   })
@@ -419,7 +424,7 @@ describe('DirectoryBrowser', () => {
     let resolveSlow!: (value: DirectoryListing) => void
     const slow = new Promise<DirectoryListing>((settle) => { resolveSlow = settle })
     b.listDirectory.mockReturnValueOnce(slow)
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
     await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(3) })
     await waitFor(() => { expect(columns()).toHaveLength(1) })
@@ -435,7 +440,7 @@ describe('DirectoryBrowser', () => {
     let rejectSlow!: (reason: unknown) => void
     const slow = new Promise<DirectoryListing>((_settle, fail) => { rejectSlow = fail })
     b.listDirectory.mockReturnValueOnce(slow)
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
     await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(3) })
     rejectSlow(new Error('too late to matter'))
@@ -447,14 +452,14 @@ describe('DirectoryBrowser', () => {
   it('drops a stale navigation failure that rejects after a newer jump', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     let rejectSlow!: (reason: unknown) => void
     const slow = new Promise<DirectoryListing>((_settle, fail) => { rejectSlow = fail })
     b.listDirectory.mockReturnValueOnce(slow)
     // A slow crumb jump superseded by a second jump.
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Documents' }))
     await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledTimes(4) })
     rejectSlow(new Error('late nav failure'))
     await new Promise(settle => setTimeout(settle, 0))
@@ -464,13 +469,13 @@ describe('DirectoryBrowser', () => {
   it('drops a stale navigation listing that resolves after a newer jump', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     let resolveSlow!: (value: DirectoryListing) => void
     const slow = new Promise<DirectoryListing>((settle) => { resolveSlow = settle })
     b.listDirectory.mockReturnValueOnce(slow)
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Documents' }))
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
     resolveSlow(listingFor(undefined))
     await new Promise(settle => setTimeout(settle, 0))
@@ -510,7 +515,7 @@ describe('DirectoryBrowser', () => {
   it('starts back at home on reopen', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    fireEvent.click(screen.getByRole('listitem'))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
     b.view.rerender(<DirectoryBrowser {...b.props} open />)
