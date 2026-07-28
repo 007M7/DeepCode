@@ -1,7 +1,7 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
@@ -10,6 +10,7 @@ import type {
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
+import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
@@ -24,8 +25,8 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
-/** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
-function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
+/** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
+function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   const scoped = sessions.scope(id)
   if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
   const conversation = scoped.get('conversation')

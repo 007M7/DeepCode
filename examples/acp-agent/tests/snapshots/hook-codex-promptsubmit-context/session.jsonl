@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"0bebc0f4-a089-4fde-9b6e-db9532cfd4de","createdAt":1783352209682,"cwd":"/tmp/acp-snap-cwd-aopaZV","delegationDepth":0}
+{"type":"session","version":0,"id":"0bebc0f4-a089-4fde-9b6e-db9532cfd4de","createdAt":1783352209682,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352209686,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785122250005,"data":{"content":[{"type":"text","text":"What is my favorite color? Reply with just the color and stop. Do not use any tools."}],"source":{"kind":"user"},"role":"user","id":"ea34d65f-e154-4b2a-bea8-3345fdd96658"},"surfaceOp":"append"}
 {"type":"user/message","seq":2,"time":1785122250006,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-codex"},"role":"user","id":"174d8732-a32f-4eb0-8471-d8b3291a34f2"},"surfaceOp":"append"}

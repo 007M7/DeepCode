@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"01aa6a36-e9c2-42ba-934b-30bec80a1658","createdAt":1783986962232,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-x67BsP","delegationDepth":0}
+{"type":"session","version":0,"id":"01aa6a36-e9c2-42ba-934b-30bec80a1658","createdAt":1783986962232,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783986962235,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783986962235,"data":{"content":[{"type":"text","text":"Call the bash tool exactly once to run: echo HELLO. Whatever tool result comes back, quote it verbatim and stop without calling another tool."}],"source":{"kind":"user"},"role":"user","id":"5a3821d5-de5b-4b9c-85b7-d53dca51af5c"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783986962235,"data":{"title":"Call the bash tool exactly","messageSeqs":[1],"source":{"kind":"fallback"}}}

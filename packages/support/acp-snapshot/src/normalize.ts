@@ -21,6 +21,8 @@ const EMBEDDED_EVENT_TIME_RE = /^(  "time": )\d+(?=,\r?$)/gm
 const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
 const EVENT_READ_TARGET_REGION_RE
   = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
+const PATH_TEXT_BOUNDARY_RE = /[\s<>'"`()\[\]{},;:!?=]/
+const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -80,9 +82,62 @@ export interface NormalizeOptions {
   cwdPathMode?: CwdPathMode
 }
 
+/** Return every known spelling of the generated cwd, most specific first. */
+function cwdSpellings(ctx: NormalizeContext): string[] {
+  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []])]
+    .filter(spelling => spelling.length > 0)
+  const macAliases = spellings
+    .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))
+    .map(spelling => `/private${spelling}`)
+  return [...new Set([...spellings, ...macAliases])]
+    .sort((left, right) => right.length - left.length)
+}
+
+/** Whether an embedded cwd match starts and ends at a path/text boundary. */
+function isCwdMatch(value: string, start: number, length: number): boolean {
+  const before = value[start - 1]
+  const after = value[start + length]
+  const afterPunctuation = value[start + length + 1]
+  const startsAtBoundary = before === undefined
+    || PATH_TEXT_BOUNDARY_RE.test(before)
+    || FILE_URI_PATH_PREFIX_RE.test(value.slice(0, start))
+  const endsAtBoundary = after === undefined
+    || after === '/'
+    || after === '\\'
+    || PATH_TEXT_BOUNDARY_RE.test(after)
+    || after === '.' && (afterPunctuation === undefined || PATH_TEXT_BOUNDARY_RE.test(afterPunctuation))
+  return startsAtBoundary && endsAtBoundary
+}
+
+/** Replace one cwd spelling without matching a longer path segment that merely shares its prefix. */
+function replaceCwdSpelling(value: string, spelling: string, replacement: string): string {
+  let cursor = 0
+  let out = ''
+  while (cursor < value.length) {
+    const match = value.indexOf(spelling, cursor)
+    if (match < 0) return out + value.slice(cursor)
+    const end = match + spelling.length
+    if (isCwdMatch(value, match, spelling.length)) {
+      out += value.slice(cursor, match) + replacement
+      cursor = end
+    } else {
+      out += value.slice(cursor, end)
+      cursor = end
+    }
+  }
+  return out
+}
+
+/** Replace every known cwd spelling with one stable token. */
+function replaceCwd(value: string, ctx: NormalizeContext, replacement: string): string {
+  let out = value
+  for (const spelling of cwdSpellings(ctx)) out = replaceCwdSpelling(out, spelling, replacement)
+  return out
+}
+
 /** Replace cwd, session ids, and any stray UUID with stable tokens in a string. */
 function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathMode): string {
-  let out = value
+  let out = replaceCwd(value, ctx, CWD)
   // Filesystem APIs can report one directory with several spellings. Replace
   // every known spelling longest-first so a shorter alias cannot corrupt a
   // longer one before it is tokenized. macOS additionally symlinks
@@ -90,11 +145,6 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   // omit the /private prefix while fs tools resolve symlinks, so cover the
   // prefixed form of every spelling too, then collapse a residual prefixed
   // token.
-  const cwdSpellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []])]
-    .filter(spelling => spelling.length > 0)
-    .flatMap(spelling => [`/private${spelling}`, spelling])
-    .sort((left, right) => right.length - left.length)
-  for (const spelling of cwdSpellings) out = out.split(spelling).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
   if (cwdPathMode === 'canonical') {
     // Restrict separator conversion to paths rooted at the cwd token. A global
@@ -132,6 +182,65 @@ function scrubValue(value: unknown, ctx: NormalizeContext, cwdPathMode: CwdPathM
     return out
   }
   return value
+}
+
+/** Escape one literal path segment for use in a regular expression. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Replace any absolute spelling whose final segment is the generated cwd basename. */
+function tokenizeFixtureString(value: string, ctx: NormalizeContext, basename: string): string {
+  const exact = replaceCwd(value, ctx, CWD)
+  const absoluteCwd = new RegExp(
+    String.raw`(?:[A-Za-z]:)?[\\/](?:[^\\/\s<>"]+[\\/])*${escapeRegExp(basename)}`
+    + String.raw`(?=$|[\\/\s<>'"()\[\]{},;:!?=])`,
+    'g',
+  )
+  return exact.replace(absoluteCwd, CWD)
+}
+
+/** Recursively replace generated-cwd spellings while preserving every other JSON value. */
+function tokenizeFixtureValue(
+  value: unknown,
+  ctx: NormalizeContext,
+  basename: string,
+): unknown {
+  if (typeof value === 'string') return tokenizeFixtureString(value, ctx, basename)
+  if (Array.isArray(value)) return value.map(item => tokenizeFixtureValue(item, ctx, basename))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      tokenizeFixtureValue(item, ctx, basename),
+    ]))
+  }
+  return value
+}
+
+/**
+ * Store one generated workspace as `{{cwd}}` while retaining every other
+ * session value. The caller opts in only for workspaces created under a
+ * platform temporary root; explicitly relocated workspaces keep their real
+ * path.
+ *
+ * @param rawLog The raw or refresh-stabilized session JSONL fixture.
+ * @returns Compact JSONL whose known cwd spellings become `{{cwd}}`.
+ * @throws If a non-empty line is invalid JSON or the session cwd has no basename.
+ */
+export function tokenizeSessionFixtureCwd(rawLog: string): string {
+  const lines = rawLog.split('\n')
+  const firstLine = lines.find(line => line.trim().length > 0)
+  const header = firstLine === undefined ? undefined : JSON.parse(firstLine) as { cwd?: unknown }
+  const cwd = typeof header?.cwd === 'string' ? header.cwd : ''
+  const basename = cwd.split(/[\\/]/).at(-1)
+  if (basename === undefined || basename.length === 0) {
+    throw new Error('acp-snapshot: cannot tokenize a cwd without a basename')
+  }
+  const ctx: NormalizeContext = { sessionIds: [], cwd }
+  return lines.map((line) => {
+    if (line.trim().length === 0) return line
+    return JSON.stringify(tokenizeFixtureValue(JSON.parse(line), ctx, basename))
+  }).join('\n')
 }
 
 /**

@@ -9,10 +9,10 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
-  SlashServiceContract, SubmitOutcome,
+  SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandContribution, CommandServiceContract } from './contract.ts'
 import type { CommandDescriptor } from './directory.ts'
@@ -46,7 +46,7 @@ export class CommandService extends Service implements CommandServiceContract {
       if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
       return result.value.commands
     })
-    const slash = ctx.get('slash') as SlashServiceContract | undefined
+    const slash = ctx.get('slash')
     if (slash === undefined) throw new Error('ui-command: slash service unavailable')
     ctx.effect(() => slash.registerSource({
       trigger: '/',
@@ -292,7 +292,7 @@ export class CommandService extends Service implements CommandServiceContract {
     return this.sessions().scope(id)
   }
 
-  private sessions(): SessionsService {
+  private sessions(): ISessions {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('ui-command: sessions service unavailable')
     return sessions
