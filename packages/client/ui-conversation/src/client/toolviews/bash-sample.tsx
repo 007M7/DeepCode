@@ -45,7 +45,10 @@ function stateStatus(state: ToolRowState): string | null {
  */
 export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
-  const terminal = terminalCardModel(block)
+  // Session workspace root: the terminal view's cwd resolves against it (an
+  // omitted workdir IS the workspace), which the pure presenter cannot do.
+  const cwd = useSessions(list => list.byId[sessionId]?.cwd)
+  const terminal = terminalCardModel(block, cwd)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(model.state)
   return (

@@ -57,21 +57,23 @@ function materializeNode(
       return {
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
-        blocks: toAssistantBlocks(event.data.content), usage: event.data.usage,
+        blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
       }
     case 'steering/message':
       return {
         kind: 'steering', seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.content, source: event.data.source,
+        content: event.data.message.content, source: event.data.message.source,
       }
     case 'tool/result': {
-      const call = callIndex.get(String(event.data.callId))
+      const result = event.data.message.content[0]
+      const callId = String(event.data.message.source.callId)
+      const call = callIndex.get(callId)
       return {
         kind: 'tool-result', seq: event.seq, time: event.time,
-        callId: String(event.data.callId),
+        callId,
         call: call ? { name: call.name, argsRaw: call.argsRaw } : null,
         callTime: call?.time ?? null,
-        content: event.data.content, isError: event.data.isError,
+        content: result.content, isError: result.isError === true,
         ...(event.data.error !== undefined ? { error: event.data.error } : {}),
         meta: event.data.meta,
         callView: call?.callView ?? null,

@@ -217,6 +217,18 @@ describe('TerminalBlock run-state dot', () => {
     expect(promptRows(view.container)).toEqual(['$echo one', '$echo two'])
   })
 
+  // A heredoc or an editor-authored command commonly ends in a newline; that
+  // terminator is not a further, empty command to draw a row for.
+  it('drops a trailing newline instead of drawing an empty final row', () => {
+    const view = render(<TerminalBlock command={'echo one\necho two\n'} output="a" exitCode={0} />)
+    expect(promptRows(view.container)).toEqual(['$echo one', '$echo two'])
+  })
+
+  it('keeps a genuinely blank command line when the command ends with two newlines', () => {
+    const view = render(<TerminalBlock command={'echo one\n\n'} output="a" exitCode={0} />)
+    expect(promptRows(view.container)).toEqual(['$echo one', '$'])
+  })
+
   // The exit status the view carries is the whole call's — bash reports no
   // per-command status — so exactly one dot and one label are correct however
   // many lines the command spans. A dot per row would assert, of a line that

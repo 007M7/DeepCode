@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type ContentBlock, type GenerateOptions  } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -185,8 +185,8 @@ describe('in-process structured output', () => {
     expect(sideEffectRan).toBe(false)
     const child = ctx.agents.get(run.id)
     const sideEffectResult = child?.session.events.find(event =>
-      event.type === 'tool/result' && event.data.callId === 'c2')
-    expect(sideEffectResult?.type === 'tool/result' && sideEffectResult.data.isError).toBe(true)
+      event.type === 'tool/result' && event.data.message.source.callId === 'c2')
+    expect(sideEffectResult?.type === 'tool/result' && sideEffectResult.data.message.content[0].isError).toBe(true)
     await run.dispose()
   })
 
@@ -230,7 +230,7 @@ describe('in-process structured output', () => {
     const child = ctx.agents.get(run.id)!
     const results = child.session.events.filter(e => e.type === 'tool/result')
     expect(results.length).toBe(2)
-    expect((results[0]!.data as { isError?: boolean }).isError).toBe(true)
+    expect(results[0]!.data.message.content[0].isError).toBe(true)
     await run.dispose()
   })
 
@@ -312,8 +312,8 @@ describe('in-process structured output', () => {
     // ...the logged tool result is the blocked isError with the feedback...
     const child = ctx.agents.get(run.id)!
     const results = child.session.events.filter(e => e.type === 'tool/result')
-    expect((results[0]!.data as { isError?: boolean }).isError).toBe(true)
-    expect(JSON.stringify((results[0]!.data as { content: unknown }).content)).toContain('capture rejected by hook')
+    expect(results[0]!.data.message.content[0].isError).toBe(true)
+    expect(JSON.stringify(results[0]!.data.message.content)).toContain('capture rejected by hook')
     // ...and the turn CONTINUED past the blocked call (no captured veto):
     // the model got to react to the failure with a second step.
     expect(adapter.requests.length).toBe(2)
@@ -357,8 +357,8 @@ describe('in-process structured output', () => {
     expect(result.stopReason).toBe('error')
     const child = ctx.agents.get(run.id)
     const captureResult = child?.session.events.find(event =>
-      event.type === 'tool/result' && event.data.callId === 'c1')
-    expect(captureResult?.type === 'tool/result' && captureResult.data.isError).toBe(true)
+      event.type === 'tool/result' && event.data.message.source.callId === 'c1')
+    expect(captureResult?.type === 'tool/result' && captureResult.data.message.content[0].isError).toBe(true)
     await run.dispose()
   })
 
@@ -428,8 +428,8 @@ describe('in-process structured output', () => {
     expect(adapter.requests).toHaveLength(2)
     const child = ctx.agents.get(run.id)!
     const outer = child.session.events.find(event =>
-      event.type === 'tool/result' && event.data.callId === CallId('c1'))
-    expect(outer?.type === 'tool/result' && outer.data.isError).toBe(true)
+      event.type === 'tool/result' && event.data.message.source.callId === CallId('c1'))
+    expect(outer?.type === 'tool/result' && outer.data.message.content[0].isError).toBe(true)
     await run.dispose()
   })
 
@@ -463,7 +463,7 @@ describe('in-process structured output', () => {
       textResponse('parent answer'),
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])
-    parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     expect(adapter.requests[0]!.system ?? '').not.toContain(STRUCTURED_OUTPUT_INSTRUCTION)
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
@@ -479,7 +479,7 @@ describe('in-process structured output', () => {
   describe('scoped registration (each child owns its capture tool)', () => {
     it('a plain agent never sees the tool: nothing is registered globally at all', async () => {
       const { ctx, parent, adapter } = await setup([textResponse('parent answer')])
-      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+      parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
       await parent.whenIdle()
       // Scoped registration: the global view has no capture tool, ever.
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
@@ -493,7 +493,7 @@ describe('in-process structured output', () => {
         // Child turn: must see it, with the run's schema.
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42 }),
       ])
-      parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+      parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
       await parent.whenIdle()
       expect(toolNames(adapter.requests[0]!)).not.toContain(STRUCTURED_OUTPUT_TOOL)
 
@@ -571,7 +571,7 @@ describe('in-process structured output', () => {
 
     it('a non-structured agent request keeps tools ABSENT when it had none (no tools: [] materialized)', async () => {
       const { parent, adapter } = await setup([textResponse('plain')])
-      parent.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+      parent.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
       await parent.whenIdle()
       const request = adapter.requests[0]!
       expect(request.tools).toBeUndefined()

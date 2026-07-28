@@ -6,7 +6,12 @@
  */
 
 import { Context } from 'cordis'
-import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import {
+  interruptedTurnClosers,
+  SESSION_FORMAT_VERSION,
+  snapshotJsonValue,
+  snapshotSessionEvent,
+} from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 /**
@@ -139,6 +144,12 @@ function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): 
   if (fallback !== undefined) {
     throw new Error(`session "${id}" contains unsupported legacy request/header reason "fallback" at seq ${fallback.seq}`)
   }
+}
+
+/** Materialize stored events as validated snapshots with immutable messages. */
+function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): SessionEvent[] {
+  assertSupportedEvents(events, id)
+  return events.map(snapshotSessionEvent)
 }
 
 /**
@@ -307,10 +318,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     this.assertStoredId(id, stored.meta)
     this.assertVersion(stored.meta)
-    assertSupportedEvents(stored.events, id)
+    const events = snapshotStoredEvents(stored.events, id)
     return {
       meta: structuredClone(stored.meta),
-      events: structuredClone(stored.events),
+      events,
     }
   }
 
@@ -320,11 +331,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const { meta, events, tornMarker } = stored
     this.assertStoredId(id, meta)
     this.assertVersion(meta)
-    assertSupportedEvents(events, id)
+    const storedEvents = snapshotStoredEvents(events, id)
 
     // Preserve complete interrupted events and synthesize only missing closers.
-    const closers = interruptedTurnClosers(events)
-    const balanced = [...events, ...closers]
+    const closers = interruptedTurnClosers(storedEvents).map(snapshotSessionEvent)
+    const balanced = [...storedEvents, ...closers]
 
     // Repair storage before publishing coordinator state.
     if (tornMarker !== undefined || closers.length > 0) {
@@ -332,12 +343,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     // Keep coordinator metadata detached from the returned record.
     this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
-    return { meta, events: balanced }
+    return { meta: structuredClone(meta), events: balanced }
   }
 
   /** Return a durable balanced live snapshot without applying cold crash repair. */
   private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const events = session.events.map(event => structuredClone(event))
+    const events = session.events.map(snapshotSessionEvent)
     await this.flush(session)
     const state = this.states.get(session.id)
     /* v8 ignore next -- successful flush always publishes this live session's durable state */

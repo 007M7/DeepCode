@@ -5,8 +5,24 @@
 // prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import {
+  createAssistantMessage,
+  createToolResultMessage,
+  createUserMessage,
+} from '@deepseek-ai/dsh-llm/message'
+import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type {
+  AssistantMessage,
+  ContentBlock,
+  MessageSource,
+  ToolResultMessage,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
+import type {
+  SessionEvent,
+  SessionId,
+  TodoItem,
+} from '@deepseek-ai/dsh-session/types'
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
@@ -25,6 +41,21 @@ function rpcRequest<P>(payload: P): RpcRequest<P> {
 
 function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
+}
+
+function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'user' }): UserMessage {
+  return createUserMessage({ content, source })
+}
+
+function assistantMessage(content: ContentBlock[]): AssistantMessage {
+  return createAssistantMessage({
+    content,
+    source: { provider: 'fixture', model: 'fx-1' },
+  })
+}
+
+function toolResultMessage(callId: string, content: ContentBlock[], isError: boolean): ToolResultMessage {
+  return createToolResultMessage({ callId: CallId(callId), content, isError })
 }
 
 const MARKDOWN_FIXTURE = [
@@ -131,10 +162,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
     const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
-      data: {
-        content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
-        source: { kind: 'user' },
-      },
+      data: userMessage(text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`)),
     })
     if (turn === 0) {
       push({
@@ -143,7 +171,7 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     if (turn % 9 === 4) {
-      push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
+      push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`[fixture] 上下文注入（turn ${turn}）`), { kind: 'plugin', plugin: 'fixture' }) })
     }
     push({ type: 'step/start', data: { turn, step: 0 } })
     const withTool = turn % 5 === 2
@@ -154,19 +182,19 @@ function buildAlphaLog(): SessionEvent[] {
     if (withTool) {
       const callId = `fx-call-${turn}`
       blocks.push({ type: 'tool-call', id: callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } as ContentBlock)
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } })
-      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(`ECHO: TURN ${turn}`), isError: turn % 25 === 12 } })
+      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(`ECHO: TURN ${turn}`), turn % 25 === 12) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
       push({ type: 'step/start', data: { turn, step: 1 } })
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, content: text(`工具结果已消化（turn ${turn}）。`), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, message: assistantMessage(text(`工具结果已消化（turn ${turn}）。`)) } })
       push({ type: 'step/end', data: { turn, step: 1 } })
     } else {
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
     }
     if (turn % 13 === 6) {
-      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, content: text(`插话 ${turn}：fixture steering 消息。`), source: { kind: 'user' } } })
+      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(text(`插话 ${turn}：fixture steering 消息。`)) } })
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -177,14 +205,14 @@ function buildAlphaLog(): SessionEvent[] {
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：${name} 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name, arguments: args } })
-    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(resultText), isError: false } })
+    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(resultText), false) } })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -207,11 +235,11 @@ function buildAlphaLog(): SessionEvent[] {
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：run_code 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
@@ -232,7 +260,7 @@ function buildAlphaLog(): SessionEvent[] {
     dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
-      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+      data: { turn, step: 0, message: toolResultMessage(callId, text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), false) },
     })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
@@ -329,13 +357,13 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
     return view === undefined ? undefined : { for: 'call', view }
   }
   if (event.type === 'tool/result') {
-    const callId = String(event.data.callId)
+    const callId = String(event.data.message.source.callId)
     for (let i = log.length - 1; i >= 0; i--) {
       const candidate = log[i]
       /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
       so the undefined arm needs a sparse log no code path builds. */
       if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
-        const resultText = event.data.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
         const view = presentResult(candidate.data.name, candidate.data.arguments, resultText)
         return view === undefined ? undefined : { for: 'result', view }
       }
@@ -352,20 +380,31 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   if (titleEvent !== undefined) {
     values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
   }
-  const todos = backscanTodos(log)
-  if (todos !== undefined) values['todos'] = todos
+  // Always present (tool-todo unit composed): null when no plan stands.
+  values['todos'] = backscanTodos(log) ?? null
   return values
 }
 
 /** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
-  const key = type === 'session/title' ? 'title' : type === 'todo/write' ? 'todos' : undefined
-  if (key === undefined) return []
-  const values = projectionValuesOf(log)
-  /* v8 ignore next -- the advancing event is in the log, so its key always has a value. */
-  if (!Object.hasOwn(values, key)) return []
-  return [{ type: 'session/projection', sessionId: id, key, value: values[key], seq: event.seq }]
+  if (type === 'session/title') {
+    const values = projectionValuesOf(log)
+    /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
+    if (!Object.hasOwn(values, 'title')) return []
+    return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
+  }
+  // Standing-plan fold: writes replace the list; turn/start clears it (null).
+  if (type === 'todo/write' || type === 'turn/start') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'todos',
+      value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  return []
 }
 
 /**
@@ -399,11 +438,16 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
-/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+/**
+ * Current plan projection over the full log (host parallel: latest todo/write
+ * with no later turn/start; a new turn retires the previous plan).
+ */
 function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+    if (event === undefined) continue
+    if (event.type === 'turn/start') return undefined
+    if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
 }
@@ -623,7 +667,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     /** Log append + mux emit (the normal live path). */
     appendUser(id: string, msg: string): void {
-      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: { content: text(msg), source: { kind: 'user' } } })
+      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: userMessage(text(msg)) })
     },
     /** Append a later durable title revision through the normal raw-event + control-frame path. */
     appendTitle(id: string, title: string): void {
@@ -634,7 +678,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
       const log = logOf(sid(id))
-      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: { content: text(msg), source: { kind: 'user' } } } as unknown as SessionEvent)
+      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: userMessage(text(msg)) } as unknown as SessionEvent)
     },
     /** End every open stream generator (client sees both streams close -> reconnect + resync path). */
     breakStreams(): void {
@@ -655,7 +699,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replays.delete(id)
       const done = pieces.slice(0, i).join('')
       append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: done } } } })
-      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, content: text(aborted ? `${done}（已中断）` : done), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, message: assistantMessage(text(aborted ? `${done}（已中断）` : done)) } })
       append(id, { type: 'step/end', data: { turn, step } })
       append(id, { type: 'turn/end', data: { turn, reason: { kind: aborted ? 'cancelled' : 'completed' } } })
       setRunning(id, false)
@@ -824,14 +868,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           // Steering: insert a steering message into the current turn; the replay continues.
           /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
           const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, content, source: { kind: 'user' } } })
+          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(content) } })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-        append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
+        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         startReply(
           id,
           turn,

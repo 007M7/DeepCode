@@ -68,8 +68,11 @@ function pretty(raw: string): string {
   }
 }
 
-export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPanelProps) {
+export function DetailsPanel({ useSession, useSessions, sessionId, useStore, closeDetails }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
+  // Session workspace root: an omitted or relative terminal cwd resolves
+  // against it, which the pure presenter cannot see.
+  const sessionCwd = useSessions(list => list.byId[sessionId]?.cwd)
   const callId = selection?.callId
   // materialFor builds a fresh wrapper; shallowEqual short-circuits on its
   // stable members (result node reference rides the snapshot's structural sharing).
@@ -107,7 +110,11 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
                 )}
                 <section className={css.section}>
                   <div className={css.sectionLabel}>Output</div>
-                  <OutputBody material={material} />
+                  {/* Keyed by the selected call: the body owns per-call view
+                      state (the terminal card's expand and copy), which React
+                      would otherwise carry into the next selection because the
+                      panel does not unmount between calls. */}
+                  <OutputBody key={callId} material={material} cwd={sessionCwd} />
                 </section>
               </>
             )}
@@ -123,10 +130,11 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
  * its alignment and scrolls sideways instead of folding. Every other call, and
  * a running call with no terminal card yet, keeps the flattened text form.
  * @param props.material - the selected call's material from {@link materialFor}.
+ * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
  * @returns the Output section's body element.
  */
-function OutputBody({ material }: { material: CallMaterial }) {
-  const terminal = terminalCardModel(material.block)
+function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | undefined }) {
+  const terminal = terminalCardModel(material.block, cwd)
   if (terminal !== null) return <TerminalBlock {...terminal} className={css.terminal} />
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.

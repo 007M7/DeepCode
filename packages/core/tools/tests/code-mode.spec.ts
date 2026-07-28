@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -626,10 +626,10 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
         postOrder.push(String(postExec.callId))
         return {
           kind: 'accept' as const,
-          additionalContexts: [{
+          additionalContexts: [createUserMessage({
             content: [{ type: 'text' as const, text: `ctx:${String(postExec.callId)}` }],
             source: { kind: 'plugin' as const, plugin: 'order-probe' },
-          }],
+          })],
         }
       }
       return next()
@@ -947,11 +947,10 @@ describe('the run_code dispatch bridge', () => {
       if (exec.name === 'echo') {
         return Promise.resolve({
           kind: 'accept' as const,
-          additionalContexts: [{
+          additionalContexts: [createUserMessage({
             content: [{ type: 'text' as const, text: `context for ${exec.callId}` }],
             source: { kind: 'plugin' as const, plugin: 'test' },
-            meta: { callId: exec.callId },
-          }],
+          })],
         })
       }
       return next()
@@ -963,16 +962,16 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
-    expect(result.additionalContexts).toEqual([
+    expect(result.additionalContexts).toMatchObject([
       {
+        role: 'user',
         content: [{ type: 'text', text: 'context for call-1:code:1' }],
         source: { kind: 'plugin', plugin: 'test' },
-        meta: { callId: 'call-1:code:1' },
       },
       {
+        role: 'user',
         content: [{ type: 'text', text: 'context for call-1:code:2' }],
         source: { kind: 'plugin', plugin: 'test' },
-        meta: { callId: 'call-1:code:2' },
       },
     ])
   })
@@ -984,10 +983,10 @@ describe('the run_code dispatch bridge', () => {
       if (exec.name !== 'echo') return next()
       return Promise.resolve({
         kind: 'accept',
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: 'nested context' }],
           source: { kind: 'plugin', plugin: 'test' },
-        }],
+        })],
       })
     })
     runtime.behavior = async (request) => {
@@ -999,6 +998,8 @@ describe('the run_code dispatch bridge', () => {
 
     expect(result.isError).toBe(true)
     expect(result.additionalContexts).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'nested context' }],
       source: { kind: 'plugin', plugin: 'test' },
     }])
@@ -1441,7 +1442,9 @@ describe('the run_code dispatch bridge', () => {
 
   it('a tool/code-dispatch event never derives a model message', () => {
     const session = new Session(SessionId('code-mode-derive'))
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('tool/code-dispatch', {
       parentCallId: CallId('p1'),
       subCallId: CallId('p1:code:1'),

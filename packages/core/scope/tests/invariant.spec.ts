@@ -1,7 +1,8 @@
+import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Events } from 'cordis'
-import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -37,17 +38,23 @@ describe('scoped-dispatch invariants', () => {
     const other = { id: 'a2' } as unknown as Agent
     const signal = new AbortController().signal
     const config = { provider: 'p', model: 'm' }
+    const message = freezeMessage({
+      id: MessageId('m'),
+      role: 'user',
+      content: [],
+      source: { kind: 'user' },
+    })
     const agentRows = {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/inbox/enqueue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' } }, 'queued'],
-      'agent/inbox/dequeue': [agent, { id: AgentMessageId('m'), content: [], source: { kind: 'user' } }],
+      'agent/inbox/enqueue': [agent, message, 'queued'],
+      'agent/inbox/dequeue': [agent, message, 'queued'],
       'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
       'agent/step': [agent, 1, 1, signal],
-      'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
+      'agent/prompt-submit': [agent, message, signal, () => Promise.resolve({ kind: 'allow' })],
       'agent/request': [agent, 1, 1, signal, () => Promise.resolve(config)],
       'agent/request-error': [
         agent,

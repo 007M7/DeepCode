@@ -38,7 +38,7 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       summary={model.summary}
       // Single-file tools never expose an args body — the path link is the only action.
       body={singleFile ? null : model.body}
-      terminal={terminalCardModel(block)}
+      terminal={terminalCardModel(block, cwd)}
       state={model.state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}

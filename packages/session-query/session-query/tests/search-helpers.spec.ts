@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import SessionStore, {
+  SESSION_FORMAT_VERSION,
+  SessionId,
+} from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   buildSessionEventRecords,
@@ -42,13 +45,58 @@ describe('session-query semantic extraction', () => {
       { type: 'future-content', payload: 'hidden' } as never,
     ]
     const events: SessionEvent[] = [
-      { type: 'user/message', seq: 0, time: 1, data: { content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: messageContent, provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
-      { type: 'user/message', seq: 2, time: 3, data: { content: messageContent, source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: 'append' },
-      { type: 'steering/message', seq: 3, time: 4, data: { turn: 1, content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 0, time: 1, data: createUserMessage({
+        content: messageContent, source: { kind: 'user' },
+      }), surfaceOp: 'append' },
+      { type: 'assistant/message', seq: 1, time: 2, data: {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: messageContent,
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 2, time: 3, data: createUserMessage({
+        content: messageContent, source: { kind: 'plugin', plugin: 'test' },
+      }), surfaceOp: 'append' },
+      { type: 'steering/message', seq: 3, time: 4, data: {
+        turn: 1,
+        message: createUserMessage({
+          content: messageContent,
+          source: { kind: 'user' },
+        }),
+      }, surfaceOp: 'append' },
       { type: 'tool/call', seq: 4, time: 5, data: { turn: 1, step: 1, callId, name: 'bash', arguments: '{"cmd":"pwd"}' } },
-      { type: 'tool/result', seq: 5, time: 6, data: { turn: 1, step: 1, callId, content: [{ type: 'text', text: 'failed' }], isError: true, error: { name: 'Oops', code: 'E_OOPS' } }, surfaceOp: 'append' },
-      { type: 'tool/result', seq: 6, time: 7, data: { turn: 1, step: 1, callId, content: [], isError: false }, surfaceOp: 'append' },
+      {
+        type: 'tool/result',
+        seq: 5,
+        time: 6,
+        data: {
+          turn: 1,
+          step: 1,
+          message: createToolResultMessage({
+            callId,
+            content: [{ type: 'text', text: 'failed' }],
+            isError: true,
+          }),
+          error: { name: 'Oops', code: 'E_OOPS' },
+        },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'tool/result',
+        seq: 6,
+        time: 7,
+        data: {
+          turn: 1,
+          step: 1,
+          message: createToolResultMessage({ callId, content: [], isError: false }),
+        },
+        surfaceOp: 'append',
+      },
       { type: 'todo/write', seq: 7, time: 8, data: { todos: [{ status: 'in_progress', content: 'ship search' }] } },
     ]
 
@@ -90,9 +138,21 @@ describe('session-query semantic extraction', () => {
 
 describe('session-query document and filter helpers', () => {
   const events: SessionEvent[] = [
-    { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'Hello\n(AI)+' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 0, time: 10, data: createUserMessage({
+      content: [{ type: 'text', text: 'Hello\n(AI)+' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'raw' } } },
-    { type: 'assistant/message', seq: 2, time: 12, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
+    { type: 'assistant/message', seq: 2, time: 12, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'replacement' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
     { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'interrupted' } } },
   ]
 
@@ -163,7 +223,17 @@ describe('session-query document and filter helpers', () => {
       type: 'assistant/message',
       seq: 0,
       time: 1,
-      data: { turn: 1, step: 1, content: [{ type: 'text', text: 'bad' }], provenance: { provider: 'mock', model: 'mock' } },
+      data: {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'bad' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      },
       surfaceOp: { op: 'replace', start: 9, end: 9 },
     }]
     expect(() => buildSessionEventRecords(id, malformed)).toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
@@ -199,8 +269,12 @@ describe('session-query document and filter helpers', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(TestSessionQueryService)
     const session = ctx.sessions.create(id)
-    session.append('user/message', { content: [{ type: 'text', text: 'Alpha\n beta' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('user/message', { content: [{ type: 'text', text: 'other' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Alpha\n beta' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'other' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await expect(ctx.sessionQuery.filterEvents(id, [{ kind: 'text', text: 'alpha beta' }]))
       .resolves.toMatchObject([{ seq: 0, text: 'Alpha\n beta' }])
   })

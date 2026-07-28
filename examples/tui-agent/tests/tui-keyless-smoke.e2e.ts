@@ -1,3 +1,4 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -53,10 +54,22 @@ async function seedResumeSession(cwd: string): Promise<void> {
   const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
   const events: SessionEvent[] = [
     { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: { content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: createUserMessage({
+      content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 1_700_000_000_003, data: { turn: 1, step: 1 } },
     { type: 'request/header', seq: 3, time: 1_700_000_000_004, data: { header: { config: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, reason: 'initial' } },
-    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'persisted answer' }], provenance: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'persisted answer' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'tui-scripted', model: 'tui-scripted-model' },
+        },
+      }),
+    }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
     { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
     { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },

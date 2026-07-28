@@ -7,13 +7,11 @@
  * @module dsh-agent-loop/agent
  */
 
-import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import { AgentMessageId, agentCarrier, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { agentCarrier, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
-  AgentMessage,
   Agent,
   CancelOptions,
   AgentInterruptReason,
@@ -27,11 +25,21 @@ import type {
   SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import {
-  BlockAssembler, LlmError, assertNever, deepFreeze, errorChain, isHarnessError, llmFailureOf, llmRetryPolicyOf, markAgentLoopRequest,
+  BlockAssembler,
+  LlmError,
+  assertNever,
+  createAssistantMessage,
+  deepFreeze,
+  errorChain,
+  freezeMessage,
+  isHarnessError,
+  llmFailureOf,
+  llmRetryPolicyOf,
+  markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
+import type { AssistantMessage, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
@@ -47,9 +55,9 @@ type StepOutcome =
  */
 export class ReactLoopAgent implements Agent {
   /** Prompts awaiting individual turns. */
-  private queued: { message: AgentMessage; wakeup: boolean }[] = []
+  private queued: { message: UserMessage; wakeup: boolean }[] = []
   /** Input taken into the session log at step boundaries. */
-  private outbox: (UserMessageData | AgentMessage)[] = []
+  private outbox: { message: UserMessage; steering: boolean }[] = []
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
@@ -93,30 +101,22 @@ export class ReactLoopAgent implements Agent {
 
   /** Accept and route one unified send item. */
   send(
-    input: UserMessageData,
+    message: UserMessage,
     options: SendOptions,
-  ): AgentMessageId {
-    const { content, source } = deepFreeze(structuredClone(input))
+  ): void {
     const { target, wakeup } = options
-    const id = AgentMessageId(randomUUID())
     if (target === 'next-step' && !wakeup) {
       if (this.acceptsNextStep) {
-        this.outbox.push({ content, source })
-        return id
+        this.outbox.push({ message, steering: false })
+        return
       }
-      this.session.append('user/message', { content, source }, { surfaceOp: 'append' })
-      return id
+      this.session.append('user/message', message, { surfaceOp: 'append' })
+      return
     }
 
     const placement: InboxPlacement = target === 'next-step' && this.acceptsNextStep ? 'steering' : 'queued'
-    const message: AgentMessage = {
-      id,
-      content,
-      source,
-    }
-    deepFreeze(message)
     if (placement === 'steering') {
-      this.outbox.push(message)
+      this.outbox.push({ message, steering: true })
     } else {
       this.queued.push({ message, wakeup })
     }
@@ -125,28 +125,27 @@ export class ReactLoopAgent implements Agent {
     // can cancel or dispose.
     if (placement === 'queued' && wakeup) this.scheduleKick()
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message, placement)
-    return id
   }
 
   /** Queue one ordinary prompt turn and wake the driver. */
-  followup(input: UserMessageData): AgentMessageId {
-    return this.send(input, {
+  followup(input: UserMessage): void {
+    this.send(input, {
       target: 'next-turn',
       wakeup: true,
     })
   }
 
   /** Steer the open turn, falling back to a waking prompt while idle. */
-  steer(input: UserMessageData): AgentMessageId {
-    return this.send(input, {
+  steer(input: UserMessage): void {
+    this.send(input, {
       target: 'next-step',
       wakeup: true,
     })
   }
 
   /** Append model-facing context without waking the driver. */
-  inject(input: UserMessageData): AgentMessageId {
-    return this.send(input, {
+  inject(input: UserMessage): void {
+    this.send(input, {
       target: 'next-step',
       wakeup: false,
     })
@@ -171,8 +170,8 @@ export class ReactLoopAgent implements Agent {
     }
     if (!options.keepInbox) {
       const discarded = this.queued.map(item => item.message)
-      for (const message of this.outbox) {
-        if ('id' in message) discarded.push(message)
+      for (const item of this.outbox) {
+        if (item.steering) discarded.push(item.message)
       }
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
@@ -244,19 +243,21 @@ export class ReactLoopAgent implements Agent {
       const trigger: TurnTrigger = { kind: 'message', source: message.source }
       // Admitted input stays on the stack until its turn/start commits: the
       // turn owns it only once the turn exists in the log.
-      let admitted: UserMessageData[] | undefined
+      let admitted: UserMessage[] | undefined
       try {
         signal.throwIfAborted()
         const decision = await this.loopCtx.waterfall(
-          agentCarrier(this), 'agent/prompt-submit', this, message.content, message.source, signal,
+          agentCarrier(this), 'agent/prompt-submit', this, message, signal,
           () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
         )
         signal.throwIfAborted()
 
         if (decision.kind === 'allow') {
-          admitted = [{ content: decision.content ?? message.content, source: message.source }]
+          admitted = [decision.content === undefined
+            ? message
+            : freezeMessage({ ...message, content: decision.content })]
           for (const context of decision.additionalContexts ?? []) {
-            admitted.push({ content: context.content, source: context.source })
+            admitted.push(freezeMessage(context))
           }
         }
       } catch (error: unknown) {
@@ -292,7 +293,7 @@ export class ReactLoopAgent implements Agent {
     // Published only after the abort owner and pending done are installed: a
     // dequeue listener that cancels or disposes must find live cancellation
     // and quiescence ownership, not the previous activity's settled state.
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message, 'queued')
   }
 
   /**
@@ -301,7 +302,7 @@ export class ReactLoopAgent implements Agent {
    */
   private async run(
     trigger: TurnTrigger,
-    admitted: UserMessageData[] = [],
+    admitted: UserMessage[] = [],
     inheritedOutboxLength = 0,
     priorFailures: readonly LlmFailure[] = Object.freeze([]),
   ): Promise<void> {
@@ -353,7 +354,7 @@ export class ReactLoopAgent implements Agent {
             // one, and the agent/turn-stopping drain below is skipped for the same
             // reason.
             if (outcome.concluded) break steps
-            if (outcome.continueTurn || this.outbox.some(item => 'id' in item)) continue
+            if (outcome.continueTurn || this.outbox.some(item => item.steering)) continue
             break
           case 'request-failed': {
             // step() reports request failures only after step/start commits
@@ -512,22 +513,25 @@ export class ReactLoopAgent implements Agent {
     }
 
     // Truncated (max-tokens) output cannot owe tool calls.
-    const assembled = assembler.message()
+    const assembled = assembler.blocks()
     const content = finish.kind === 'max-tokens'
-      ? assembled.content.filter(block => block.type !== 'tool-call')
-      : assembled.content
+      ? assembled.filter(block => block.type !== 'tool-call')
+      : assembled
+    const message: AssistantMessage = createAssistantMessage({
+      content,
+      source: {
+        provider: request.provider,
+        model: request.model,
+        ...assembler.replayState !== undefined ? { replayState: assembler.replayState } : {},
+      },
+    })
 
     session.append(
       'assistant/message',
       {
         turn,
         step,
-        content,
-        provenance: {
-          provider: request.provider,
-          model: request.model,
-          ...assembler.replayState !== undefined ? { replayState: assembler.replayState } : {},
-        },
+        message,
         ...assembler.usage === undefined ? {} : { usage: assembler.usage },
       },
       { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
@@ -538,7 +542,7 @@ export class ReactLoopAgent implements Agent {
     if (toolCalls.length > 0) {
       ({ concluded } = await executeToolCalls(
         this.loopCtx, turn, step, toolCalls, signal,
-        context => this.outbox.push({ content: context.content, source: context.source }),
+        context => this.outbox.push({ message: freezeMessage(context), steering: false }),
       ))
     }
 
@@ -636,17 +640,17 @@ export class ReactLoopAgent implements Agent {
   /** Commit the outbox and report whether it contained steering. */
   private drainOutbox(turn: number, limit = this.outbox.length): boolean {
     let steered = false
-    for (const message of this.outbox.splice(0, limit)) {
-      if ('id' in message) {
+    for (const item of this.outbox.splice(0, limit)) {
+      if (item.steering) {
         steered = true
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.message, 'steering')
         this.session.append(
           'steering/message',
-          { turn, content: message.content, source: message.source },
+          { turn, message: item.message },
           { surfaceOp: 'append' },
         )
       } else {
-        this.session.append('user/message', message, { surfaceOp: 'append' })
+        this.session.append('user/message', item.message, { surfaceOp: 'append' })
       }
     }
     return steered
@@ -658,14 +662,14 @@ export class ReactLoopAgent implements Agent {
    * accepted beside it cannot split from the request it accompanies.
    */
   private flushRejectedAdmissionContexts(): void {
-    if (this.outbox.some(message => 'id' in message)) return
+    if (this.outbox.some(item => item.steering)) return
     const contexts = this.outbox.splice(0)
     for (let index = 0; index < contexts.length; index += 1) {
-      const context = contexts[index]
+      const item = contexts[index]
       /* v8 ignore next 2 -- the steering precheck proves this batch is context-only */
-      if (context === undefined || 'id' in context) throw new Error('rejected-admission context batch changed')
+      if (item === undefined || item.steering) throw new Error('rejected-admission context batch changed')
       try {
-        this.session.append('user/message', context, { surfaceOp: 'append' })
+        this.session.append('user/message', item.message, { surfaceOp: 'append' })
       } catch (error: unknown) {
         this.outbox.unshift(...contexts.slice(index))
         throw error

@@ -11,7 +11,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -540,7 +540,10 @@ describe('composition', () => {
 
   it('preserves downstream accept-decision contexts when spilling', async () => {
     const { ctx } = await setup({ maxInlineBytes: 200 })
-    const context = { content: [{ type: 'text' as const, text: 'note' }], source: { kind: 'plugin' as const, plugin: 'test' } }
+    const context = createUserMessage({
+      content: [{ type: 'text' as const, text: 'note' }],
+      source: { kind: 'plugin' as const, plugin: 'test' },
+    })
     ctx.on('tools/post-execute', async (_e, _r, _next) =>
       ({ kind: 'accept', additionalContexts: [context] }))
     ctx.tools.register(textTool('big', 'x'.repeat(1000)))

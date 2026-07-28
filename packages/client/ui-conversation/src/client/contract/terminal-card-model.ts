@@ -9,7 +9,7 @@
  * @module
  */
 import type { TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ToolCallBlock } from './tool-call-model.ts'
+import { resolveToolPath, type ToolCallBlock } from './tool-call-model.ts'
 
 /**
  * Output lines the chat row's expanded terminal body shows before collapsing
@@ -34,6 +34,24 @@ export type TerminalCardModel = Pick<
 >
 
 /**
+ * Resolve a terminal view's working directory the way the render-intent
+ * contract assigns to the UI bridge: an absolute path is used as-is, a relative
+ * one joins under the session workspace, and an omitted one IS the session
+ * workspace. A pure presenter cannot see the session cwd, which is why this
+ * resolution belongs here rather than in the tool. Without a session cwd there
+ * is nothing to resolve against, so a relative path stays as authored and an
+ * omitted one stays absent (the prompt row then draws a bare `$`).
+ * @param viewCwd - the cwd the terminal call view carries, if any.
+ * @param sessionCwd - the session workspace root, if the caller knows it.
+ * @returns the working directory for the prompt label, or undefined.
+ */
+function resolveTerminalCwd(viewCwd: string | undefined, sessionCwd: string | undefined): string | undefined {
+  if (viewCwd === undefined || viewCwd === '') return sessionCwd
+  if (sessionCwd === undefined || sessionCwd === '') return viewCwd
+  return resolveToolPath(sessionCwd, viewCwd)
+}
+
+/**
  * Derive the terminal-card props for a tool call, or null when this call is
  * not a terminal card and belongs on the generic path.
  *
@@ -55,15 +73,17 @@ export type TerminalCardModel = Pick<
  * result view's replacement title, then to an empty command (the prompt line
  * draws bare), and the prompt shows no cwd.
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
+ * @param sessionCwd - the session workspace root, which resolves an omitted or
+ *   relative view cwd (see {@link resolveTerminalCwd}); absent leaves both unresolved.
  * @returns the terminal-card props, or null for the generic path.
  */
-export function terminalCardModel(block: ToolCallBlock): TerminalCardModel | null {
+export function terminalCardModel(block: ToolCallBlock, sessionCwd?: string): TerminalCardModel | null {
   const call = block.callView?.card === 'terminal' ? block.callView : null
   if (!('kind' in block)) {
     // Running: the call view exists, the result view does not yet.
     return call === null ? null : {
       command: call.title,
-      cwd: call.cwd,
+      cwd: resolveTerminalCwd(call.cwd, sessionCwd),
       output: undefined,
       exitCode: undefined,
       signal: undefined,
@@ -73,8 +93,11 @@ export function terminalCardModel(block: ToolCallBlock): TerminalCardModel | nul
   const result = block.resultView?.card === 'terminal' ? block.resultView : null
   if (result === null) return null
   return {
-    command: call?.title ?? result.title ?? '',
-    cwd: call?.cwd,
+    // The result's title REPLACES the pending one when the tool supplies it
+    // (the presentation contract's replacement-title rule); the call title is
+    // what a result without one keeps.
+    command: result.title ?? call?.title ?? '',
+    cwd: resolveTerminalCwd(call?.cwd, sessionCwd),
     output: result.output,
     exitCode: result.exitCode,
     signal: result.signal,

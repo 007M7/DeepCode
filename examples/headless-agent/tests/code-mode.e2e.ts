@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -314,12 +314,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     ctx = await codeModeHarness(workdir)
     const agent = ctx.agentLoop.create(SessionId('e2e-code-mode'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{
-      type: 'text',
-      text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Using one run_code program: run `echo alpha-7` with the bash tool, run `echo beta-9` with the bash tool, '
         + 'then write both outputs joined by a plus sign into combined.txt (bash heredoc or redirect), '
         + 'and return only the joined string.',
-    }], source: { kind: 'user' } })
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     const events: SessionEvent[] = [...agent.session.events]
 
@@ -347,7 +348,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     expect(combined).toContain('beta-9')
     const finalMessage = events.findLast(event => event.type === 'assistant/message')
     const finalText = finalMessage !== undefined
-      ? finalMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      ? finalMessage.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(finalText).toContain('alpha-7')
     expect(finalText).toContain('beta-9')
@@ -366,10 +367,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })
 
-    handle.agent.followup({ content: [{
-      type: 'text',
-      text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
-    }], source: { kind: 'user' } })
+    handle.agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 
     const events: SessionEvent[] = [...handle.agent.session.events]
@@ -383,7 +385,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     expect(workspaceContext!.seq).toBeGreaterThan(outerResult!.seq)
     const finalMessage = events.findLast(event => event.type === 'assistant/message')
     const answer = finalMessage?.type === 'assistant/message'
-      ? finalMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      ? finalMessage.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(answer).toContain(WORKSPACE_PROBE)
   }, 180_000)

@@ -80,8 +80,12 @@ const OSC_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g
 /** Escape sequences other than CSI: charset selection, single-shift, reset. */
 const NON_CSI_ESCAPE = /\u001b(?!\[)[\u0020-\u002f]*[\u0030-\u007e]?/g
 
-/** C0 controls with no display meaning here; tab, newline and ESC survive for layout and anser's CSI split. */
-const INERT_CONTROL = /[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/g
+/**
+ * C0 controls with no display meaning here. Tab, newline, backspace and ESC
+ * survive: the first two for layout, backspace for its overwrite, ESC for
+ * anser's CSI split.
+ */
+const INERT_CONTROL = /[\u0000-\u0007\u000b-\u001a\u001c-\u001f\u007f]/g
 
 /**
  * Apply carriage-return redraws: within a line, only the text after the last
@@ -99,14 +103,39 @@ function applyCarriageReturns(text: string): string {
 }
 
 /**
+ * Apply backspaces as the cursor-left-then-overwrite a terminal performs, so
+ * `abc` followed by two backspaces and `XY` reads `aXY` instead of keeping the
+ * characters it overwrote. Progress meters and captured PTY output use
+ * backspace this way. Resolved per line, so a backspace neither eats the
+ * newline before it nor reaches into the previous line's tail; one at a line
+ * start has nothing to erase.
+ * @param text - output text, already reduced to its carriage-return redraws.
+ * @returns the text with each backspace resolved against the character before it.
+ */
+function applyBackspaces(text: string): string {
+  if (!text.includes('\u0008')) return text
+  return text.split('\n').map((line) => {
+    const kept: string[] = []
+    for (const char of line) {
+      if (char === '\u0008') kept.pop()
+      else kept.push(char)
+    }
+    return kept.join('')
+  }).join('\n')
+}
+
+/**
  * Remove every escape sequence and control character that carries no color,
- * leaving CSI sequences for anser and `\n`/`\t` for layout.
+ * leaving CSI sequences for anser and `\n`/`\t` for layout. Carriage-return
+ * redraws and backspace overwrites resolve first: both are cursor movements
+ * whose effect on the visible text must land before the characters that
+ * expressed them are dropped.
  * @param text - raw command output.
  * @returns text whose only remaining escapes are CSI sequences.
  */
 function sanitize(text: string): string {
   const escaped = text.replace(OSC_SEQUENCE, '').replace(NON_CSI_ESCAPE, '')
-  return applyCarriageReturns(escaped).replace(INERT_CONTROL, '')
+  return applyBackspaces(applyCarriageReturns(escaped)).replace(INERT_CONTROL, '')
 }
 
 /**

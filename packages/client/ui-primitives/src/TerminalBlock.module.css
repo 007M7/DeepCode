@@ -75,12 +75,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* `pre`, not `nowrap`: the prompt row renders the command verbatim, and
+   `nowrap` collapses the repeated spaces, tabs, and alignment of an indented
+   continuation. Both hold the single row and the ellipsis. */
 .command {
   min-width: 0;
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre;
 }
 
 .status {

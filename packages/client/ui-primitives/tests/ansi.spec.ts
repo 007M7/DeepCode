@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { parseAnsiLines } from '../src/ansi.ts'
 
 const ESC = '\u001b'
+const BS = '\u0008'
 
 /** Paint `text` with the SGR `codes`, then reset. */
 function sgr(codes: string, text: string): string {
@@ -167,6 +168,30 @@ describe('parseAnsiLines: carriage returns', () => {
       [{ text: 'two', style: undefined }],
       [{ text: 'three', style: undefined }],
     ])
+  })
+})
+
+describe('parseAnsiLines: backspaces', () => {
+  it('applies a backspace as the overwrite a terminal draws', () => {
+    // `abc` then two backspaces then `XY` shows as `aXY`, not `abcXY`.
+    expect(onlySpan(`abc${BS}${BS}XY`)).toEqual({ text: 'aXY', style: undefined })
+  })
+
+  it('stops at the line start instead of eating the newline before it', () => {
+    expect(parseAnsiLines(`ab\n${BS}${BS}${BS}cd`)).toEqual([
+      [{ text: 'ab', style: undefined }],
+      [{ text: 'cd', style: undefined }],
+    ])
+  })
+
+  it('applies the overwrite after a carriage-return redraw, not before', () => {
+    // The redraw wins first; the backspace then erases inside what survived.
+    expect(onlySpan(`old\rnew${BS}`)).toEqual({ text: 'ne', style: undefined })
+  })
+
+  it('keeps the run\'s style while erasing its own characters', () => {
+    expect(onlySpan(sgr('31', `bad${BS}${BS}${BS}ok`)))
+      .toEqual({ text: 'ok', style: { color: 'var(--dsw-alias-state-error-primary)' } })
   })
 })
 

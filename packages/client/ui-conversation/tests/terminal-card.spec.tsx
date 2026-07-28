@@ -81,6 +81,38 @@ describe('terminalCardModel', () => {
     }))?.signal).toBe('SIGTERM')
   })
 
+  it('takes the result view\'s replacement title over the pending one', () => {
+    // The presentation contract defines a result title as REPLACING the pending
+    // title, so a tool that rewrites it at settle time must win here.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ title: 'pnpm run check' }),
+      resultView: resultTerminal({ title: 'pnpm run check --filter web' }),
+    }))?.command).toBe('pnpm run check --filter web')
+    // Without one, the call's title is what the card keeps.
+    expect(terminalCardModel(settled())?.command).toBe('ls -la')
+  })
+
+  it('resolves the cwd against the session workspace the way the bridge must', () => {
+    // Omitted workdir — the common bash call — IS the session workspace.
+    expect(terminalCardModel(settled(), '/w/app')?.cwd).toBe('/w/app')
+    // A relative workdir joins under it.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: 'packages/ui' }),
+    }), '/w/app')?.cwd).toBe('/w/app/packages/ui')
+    // An absolute one is used as-is.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '/srv/other' }),
+    }), '/w/app')?.cwd).toBe('/srv/other')
+    // With no session cwd there is nothing to resolve against: a relative path
+    // stays as authored and an omitted one stays absent (a bare `$` prompt).
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: 'packages/ui' }),
+    }))?.cwd).toBe('packages/ui')
+    expect(terminalCardModel(settled())?.cwd).toBeUndefined()
+    // The running arm resolves identically.
+    expect(terminalCardModel(running(), '/w/app')?.cwd).toBe('/w/app')
+  })
+
   it('a window-truncated call side falls back to the result title, then to an empty command', () => {
     // Truncation drops both the call head and its view (conversation.ts).
     const truncated = { call: null, callView: null }
@@ -223,12 +255,18 @@ describe('BashRow terminal card', () => {
 })
 
 describe('DetailsPanel Output section', () => {
-  function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null) {
+  function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null, cwd?: string) {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
-    const sessions = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const sessions = createSnapshotStore<SessionListState>(cwd === undefined
+      ? { ids: [], byId: {}, current: undefined, phase: 'ready' }
+      : {
+        ids: [SID],
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
+        current: SID,
+        phase: 'ready',
+      })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -259,6 +297,31 @@ describe('DetailsPanel Output section', () => {
   }
 
   const target: SelectionTarget = { turnSeq: 10, callId: 'c1', toolName: 'bash' }
+
+  // The panel never unmounts between selections, so per-call view state has to
+  // be keyed off the selected call or it leaks into the next one.
+  it('resets the card\'s expand state when the selected call changes', () => {
+    const long = Array.from({ length: 20 }, (_, i) => `row-${i}`)
+    const view = mount(snapshot({
+      nodes: [settled({ resultView: resultTerminal({ output: `${long.join('\n')}\n` }) })],
+    }), target)
+    fireEvent.click(view.getByRole('button', { name: '展开其余 4 行输出' }))
+    expect(view.getByRole('button', { name: '收起输出' })).toBeTruthy()
+    // A second call, selected without unmounting the panel, starts collapsed.
+    cleanup()
+    const second = mount(snapshot({
+      nodes: [settled({
+        callId: 'c2', resultView: resultTerminal({ output: `${long.join('\n')}\n` }),
+      })],
+    }), { turnSeq: 10, callId: 'c2', toolName: 'bash' })
+    expect(second.getByRole('button', { name: '展开其余 4 行输出' })).toBeTruthy()
+  })
+
+  it('resolves the prompt cwd against the session workspace', () => {
+    const view = mount(snapshot({ nodes: [settled()] }), target, '/w/app')
+    // No workdir in the call view: the prompt label is the workspace basename.
+    expect(view.getByText('app')).toBeTruthy()
+  })
 
   it('renders the terminal card at full height, keeping the JSON Input section', () => {
     const long = Array.from({ length: 20 }, (_, i) => `row-${i}`)
