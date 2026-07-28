@@ -62,9 +62,9 @@ const FOLD_PROPS = {
 
 describe('TrajectoryTable', () => {
   it('shows assistant timing facts after keyboard selection', () => {
-    render(<TrajectoryTable turns={TURNS} collapsed={false} />)
-    fireEvent.keyDown(screen.getByRole('row', { name: /记录 1，ASSISTANT/ }), { key: 'Enter' })
-    fireEvent.click(screen.getByRole('tab', { name: '计时' }))
+    render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    fireEvent.keyDown(screen.getByRole('row', { name: /ASSISTANT/ }), { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'Timing' }))
 
     expect(screen.getByText('500 ms')).toBeTruthy()
     expect(screen.getByText('1.00 s')).toBeTruthy()
@@ -84,24 +84,28 @@ describe('TrajectoryTable', () => {
   })
 
   it('keeps running and failure semantics distinct from record roles', () => {
-    const view = render(<TrajectoryTable turns={TURNS} collapsed={false} />)
+    const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     expect(view.container.querySelector('tr[data-kind="tool"][data-running="true"]')).toBeTruthy()
     expect(view.container.querySelector('tr[data-kind="tool"][data-error="true"]')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('row', { name: /记录 2，TOOL/ }))
-    expect(screen.getByText('进行中')).toBeTruthy()
-    fireEvent.click(screen.getByRole('row', { name: /记录 3，TOOL/ }))
-    expect(screen.getByText('失败')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: '输出' }))
+    fireEvent.click(screen.getByRole('row', { name: /TOOL, bash \{"command":"pwd"\}/ }))
+    expect(screen.getByText('Pending')).toBeTruthy()
+    fireEvent.click(screen.getByRole('row', { name: /TOOL, bash \{"command":"false"\}/ }))
+    expect(screen.getByText('Failed')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: 'Result' }))
     expect(screen.getByText('ToolError: non_zero_exit')).toBeTruthy()
   })
 
-  it('retains the ledger header and record count when collapsed', () => {
-    render(<TrajectoryTable turns={TURNS} collapsed />)
-    expect(screen.getByRole('columnheader', { name: '事件' })).toBeTruthy()
-    expect(screen.queryByRole('columnheader', { name: 'Tokens' })).toBeNull()
-    expect(screen.queryByRole('columnheader', { name: '耗时' })).toBeNull()
-    expect(screen.getByText('3 条记录已收起')).toBeTruthy()
-    expect(screen.queryByRole('row', { name: /记录 1，ASSISTANT/ })).toBeNull()
+  it('keeps the first row and a compact summary when a turn is collapsed', () => {
+    render(
+      <TrajectoryTable
+        turns={TURNS}
+        {...FOLD_PROPS}
+        collapsedTurns={new Set([1])}
+      />,
+    )
+    expect(screen.queryByRole('columnheader')).toBeNull()
+    expect(screen.getByRole('row', { name: /ASSISTANT/ })).toBeTruthy()
+    expect(screen.getByRole('row', { name: /Collapsed turn summary/ })).toBeTruthy()
   })
 })

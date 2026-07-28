@@ -178,16 +178,12 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.queryByText(/turns ·/)).toBeNull()
     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
-    expect(screen.getAllByLabelText('Step 1')).toHaveLength(2)
-    expect(screen.getByRole('columnheader', { name: '事件' })).toBeTruthy()
-    expect(screen.getByRole('columnheader', { name: '内容' })).toBeTruthy()
-    expect(screen.queryByRole('columnheader', { name: 'Tokens' })).toBeNull()
-    expect(screen.queryByRole('columnheader', { name: '耗时' })).toBeNull()
-    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' }).textContent).toContain('4 条记录')
-    fireEvent.click(screen.getByRole('button', { name: '收起记录' }))
-    expect(screen.getByText('4 条记录已收起')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '展开记录' }))
-    expect(screen.getByRole('row', { name: /记录 1，USER/ })).toBeTruthy()
+    expect(screen.queryByRole('columnheader')).toBeNull()
+    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
+    expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
+    expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
   })
 
@@ -196,19 +192,14 @@ describe('tab switching in ConversationRoot', () => {
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
 
-    fireEvent.keyDown(screen.getByRole('row', { name: /记录 3，TOOL/ }), { key: 'Enter' })
-    expect(screen.getByRole('complementary', { name: '记录详情' })).toBeTruthy()
-    expect(screen.getByText('记录 #3')).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('row', { name: /TOOL/ }), { key: 'Enter' })
+    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
     expect(screen.getByText('Turn 1 · Step 1')).toBeTruthy()
-    expect(screen.getByText('完成')).toBeTruthy()
+    expect(screen.getByText('Completed')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Result' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: '输入' }))
-    expect(screen.getByText('这条记录没有输入载荷')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: '输出' }))
-    expect(screen.getByText('[]')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
-    expect(screen.queryByRole('complementary', { name: '记录详情' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
+    expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
   })
 
   it('waterfall renders bars and switching back to chat does not collapse it', async () => {
@@ -226,7 +217,8 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench()
     mount(b.slots, [])
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
   })
 })
@@ -253,7 +245,8 @@ describe('span derivation', () => {
     expect(container.firstChild).toBeNull()
     render(createElement(TrajectoryView as FC<ConvViewProps>,
       standaloneProps([])))
-    expect(screen.getByText('暂无轨迹数据')).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.queryByRole('row')).toBeNull()
   })
 })
 
@@ -261,7 +254,7 @@ describe('WaterfallView standalone branches', () => {
   it('empty window renders the placeholder copy', () => {
     render(createElement(WaterfallView as FC<ConvViewProps>,
       standaloneProps([])))
-    expect(screen.getByText('暂无瀑布数据')).toBeTruthy()
+    expect(screen.getByText('No timing data')).toBeTruthy()
   })
 
   it('a turn without tool calls renders the node bar only', () => {
@@ -361,7 +354,7 @@ describe('deriveSubSpans (waterfall lanes)', () => {
     const lane = view.container.querySelector('[data-subspan]')
     expect(lane).not.toBeNull()
     expect(lane!.textContent).toContain('bash')
-    expect(lane!.querySelector('[title*="1.80s"]')).not.toBeNull()
+    expect(lane!.querySelector('[title*="1.80 s"]')).not.toBeNull()
     expect(lane!.querySelector('[data-timing="measured"]')).not.toBeNull()
   })
 

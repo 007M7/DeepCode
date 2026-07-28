@@ -1107,6 +1107,11 @@ describe('default one-shot summarizer', () => {
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
+      rawOutput: [
+        { type: 'reasoning', text: 'private' },
+        { type: 'text', text: 'public summary' },
+        { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
+      ],
       provider: MODEL,
       model: MODEL,
       maxTokens: 321,

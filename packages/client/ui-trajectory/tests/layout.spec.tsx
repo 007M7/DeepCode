@@ -139,7 +139,7 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    expect(turns[0]?.groups[0]?.description).toBe('3s bash×2')
+    expect(turns[0]?.groups[0]?.description).toBe('3 s bash×2')
   })
 
   it('assigns each user message to its enclosing turn instead of pooling into Turn 1', () => {
@@ -172,7 +172,7 @@ describe('deriveTrajectoryLayout', () => {
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
     const message = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'message')
     expect(message).toMatchObject({
-      text: '仅推理输出', input: 11, output: 22, think: 3,
+      text: '…', input: 11, output: 22, think: 3,
     })
   })
 
@@ -236,7 +236,7 @@ describe('run_code sub-dispatch cells', () => {
     const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
     const cells = turns[0]!.groups.flatMap(g => g.cells)
     expect(cells.map(c => c.kind)).toEqual(['message', 'tool', 'subtool', 'subtool'])
-    expect(cells[0]?.text).toBe('请求调用 run_code')
+    expect(cells[0]?.text).toBe('Tool call only')
     // Sequential indexes across the interleave; durations from the pair times.
     expect(cells.map(c => c.index)).toEqual([1, 2, 3, 4])
     expect(cells[2]).toMatchObject({ text: 'bash · {"x":1}', timeSeconds: 1 })
