@@ -60,6 +60,20 @@ describe('tails', () => {
     expect(stopped.getByText('已停止')).toBeTruthy()
   })
 
+  it('AssistantMarkdown skips the root shell when only tool-call heads remain', () => {
+    // Tool heads are drawn by ChatView's tool groups; an empty root between
+    // groups is layout noise (no text, no pulse, no interrupted marker).
+    const empty = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'tool-call', callId: 'c', name: 'todo_write', argsRaw: '{}' }]}
+        streaming={false}
+      />,
+    )
+    expect(empty.container.firstChild).toBeNull()
+    const blank = render(<AssistantMarkdown blocks={[]} streaming={false} />)
+    expect(blank.container.firstChild).toBeNull()
+  })
+
   it('a settled others-variant row renders the sparkle icon in the leading slot', () => {
     const settled: ToolResultNode = {
       kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
@@ -76,7 +90,7 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows StateDot chrome for running/error/stopped (root session arm)', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],

@@ -88,7 +88,7 @@ function config(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
   return {
     backendType: 'shell', shellPath: '/bin/bash', shellArgs: [], rows: 24, cols: 80,
     scrollbackLines: 10, scrollbackMaxBytes: 128, maxReadBytes: 64,
-    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, timeoutMs: 100,
+    pollIntervalMs: 10, exactProbeAfterMs: 20, idleSilenceMs: 50, handoffGraceMs: 10, timeoutMs: 100,
     disposeGraceMs: 20,
     ...overrides,
   }
@@ -115,10 +115,58 @@ describe('LocalPtySession readiness and output', () => {
     inspector.waiting = true
     const operation = session.startSend({ text: 'python3', submit: true })
     expect(terminal.writes).toEqual(['python3', '\r'])
+    inspector.pgid = 789
     terminal.emitData('Python\r\n>>> ')
     await vi.advanceTimersByTimeAsync(20)
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read', viewport: 'Python\n>>> ', sessionStatus: { kind: 'running' } })
     expect(operation.cancel()).toBe(false)
+  })
+
+  it('does not reuse a pre-write stdin wait as post-write readiness', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    await initialize(session, terminal)
+
+    inspector.waiting = true
+    const operation = session.startSend({ text: 'echo ready', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(20)
+    expect(settled).toBe(false)
+
+    inspector.waiting = false
+    await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(false)
+    inspector.waiting = true
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
+  it('tracks a pre-write wait exit before exact probing begins', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({
+      exactProbeAfterMs: 50,
+      idleSilenceMs: 100,
+      timeoutMs: 200,
+    }))
+    await initialize(session, terminal)
+
+    inspector.waiting = true
+    const operation = session.startSend({ text: 'fast command', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspector.waiting = false
+    await vi.advanceTimersByTimeAsync(10)
+    inspector.waiting = true
+    await vi.advanceTimersByTimeAsync(30)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(true)
+    expect((await operation.done).waitReason).toBe('stdin_read')
   })
 
   it('distinguishes inferred idle, timeout, exit signal, and operation reads', async () => {
@@ -304,6 +352,27 @@ describe('LocalPtySession readiness and output', () => {
     inspector.pgid = 456
     await vi.advanceTimersByTimeAsync(10)
     expect(settled).toBe(true)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
+  it('holds the idle fallback for the configured handoff grace, not one poll', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({ handoffGraceMs: 40 }))
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: 'run', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspector.pgid = 789
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    // One poll past the silence bound would already have settled inferred_idle.
+    await vi.advanceTimersByTimeAsync(70)
+    expect(settled).toBe(false)
+
+    inspector.pgid = 456
+    await vi.advanceTimersByTimeAsync(10)
     expect((await operation.done).waitReason).toBe('stdin_read')
   })
 

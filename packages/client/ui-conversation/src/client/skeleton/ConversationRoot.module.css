@@ -54,8 +54,8 @@
   border: none;
   border-radius: 12px;
   background: transparent;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -72,13 +72,6 @@
   cursor: default;
 }
 
-.meta {
-  margin-left: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
 .tabs {
   display: flex;
@@ -87,7 +80,7 @@
   padding-left: 8px;
 }
 
-/* figma .Tab 34:11442: 13/16 wt510 text, gap 8 to the 3px bar (no bottom rounding). */
+/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 3px bar (no bottom rounding). */
 .tab {
   position: relative;
   padding: 0 0 11px;
@@ -95,7 +88,7 @@
   background: transparent;
   font-size: 13px;
   line-height: 16px;
-  font-weight: 510;
+  font-weight: 500;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
 }
@@ -139,11 +132,45 @@
    NOT absolute+transform: a transform would make this box the containing
    block for position:fixed descendants (pickers/modals), shrinking them. */
 .composerHero {
+  position: relative; /* .heroGlow positioning context */
   align-self: center;
+  /* figma 75:8208: 12 between hero chrome / workspace row / card. */
+  gap: 12px;
+  /* Foot inside the centered box floats the stack a bit above true center. */
+  padding-bottom: 32px;
   width: min(776px, calc(100% - 48px));
   z-index: 1;
 }
 
+/* Blue backdrop ellipse (figma 313:14109), centered on the input card: the
+   card's resting center sits ~92px above the stack bottom (32 foot pad +
+   half of the ~120px two-row card); width tracks the card (glow asset 1051
+   vs design card 776) so blur scales in userSpace with it. z-index -1 keeps
+   it behind the in-flow hero content inside this stacking context. */
+.heroGlow {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  z-index: -1;
+  width: calc(100% * 1051 / 776);
+  aspect-ratio: 1051 / 468;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+}
+
+.heroWorkspaceRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: 8px;
+}
+
 .root[data-phase='hero'] {
   justify-content: center;
+}
+
+/* Settling (session replaying, hero/docked unknown): keep the composer
+   mounted but invisible so no wrong layout flashes before the phase lands. */
+.root[data-phase='settling'] .composerStack {
+  visibility: hidden;
 }
