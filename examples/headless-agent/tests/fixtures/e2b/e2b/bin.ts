@@ -147,18 +147,23 @@ try {
     workspaceRoot: process.cwd(),
   })
 
-  const swappedSource = await ctx.fs.resolve('swapped-source.ts')
-  const swappedSourcePath = posix.join(process.cwd(), 'swapped-source.ts')
-  await ctx.fs.writeText(swappedSource, 'const safe = true\n', { kind: 'createIfAbsent' })
+  const swappedParentPath = posix.join(process.cwd(), 'swapped-parent')
+  const swappedSourcePath = posix.join(swappedParentPath, 'source.ts')
+  const swappedOutsidePath = '/tmp/dsh-e2b-lsp-outside'
+  await sandbox.commands.run(
+    `mkdir -p -- ${quoteE2BShellArg(swappedParentPath)} ${quoteE2BShellArg(swappedOutsidePath)} && printf 'const safe = true\\n' > ${quoteE2BShellArg(swappedSourcePath)} && printf 'const outside = true\\n' > ${quoteE2BShellArg(posix.join(swappedOutsidePath, 'source.ts'))}`,
+  )
   const remoteCommands = sandbox.commands as unknown as {
     run(command: string, options?: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }>
   }
   const runRemoteCommand = remoteCommands.run.bind(sandbox.commands)
   let containmentFaultInjected = false
   remoteCommands.run = async (command, options) => {
-    if (!containmentFaultInjected && command.includes('dsh-e2b-source-reader') && command.includes('swapped-source.ts')) {
+    if (!containmentFaultInjected && command.includes('dsh-e2b-source-reader') && command.includes('swapped-parent/source.ts')) {
       containmentFaultInjected = true
-      await runRemoteCommand(`rm -f -- ${quoteE2BShellArg(swappedSourcePath)} && ln -s -- /etc/hosts ${quoteE2BShellArg(swappedSourcePath)}`)
+      await runRemoteCommand(
+        `rm -rf -- ${quoteE2BShellArg(swappedParentPath)} && ln -s -- ${quoteE2BShellArg(swappedOutsidePath)} ${quoteE2BShellArg(swappedParentPath)}`,
+      )
     }
     return await runRemoteCommand(command, options)
   }
@@ -166,7 +171,7 @@ try {
   try {
     await ctx.lsp.query({
       operation: 'hover',
-      filePath: 'swapped-source.ts',
+      filePath: 'swapped-parent/source.ts',
       position: { line: 0, character: 1 },
       workspaceRoot: process.cwd(),
     })
@@ -200,8 +205,28 @@ try {
     text: "printf 'PTY-你好\\n'",
     submit: true,
   }).done
+  const foregroundLookup = Promise.withResolvers<undefined>()
+  let delayedForegroundLookup = false
+  remoteCommands.run = async (command, options) => {
+    if (!delayedForegroundLookup && command.startsWith('ps -o tpgid=')) {
+      delayedForegroundLookup = true
+      await foregroundLookup.promise
+    }
+    return await runRemoteCommand(command, options)
+  }
+  const staleInterrupt = ctx.pty.startSend(owner, terminal.sessionId, { text: 'sleep 0.2', submit: true })
+  if (!staleInterrupt.cancel()) throw new Error('E2B PTY refused the stale-interrupt probe cancellation')
+  await staleInterrupt.done
   const sleeping = ctx.pty.startSend(owner, terminal.sessionId, { text: 'sleep 30', submit: true })
-  await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
+  foregroundLookup.resolve(undefined)
+  const interruptIdentitySafe = await Promise.race([
+    sleeping.done.then(() => false),
+    new Promise<true>(resolveDelay => setTimeout(() => { resolveDelay(true) }, 300)),
+  ])
+  remoteCommands.run = runRemoteCommand
+  if (!delayedForegroundLookup || !interruptIdentitySafe) {
+    throw new Error('E2B PTY stale interrupt affected its successor send')
+  }
   const terminalSignal = await ctx.pty.signal(owner, terminal.sessionId, 'SIGINT')
   const interrupted = await sleeping.done
   const stubborn = await ctx.pty.startSend(owner, terminal.sessionId, {
@@ -296,6 +321,23 @@ try {
     `,
     bindings: [],
   })
+  const descendantPipe = await ctx.codeRuntime.run({
+    program: `
+      const childProcess = await import('node:child_process')
+      const child = childProcess.spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1000)', 'dsh-code-runtime-descendant'],
+        { stdio: ['ignore', 'inherit', 'inherit'] },
+      )
+      return child.pid > 0
+    `,
+    bindings: [],
+  })
+  const descendantProcesses = await sandbox.commands.list()
+  const descendantCleanup = !descendantProcesses.some(processInfo =>
+    JSON.stringify([processInfo.cmd, processInfo.args]).includes('dsh-code-runtime-descendant'),
+  )
+  if (!descendantCleanup) throw new Error('E2B Code Runtime left a pipe-holding descendant alive')
   const timedOut = await ctx.codeRuntime.run({
     program: 'await new Promise(() => {})',
     bindings: [],
@@ -340,6 +382,7 @@ try {
       echo: terminalEcho,
       signal: terminalSignal,
       interrupted,
+      interruptIdentitySafe,
       treeCleanup: terminalTreeCleanup,
       scrollback: terminalScrollback.text,
     },
@@ -348,6 +391,8 @@ try {
     nativeOutput,
     descriptorOutput,
     inheritedOutput,
+    descendantPipe,
+    descendantCleanup,
     timedOut,
     aborted,
     oversizedBoot,

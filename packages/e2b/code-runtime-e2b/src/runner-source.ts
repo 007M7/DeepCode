@@ -35,6 +35,18 @@ const waitForChildExit = child => {
   return new Promise(resolve => { child.once('exit', resolve) })
 }
 
+const killControllerGroup = child => {
+  if (process.platform !== 'win32' && Number.isSafeInteger(child.pid)) {
+    try {
+      process.kill(-child.pid, 'SIGKILL')
+    } catch (error) {
+      if (!error || typeof error !== 'object' || error.code !== 'ESRCH') throw error
+    }
+    return
+  }
+  child.kill('SIGKILL')
+}
+
 const jsonStringBytes = text => Buffer.byteLength(JSON.stringify(text))
 
 const truncateLog = (text, available) => {
@@ -74,7 +86,7 @@ const runLauncher = () => {
           const stdoutDrained = waitForPipeDrain(current.stdout)
           const stderrDrained = waitForPipeDrain(current.stderr)
           const exited = waitForChildExit(current)
-          current.kill('SIGKILL')
+          killControllerGroup(current)
           await Promise.all([exited, stdoutDrained, stderrDrained])
         })
       : Promise.resolve()
@@ -112,6 +124,7 @@ const runLauncher = () => {
     maxOutputBytes = message.maxOutputBytes
     controller = fork(fileURLToPath(import.meta.url), [], {
       env: { DSH_CODE_RUNTIME_CONTROLLER: '1' },
+      detached: process.platform !== 'win32',
       execArgv: [],
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
@@ -173,7 +186,7 @@ const runLauncher = () => {
         })
     }
   })
-  input.on('close', () => { if (controller && !settling) controller.kill('SIGKILL') })
+  input.on('close', () => { if (controller && !settling) killControllerGroup(controller) })
 }
 
 const runController = () => {

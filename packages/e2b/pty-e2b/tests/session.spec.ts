@@ -68,6 +68,7 @@ class FakeSandbox {
   sendError: unknown
   signalError: unknown
   killError: unknown
+  foregroundLookup: Promise<CommandResult> | undefined
   onTerm: (() => void) | undefined
   onGroupKill: (() => void) | undefined
   onKill: (() => void) | undefined
@@ -88,7 +89,9 @@ class FakeSandbox {
     commands: {
       run: async (command: string): Promise<CommandResult> => {
         this.commands.push(command)
-        if (command.startsWith('ps -o tpgid')) return { exitCode: 0, stdout: this.pgid, stderr: '' }
+        if (command.startsWith('ps -o tpgid')) {
+          return await (this.foregroundLookup ?? Promise.resolve({ exitCode: 0, stdout: this.pgid, stderr: '' }))
+        }
         if (command.startsWith('ps -eo sid=')) {
           return { exitCode: 0, stdout: this.sessionGroups.map(value => `${value}\n`).join(''), stderr: '' }
         }
@@ -271,6 +274,45 @@ describe('E2BPtySession readiness, output, and signals', () => {
     deferred.reject(new Error('late failure'))
     await vi.advanceTimersByTimeAsync(0)
     expect(sendInput).toHaveBeenCalled()
+  })
+
+  it('does not let a stale interrupt signal or fail a successor send', async () => {
+    vi.useFakeTimers()
+    const fake = new FakeSandbox()
+    const handle = new FakePtyHandle()
+    const session = new E2BPtySession(fake.sandbox, handle.asHandle(), 123, config())
+    await initialize(session)
+
+    const lookup = Promise.withResolvers<CommandResult>()
+    fake.foregroundLookup = lookup.promise
+    const stale = session.startSend({ text: 'old', submit: true })
+    expect(stale.cancel()).toBe(true)
+    session.onData(Buffer.from('\x1b]133;D;0\x07dsh> '))
+    await vi.advanceTimersByTimeAsync(10)
+    await stale.done
+
+    const successor = session.startSend({ text: 'new', submit: true })
+    fake.signalError = new Error('late interrupt failure')
+    lookup.resolve({ exitCode: 0, stdout: '789\n', stderr: '' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.commands).not.toContain('kill -INT -- -789')
+    session.onData(Buffer.from('\x1b]133;D;0\x07dsh> '))
+    await vi.advanceTimersByTimeAsync(10)
+    await expect(successor.done).resolves.toMatchObject({ waitReason: 'stdin_read' })
+
+    const failedLookup = Promise.withResolvers<CommandResult>()
+    fake.foregroundLookup = failedLookup.promise
+    const staleFailure = session.startSend({ text: 'old failure', submit: true })
+    expect(staleFailure.cancel()).toBe(true)
+    session.onData(Buffer.from('\x1b]133;D;0\x07dsh> '))
+    await vi.advanceTimersByTimeAsync(10)
+    await staleFailure.done
+    const finalSuccessor = session.startSend({ text: 'new after failure', submit: true })
+    failedLookup.reject(new Error('late lookup failure'))
+    await vi.advanceTimersByTimeAsync(0)
+    session.onData(Buffer.from('\x1b]133;D;0\x07dsh> '))
+    await vi.advanceTimersByTimeAsync(10)
+    await expect(finalSuccessor.done).resolves.toMatchObject({ waitReason: 'stdin_read' })
   })
 
   it('preserves startup abort reasons and classifies invalid UTF-8 transport failures', async () => {

@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
+import { setTimeout as delay } from 'node:timers/promises'
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { Sandbox } from '@deepseek-ai/dsh-e2b'
@@ -269,6 +270,55 @@ describe('E2BCodeRuntime', () => {
     expect(stderr).toBe('')
     expect(terminalIndex).toBe(records.length - 1)
     expect(Buffer.byteLength(nativeOutput)).toBe(expectedBytes)
+  })
+
+  it.skipIf(process.platform === 'win32')('reaps descendant-held controller pipes before completion', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-e2b-code-descendant-'))
+    const marker = join(directory, 'started')
+    const release = join(directory, 'release')
+    const childSource = `
+      const fs = require('node:fs')
+      fs.writeFileSync(${JSON.stringify(marker)}, 'started')
+      const timer = setInterval(() => {
+        if (fs.existsSync(${JSON.stringify(release)})) clearInterval(timer)
+      }, 10)
+    `
+    let running: ReturnType<typeof runInstalledRunner> | undefined
+    try {
+      running = runInstalledRunner(`
+        const fs = await import('node:fs')
+        const childProcess = await import('node:child_process')
+        childProcess.spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], {
+          stdio: ['ignore', 'inherit', 'inherit'],
+        })
+        while (!fs.existsSync(${JSON.stringify(marker)})) await new Promise(resolve => setTimeout(resolve, 5))
+        return true
+      `)
+      const deadline = Date.now() + 2_000
+      for (;;) {
+        try {
+          await access(marker)
+          break
+        } catch (error: unknown) {
+          if (Date.now() >= deadline) throw error
+          await delay(10)
+        }
+      }
+      const completed = await Promise.race([
+        running.then(() => true),
+        delay(500).then(() => false),
+      ])
+      await writeFile(release, '')
+      const { messages, stderr } = await running
+
+      expect(completed).toBe(true)
+      expect(stderr).toBe('')
+      expect(messages.at(-1)).toEqual({ type: 'done', value: [true] })
+    } finally {
+      await writeFile(release, '').catch(() => undefined)
+      await running?.catch(() => undefined)
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('prepares the remote runner and returns logs and a lossless completion', async () => {

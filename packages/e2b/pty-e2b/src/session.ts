@@ -226,6 +226,10 @@ export class E2BPtySession implements PtyBackendSession {
   /* jscpd:ignore-start -- Signal, status, and close methods preserve the seam shape around remote identities. */
   async signal(signal: PtySignal): Promise<PtySignalResult> {
     const pgid = await this.foregroundPgid()
+    return await this.deliverSignal(signal, pgid)
+  }
+
+  private async deliverSignal(signal: PtySignal, pgid: number): Promise<PtySignalResult> {
     if (signal === 'SIGKILL' && pgid === this.pid) {
       throw new Error('refusing to SIGKILL the E2B PTY shell; use terminal_close')
     }
@@ -302,7 +306,15 @@ export class E2BPtySession implements PtyBackendSession {
 
   private interrupt(operation: E2BSendOperation): void {
     if (this.active !== operation) return
-    void this.signal('SIGINT').catch((error: unknown) => { this.failActive(error) })
+    void this.interruptActive(operation).catch((error: unknown) => {
+      if (this.active === operation) this.failActive(error)
+    })
+  }
+
+  private async interruptActive(operation: E2BSendOperation): Promise<void> {
+    const pgid = await this.foregroundPgid()
+    if (this.active !== operation) return
+    await this.deliverSignal('SIGINT', pgid)
   }
 
   private async foregroundPgid(): Promise<number> {
