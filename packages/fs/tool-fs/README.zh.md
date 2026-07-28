@@ -115,7 +115,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-成功列出结果为 `<path><JSON-quoted display path></path>`、换行、`<type>directory</type>`、换行、`<content>`、页面中的每个条目一行、一个空行、一条 footer 和 `</content>`。每个条目名都是 JSON 字符串，并额外对 `<`、`>` 和 `&` 做 Unicode 转义，使文件系统文本无法伪造包络；目录带尾部 `/`，非常规子项带尾部 `@`，常规文件两者都不带。footer 为 `(Empty directory)`、`(<n> entries: <d> directories, <f> files)`（可选追加 `, <o> other`），或 `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`；最后一页省略继续提示。每一页都会说明完整计数与构成。
+成功列出结果为 `<path><display path></path>`、换行、`<type>directory</type>`、换行、`<content>`、页面中的每个条目一行、一个空行、一条 footer 和 `</content>`。目录带尾部 `/`，非常规子项带尾部 `@`，常规文件两者都不带。条目名默认原样输出，只有当它可能让列出结果失真时才转为 JSON 字符串并中和 `</`——包括控制字符、开头的 `"`、反斜杠、`</`，以及会与非常规标记撞车的结尾 `@`。绝大多数普通名称都保持不加引号。footer 为 `(Empty directory)`、`(<n> entries: <d> directories, <f> files)`（可选追加 `, <o> other`），或 `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`；最后一页省略继续提示。每一页都会说明完整计数与构成。
 
 #### Token 影响
 

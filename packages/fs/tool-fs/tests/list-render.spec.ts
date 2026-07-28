@@ -42,12 +42,12 @@ describe('orderEntries', () => {
 
 describe('formatListOutput', () => {
   it('marks directories and non-regular children, and counts the whole listing', () => {
-    expect(formatListOutput(page([entry('src', 'directory'), entry('a.txt'), entry('sock', 'other')]))).toBe(`<path>"/w"</path>
+    expect(formatListOutput(page([entry('src', 'directory'), entry('a.txt'), entry('sock', 'other')]))).toBe(`<path>/w</path>
 <type>directory</type>
 <content>
-"src"/
-"a.txt"
-"sock"@
+src/
+a.txt
+sock@
 
 (3 entries: 1 directory, 1 file, 1 other)
 </content>`)
@@ -64,13 +64,13 @@ describe('formatListOutput', () => {
   it('states the complete size and composition when the view is capped', () => {
     const entries = [entry('src', 'directory'), ...Array.from({ length: 5 }, (_, i) => entry(`f${i}.txt`))]
     const rendered = formatListOutput(page(entries.slice(0, 2), { totalEntries: entries.length, all: entries }))
-    expect(rendered).toContain('"src"/\n"f0.txt"\n')
+    expect(rendered).toContain('src/\nf0.txt\n')
     expect(rendered).not.toContain('f2.txt')
     expect(rendered).toContain('(Showing entries 1-2 of 6: 1 directory, 5 files. Use offset=3 to continue.)')
   })
 
   it('renders an empty directory as a footer alone', () => {
-    expect(formatListOutput(page([]))).toBe(`<path>"/w"</path>
+    expect(formatListOutput(page([]))).toBe(`<path>/w</path>
 <type>directory</type>
 <content>
 (Empty directory)

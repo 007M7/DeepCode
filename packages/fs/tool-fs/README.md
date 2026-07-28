@@ -115,7 +115,7 @@ Prefix-stable while the visible tool definitions and order are unchanged. Regist
 
 #### What the model sees
 
-A successful listing is `<path><JSON-quoted display path></path>`, newline, `<type>directory</type>`, newline, `<content>`, one line per page entry, a blank line, one footer, and `</content>`. Each entry name is a JSON string with `<`, `>`, and `&` additionally Unicode-escaped so filesystem text cannot forge the envelope; a directory carries a trailing `/`, a non-regular child a trailing `@`, and a regular file neither. The footer is `(Empty directory)`, `(<n> entries: <d> directories, <f> files)` with optional `, <o> other`, or `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`; the final page omits the continuation sentence. Every page states the complete count and composition.
+A successful listing is `<path><display path></path>`, newline, `<type>directory</type>`, newline, `<content>`, one line per page entry, a blank line, one footer, and `</content>`. A directory carries a trailing `/`, a non-regular child a trailing `@`, and a regular file neither. A name is emitted verbatim unless it could make the listing say something untrue — a control character, a leading `"`, a backslash, `</`, or a trailing `@` that would collide with the non-regular marker — in which case it becomes a JSON string with `</` neutralized. Ordinary names, which is nearly all of them, stay unquoted. The footer is `(Empty directory)`, `(<n> entries: <d> directories, <f> files)` with optional `, <o> other`, or `(Showing entries <start>-<end> of <n>: <composition>. Use offset=<next> to continue.)`; the final page omits the continuation sentence. Every page states the complete count and composition.
 
 #### Token effect
 

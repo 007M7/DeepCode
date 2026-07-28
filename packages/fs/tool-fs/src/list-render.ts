@@ -77,17 +77,41 @@ function breakdown(counts: ListCounts): string {
   return parts.join(', ')
 }
 
-/** JSON-string encode untrusted filesystem text and neutralize envelope tags. */
-function encodeFilesystemText(value: string): string {
-  return JSON.stringify(value)
-    .replaceAll('<', '\\u003c')
-    .replaceAll('>', '\\u003e')
-    .replaceAll('&', '\\u0026')
+/**
+ * Names this renderer cannot emit verbatim, because POSIX allows every byte but
+ * `/` and NUL in a name and each of these would make the listing say something
+ * untrue:
+ *
+ * - a control character (a newline above all) splits one entry across lines;
+ * - `</` closes a tag the envelope owns;
+ * - a trailing `@` is indistinguishable from the non-regular marker, so a
+ *   regular file named `x@` would read as a socket named `x`;
+ * - a leading `"` makes a raw name look like the quoted form;
+ * - a backslash survives into the quoted form and must round-trip.
+ */
+const NEEDS_QUOTING = /[\p{Cc}\\]|^"|@$|<\//u
+
+/**
+ * Render one untrusted filesystem name: verbatim when it cannot disturb the
+ * format, which is every ordinary name, and otherwise a JSON string with `</`
+ * additionally neutralized, so a crafted name can neither forge an entry line
+ * nor close the envelope.
+ *
+ * Quoting only when needed keeps a listing readable — this is the tool an agent
+ * reaches for first, and its output is in every transcript — while leaving the
+ * format unambiguous. The delimiter neutralization is the one
+ * `@deepseek-ai/dsh-workspace-context` applies to instruction text, extended to
+ * an interpolated path as its `instruction-frame-paths` TODO asks.
+ */
+function renderName(value: string): string {
+  if (!NEEDS_QUOTING.test(value)) return value
+  return JSON.stringify(value).replaceAll('</', '<\\/')
 }
 
 /**
- * Render one bounded listing page. Entry names are JSON strings followed by `/`
- * for directories or `@` for non-regular children; regular files have no suffix.
+ * Render one bounded listing page. An entry is its name — verbatim, or a JSON
+ * string when the raw name would disturb the format — followed by `/` for a
+ * directory or `@` for a non-regular child; a regular file carries no suffix.
  * The footer carries complete composition and an exact continuation offset.
  *
  * @param page - the canonical listing page.
@@ -103,9 +127,9 @@ export function formatListOutput(page: ListPage): string {
         + (end < page.totalEntries ? ` Use offset=${end + 1} to continue.)` : ')')
       : `(${count(page.totalEntries, 'entry', 'entries')}: ${breakdown(page.counts)})`
   const body = page.entries.length > 0
-    ? `${page.entries.map(entry => `${encodeFilesystemText(entry.name)}${suffix[entry.type]}`).join('\n')}\n\n${footer}`
+    ? `${page.entries.map(entry => `${renderName(entry.name)}${suffix[entry.type]}`).join('\n')}\n\n${footer}`
     : footer
-  return `<path>${encodeFilesystemText(page.path)}</path>
+  return `<path>${renderName(page.path)}</path>
 <type>directory</type>
 <content>
 ${body}

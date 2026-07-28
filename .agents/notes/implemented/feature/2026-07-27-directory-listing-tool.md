@@ -62,7 +62,7 @@ Three presentation rules carry the decision:
 
 - **Directories sort first, then files, then non-regular children, each alphabetically** before paging, so every offset traverses one stable order and the first page keeps navigable structure.
 - **The canonical value and Native result carry one recoverable page** of at most `listMaxEntries` (default 200, configurable). The footer states the complete size and composition and gives `offset=<next>` until the final page, so omitted sibling names remain reachable.
-- **Filesystem text cannot forge presentation structure.** The path and entry names render as JSON strings with envelope-significant characters escaped; directory `/` and non-regular `@` markers sit outside the quoted name, so a regular filename ending in `@` remains distinguishable.
+- **Filesystem text cannot forge presentation structure.** A name is emitted verbatim unless it would make the listing lie — a control character splitting one entry across lines, `</` closing the envelope, a trailing `@` colliding with the non-regular marker — and is then a JSON string with `</` neutralized. Quoting only when needed keeps the tool an agent reaches for first legible in every transcript, while leaving the format unambiguous.
 
 `list` emits no `fs/observed`. Seeing a filename is not reading a file, and a listing must never satisfy the read-before-write gate that `@deepseek-ai/dsh-fs-policy` enforces. It declares `isConcurrencySafe`, because it mutates nothing at all.
 
