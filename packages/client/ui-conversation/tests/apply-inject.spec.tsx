@@ -107,6 +107,7 @@ async function bench() {
   const workspacesFake = {
     list: workspaceStore,
     connectWorkspace: vi.fn(async () => ROOT),
+    openPath: vi.fn(async () => {}),
   }
   ctx.provide('workspaces', workspacesFake)
   const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
@@ -257,6 +258,15 @@ describe('conversation slot inject surface', () => {
     // writes land where the skeleton and details read.
     const conv = b.conversationSurface(ROOT)
     expect(conv.instance).toBe(instance)
+  })
+
+  it('openFile (chat view face) resolves against session cwd and calls workspaces.openPath', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewSurface(ROOT)
+    injected.openFile('src/a.ts')
+    await vi.waitFor(() => {
+      expect(b.workspacesFake.openPath).toHaveBeenCalledWith('/proj/src/a.ts')
+    })
   })
 
   it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {

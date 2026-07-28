@@ -125,8 +125,26 @@ supportedArchitectures:
   os: [current, win32]
   cpu: [current, x64]
 EOF
-  (cd "$scratch/tree" && pnpm install --frozen-lockfile --ignore-scripts > "$scratch/logs/install.log" 2>&1) \
-    || { tail -40 "$scratch/logs/install.log" >&2; return 1; }
+  # The hoisted linker — used only by this lane — has an upstream rename
+  # race (pnpm/pnpm#12880): parallel linkers staging a nested package copy
+  # (observed on the tree's nested esbuild versions) rename their _tmp_*
+  # directory onto a path another racer already claimed, and the loser
+  # exits ERR_PNPM_ENOENT although an identical re-install succeeds.
+  # Exactly that signature earns up to two retries on a clean tree — the
+  # snapshot contains no node_modules, so wiping them restores the
+  # pre-install state; any other failure, or the race still standing after
+  # the final attempt, fails loud with the log tail.
+  local attempt
+  for attempt in 1 2 3; do
+    (cd "$scratch/tree" && pnpm install --frozen-lockfile --ignore-scripts > "$scratch/logs/install.log" 2>&1) \
+      && return 0
+    grep -q 'ERR_PNPM_ENOENT.*rename.*_tmp_' "$scratch/logs/install.log" || break
+    (( attempt < 3 )) || break
+    echo "wine-windows-gates: pnpm hoisted-linker rename race (pnpm/pnpm#12880) on install attempt $attempt; retrying on a clean tree" >&2
+    find "$scratch/tree" -name node_modules -type d -prune -exec rm -rf {} +
+  done
+  tail -40 "$scratch/logs/install.log" >&2
+  return 1
 }
 
 mkdir "$scratch/tree"
