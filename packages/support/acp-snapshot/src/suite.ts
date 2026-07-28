@@ -115,6 +115,12 @@ export interface Scenario {
    */
   workspaceParent?: string
   /**
+   * Optional final workspace preparation after the committed fixture is
+   * copied. Reserve this for paths that Git cannot represent portably; normal
+   * scenario files belong under the scenario's `workspace/` directory.
+   */
+  prepareWorkspace?: (cwd: string) => void | Promise<void>
+  /**
    * Whether Windows additionally compares stdout with native separators against
    * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
@@ -849,6 +855,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // replays from its own script. In RECORD they are harvested, not read.
           ...!RECORDING && childFixtureFiles.length > 0 ? { childFiles: childFixtureFiles.map(file => join(dir, file)) } : {},
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
+          ...scenario.prepareWorkspace !== undefined ? { prepareWorkspace: scenario.prepareWorkspace } : {},
           ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
           // A scenario booting an overlay tree passes its own live config; the
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.

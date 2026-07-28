@@ -51,7 +51,7 @@ defineAcpSnapshotSuite({
 })
 ```
 
-启动不同组合树的场景会设置自己的 `configPath`（一个 basename 仍以 `cordis.yml` 结尾的 overlay，使 bin 的回放交换可找到同级 `*cordis.snapshot.yml`）；当该组合改变请求 header 时，还会设置自己的 `headerClass` 和 pin 场景，acp-agent 示例的 Code Mode 与文件系统场景是模板。当临时目录授权自身待测时，`workspaceParent` 将生成 cwd 移出平台临时区域；harness 仍只拥有并移除生成的子级。每个 pin 目录将规范化的完整提示词序列存入生成的 `system-prompt.expected.md`，将对应完整工具 schema 序列存入生成的 `tool-schemas.expected.json`；`session.jsonl` 存储 `"system":"{{system}}","tools":"{{tools}}"`，同时保留配置、原因和任何模型可见前缀。具有合法运行中 header 变更的 pin 声明 `expectedHeaderChanges`，用于固定两个 sidecar 序列的长度。
+启动不同组合树的场景会设置自己的 `configPath`（一个 basename 仍以 `cordis.yml` 结尾的 overlay，使 bin 的回放交换可找到同级 `*cordis.snapshot.yml`）；当该组合改变请求 header 时，还会设置自己的 `headerClass` 和 pin 场景，acp-agent 示例的 Code Mode 与文件系统场景是模板。当临时目录授权自身待测时，`workspaceParent` 将生成 cwd 移出平台临时区域；harness 仍只拥有并移除生成的子级。场景签入的 `workspace/` 会先复制到该子级，随后 `prepareWorkspace` 在 agent 启动前针对生成 cwd 运行。此 hook 仅用于 Git 无法跨平台表示的 fixture；普通种子应留在 `workspace/` 中，而生成路径在 Windows 上无效时还必须搭配 `posixOnly`。每个 pin 目录将规范化的完整提示词序列存入生成的 `system-prompt.expected.md`，将对应完整工具 schema 序列存入生成的 `tool-schemas.expected.json`；`session.jsonl` 存储 `"system":"{{system}}","tools":"{{tools}}"`，同时保留配置、原因和任何模型可见前缀。具有合法运行中 header 变更的 pin 声明 `expectedHeaderChanges`，用于固定两个 sidecar 序列的长度。
 
 每个场景都比较 `stdout.expected.jsonl`，其中以 cwd 为根的分隔符规范化为 `/`。在 Windows 上，`pinsNativeWindowsStdout` 还会在共享预期输出之后比较完整 `stdout.expected.windows.jsonl`，并在启用时精确要求该 sidecar。驱动行为需要 POSIX 进程语义的场景（例如取消实时 bash 调用会终止脱离进程组）声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件。
 
