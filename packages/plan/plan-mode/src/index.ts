@@ -22,6 +22,8 @@
  */
 
 import { Context, Service } from 'cordis'
+import { z as zod } from 'zod'
+import type { ZodType } from 'zod'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -30,6 +32,14 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
 // Type-only edge: resolves `ctx.commands` for the optional command child.
 import type {} from '@deepseek-ai/dsh-commands'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type { PlanProjection } from './types.ts'
+// The `plan` projection-key declaration lives in src/types.ts (its one home);
+// this re-export projects the type face onto the package root AND keeps the
+// module edge in the emitted index.d.ts, so aggregate programs consuming the
+// declarations still receive the SessionProjectionMap merge.
+export type * from './types.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -122,6 +132,23 @@ export function foldPlanMode(events: readonly SessionEvent[], end = events.lengt
   return active
 }
 
+/**
+ * Projection unit state: the logged mode plus the latest logged `/plan`
+ * selection (`command/run`) not yet resolved by a `plan/mode` commit. Plain
+ * JSON (persisted-cache precondition).
+ */
+interface PlanUnitState {
+  active: boolean
+  /** The selection's target mode; null when no selection is outstanding. */
+  wanted: boolean | null
+}
+
+/** Wire payload schema of the `plan` projection. */
+const planProjectionSchema: ZodType<PlanProjection> = zod.object({
+  active: zod.boolean(),
+  pending: zod.boolean(),
+})
+
 /** Plan state at the last logged request header, or `undefined` before the first header. */
 function planModeAtLastHeader(events: readonly SessionEvent[]): boolean | undefined {
   let lastHeader = -1
@@ -180,6 +207,37 @@ export class PlanModeService extends Service {
       text: context => context.agent !== undefined && foldPlanMode(context.agent.session.events)
         ? this.section
         : '',
+    })
+
+    // The plan projection unit (session-projection RFC): a pure double-event
+    // fold serving clients the whole {active, pending} value. `command/run`
+    // records the user's logged /plan selection (the handler calls `set()`
+    // before any failing path, so log and run-plane cannot fork); `plan/mode`
+    // is the boundary commit that resolves it. Pending is thereby a pure
+    // replay quantity: host restarts, other tabs, and cold reads all recover
+    // it from the log alone. The unit child activates only when a projection
+    // registry is composed (headless assemblies stay unaffected).
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'plan', PlanUnitState>({
+        key: 'plan',
+        schema: planProjectionSchema,
+        init: () => ({ active: false, wanted: null }),
+        apply: (state, event) => {
+          if (event.type === 'command/run' && event.data.name === 'plan') {
+            const wanted = event.data.args.trim() !== 'off'
+            return wanted === state.wanted ? state : { active: state.active, wanted }
+          }
+          if (event.type === 'plan/mode') {
+            return { active: event.data.active, wanted: null }
+          }
+          return state
+        },
+        view: state => ({
+          active: state.active,
+          pending: state.wanted !== null && state.wanted !== state.active,
+        }),
+        stateVersion: 1,
+      })
     })
 
     // The command child activates only when a command registry is composed.

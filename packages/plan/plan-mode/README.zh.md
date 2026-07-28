@@ -18,6 +18,10 @@
 
 TUI 消费插件拥有的 `/plan` 命令；其他入口可以直接驱动同一服务，无需定义第二套 mode 词汇。
 
+## 会话投影
+
+当组合挂载 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.zh.md)）时，本包在注入子插件下注册 `plan` 投影单元。该单元折叠两种事件：名为 `plan` 的 `command/run` 记录设置目标值（`off` → 未激活，其余 → 激活），`plan/mode` 提交已记录状态并将其清除；其他任何事件返回同一状态引用。`view` 推导 `{ active, pending }`，其中 `pending` 仅在未兑现的选择不同于已记录状态时为 true——它是纯回放量，host 重启、其他标签页与冷读都只凭日志即可恢复（`/plan` 处理器在任何可能失败的路径之前调用 `set()`，使已入日志的请求与运行面不可能分叉）。key 从 `src/types.ts` merge 进 `SessionProjectionMap`（host 消费方经 `./types`、client 聚合经 `./client`）；框架驱动单元，载体在历史尾页与 `session/projection` 推送帧上提供该值。未挂注册表的组合不受影响。
+
 ## 配置
 
 ```yaml
