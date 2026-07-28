@@ -124,6 +124,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // text input; the same guard the workspace-name inputs carry, shared by
   // the path editor and the folder-name input.
   const composingRef = useRef(false)
+  // HMR/unmount invalidation: a completion from a disposed flow must not
+  // update state or issue follow-up requests from a dead component.
+  useEffect(() => () => {
+    requestSeq.current += 1
+    openGeneration.current += 1
+  }, [])
   const compositionGuard = {
     onCompositionStart: () => { composingRef.current = true },
     onCompositionEnd: () => { composingRef.current = false },
@@ -163,6 +169,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       if (seq !== requestSeq.current) return
       setLoading(false)
       setError(failureText(reason))
+      // An unreadable selection cannot be the committing target while the
+      // breadcrumb still names the level: fall back to the single pane.
+      setSelected(null)
     })
   }, [listDirectory])
 

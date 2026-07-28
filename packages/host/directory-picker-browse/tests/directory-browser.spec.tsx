@@ -383,6 +383,35 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
   })
 
+  it('drops a creation that settles after the browser unmounted', async () => {
+    let settleCreate!: (path: string) => void
+    const createDirectory = vi.fn(() => new Promise<string>((settle) => { settleCreate = settle }))
+    const b = mount({ createDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'slow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    const listCalls = b.listDirectory.mock.calls.length
+    b.view.unmount()
+    // The dead flow must not issue the post-create relist.
+    await act(async () => { settleCreate(`${HOME}/slow`) })
+    expect(b.listDirectory.mock.calls.length).toBe(listCalls)
+  })
+
+  it('clears the selection when its preview listing fails', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    b.listDirectory.mockImplementation(async () => {
+      throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path: DOCS } })
+    })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    // The breadcrumb names the level, so the level must be the committing
+    // target: no half-selected two-pane state survives the failure.
+    expect(columns()).toHaveLength(1)
+    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
+  })
+
   it('ignores dismissal while adoption is busy', async () => {
     const b = mount({ busy: true })
     await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
@@ -506,18 +535,6 @@ describe('DirectoryBrowser', () => {
     fireEvent.click(masks[masks.length - 1]!)
     await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
     expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy()
-  })
-
-  it('surfaces a selection-preview failure while keeping the selection marked', async () => {
-    const b = mount()
-    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    b.listDirectory.mockRejectedValueOnce(
-      new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path: DOCS } }))
-    fireEvent.click(rowButton(screen.getByRole('listitem')))
-    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
-    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBe('true')
-    // No preview column arrived for the failed selection.
-    expect(columns()).toHaveLength(1)
   })
 
   it('surfaces a post-create relist failure on the browser surface', async () => {
