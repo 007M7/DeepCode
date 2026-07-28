@@ -224,7 +224,7 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.register(marksUnit())
     ctx.sessionProjections.register(countUnit())
     const tail: SessionEvent[] = [
-      { type: 'test/mark', seq: 3, time: 3, data: { marks: ['new'] } } as SessionEvent,
+      { type: 'test/mark', seq: 3, time: 3, data: { marks: ['new'] } },
       { type: 'turn/end', seq: 4, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     // marks row usable (watermark 2, tail starts at 3); count row mismatched — but
@@ -236,8 +236,8 @@ describe('SessionProjectionRegistry drive', () => {
     // The full-log re-read (baseSeq 0) refolds the mismatched key from init.
     const full: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'test/mark', seq: 1, time: 1, data: { marks: ['old'] } } as SessionEvent,
-      { type: 'test/mark', seq: 2, time: 2, data: { marks: ['old', '2'] } } as SessionEvent,
+      { type: 'test/mark', seq: 1, time: 1, data: { marks: ['old'] } },
+      { type: 'test/mark', seq: 2, time: 2, data: { marks: ['old', '2'] } },
       ...tail,
     ]
     const { snapshot, checkpoint } = ctx.sessionProjections.restore({

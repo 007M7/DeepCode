@@ -300,7 +300,7 @@ export class SessionProjectionRegistry extends Service {
       if (row === undefined || row.stateVersion !== def.stateVersion) continue
       values[def.key] = def.schema.parse(def.view(row.state))
     }
-    return values as Partial<SessionProjectionMap>
+    return values
   }
 
   /**
@@ -352,7 +352,7 @@ export class SessionProjectionRegistry extends Service {
       refreshed[def.key] = { stateVersion: def.stateVersion, observedSeq: endSeq, state }
     }
     return {
-      snapshot: { asOfSeq: endSeq, values: values as ProjectionSnapshot['values'] },
+      snapshot: { asOfSeq: endSeq, values: values },
       checkpoint: refreshed,
     }
   }

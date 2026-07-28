@@ -39,7 +39,7 @@ const marksUnit = (stateVersion = 1): ProjectionDefinition<'cache-test/marks', M
   key: 'cache-test/marks',
   schema: z.object({ marks: z.array(z.string()) }),
   init: () => null,
-  apply: (state, event) => (event.type === 'cache-test/mark' ? (event as SessionEvent<'cache-test/mark'>).data : state),
+  apply: (state, event) => (event.type === 'cache-test/mark' ? (event).data : state),
   view: state => state ?? { marks: [] },
   stateVersion,
 })
@@ -163,7 +163,7 @@ describe('SessionProjectionCache write policy', () => {
     await vi.advanceTimersByTimeAsync(249)
     expect(storedRows(pool, session.id)).toBeUndefined()
     await vi.advanceTimersByTimeAsync(1)
-    await vi.runAllTicks()
+    await vi.advanceTimersByTimeAsync(0)
     expect(storedRows(pool, session.id)?.['cache-test/marks']?.state).toEqual({ marks: ['slow'] })
   })
 
@@ -181,7 +181,7 @@ describe('SessionProjectionCache write policy', () => {
       apply: (state: unknown) => state,
       view: () => null as never,
       stateVersion: 1,
-    } as never)
+    })
     await expect(ctx.sessionProjectionCache.write(clean)).rejects.toThrow('not losslessly JSON-serializable')
   })
 
@@ -193,7 +193,7 @@ describe('SessionProjectionCache write policy', () => {
     mark(armed, ['pending']) // timer armed, no write yet
     mark(cleaned, ['done'])
     endTurn(cleaned) // mandatory write; markClean leaves {pending: 0, timer: undefined} in the map
-    await vi.runAllTicks()
+    await vi.advanceTimersByTimeAsync(0)
     await fiber.dispose()
     // The armed timer died with the plugin: advancing time writes nothing.
     await vi.advanceTimersByTimeAsync(10_000)
@@ -224,7 +224,7 @@ describe('SessionProjectionCache cold read', () => {
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
     ]
     for (const m of marks) {
-      events.push({ type: 'cache-test/mark', seq: events.length, time: events.length, data: { marks: m } } as SessionEvent)
+      events.push({ type: 'cache-test/mark', seq: events.length, time: events.length, data: { marks: m } })
     }
     events.push({ type: 'turn/end', seq: events.length, time: events.length, data: { turn: 1, reason: { kind: 'completed' } } })
     return events
