@@ -337,6 +337,24 @@ describe('DirectoryBrowser', () => {
     expect(columns()).toHaveLength(2)
   })
 
+  it('keeps a newer path edit when an older slow navigation settles', async () => {
+    const pending: ((listing: DirectoryListing) => void)[] = []
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText('browser.editPath')
+    b.listDirectory.mockImplementation(() =>
+      new Promise<DirectoryListing>((settle) => { pending.push(settle) }))
+    fireEvent.change(input, { target: { value: DOCS } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // The user keeps typing while the lookup hangs; the older completion must
+    // neither clear this newer draft nor swap the view to the older path.
+    fireEvent.change(input, { target: { value: `${DOCS}/har` } })
+    await act(async () => { pending.shift()!(listingFor(DOCS)) })
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath').value).toBe(`${DOCS}/har`)
+    expect(screen.queryByText('harness')).toBeNull()
+  })
+
   it('ignores dismissal while adoption is busy', async () => {
     const b = mount({ busy: true })
     await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })

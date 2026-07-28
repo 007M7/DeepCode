@@ -309,7 +309,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 aria-label={t('browser.editPath')}
                 autoFocus
                 disabled={parentInert}
-                onChange={(event) => { setPathDraft(event.target.value) }}
+                onChange={(event) => {
+                  // Editing the draft supersedes any in-flight navigation:
+                  // its completion must neither clear the newer text nor
+                  // repopulate the view with the older path.
+                  requestSeq.current += 1
+                  setLoading(false)
+                  setPathDraft(event.target.value)
+                }}
                 {...compositionGuard}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !composingRef.current) {
