@@ -39,4 +39,25 @@ describe('extractMarkdownPlainText', () => {
     expect(extractMarkdownPlainText(markdown)).toBe('Safe heading')
     expect(extractMarkdownPlainText(markdown, { mode: 'first-paragraph' })).toBe('Safe heading')
   })
+
+  it('projects GFM tables, references, hard breaks, and block structure', () => {
+    const markdown = [
+      '> first\\',
+      '> second with ![diagram][asset] and <span>visible</span>',
+      '',
+      '---',
+      '',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| alpha | `1` |',
+      '',
+      '[asset]: diagram.png',
+    ].join('\n')
+    expect(extractMarkdownPlainText(markdown)).toBe([
+      'first second with diagram and visible',
+      '',
+      'Name\tValue',
+      'alpha\t1',
+    ].join('\n'))
+  })
 })

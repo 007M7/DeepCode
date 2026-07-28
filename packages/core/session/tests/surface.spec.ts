@@ -189,6 +189,19 @@ describe('SurfaceManager', () => {
       { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
       { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
     ])
+    expect(s.surface.contexts).toEqual([
+      { generation: 0, nodes: [0, 1] },
+      {
+        generation: 1,
+        nodes: [2, 1],
+        origin: { seq: 2, start: 0, end: 0, shadowedSeqs: [0] },
+      },
+      {
+        generation: 2,
+        nodes: [3],
+        origin: { seq: 3, start: 2, end: 1, shadowedSeqs: [2, 1] },
+      },
+    ])
     folded.nodes[0] = 99
     folded.replacements[0]!.shadowedSeqs.push(99)
     expect(s.surface.nodes).toEqual([3])

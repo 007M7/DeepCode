@@ -37,9 +37,6 @@ function inlineText(node: MarkdownNode): string {
       return '\n'
     case 'html':
       return ''
-    case 'thematicBreak':
-    case 'definition':
-      return ''
     default:
       return node.children?.map(inlineText).join('') ?? ''
   }

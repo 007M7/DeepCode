@@ -102,6 +102,11 @@ export default defineConfig({
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        // Trajectory's JSON inspector depends on browser geometry, portals,
+        // clipboard behavior, and its compact Markdown projection; keep both
+        // with the same browser-harness debt.
+        'packages/client/ui-primitives/src/JsonTree.tsx',
+        'packages/client/ui-primitives/src/markdown/plain-text.ts',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
