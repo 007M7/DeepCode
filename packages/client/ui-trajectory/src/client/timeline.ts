@@ -4,7 +4,7 @@ import type { TrajectoryTurnModel } from './layout.ts'
 import type { TrajectoryCellKind, TrajectoryCellProps } from './trajectory-record.ts'
 
 /** Horizontal projection used by the trajectory timeline. */
-export type TrajectoryTimelineMode = 'sequence' | 'actual'
+export type TrajectoryTimelineMode = 'sequence' | 'duration' | 'time' | 'actual'
 
 /** Inclusive selection in the active timeline projection's domain. */
 export interface TrajectoryTimeRange {
@@ -53,14 +53,20 @@ function cellRange(cell: TrajectoryCellProps): TrajectoryTimeRange | null {
 /**
  * Project every visible record into a stable three-lane timeline.
  * @param turns - Unfiltered trajectory layout.
- * @param mode - Equal-width operation sequence or recorded wall-clock timing.
+ * @param mode - Independent equal/recorded duration and compressed/complete time projection.
  * @returns Timeline model, or `null` when no record is visible.
  */
 export function deriveTrajectoryTimeline(
   turns: readonly TrajectoryTurnModel[],
   mode: TrajectoryTimelineMode = 'sequence',
 ): TrajectoryTimelineModel | null {
-  if (mode === 'actual') return deriveActualTimeline(turns)
+  if (mode !== 'sequence') {
+    return deriveTimedTimeline(
+      turns,
+      mode === 'duration' || mode === 'actual',
+      mode === 'duration',
+    )
+  }
   const spans: TrajectoryTimelineSpan[] = []
   const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
 
@@ -92,8 +98,10 @@ export function deriveTrajectoryTimeline(
   }
 }
 
-function deriveActualTimeline(
+function deriveTimedTimeline(
   turns: readonly TrajectoryTurnModel[],
+  actualDuration: boolean,
+  removeUserIdle: boolean,
 ): TrajectoryTimelineModel | null {
   const spans: TrajectoryTimelineSpan[] = []
   const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
@@ -120,13 +128,13 @@ function deriveActualTimeline(
 
     const turnStart = Math.min(...rawSpans.map(span => span.start))
     const turnEnd = Math.max(...rawSpans.map(span => span.end))
-    if (previousTurnEnd !== null) {
+    if (removeUserIdle && previousTurnEnd !== null) {
       removedUserIdle += Math.max(0, turnStart - previousTurnEnd)
     }
     spans.push(...rawSpans.map(span => ({
       ...span,
       start: span.start - removedUserIdle,
-      end: span.end - removedUserIdle,
+      end: (actualDuration ? span.end : span.start) - removedUserIdle,
     })))
     turnBoundaries.push({
       turn: turn.turn,
@@ -150,7 +158,7 @@ function deriveActualTimeline(
  * Identify records active at any point inside an inclusive selected interval.
  * @param turns - Unfiltered trajectory layout.
  * @param range - Selected interval in the active projection.
- * @param mode - Equal-width operation sequence or recorded wall-clock timing.
+ * @param mode - Independent equal/recorded duration and compressed/complete time projection.
  * @returns Record indexes inside the focus interval.
  */
 export function trajectoryTimelineFocusIndexes(

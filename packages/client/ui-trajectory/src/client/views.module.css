@@ -1,6 +1,6 @@
 /* Full-bleed, fixed-height host for the trajectory ledger. */
 .root {
-  --dsh-trajectory-toolbar-height: 40px;
+  --dsh-trajectory-toolbar-height: 32px;
 
   display: flex;
   flex-direction: column;

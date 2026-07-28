@@ -26,6 +26,8 @@ export interface TrajectoryTimelineProps {
   mode: TrajectoryTimelineMode
   range: TrajectoryTimeRange | null
   selectedIndex?: number | null
+  /** Record indexes matching the active ledger search, or null without a query. */
+  searchMatchIndexes?: ReadonlySet<number> | null
   onRangeChange: (range: TrajectoryTimeRange | null) => void
   onRecordFocus?: (index: number) => void
 }
@@ -36,6 +38,15 @@ function orderedRange(left: number, right: number): FractionRange {
 
 function clampFraction(value: number): number {
   return Math.min(1, Math.max(0, value))
+}
+
+function centeredRange(center: number, width: number): FractionRange {
+  const clampedWidth = Math.min(1, Math.max(0, width))
+  const start = Math.min(
+    Math.max(center - clampedWidth / 2, 0),
+    1 - clampedWidth,
+  )
+  return { start, end: start + clampedWidth }
 }
 
 function rangeFraction(
@@ -59,18 +70,20 @@ function LaneLabels() {
   )
 }
 
-/** Overview renderer with drag-to-filter and Escape/clear reset. */
+/** Overview renderer with drag ranges, click-sized focus, and Escape reset. */
 export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   turns,
   mode,
   range,
   selectedIndex = null,
+  searchMatchIndexes = null,
   onRangeChange,
   onRecordFocus,
 }: TrajectoryTimelineProps) {
   const model = useMemo(() => deriveTrajectoryTimeline(turns, mode), [mode, turns])
   const dragRef = useRef<{ pointerId: number; anchor: number; width: number } | null>(null)
   const [draft, setDraft] = useState<FractionRange | null>(null)
+  const [hover, setHover] = useState<number | null>(null)
   const [viewport, setViewport] = useState<TrajectoryTimeRange | null>(null)
   useEffect(() => {
     if (
@@ -125,6 +138,11 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     )
   }
 
+  const minimumSelectionFraction = Math.min(
+    1,
+    fullDuration / domainDuration / model.spans.length,
+  )
+
   const fractionAt = (event: PointerEvent<HTMLDivElement>): number => {
     const rect = event.currentTarget.getBoundingClientRect()
     return clampFraction((event.clientX - rect.left) / Math.max(1, rect.width))
@@ -141,6 +159,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     if (event.button !== 0) return
     const rect = event.currentTarget.getBoundingClientRect()
     const anchor = fractionAt(event)
+    setHover(anchor)
     dragRef.current = { pointerId: event.pointerId, anchor, width: Math.max(1, rect.width) }
     if (typeof event.currentTarget.setPointerCapture === 'function') {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -150,31 +169,40 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
+    const fraction = fractionAt(event)
+    setHover(fraction)
     if (drag === null || drag.pointerId !== event.pointerId) return
-    setDraft(orderedRange(drag.anchor, fractionAt(event)))
+    setDraft(orderedRange(drag.anchor, fraction))
   }
 
   const onPointerEnd = (event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (drag === null || drag.pointerId !== event.pointerId) return
-    const selected = orderedRange(drag.anchor, fractionAt(event))
+    const point = fractionAt(event)
+    const selected = orderedRange(drag.anchor, point)
+    setHover(point)
     dragRef.current = null
     setDraft(null)
-    if ((selected.end - selected.start) * drag.width < MINIMUM_DRAG_PX) {
-      onRangeChange(null)
-      const point = domainStart + selected.start * domainDuration
+    const click = (selected.end - selected.start) * drag.width < MINIMUM_DRAG_PX
+    const committedRange = selected.end - selected.start < minimumSelectionFraction
+      ? centeredRange(
+        click ? selected.start : (selected.start + selected.end) / 2,
+        minimumSelectionFraction,
+      )
+      : selected
+    commit(committedRange)
+    if (click) {
+      const timelinePoint = domainStart + selected.start * domainDuration
       const nearest = model.spans.reduce((candidate, span) => {
-        const candidateDistance = point < candidate.start
-          ? candidate.start - point
-          : point > candidate.end ? point - candidate.end : 0
-        const spanDistance = point < span.start
-          ? span.start - point
-          : point > span.end ? point - span.end : 0
+        const candidateDistance = timelinePoint < candidate.start
+          ? candidate.start - timelinePoint
+          : timelinePoint > candidate.end ? timelinePoint - candidate.end : 0
+        const spanDistance = timelinePoint < span.start
+          ? span.start - timelinePoint
+          : timelinePoint > span.end ? timelinePoint - span.end : 0
         return spanDistance < candidateDistance ? span : candidate
       })
       onRecordFocus?.(nearest.index)
-    } else {
-      commit(selected)
     }
   }
 
@@ -187,6 +215,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   const onPointerCancel = () => {
     dragRef.current = null
     setDraft(null)
+    setHover(null)
   }
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -197,7 +226,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     const nextDuration = Math.min(
       fullDuration,
       Math.max(
-        Math.min(mode === 'actual' ? 20 : MINIMUM_ZOOM_OPERATIONS, fullDuration),
+        Math.min(mode === 'sequence' ? MINIMUM_ZOOM_OPERATIONS : 20, fullDuration),
         domainDuration * Math.exp(event.deltaY * 0.0015),
       ),
     )
@@ -226,6 +255,13 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerEnd}
           onPointerCancel={onPointerCancel}
+          onPointerLeave={() => {
+            if (dragRef.current === null) setHover(null)
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault()
+            onRangeChange(null)
+          }}
           onWheel={onWheel}
           onContextMenu={(event) => {
             event.preventDefault()
@@ -233,16 +269,36 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
             setViewport(null)
           }}
         >
-          {visibleRange !== null && (
+          {hover !== null && draft === null && (
             <div
-              className={css.selection}
-              data-dragging={draft === null ? undefined : 'true'}
+              className={css.hoverLine}
               aria-hidden="true"
               style={{
-                '--trajectory-selection-left': `${visibleRange.start * 100}%`,
-                '--trajectory-selection-width': `${(visibleRange.end - visibleRange.start) * 100}%`,
+                '--trajectory-hover-left': `${hover * 100}%`,
               } as CSSProperties}
             />
+          )}
+          {visibleRange !== null && (
+            <>
+              <div
+                className={css.selection}
+                data-dragging={draft === null ? undefined : 'true'}
+                aria-hidden="true"
+                style={{
+                  '--trajectory-selection-left': `${visibleRange.start * 100}%`,
+                  '--trajectory-selection-width': `${(visibleRange.end - visibleRange.start) * 100}%`,
+                } as CSSProperties}
+              />
+              <div
+                className={css.selectionEdges}
+                data-dragging={draft === null ? undefined : 'true'}
+                aria-hidden="true"
+                style={{
+                  '--trajectory-selection-left': `${visibleRange.start * 100}%`,
+                  '--trajectory-selection-width': `${(visibleRange.end - visibleRange.start) * 100}%`,
+                } as CSSProperties}
+              />
+            </>
           )}
           <div className={css.turnBoundaries} aria-hidden="true">
             {model.turnBoundaries
@@ -272,7 +328,11 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                   <span
                     className={css.span}
                     data-timeline-span={span.kind}
+                    data-equal-duration={mode === 'time' || undefined}
                     data-current={span.index === selectedIndex || undefined}
+                    data-search-match={searchMatchIndexes === null
+                      ? undefined
+                      : searchMatchIndexes.has(span.index) ? 'true' : 'false'}
                     data-selected={activeRange === null
                       ? undefined
                       : span.start <= activeRange.end && span.end >= activeRange.start
