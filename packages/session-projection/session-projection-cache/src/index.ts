@@ -15,17 +15,17 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 // Empty type import: applies the package's cordis Context merge
 // (`ctx.sessionPersistence`), which this service reads on the cold path.
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { ProjectionCheckpoint, ProjectionSnapshot, SessionProjectionMap } from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionCheckpoint, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { projectionCacheDomainSpec } from './spec.ts'
-import type { CheckpointRecord } from './spec.ts'
+import type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
 
-export { checkpointRecord, checkpointRow, projectionCacheDomainSpec } from './spec.ts'
-export type { CheckpointRecord } from './spec.ts'
+export { checkpointIdentity, checkpointRecord, checkpointRow, projectionCacheDomainSpec } from './spec.ts'
+export type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -89,27 +89,44 @@ export class SessionProjectionCache extends Service {
   }
 
   /**
-   * The stored checkpoint rows for one session, or an empty checkpoint when
-   * none is stored. Synchronous from the domain's in-memory state.
-   * @param id - the session whose cached rows are read.
-   * @returns the persisted `key → row` checkpoint (possibly empty).
+   * The stored record for one session, accepted only when its bound log
+   * identity matches `expected`. A session id names a slot, not a lifecycle:
+   * a recreated id or a persistence store swapped under a surviving cache
+   * must not let an old record seed state folded from an unrelated log.
+   * Synchronous from the domain's in-memory state.
+   * @param id - the session whose record is read.
+   * @param expected - the log identity the caller holds (live or stored header).
+   * @returns the identity-matching record, or `undefined` (absent or unrelated).
    */
-  checkpointOf(id: SessionId): ProjectionCheckpoint {
-    return this.requireTable().get(id)?.rows ?? {}
+  private recordFor(id: SessionId, expected: CheckpointIdentity): CheckpointRecord | undefined {
+    const record = this.requireTable().get(id)
+    if (record === undefined) return undefined
+    return identityMatches(record.identity, expected) ? record : undefined
   }
 
   /**
    * The zero-I/O listing read: whole values viewed straight from the stored
-   * rows (version-matching keys only), as stale as the last durable
-   * checkpoint but never wrong. Synchronous — a listing over every stored
-   * session touches no log. Fresher paths (the history tail baseline,
-   * {@link coldSnapshot}) supersede these values whenever a session is
-   * actually opened.
-   * @param id - the session whose cached values are viewed.
-   * @returns whole values per key with a usable row; empty when none stored.
+   * rows (version-matching keys only), each cut carried with its watermark
+   * so a client value store can seed under its higher-seq-wins rule — as
+   * stale as the last durable checkpoint but never wrong, and never from an
+   * unrelated log (the caller's header is the identity witness). Fresher
+   * paths (the history tail baseline, {@link coldSnapshot}) supersede these
+   * values whenever a session is actually opened.
+   * @param meta - the listed session's header (identity witness; no log read).
+   * @returns the cut (`asOfSeq` = lowest served-row watermark), or
+   *   `undefined` when no usable row exists for this lifecycle.
    */
-  cachedValues(id: SessionId): Partial<SessionProjectionMap> {
-    return this.ctx.sessionProjections.viewCheckpoint(this.checkpointOf(id))
+  cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined {
+    const record = this.recordFor(meta.id, identityOf(meta))
+    if (record === undefined) return undefined
+    const values = this.ctx.sessionProjections.viewCheckpoint(record.rows)
+    const keys = Object.keys(values)
+    if (keys.length === 0) return undefined
+    // The block carries ONE cut: the lowest served watermark is the seq every
+    // value is at least current as of (under-claiming is safe under
+    // higher-seq-wins; over-claiming would let a stale value outrank pushes).
+    const asOfSeq = Math.min(...keys.map(key => (record.rows[key] as { observedSeq: number }).observedSeq))
+    return { asOfSeq, values }
   }
 
   /**
@@ -123,7 +140,15 @@ export class SessionProjectionCache extends Service {
   async write(session: Session): Promise<void> {
     const rows = this.ctx.sessionProjections.checkpoint(session)
     this.markClean(session)
-    await this.put(session.id, rows)
+    // Durability barrier: the checkpoint cut was taken above, so flushing
+    // AFTER it guarantees every event inside the cut is durably logged
+    // before the cache row lands — a crash can leave the cache behind the
+    // log (longer tail replay) but never ahead of it (phantom values folded
+    // from events no stored log contains). At detach the store entry is
+    // already gone; persistence's own retirement drain covers that path and
+    // any residual overreach is caught by the cold read's anchored floor.
+    if (this.ctx.sessions.get(session.id) === session) await this.ctx.sessions.flush(session)
+    await this.put(session.id, identityOf(session.header), rows)
   }
 
   /**
@@ -139,7 +164,8 @@ export class SessionProjectionCache extends Service {
    * @returns the snapshot cut at the stored log end.
    */
   async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot> {
-    const cached = this.checkpointOf(id)
+    const record = this.requireTable().get(id)
+    const cached = record?.rows ?? {}
     const floor = this.ctx.sessionProjections.restoreFloor(cached)
     const persistence = this.ctx.sessionPersistence
     if (floor === undefined) {
@@ -151,16 +177,21 @@ export class SessionProjectionCache extends Service {
     }
     let restored: { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
     const tail = await persistence.readFrom(id, floor, signal)
+    // The tail's stored header is the identity witness: a record bound to a
+    // different lifecycle (recreated id, swapped store) is discarded whole
+    // before any of its rows can seed a fold.
+    const related = record === undefined || identityMatches(record.identity, identityOf(tail.meta))
     try {
+      if (!related) throw new Error('unrelated log identity')
       restored = this.ctx.sessionProjections.restore(cached, tail.events, floor)
     } catch {
-      // The one recoverable restore failure: a row overreaching the stored
-      // log end (or predating the floor), detected by the registry. Both
+      // The recoverable restore failures: an unrelated record, or a row
+      // overreaching the stored log end (or predating the floor). All
       // resolve identically — discard the cache and refold the full log.
-      const whole = await persistence.readFrom(id, 0, signal)
+      const whole = floor === 0 && related ? tail : await persistence.readFrom(id, 0, signal)
       restored = this.ctx.sessionProjections.restore({}, whole.events, 0)
     }
-    await this.putSoft(id, restored.checkpoint, 'cold-read write-back')
+    await this.putSoft(id, identityOf(tail.meta), restored.checkpoint, 'cold-read write-back')
     return restored.snapshot
   }
 
@@ -229,19 +260,19 @@ export class SessionProjectionCache extends Service {
     }
   }
 
-  /** Replace one session's stored record with a detached snapshot of `rows`. */
-  private async put(id: SessionId, rows: ProjectionCheckpoint): Promise<void> {
+  /** Replace one session's stored record with its log identity and a detached snapshot of `rows`. */
+  private async put(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint): Promise<void> {
     const detached = snapshotJsonValue(rows)
     if (detached === undefined) {
       throw new TypeError('projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)')
     }
-    await this.requireTable().put(id, { rows: detached as CheckpointRecord['rows'] })
+    await this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
   }
 
   /** Fail-soft {@link put}: cache writes must never fail their caller's read or event path. */
-  private async putSoft(id: SessionId, rows: ProjectionCheckpoint, what: string): Promise<void> {
+  private async putSoft(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint, what: string): Promise<void> {
     try {
-      await this.put(id, rows)
+      await this.put(id, identity, rows)
     } catch (error) {
       this.ctx.logger.warn(`session projection cache: ${what} for "${id}" failed (cache stays stale): ${String(error)}`)
     }
@@ -252,6 +283,16 @@ export class SessionProjectionCache extends Service {
     if (this.table === undefined) throw new Error('session projection cache is not initialized')
     return this.table
   }
+}
+
+/** Project a header onto the identity fields a record is bound to. */
+function identityOf(header: SessionHeader): CheckpointIdentity {
+  return { createdAt: header.createdAt, ...header.cwd === undefined ? {} : { cwd: header.cwd } }
+}
+
+/** Whether a stored record's bound identity names the caller's lifecycle. */
+function identityMatches(stored: CheckpointIdentity, expected: CheckpointIdentity): boolean {
+  return stored.createdAt === expected.createdAt && stored.cwd === expected.cwd
 }
 
 export default SessionProjectionCache

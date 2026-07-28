@@ -44,7 +44,7 @@ const marksUnit = (stateVersion = 1): ProjectionDefinition<'cache-test/marks', M
   stateVersion,
 })
 
-/** A persistence double serving readFrom over a fixed per-id stored log. */
+/** A persistence double serving readFrom over a fixed per-id stored log (headers stamp createdAt 0). */
 function fakePersistence(logs: Map<string, SessionEvent[]>) {
   const readFrom = vi.fn(async (id: SessionId, fromSeq: number) => {
     const events = logs.get(String(id))
@@ -56,6 +56,9 @@ function fakePersistence(logs: Map<string, SessionEvent[]>) {
   })
   return { readFrom }
 }
+
+/** Header shape for cachedSnapshot calls (fake logs stamp createdAt 0, no cwd). */
+const headerOf = (id: SessionId, createdAt = 0) => ({ version: 0, id, createdAt })
 
 interface HarnessOptions {
   pool?: MemoryMediaPool
@@ -91,11 +94,18 @@ const mark = (session: Session, marks: string[]): SessionEvent =>
 const endTurn = (session: Session): SessionEvent =>
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
+/** The stored medium record for one session id (undefined = never written). */
+function storedRecord(pool: MemoryMediaPool, id: Session['id']) {
+  return pool.media.get('session_projcache')?.tables.get('sessions')?.get(String(id)) as
+    {
+      identity: { createdAt: number; cwd?: string }
+      rows: Record<string, { stateVersion: number; observedSeq: number; state: unknown }>
+    } | undefined
+}
+
 /** The stored medium rows for one session id (undefined = never written). */
 function storedRows(pool: MemoryMediaPool, id: Session['id']) {
-  const record = pool.media.get('session_projcache')?.tables.get('sessions')?.get(String(id)) as
-    { rows: Record<string, { stateVersion: number; observedSeq: number; state: unknown }> } | undefined
-  return record?.rows
+  return storedRecord(pool, id)?.rows
 }
 
 /** Wait until queued fail-soft writes (event-listener fire-and-forget) drain. */
@@ -187,10 +197,15 @@ describe('SessionProjectionCache cold read', () => {
   }
 
   /** Pre-seed the medium with one stored checkpoint record (before the domain opens). */
-  function seedRow(pool: MemoryMediaPool, id: string, row: { stateVersion: number; observedSeq: number; state: unknown }): void {
-    pool.versions.set('session_projcache', 1)
+  function seedRow(
+    pool: MemoryMediaPool,
+    id: string,
+    row: { stateVersion: number; observedSeq: number; state: unknown },
+    identity: { createdAt: number; cwd?: string } = { createdAt: 0 },
+  ): void {
+    pool.versions.set('session_projcache', 2)
     pool.media.set('session_projcache', {
-      tables: new Map([['sessions', new Map([[id, { rows: { 'cache-test/marks': row } }]])]]),
+      tables: new Map([['sessions', new Map([[id, { identity, rows: { 'cache-test/marks': row } }]])]]),
       global: null,
     })
   }
@@ -251,6 +266,32 @@ describe('SessionProjectionCache cold read', () => {
   it('rejects for a session with no persisted log', async () => {
     const { cache } = await harness()
     await expect(cache.coldSnapshot(SessionId('absent'))).rejects.toThrow('not found')
+  })
+
+  it('discards a record bound to a different log lifecycle and refolds from the actual log', async () => {
+    const pool = new MemoryMediaPool()
+    const logs = new Map([['reborn', storedLog([['real']])]]) // stored header stamps createdAt 0
+    // A checkpoint from a PRIOR lifecycle of the same id (different createdAt):
+    // its rows pass every watermark check, but the identity does not match.
+    seedRow(pool, 'reborn', { stateVersion: 1, observedSeq: 2, state: { marks: ['phantom'] } }, { createdAt: 999 })
+    const { cache, pool: samePool } = await harness({ pool, logs })
+    const snapshot = await cache.coldSnapshot(SessionId('reborn'))
+    expect(snapshot.values['cache-test/marks']).toEqual({ marks: ['real'] })
+    // The write-back rebinds the record to the actual log's identity.
+    expect(storedRecord(samePool, SessionId('reborn'))?.identity).toEqual({ createdAt: 0 })
+  })
+
+  it('cachedSnapshot serves identity-matching rows with the cut watermark and refuses unrelated ones', async () => {
+    const pool = new MemoryMediaPool()
+    seedRow(pool, 'listed', { stateVersion: 1, observedSeq: 4, state: { marks: ['t'] } })
+    const { cache } = await harness({ pool })
+    const id = SessionId('listed')
+    // Matching header: values plus the watermark the client seeds under.
+    expect(cache.cachedSnapshot(headerOf(id))).toEqual({ asOfSeq: 4, values: { 'cache-test/marks': { marks: ['t'] } } })
+    // A recreated id (different createdAt): the record is unrelated — no block.
+    expect(cache.cachedSnapshot(headerOf(id, 777))).toBeUndefined()
+    // Unknown id: no block.
+    expect(cache.cachedSnapshot(headerOf(SessionId('never-cached')))).toBeUndefined()
   })
 
   it('holds the not-found contract with zero registered units, and dates the empty cut for a present log', async () => {

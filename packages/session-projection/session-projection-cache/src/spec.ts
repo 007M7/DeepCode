@@ -28,11 +28,30 @@ export const checkpointRow = z.object({
 })
 
 /**
- * One session's stored record: its checkpoint rows keyed by projection key.
- * The whole record is replaced on every write (whole-value discipline — the
- * registry checkpoint is always the complete per-session cut).
+ * The stored-log identity a record is bound to: the immutable header fields
+ * that distinguish one session lifecycle from another under the same id. A
+ * session id names a slot, not a lifecycle — a deleted-then-recreated id, or
+ * a persistence root swapped under a surviving cache, would otherwise let an
+ * old row pass every watermark check and seed state folded from an unrelated
+ * log. Reads validate this against the live header (listing) or the stored
+ * header (cold read) before accepting any row.
+ */
+export const checkpointIdentity = z.object({
+  createdAt: z.number().int().nonnegative(),
+  cwd: z.string().optional(),
+})
+
+/** The identity fields a record is bound to, inferred from {@link checkpointIdentity}. */
+export type CheckpointIdentity = z.infer<typeof checkpointIdentity>
+
+/**
+ * One session's stored record: the log identity it was folded from plus its
+ * checkpoint rows keyed by projection key. The whole record is replaced on
+ * every write (whole-value discipline — the registry checkpoint is always
+ * the complete per-session cut).
  */
 export const checkpointRecord = z.object({
+  identity: checkpointIdentity,
   rows: z.record(z.string(), checkpointRow),
 })
 
@@ -42,10 +61,10 @@ export type CheckpointRecord = z.infer<typeof checkpointRecord>
 /**
  * The session-projcache domain spec. Version bumps discard the whole medium
  * (cache semantics: a stale or unreadable cache costs a longer tail replay,
- * never a wrong value).
+ * never a wrong value). v2 added the record's log-identity binding.
  */
 export const projectionCacheDomainSpec = defineDomain({
   name: 'session_projcache',
-  version: 1,
+  version: 2,
   tables: { sessions: domainTable<SessionId, CheckpointRecord>(checkpointRecord) },
 })
