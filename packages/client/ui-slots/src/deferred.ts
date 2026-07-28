@@ -37,6 +37,8 @@ export interface DeferredRegistration {
  * @param component - the component whose ledger presence marks "registered".
  * @param register - performs the actual registration; returns its disposer.
  * @returns the deferral handle (dispose in the owning effect's disposer).
+ * @throws the immediate registration's failure, after removing the
+ * just-installed subscription — a throwing construction leaves nothing live.
  */
 export function deferRegistration(
   registry: DeferralRegistry,
@@ -51,7 +53,15 @@ export function deferRegistration(
     dispose = register()
   }
   const unsubscribe = registry.subscribe(name, () => { tryRegister() })
-  tryRegister()
+  try {
+    tryRegister()
+  } catch (error) {
+    // A synchronous registration failure (the declared slot is already
+    // occupied) must not leave the just-installed subscription behind: the
+    // caller receives no handle to dispose it through.
+    unsubscribe()
+    throw error
+  }
   return {
     refresh() {
       dispose?.()
