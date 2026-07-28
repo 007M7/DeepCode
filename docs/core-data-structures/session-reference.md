@@ -1,5 +1,7 @@
 # Session References
 
+English | [中文](session-reference.zh.md)
+
 Structured cross-session reference requests and prepared message contexts. The [package contract](../../packages/context/session-reference) owns canonical URIs, current-surface projection, tag-safe JSON and byte retention, stable errors, and the untrusted model prompt. Host adapters use these types instead of passing their UI mention syntax into the agent core.
 
 Source: [`packages/context/session-reference/src/types.ts`](../../packages/context/session-reference/src/types.ts)
@@ -36,15 +38,15 @@ interface SessionReferenceCandidate {
 
 ## Prepared messages
 
-Preparation preserves readable current-message content and returns at most one aggregated context. The host binds `contexts` to that exact `send()` or `steer()` call.
+Preparation preserves readable current-message content and returns at most one aggregated context.
 
 ```ts type-equiv
-/** Message payload and the zero-or-one durable snapshot contexts bound to it. */
+/** Direct message content and optional referenced-session context. */
 interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
-  /** Empty without references; otherwise one aggregated untrusted context. */
-  contexts: HookContext[]
+  /** Aggregated untrusted snapshot, absent when the message has no references. */
+  additionalContext?: UserMessage
 }
 ```
 

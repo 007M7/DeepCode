@@ -6,7 +6,12 @@
  */
 
 import { Context } from 'cordis'
-import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import {
+  interruptedTurnClosers,
+  SESSION_FORMAT_VERSION,
+  snapshotJsonValue,
+  snapshotSessionEvent,
+} from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 /**
@@ -40,8 +45,10 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * `id` before repair or state publication. Used by resume/load, live adoption,
    * and — via `!== undefined` — the create-collision probe. The returned
    * `tornMarker` is present iff there is a torn tail to truncate.
+   * @param id - persisted session id to resolve.
+   * @param signal - optional cancellation for backend read work.
    */
-  loadStored(id: SessionId): Promise<StoredPrefix<TornMarker> | undefined>
+  loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<TornMarker> | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -60,8 +67,11 @@ export interface PersistenceBackend<TornMarker = unknown> {
    */
   commitRepair(meta: SessionHeader, tornMarker: TornMarker | undefined, closers: readonly SessionEvent[]): Promise<void>
 
-  /** List all stored (materialized) sessions' metadata. */
-  list(): Promise<SessionHeader[]>
+  /**
+   * List all stored (materialized) sessions' metadata.
+   * @param signal - optional cancellation for backend listing work.
+   */
+  list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
    * Optional lifecycle teardown (e.g. close a database handle). Awaited by the
@@ -136,6 +146,12 @@ function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): 
   }
 }
 
+/** Materialize stored events as validated snapshots with immutable messages. */
+function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): SessionEvent[] {
+  assertSupportedEvents(events, id)
+  return events.map(snapshotSessionEvent)
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -154,6 +170,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private states = new Map<SessionId, SessionState>()
   /** Lifecycle and write-behind state keyed by the exact live Session. */
   private live = new Map<Session, LiveSessionState>()
+  /** Exact disposed lifecycles whose eager tail is still draining. */
+  private retirements = new Map<SessionId, Promise<void>>()
   /** Cold loads currently reserving an id across backend reads and repair writes. */
   private coldLoads = new Set<SessionId>()
   /**
@@ -177,6 +195,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const snapshot = snapshotJsonValue(meta)
     if (snapshot === undefined) {
       return Promise.reject(new TypeError('session metadata must be losslessly JSON-serializable'))
+    }
+    if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
+      return Promise.reject(new TypeError('session metadata createdAt must be a non-negative safe integer'))
     }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
@@ -250,6 +271,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
   async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    await this.retirements.get(id)
     const selected = await this.serialize(id, async () => {
       const live = this.ctx.sessions.get(id)
       if (live !== undefined) return { live }
@@ -267,21 +289,39 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Read a detached valid stored prefix without recovery mutations or
    * coordinator-state publication.
    * @param id - persisted session to inspect.
+   * @param signal - optional cancellation for queued and backend read work.
    * @returns stored header and events before any synthetic recovery closers.
    */
-  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    return this.serialize(id, () => this.inspectCore(id))
+  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    // Waiting for an in-flight retirement drain must honor cancellation too: a
+    // slow drain would otherwise pin a cancelled inspect until it finishes,
+    // past the documented boundary. serialize() already races the signal for
+    // the queued read; do the same for the retirement wait.
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
   }
 
-  private async inspectCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const stored = await this.backend.loadStored(id)
+  private async inspectCore(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    signal?.throwIfAborted()
+    let stored: StoredPrefix<TornMarker> | undefined
+    try {
+      stored = await this.backend.loadStored(id, signal)
+    } catch (error: unknown) {
+      if (signal?.aborted) signal.throwIfAborted()
+      throw error
+    }
+    signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     this.assertStoredId(id, stored.meta)
     this.assertVersion(stored.meta)
-    assertSupportedEvents(stored.events, id)
+    const events = snapshotStoredEvents(stored.events, id)
     return {
       meta: structuredClone(stored.meta),
-      events: structuredClone(stored.events),
+      events,
     }
   }
 
@@ -291,11 +331,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const { meta, events, tornMarker } = stored
     this.assertStoredId(id, meta)
     this.assertVersion(meta)
-    assertSupportedEvents(events, id)
+    const storedEvents = snapshotStoredEvents(events, id)
 
     // Preserve complete interrupted events and synthesize only missing closers.
-    const closers = interruptedTurnClosers(events)
-    const balanced = [...events, ...closers]
+    const closers = interruptedTurnClosers(storedEvents).map(snapshotSessionEvent)
+    const balanced = [...storedEvents, ...closers]
 
     // Repair storage before publishing coordinator state.
     if (tornMarker !== undefined || closers.length > 0) {
@@ -303,12 +343,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     // Keep coordinator metadata detached from the returned record.
     this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
-    return { meta, events: balanced }
+    return { meta: structuredClone(meta), events: balanced }
   }
 
   /** Return a durable balanced live snapshot without applying cold crash repair. */
   private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const events = session.events.map(event => structuredClone(event))
+    const events = session.events.map(snapshotSessionEvent)
     await this.flush(session)
     const state = this.states.get(session.id)
     /* v8 ignore next -- successful flush always publishes this live session's durable state */
@@ -331,9 +371,19 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * public methods must NOT call each other (deadlock); they call the unserialized
    * `*Core` helpers instead.
    */
-  private serialize<T>(id: SessionId, op: () => Promise<T> | T): Promise<T> {
+  private serialize<T>(
+    id: SessionId,
+    op: () => Promise<T> | T,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const prior = this.chains.get(id) ?? Promise.resolve()
-    const next = prior.then(op, op)
+    let started = false
+    const run = (): Promise<T> | T => {
+      signal?.throwIfAborted()
+      started = true
+      return op()
+    }
+    const next = prior.then(run, run)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
     // (the caller still sees the real rejection via `next`).
     const tail = next.then(() => undefined, () => undefined)
@@ -343,7 +393,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     void tail.then(() => {
       if (this.chains.get(id) === tail) this.chains.delete(id)
     })
-    return next
+    return signal === undefined ? next : observeQueuedAbort(next, signal, () => started)
   }
 
   /** Build a state for a session discovered in storage but not yet in memory. */
@@ -432,7 +482,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /** Start and observe one disposed session's final drain. */
   private retire(session: Session): void {
     if (!this.live.has(session)) return
-    void this.retireCore(session).catch((error: unknown) => {
+    const retirement = this.retireCore(session)
+    this.retirements.set(session.id, retirement)
+    const forget = (): void => {
+      if (this.retirements.get(session.id) === retirement) this.retirements.delete(session.id)
+    }
+    void retirement.then(forget, forget)
+    void retirement.catch((error: unknown) => {
       this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
     })
   }
@@ -614,4 +670,51 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     await this.appendCore(id, fresh)
     live.pending.splice(0, batch.length)
   }
+}
+
+/**
+ * Give an observation caller a prompt cancellation view of queued work.
+ *
+ * The serialized `operation` remains in the same-id chain and checks the signal
+ * before invoking backend work. Observing its settlement here therefore cannot
+ * detach a storage read or let a later operation overtake its predecessor.
+ */
+function observeQueuedAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  started: () => boolean,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const finish = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      callback()
+    }
+    const onAbort = (): void => {
+      if (started()) return
+      finish(() => {
+        try {
+          signal.throwIfAborted()
+        } catch (reason: unknown) {
+          rejectObservation(reject, reason)
+          return
+        }
+        /* v8 ignore next -- a native AbortSignal emits abort only after becoming aborted */
+        reject(new Error('persistence observation abort event lacked an aborted signal'))
+      })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => { finish(() => { resolve(value) }) },
+      (reason: unknown) => { finish(() => { rejectObservation(reject, reason) }) },
+    )
+    if (signal.aborted) onAbort()
+  })
+}
+
+/** Preserve an exact provider or AbortSignal reason, including legacy non-Error values. */
+function rejectObservation(reject: (reason?: unknown) => void, reason: unknown): void {
+  reject(reason)
 }

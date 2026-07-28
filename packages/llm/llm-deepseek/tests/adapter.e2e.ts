@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 /**
- * Real-API e2e for the hand-rolled adapter: V4 Flash + V4 Pro across
+ * Real-API e2e for the direct-fetch adapter: V4 Flash + V4 Pro across
  * thinking modes and both official effort levels. Key-gated — skips
  * entirely without $DEEPSEEK_API_KEY (see vitest.e2e.config.ts).
  */
@@ -29,7 +29,10 @@ afterEach(async () => {
 })
 
 function ask(text: string): Message[] {
-  return [{ role: 'user', content: [{ type: 'text', text }] }]
+  return [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 }
 
 function textOf(result: AssembledResult): string {
@@ -50,41 +53,40 @@ const weatherTool: ToolSchema = {
 }
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', () => {
-  it('flash + thinking disabled: plain text generation', async () => {
-    const ctx = await harness(FLASH, { thinking: 'disabled' })
-    const result = await assemble(ctx,{
+  it('flash dynamically switches from off to high', async () => {
+    const ctx = await harness(FLASH, { reasoningEffort: 'off' })
+    const withoutThinking = await assemble(ctx,{
       model: FLASH,
       messages: ask('Reply with exactly the word: pong'),
       maxTokens: 50,
     })
-    expect(result.finish.kind).toBe('stop')
-    expect(textOf(result).toLowerCase()).toContain('pong')
-    expect(result.message.content.some(block => block.type === 'reasoning')).toBe(false)
-    expect(result.usage?.inputTokens).toBeGreaterThan(0)
-    expect(result.usage?.outputTokens).toBeGreaterThan(0)
-  })
+    expect(withoutThinking.finish.kind).toBe('stop')
+    expect(textOf(withoutThinking).toLowerCase()).toContain('pong')
+    expect(withoutThinking.message.content.some(block => block.type === 'reasoning')).toBe(false)
+    expect(withoutThinking.usage?.inputTokens).toBeGreaterThan(0)
+    expect(withoutThinking.usage?.outputTokens).toBeGreaterThan(0)
 
-  it('flash + thinking enabled (effort high): reasoning blocks + reasoning tokens', async () => {
-    const ctx = await harness(FLASH, { thinking: 'enabled', reasoningEffort: 'high' })
-    const result = await assemble(ctx,{
+    const withThinking = await assemble(ctx,{
       model: FLASH,
+      reasoningEffort: ReasoningEffortId('high'),
       messages: ask('Which is larger, 9.11 or 9.8? Answer with just the number.'),
       maxTokens: 2000,
     })
-    expect(result.finish.kind).toBe('stop')
-    expect(result.message.content.some(block => block.type === 'reasoning')).toBe(true)
-    expect(textOf(result)).toContain('9.8')
-    expect(result.usage?.reasoningTokens).toBeGreaterThan(0)
+    expect(withThinking.finish.kind).toBe('stop')
+    expect(withThinking.message.content.some(block => block.type === 'reasoning')).toBe(true)
+    expect(textOf(withThinking)).toContain('9.8')
+    expect(withThinking.usage?.reasoningTokens).toBeGreaterThan(0)
   })
 
   it.each(['high', 'max'] as const)(
     'pro + thinking enabled (effort %s): tool-call round trip with reasoning passback',
     async (effort) => {
-      const ctx = await harness(PRO, { thinking: 'enabled', reasoningEffort: effort })
+      const ctx = await harness(PRO, { thinking: 'enabled' })
 
       // Turn 1: the model must call the tool (and think before it).
       const first = await assemble(ctx,{
         model: PRO,
+        reasoningEffort: ReasoningEffortId(effort),
         messages: ask('What is the weather in Paris right now? Use the get_weather tool.'),
         tools: [weatherTool],
         maxTokens: 2000,
@@ -99,17 +101,21 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       // block in history (the official thinking+tools passback rule).
       const second = await assemble(ctx,{
         model: PRO,
+        reasoningEffort: ReasoningEffortId(effort),
         messages: [
           ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
-          { role: 'assistant', content: first.message.content },
-          {
-            role: 'user',
+          createMessage({
+            role: 'assistant', content: first.message.content,
+            source: { kind: 'plugin', plugin: 'test' },
+          }),
+          createUserMessage({
             content: [{
               type: 'tool-result',
               toolCallId: CallId(call!.id),
               content: [{ type: 'text', text: 'Sunny, 22°C' }],
             }],
-          },
+            source: { kind: 'plugin', plugin: 'test' },
+          }),
         ],
         tools: [weatherTool],
         maxTokens: 2000,

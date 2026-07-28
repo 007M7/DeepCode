@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -5,24 +6,25 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
-import { HarnessSdkServer, type JsonRpcTransportPeer } from '../src/index.ts'
+import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
+import { HarnessSdkServer } from '../src/index.ts'
 
 class FakeTransport implements JsonRpcTransportPeer {
   notifications: { method: string; params?: Record<string, unknown> }[] = []
 
-  async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async request(method: string, params: object): Promise<unknown> {
     throw new Error(`the SDK server should not call host JSON-RPC method ${method} with ${JSON.stringify(params)}`)
   }
 
-  notify(method: string, params?: Record<string, unknown>): void {
-    this.notifications.push(params === undefined ? { method } : { method, params })
+  notify(method: string, params?: object): void {
+    this.notifications.push(params === undefined ? { method } : { method, params: params as Record<string, unknown> })
   }
 }
 
@@ -121,6 +123,7 @@ describe('HarnessSdkServer', () => {
         cwd: storageDir,
         provider: 'deepseek',
         model: 'dsagent-model',
+        maxTokens: 321,
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
 
@@ -130,8 +133,9 @@ describe('HarnessSdkServer', () => {
       })
 
       expect(llmServer.requests).toHaveLength(1)
-      const body = llmServer.requests[0] as { model: string; messages: { role: string }[] }
+      const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
+      expect(body.max_tokens).toBe(321)
       expect(body.messages[0]?.role).toBe('system')
       expect(body.messages.at(-1)?.role).toBe('user')
       expect(llmServer.headers[0]?.authorization).toBe('Bearer test-key')
@@ -152,7 +156,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.send([{ type: 'text', text: 'outside the sdk session map' }])
+      orphanHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } }))
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -170,23 +174,26 @@ describe('HarnessSdkServer', () => {
     const mainWhenIdle = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(firstMainIdle)
       .mockResolvedValue(undefined)
-    const mainSend = vi.fn()
-    const mainAgent = {
-      send: mainSend,
+    const mainFollowup = vi.fn<Agent['followup']>()
+    const mainAgent = ({
+      id: SessionId('main'),
+      followup: mainFollowup,
       whenIdle: mainWhenIdle,
-    } as unknown as Agent
-    const otherSend = vi.fn()
-    const otherAgent = {
-      send: otherSend,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
+    const otherFollowup = vi.fn<Agent['followup']>()
+    const otherAgent = ({
+      id: SessionId('other'),
+      followup: otherFollowup,
       whenIdle: vi.fn(() => Promise.resolve()),
-    } as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
     const create = vi.fn(async (options: { sessionId: SessionId }) =>
       String(options.sessionId) === 'main' ? mainHandle : otherHandle)
+    const liveAgents = new Map<string, Agent>([['main', mainAgent], ['other', otherAgent]])
     const ctx = {
       on: vi.fn(() => () => undefined),
-      agents: { create, get: () => undefined },
+      agents: { create, get: (id: SessionId) => liveAgents.get(String(id)) },
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport())
@@ -196,7 +203,7 @@ describe('HarnessSdkServer', () => {
     })
 
     const first = prompt('main', 'first')
-    await vi.waitFor(() => { expect(mainSend).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(mainFollowup).toHaveBeenCalledOnce() })
 
     await expect(prompt('main', 'overlap')).rejects.toThrow('session already has an active prompt: main')
     await expect(prompt('other', 'independent')).resolves.toEqual({ accepted: true })
@@ -208,16 +215,50 @@ describe('HarnessSdkServer', () => {
     await expect(prompt('main', 'failing')).rejects.toThrow('turn wait failed')
     await expect(prompt('main', 'after failure')).resolves.toEqual({ accepted: true })
 
-    expect(mainSend).toHaveBeenCalledTimes(4)
-    expect(otherSend).toHaveBeenCalledOnce()
+    expect(mainFollowup).toHaveBeenCalledTimes(4)
+    expect(otherFollowup).toHaveBeenCalledOnce()
     await server.shutdown()
     expect(mainHandle.dispose).toHaveBeenCalledOnce()
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
   })
 
+  it('rejects a prompt for a session whose agent was disposed outside the server', async () => {
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('zombie'),
+      followup,
+      whenIdle: vi.fn(() => Promise.resolve()),
+    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    // The registry drops the agent after creation, modelling an agent-loop-only
+    // reload that leaves the server's SessionRecord pointing at a detached agent.
+    let live = true
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        get: (id: SessionId) => (live && String(id) === 'zombie' ? agent : undefined),
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkServer(ctx, new FakeTransport())
+    const prompt = (text: string) => server.prompt({
+      sessionId: 'zombie',
+      contentBlocks: [{ type: 'text', text }],
+    })
+
+    await expect(prompt('while live')).resolves.toEqual({ accepted: true })
+    live = false
+    await expect(prompt('after detach')).rejects.toThrow('session agent was disposed outside the server: zombie')
+    // The detached agent was never driven by the rejected prompt.
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
   it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
     const transport = new FakeTransport()
     const server = new HarnessSdkServer(ctx, transport) as unknown as {
       prompt(params: { sessionId: string; contentBlocks: { type: 'text'; text: string }[] }): Promise<unknown>
@@ -225,30 +266,30 @@ describe('HarnessSdkServer', () => {
       shutdown(): Promise<Record<string, never>>
     }
     const session = ctx.sessions.create(SessionId('message-outcome'))
-    const agent = {
+    const agent = ({
+      id: SessionId('message-outcome'),
       session,
-      send(content: { type: 'text'; text: string }[]) {
+      followup(input: UserMessage) {
         session.append('turn/start', {
           turn: 1,
-          trigger: { kind: 'message', source: { kind: 'user' } },
+          trigger: { kind: 'message', source: input.source },
         })
-        session.append('user/message', {
-          content,
-          source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        session.append('user/message', input, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
         session.append('turn/start', {
           turn: 2,
           trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
         })
-        session.append('context/message', {
+        session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'late metadata' }],
           source: { kind: 'plugin', plugin: 'late-metadata' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+        return input.id
       },
       whenIdle: () => Promise.resolve(),
-    } as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
+    ctx.agents.register(agent)
     server.sessions.set('message-outcome', {
       handle: { agent, dispose: () => Promise.resolve() },
       lastTurnEnd: undefined,
@@ -821,6 +862,27 @@ describe('HarnessSdkServer', () => {
     }
   })
 
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid initialize maxTokens %s at the wire boundary',
+    async (maxTokens) => {
+      const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-max-tokens-'))
+      const ctx = await makeHarness(storageDir)
+      try {
+        const server = new HarnessSdkServer(ctx, new FakeTransport())
+        await expect(server.initialize({
+          cwd: storageDir,
+          provider: 'deepseek',
+          model: 'model',
+          maxTokens,
+        })).rejects.toThrow('initialize maxTokens must be a positive safe integer')
+        await server.shutdown()
+      } finally {
+        await ctx.fiber.dispose()
+        await rm(storageDir, { recursive: true, force: true })
+      }
+    },
+  )
+
   it('classifies defensive finish states', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-finish-states-'))
     const ctx = await makeHarness(storageDir)
@@ -935,15 +997,18 @@ describe('HarnessSdkServer', () => {
       get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', provider: 'mock', model: 'model' })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model', maxTokens: 123 })
     await server.getOrCreateSession('relative')
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: 'mock', model: 'model', maxTokens: 123 },
+    }))
     await server.shutdown()
   })
 

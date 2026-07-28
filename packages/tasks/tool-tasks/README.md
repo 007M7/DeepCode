@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-tasks
 
+English | [中文](README.zh.md)
+
 The model-facing control surface for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the surface required by `ctx.tasks.start()`.
 
 ## Tools
@@ -8,7 +10,7 @@ The model-facing control surface for `ctx.tasks`: three kind-independent tools, 
 - `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`.
 - `task_kill(task_id, reason?)` requests cancellation immediately and forwards the logged reason. Terminal tasks return a non-consuming snapshot.
 
-All three use generic ACP cards: `read` for output and list, `execute` for kill.
+All three use generic UI cards: `read` for output and list, `execute` for kill.
 
 Their canonical values are `{ text, task }`, `PublicTaskSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', task }`. A public snapshot carries id, kind, label, status/detail, and start/finish times; it deliberately omits `ownerSession` and the internal `reported` notice bit. Native renderers preserve the status and acknowledgement text above.
 
@@ -16,7 +18,7 @@ When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`
 
 ## Completion notices
 
-An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
+An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice. An owner-disposal race needs no special handling: the loop has no terminal state, so a notice injected during teardown appends as idle context — persisted for resume while the session is still attached, dropped with the detached log afterwards.
 
 ## Config
 

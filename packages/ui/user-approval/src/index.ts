@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { hasOpenTurn } from '@deepseek-ai/dsh-session'
@@ -220,8 +220,8 @@ export class ApprovalService extends Service {
       })
     })
 
-    // Visibility layer 2: the boundary narrator. pre-step runs after prompt
-    // assembly but before the request history is derived, so the notice is
+    // Visibility layer 2: the boundary narrator. agent/step runs before the
+    // request history is derived, so the notice is
     // seen by THIS step's request: idle-time flip-flops coalesce at the
     // turn's first step (net-zero → nothing), and a mid-turn switch is
     // narrated no later than the next step. What each session was last told
@@ -231,7 +231,7 @@ export class ApprovalService extends Service {
     // switch by the user; otherwise the configured default moved under the
     // session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
-    ctx.on('agent/pre-step', (agent) => {
+    ctx.on('agent/step', (agent) => {
       const session = agent.session
       const events = session.events
       let overrideIndex = -1
@@ -254,10 +254,10 @@ export class ApprovalService extends Service {
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return
       const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      agent.inject(
-        [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        { source: { kind: 'plugin', plugin: 'user-approval' } },
-      )
+      agent.inject(createUserMessage({
+        content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
+        source: { kind: 'plugin', plugin: 'user-approval' },
+      }))
     })
   }
 

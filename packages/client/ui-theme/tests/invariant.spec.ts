@@ -4,6 +4,8 @@ import { Context } from 'cordis'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-theme'
 import { apply as clientApply, inject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import * as ThemeInvariant from '@deepseek-ai/dsh-client-ui-theme/invariant'
+import { apply as localeApply } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
 describe('invariant companion', () => {
@@ -18,9 +20,13 @@ describe('invariant companion', () => {
     expect(true).toBe(true) // reaching here without throw is the contract
   })
 
-  it('client apply provides ctx.theme with no service prerequisites', async () => {
-    expect(inject).toEqual([])
+  it('client apply provides ctx.theme over the slots/locale edges', async () => {
+    // The feature registers its own Appearance settings row with localized
+    // copy, hence the slots + locale edges.
+    expect(inject).toEqual(['slots', 'locale'])
     const ctx = new Context()
+    new SlotsService(ctx)
+    await ctx.plugin({ inject: ['slots'], apply: localeApply }).await()
     await ctx.plugin({ inject, apply: clientApply }).await()
     expect(ctx.get('theme')).toBeInstanceOf(ThemeService)
   })

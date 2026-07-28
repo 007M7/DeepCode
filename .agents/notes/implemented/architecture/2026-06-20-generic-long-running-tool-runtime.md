@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-20-generic-long-running-tool-runtime.zh.md)
+
 ## Problem
 
 Background bash originally combined two responsibilities: the bash executor ran processes and also managed task ids, ownership, incremental reads, cancellation, completion listeners, and model-facing control tools. Adding background subagents required the same lifecycle and interaction contract. Implementing that contract independently for every long-running capability would duplicate isolation, cleanup, notification, and prompt behavior while teaching the model a different collect-and-stop protocol for each producer.
@@ -17,7 +19,7 @@ The `tasks/` package group owns background-task semantics:
 
 Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
 
-`TaskService` is a concrete, process-local service. TODO(task-service-backend): separate its public contract from the implementation when a second backend defines the required lifecycle; a systemd-backed runtime is one plausible driver, but this PR does not speculate about its durability, reconnect, ownership, or observation semantics.
+`TaskService` is the abstract seam in `@deepseek-ai/dsh-tasks`; the process-local registry is `LocalTaskService` in `@deepseek-ai/dsh-tasks-local` (the [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) records that split).
 
 ## Runtime contract
 
@@ -67,7 +69,7 @@ A producer loaded without any control surface would let callers start work they 
 
 ## Model-facing control surface
 
-`dsh-tool-tasks` registers three kind-independent tools with generic ACP cards:
+`dsh-tool-tasks` registers three kind-independent tools with generic UI cards:
 
 - `task_output(task_id, wait?, timeout_ms?)` reads output and always appends `[status: ...]`. Stream tasks return only output since the previous read; final-output tasks return their result after settlement. Reads are non-blocking unless `wait: true`, whose timeout is defaulted and capped by plugin config. A wait timeout reports the still-running status and does not stop the task.
 - `task_list()` returns caller-visible tasks as `<id> [<kind>] <status> — <label>`, or `(no background tasks)`.
@@ -101,7 +103,7 @@ Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, 
 
 ### An immediate abstract task-runtime backend
 
-The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so extracting an interface before a second implementation exists would freeze the wrong boundary.
+The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so at introduction time the registry stayed one concrete service rather than freezing the wrong boundary. The [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) later separated the contract from the process-local implementation without changing these in-process semantics.
 
 ### Consumer-owned authorization or cleanup events
 

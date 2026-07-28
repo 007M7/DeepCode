@@ -2,6 +2,8 @@
 
 Status: rejected — a single turn can contain substantial real work, including many steps and large tool output. Preserving interrupted turns is preferable to silently dropping that tail on load.
 
+English | [中文](2026-06-20-truncate-interrupted-turns.zh.md)
+
 ## Problem
 
 The current persistence contract preserves a final turn that was durably written but never closed. On load, `interruptedTurnClosers()` scans the tail, synthesizes error `tool/result` events for unanswered tool calls, appends a `step/end` when a step is open, appends `turn/end { kind: 'interrupted' }`, and asks the backend to durably commit that repair. The coordinator, JSONL backend, SQLite backend, session event vocabulary, invariants, docs, and tests all model this synthetic close path.
@@ -29,6 +31,6 @@ A crash can lose real work from the final turn: assistant text, tool calls, and 
 
 ## Related
 
-This is a direct simplification of [session persistence](../../implemented/architecture/2026-06-14-session-persistence.md) and [turn enclosure](../../implemented/architecture/2026-06-15-turn-enclosure-invariant.md). It also removes much of the motivation for durable step boundary events, making [drop durable step boundary events](2026-06-20-drop-durable-step-boundaries.md) smaller.
+This is a direct simplification of [session persistence](../../implemented/architecture/2026-06-14-session-persistence.md) and the historical [universal turn-enclosure rule](../../archived/architecture/2026-06-15-turn-enclosure-invariant.md). It also removes much of the motivation for durable step boundary events, making [drop durable step boundary events](2026-06-20-drop-durable-step-boundaries.md) smaller.
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

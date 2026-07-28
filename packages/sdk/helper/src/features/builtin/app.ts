@@ -18,6 +18,7 @@ import {
 } from '../feature.ts'
 import { ProjectContribution, type ProjectResource } from '../resources.ts'
 import {
+  cordisConfigEntry,
   npmCordisConfigEntry,
   optionalString,
   ownedTextFile,
@@ -74,14 +75,6 @@ class AppOption extends FeatureOption {
         return new ProjectContribution([
           ...appProjectResources(profile, this.id),
           ...npmCordisConfigEntry(ID, {
-            id: 'commands',
-            name: '@deepseek-ai/dsh-commands',
-          }),
-          ...npmCordisConfigEntry(ID, {
-            id: 'user-interaction',
-            name: '@deepseek-ai/dsh-user-interaction',
-          }),
-          ...npmCordisConfigEntry(ID, {
             id: 'acp',
             name: '@deepseek-ai/dsh-acp',
             config: { model: profile.runtime.model },
@@ -93,6 +86,10 @@ class AppOption extends FeatureOption {
           ...npmCordisConfigEntry(ID, {
             id: 'user-interaction',
             name: '@deepseek-ai/dsh-user-interaction',
+          }),
+          cordisConfigEntry(ID, {
+            id: 'tui-prompt',
+            name: '@deepseek-ai/dsh-tui/prompt',
           }),
           ...npmCordisConfigEntry(ID, {
             id: 'tui',
@@ -119,7 +116,7 @@ export class AppFeature extends ExclusiveOptionFeature {
   override readonly required = true
   override readonly requires = [featureId('spine')]
   override readonly options = [
-    new AppOption('acp', 'ACP server'),
+    new AppOption('acp', 'ACP automation server'),
     new AppOption('tui', 'Terminal TUI'),
     new AppOption('embed', 'Embedded context'),
   ]

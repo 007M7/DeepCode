@@ -5,7 +5,7 @@
  * the hand-written fixture/host parallel implementations.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '../src/client/api.ts'
+import type { SessionId, WorkspaceId } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import type { HostFrame, MuxFrame, RpcMessage, RpcRequest } from '../src/client/api.ts'
 import { FixtureApiClient, createFixtureApi } from '../src/client/fixture.ts'
@@ -65,10 +65,60 @@ describe('createFixtureApi', () => {
     const clamped = await api.sessions.history(req({ sessionId: sid('fx-alpha'), beforeSeq: -5, maxMessages: 10 }))
     if (!clamped.result.ok) throw new Error('clamped failed')
     expect(clamped.result.value.events).toEqual([])
-    // Unknown session: empty page, not an error (history of a bare id).
+    // Unknown session: empty page, not an error (history of a bare id). The
+    // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false })
+    // Fixture composes the todos unit (host parallel when tool-todo is mounted): null before any write.
+    expect(empty.result.value).toEqual({
+      events: [], hasMore: false, projections: { asOfSeq: -1, values: { todos: null } },
+    })
+  })
+
+  it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {
+    const api = createFixtureApi()
+    const sessionId = sid('fx-alpha')
+    const catalog = await api.sessions.models(req({ sessionId }))
+    if (!catalog.result.ok) throw new Error('models failed')
+    expect(catalog.result.value.groups.map(group => group.name)).toEqual(['DeepSeek', 'OpenAI'])
+    expect(catalog.result.value.groups[0]?.models.map(model => model.id))
+      .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+
+    const selected = await api.sessions.selectModel(req({
+      sessionId,
+      provider: 'openai',
+      model: 'gpt-5',
+    }))
+    if (!selected.result.ok) throw new Error('selection failed')
+    expect(selected.result.value.selected).toEqual({ provider: 'openai', model: 'gpt-5' })
+    const history = await api.sessions.history(req({ sessionId }))
+    if (!history.result.ok) throw new Error('history failed')
+
+    const prompt = await api.sessions.prompt(req({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'report model' }],
+    }))
+    expect(prompt.result.ok).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const after = await api.sessions.history(req({ sessionId }))
+    if (!after.result.ok) throw new Error('history failed')
+    expect(JSON.stringify(after.result.value.events)).toContain('openai/gpt-5')
+  })
+
+  it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
+    const api = createFixtureApi()
+    const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
+    if (!tail.result.ok) throw new Error('history failed')
+    const events = tail.result.value.events.map(e => e.event)
+    const todoAt = events.findIndex(e => e.type === 'todo/write')
+    expect(todoAt).toBeGreaterThan(0)
+    // Production ordering (the tool appends mid-execution): call → snapshot → result.
+    expect(events[todoAt - 1]?.type).toBe('tool/call')
+    expect(events[todoAt + 1]?.type).toBe('tool/result')
+    const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
+    expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
+    expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
   })
 
   it('create adds a session and pushes host/session-added to open host streams', async () => {
@@ -87,7 +137,7 @@ describe('createFixtureApi', () => {
     await consuming
     if (!created.result.ok) throw new Error('create failed')
     const createdId = created.result.value.sessionId
-    expect(seen).toEqual([{ type: 'host/session-added', sessionId: createdId }])
+    expect(seen).toEqual([{ type: 'host/session-added', sessionId: createdId, blank: true, cwd: '/tmp/fixture' }])
     const list = await api.sessions.list(req({}))
     if (!list.result.ok) throw new Error('list failed')
     expect(list.result.value.items.some(s => s.sessionId === createdId)).toBe(true)
@@ -164,11 +214,13 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    expect(first[1]?.payload).toMatchObject({ type: 'session/title', sessionId: 'fx-alpha', title: 'Fixture 历史会话' })
-    expect(first[2]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[2]?.rpcId).toBe(first[2]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[3]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[3]?.rpcId).toBe(first[3]?.rpcId)
+    // Projection baseline frames follow the subscribed frame (title + todos units).
+    expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
+    expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
+    expect(first[3]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[3]?.rpcId).toBe(first[3]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[4]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[4]?.rpcId).toBe(first[4]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -314,6 +366,292 @@ describe('createFixtureApi', () => {
     const api = createFixtureApi()
     const response = await api.host.describe(req({}))
     expect(response.result).toMatchObject({ ok: true, value: { version: '0.0.0-fixture', attachedSessions: 1 } })
+    const empty = await createFixtureApi({ empty: true }).host.describe(req({}))
+    expect(empty.result).toMatchObject({ ok: true, value: { attachedSessions: 0 } })
+  })
+
+  it('workspace.list serves the resident account and create reuses on path collision', async () => {
+    const api = createFixtureApi()
+    const listed = await api.workspace.list(req({}))
+    if (!listed.result.ok) throw new Error('list failed')
+    expect(listed.result.value.items).toEqual([expect.objectContaining({
+      workspaceId: 'fx-ws-fixture', path: '/tmp/fixture', title: 'fixture',
+      sessionIds: ['fx-alpha', 'fx-beta', 'fx-gamma'],
+    })])
+    // path collision → the existing entity comes back, created:false, no frame.
+    const reused = await api.workspace.create(req({ path: '/tmp/fixture' }))
+    if (!reused.result.ok) throw new Error('reuse failed')
+    expect(reused.result.value).toMatchObject({ created: false, workspace: { workspaceId: 'fx-ws-fixture' } })
+  })
+
+  it('workspace.create by name mints a new entity and pushes host/workspace-changed', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const created = await api.workspace.create(req({ name: 'nova' }))
+    if (!created.result.ok) throw new Error('create failed')
+    expect(created.result.value.created).toBe(true)
+    expect(created.result.value.workspace).toMatchObject({
+      path: '/tmp/fixture-workspaces/nova', title: 'nova', sessionIds: [],
+    })
+    await consuming
+    expect(seen).toEqual([{ type: 'host/workspace-changed', workspace: created.result.value.workspace }])
+    // path spelling falls back to the basename when no title/name rides along.
+    const pathOnly = await api.workspace.create(req({ path: '/tmp/fixture-elsewhere/base' }))
+    if (!pathOnly.result.ok) throw new Error('pathOnly failed')
+    expect(pathOnly.result.value.workspace.title).toBe('base')
+    // Degenerate spellings reach the impl unfiltered (the fixture carrier has
+    // no schema gate): both-absent falls back to the bucket dir, and a
+    // basename-less path serves as its own title.
+    const bare = await api.workspace.create(req({}))
+    if (!bare.result.ok) throw new Error('bare failed')
+    expect(bare.result.value.workspace).toMatchObject({ path: '/tmp/fixture-workspaces/', title: 'fixture-workspaces' })
+    const rootPath = await api.workspace.create(req({ path: '/' }))
+    if (!rootPath.result.ok) throw new Error('rootPath failed')
+    expect(rootPath.result.value.workspace.title).toBe('/')
+  })
+
+  it('workspace.rename covers not-found, conflict, no-op, and the changed frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        if (seen.length >= 2) abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const wsid = 'fx-ws-fixture' as WorkspaceId
+    const missing = await api.workspace.rename(req({ workspaceId: 'fx-ws-void' as WorkspaceId, title: 'x' }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'fx-ws-void' } } })
+
+    await api.workspace.create(req({ name: 'occupied' }))
+    const conflict = await api.workspace.rename(req({ workspaceId: wsid, title: ' occupied ' }))
+    expect(conflict.result).toMatchObject({ ok: false, error: { code: 'workspace-name-conflict', details: { name: 'occupied' } } })
+
+    const noop = await api.workspace.rename(req({ workspaceId: wsid, title: ' fixture ' }))
+    if (!noop.result.ok) throw new Error('no-op rename failed')
+    expect(noop.result.value.workspace.title).toBe('fixture')
+
+    const renamed = await api.workspace.rename(req({ workspaceId: wsid, title: 'renamed' }))
+    if (!renamed.result.ok) throw new Error('rename failed')
+    expect(renamed.result.value.workspace.title).toBe('renamed')
+    await consuming
+    // Only the create and the effective rename emit frames; the no-op stays silent.
+    expect(seen.map(f => f.type)).toEqual(['host/workspace-changed', 'host/workspace-changed'])
+  })
+
+  it('workspace.insertSessionBefore moves, appends, no-ops, and rejects invalid ids', async () => {
+    const api = createFixtureApi()
+    const wsid = 'fx-ws-fixture' as WorkspaceId
+    const missing = await api.workspace.insertSessionBefore(req({ workspaceId: 'fx-ws-void' as WorkspaceId, sessionId: sid('fx-alpha') }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const ghost = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-ghost') }))
+    expect(ghost.result).toMatchObject({ ok: false, error: { code: 'workspace-move-invalid', details: { sessionId: 'fx-ghost' } } })
+    const badAnchor = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha'), beforeSessionId: sid('fx-ghost') }))
+    expect(badAnchor.result).toMatchObject({ ok: false, error: { code: 'workspace-move-invalid', details: { beforeSessionId: 'fx-ghost' } } })
+
+    const moved = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-gamma'), beforeSessionId: sid('fx-beta') }))
+    if (!moved.result.ok) throw new Error('move failed')
+    expect(moved.result.value.workspace.sessionIds).toEqual(['fx-alpha', 'fx-gamma', 'fx-beta'])
+    const appended = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha') }))
+    if (!appended.result.ok) throw new Error('append failed')
+    expect(appended.result.value.workspace.sessionIds).toEqual(['fx-gamma', 'fx-beta', 'fx-alpha'])
+    const before = appended.result.value.workspace.updatedAt
+    const noop = await api.workspace.insertSessionBefore(req({ workspaceId: wsid, sessionId: sid('fx-alpha') }))
+    if (!noop.result.ok) throw new Error('no-op move failed')
+    expect(noop.result.value.workspace.sessionIds).toEqual(['fx-gamma', 'fx-beta', 'fx-alpha'])
+    expect(noop.result.value.workspace.updatedAt).toBe(before)
+  })
+
+  it('workspace.delete removes only the Workspace row and emits the removal frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const missing = await api.workspace.delete(req({ workspaceId: 'fx-ws-void' as WorkspaceId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
+    const deleted = await api.workspace.delete(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    await consuming
+    expect(seen).toEqual([{ type: 'host/workspace-removed', workspaceId: 'fx-ws-fixture' }])
+    const list = await api.workspace.list(req({}))
+    if (!list.result.ok) throw new Error('workspace list failed')
+    expect(list.result.value.items.some(workspace => workspace.workspaceId === 'fx-ws-fixture')).toBe(false)
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
+  })
+
+  it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const seen: HostFrame[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.host(req({}), abort.signal)) {
+        seen.push(envelope.payload)
+        if (seen.length >= 2) abort.abort()
+      }
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const missing = await api.sessions.create(req({ workspaceId: 'fx-ws-void' as WorkspaceId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'fx-ws-void' } } })
+    const created = await api.sessions.create(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId }))
+    if (!created.result.ok) throw new Error('create failed')
+    const id = created.result.value.sessionId
+    await consuming
+    // The session lands with the workspace's path as cwd, and the account
+    // write pushes the fresh workspace snapshot after session-added.
+    expect(seen[0]).toEqual({ type: 'host/session-added', sessionId: id, blank: true, cwd: '/tmp/fixture' })
+    expect(seen[1]).toMatchObject({
+      type: 'host/workspace-changed',
+      workspace: { workspaceId: 'fx-ws-fixture', sessionIds: [id, 'fx-alpha', 'fx-beta', 'fx-gamma'] },
+    })
+  })
+
+  it('supports an empty baseline, preallocated ids, workspace-first frames, and idempotent retry', async () => {
+    const api = createFixtureApi({ empty: true, createFrameOrder: 'workspace-first' })
+    const initialSessions = await api.sessions.list(req({}))
+    const initialWorkspaces = await api.workspace.list(req({}))
+    expect(initialSessions.result).toMatchObject({ ok: true, value: { items: [] } })
+    expect(initialWorkspaces.result).toMatchObject({ ok: true, value: { items: [] } })
+
+    const made = await api.workspace.create(req({ name: 'nova' }))
+    if (!made.result.ok) throw new Error('workspace create failed')
+    const abort = new AbortController()
+    const framesPromise = collect(api.events.host(req({}), abort.signal), abort, frames => frames.length === 2)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const preallocated = sid('fx-preallocated')
+    const created = await api.sessions.create(req({
+      workspaceId: made.result.value.workspace.workspaceId,
+      sessionId: preallocated,
+    }))
+    expect(created.result).toEqual({ ok: true, value: { sessionId: preallocated } })
+    const frames = await framesPromise
+    expect(frames[0]).toMatchObject({
+      type: 'host/workspace-changed', workspace: { sessionIds: [preallocated] },
+    })
+    expect(frames[1]).toEqual({ type: 'host/session-added', sessionId: preallocated, blank: true, cwd: made.result.value.workspace.path })
+
+    const retried = await api.sessions.create(req({
+      workspaceId: made.result.value.workspace.workspaceId,
+      sessionId: preallocated,
+    }))
+    expect(retried.result).toEqual({ ok: true, value: { sessionId: preallocated } })
+    const listed = await api.sessions.list(req({}))
+    if (!listed.result.ok) throw new Error('session list failed')
+    expect(listed.result.value.items.filter(item => item.sessionId === preallocated)).toHaveLength(1)
+
+    const conflict = await api.sessions.create(req({ sessionId: preallocated, cwd: '/elsewhere' }))
+    expect(conflict.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-conflict', details: { sessionId: preallocated, requestedCwd: '/elsewhere' } },
+    })
+  })
+
+  it('attaches an existing ungrouped Session to a matching Workspace', async () => {
+    const api = createFixtureApi()
+    const sessionId = sid('fx-existing-ungrouped')
+    await expect(api.sessions.create(req({ sessionId, cwd: '/tmp/fixture' }))).resolves.toMatchObject({
+      result: { ok: true, value: { sessionId } },
+    })
+
+    await expect(api.sessions.create(req({
+      sessionId,
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+    }))).resolves.toMatchObject({ result: { ok: true, value: { sessionId } } })
+
+    const workspaces = await api.workspace.list(req({}))
+    if (!workspaces.result.ok) throw new Error('workspace list failed')
+    expect(workspaces.result.value.items[0]?.sessionIds).toContain(sessionId)
+  })
+
+  it('reports a conflict without an existing cwd detail for an unrecorded cwd', async () => {
+    const api = createFixtureApi()
+    const listed = await api.sessions.list(req({}))
+    if (!listed.result.ok) throw new Error('session list failed')
+    const existing = listed.result.value.items.find(item => item.sessionId === sid('fx-alpha'))
+    if (existing === undefined) throw new Error('fixture Session missing')
+    delete existing.cwd
+
+    const conflict = await api.sessions.create(req({ sessionId: existing.sessionId }))
+    expect(conflict.result).toEqual({
+      ok: false,
+      error: {
+        code: 'session-conflict',
+        message: `session ${existing.sessionId} already uses no cwd`,
+        details: { sessionId: existing.sessionId, requestedCwd: '/tmp/fixture' },
+      },
+    })
+  })
+
+  it('publishes an ungrouped Session when Workspace attachment fails', async () => {
+    const api = createFixtureApi({ failWorkspaceAttach: true })
+    const sessionId = sid('fx-partial')
+    const created = await api.sessions.create(req({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId,
+    }))
+    expect(created.result).toMatchObject({
+      ok: false,
+      error: { code: 'workspace-attach-failed', details: { sessionId, workspaceId: 'fx-ws-fixture' } },
+    })
+    const listed = await api.sessions.list(req({}))
+    const workspaces = await api.workspace.list(req({}))
+    if (!listed.result.ok || !workspaces.result.ok) throw new Error('list failed')
+    expect(listed.result.value.items.filter(item => item.sessionId === sessionId)).toHaveLength(1)
+    expect(workspaces.result.value.items[0]?.sessionIds).not.toContain(sessionId)
+
+    const retried = await api.sessions.create(req({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId,
+    }))
+    expect(retried.result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
+    const afterRetry = await api.sessions.list(req({}))
+    if (!afterRetry.result.ok) throw new Error('list failed')
+    expect(afterRetry.result.value.items.filter(item => item.sessionId === sessionId)).toHaveLength(1)
+  })
+
+  it('reconciles a dropped create response and can reject a prompt before acceptance', async () => {
+    const sessionId = sid('fx-lost-response')
+    const dropped = createFixtureApi({ dropSessionCreateResponse: true })
+    await expect(Promise.resolve().then(() => dropped.sessions.create(req({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId,
+    })))).rejects.toThrow(/dropped session\.create response/)
+    const listed = await dropped.sessions.list(req({}))
+    const workspaces = await dropped.workspace.list(req({}))
+    if (!listed.result.ok || !workspaces.result.ok) throw new Error('list failed')
+    expect(listed.result.value.items.some(item => item.sessionId === sessionId)).toBe(true)
+    expect(workspaces.result.value.items[0]?.sessionIds).toContain(sessionId)
+    await expect(dropped.sessions.create(req({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId,
+    }))).resolves.toMatchObject({ result: { ok: true, value: { sessionId } } })
+
+    const rejecting = createFixtureApi({ empty: true, rejectPrompt: true })
+    const real = await rejecting.sessions.create(req({ sessionId: sid('fx-rejected') }))
+    if (!real.result.ok) throw new Error('session create failed')
+    const prompt = await rejecting.sessions.prompt(req({
+      sessionId: real.result.value.sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'keep me' }],
+    }))
+    expect(prompt.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
   })
 
   it('timing hooks: history delay + one-shot failure, silent append, and breakStreams end open generators', async () => {
@@ -339,11 +677,11 @@ describe('createFixtureApi', () => {
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
-      expect(seen.some(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')).toBe(true)
+      expect(seen.some(f => f.type === 'session/projection' && f.key === 'title' && f.value === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
     const rawTitleIndex = seen.findIndex(f => f.type === 'session/event' && (f.event as { type: string }).type === 'session/title')
-    const titleControlIndex = seen.findIndex(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')
+    const titleControlIndex = seen.findIndex(f => f.type === 'session/projection' && f.key === 'title' && f.value === 'Fixture 修订标题')
     expect(titleControlIndex).toBe(rawTitleIndex + 1)
     // But history serves the silent event (the client's repull finds it).
     const repull = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 5 }))
@@ -366,6 +704,7 @@ describe('createFixtureApi', () => {
 describe('FixtureApiClient (protocol-level fake carrier)', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('doFetch is an unreachable tripwire (all protocol paths overridden)', () => {
@@ -403,6 +742,66 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await client.sessions.permissions({ sessionId: id })).result.ok).toBe(true)
     expect((await client.sessions.setPermission({ sessionId: id, value: 'danger-full-access' })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
+    expect((await client.workspace.list({})).result.ok).toBe(true)
+    const workspace = await client.workspace.create({ name: 'via-client' })
+    if (!workspace.result.ok) throw new Error('workspace create failed')
+    expect(workspace.result.value.workspace.title).toBe('via-client')
+    const wsid = workspace.result.value.workspace.workspaceId
+    const renamed = await client.workspace.rename({ workspaceId: wsid, title: 'via-client-2' })
+    if (!renamed.result.ok) throw new Error('workspace rename failed')
+    expect(renamed.result.value.workspace.title).toBe('via-client-2')
+    const attached = await client.sessions.create({ workspaceId: wsid })
+    if (!attached.result.ok) throw new Error('attached create failed')
+    const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
+    if (!moved.result.ok) throw new Error('workspace move failed')
+    expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
+  })
+
+  it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {
+    vi.stubGlobal('location', {
+      search: '?fixture=empty&fixturePrompt=reject&fixtureFrames=workspace-first',
+    })
+    const client = new FixtureApiClient()
+    await expect(client.sessions.list({})).resolves.toMatchObject({ result: { ok: true, value: { items: [] } } })
+    const made = await client.workspace.create({ name: 'query-workspace' })
+    if (!made.result.ok) throw new Error('workspace create failed')
+    const abort = new AbortController()
+    const framesPromise = collect(client.events.host({}, abort.signal), abort, frames => frames.length === 2)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const sessionId = sid('fx-query-session')
+    const created = await client.sessions.create({
+      workspaceId: made.result.value.workspace.workspaceId,
+      sessionId,
+    })
+    expect(created.result).toMatchObject({ ok: true, value: { sessionId } })
+    const frames = await framesPromise
+    expect(frames.map(frame => frame.type)).toEqual(['host/workspace-changed', 'host/session-added'])
+    const rejected = await client.sessions.prompt({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'retain' }],
+    })
+    expect(rejected.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+  })
+
+  it('maps attach-failure and dropped-response query scenarios', async () => {
+    vi.stubGlobal('location', { search: '?fixture&fixtureAttach=fail' })
+    const partial = new FixtureApiClient()
+    const partialResult = await partial.sessions.create({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId: sid('fx-query-partial'),
+    })
+    expect(partialResult.result).toMatchObject({
+      ok: false,
+      error: { code: 'workspace-attach-failed', details: { sessionId: 'fx-query-partial' } },
+    })
+
+    vi.stubGlobal('location', { search: '?fixture&fixtureSessionCreate=drop-response' })
+    const dropped = new FixtureApiClient()
+    await expect(dropped.sessions.create({
+      workspaceId: 'fx-ws-fixture' as WorkspaceId,
+      sessionId: sid('fx-query-dropped'),
+    })).rejects.toThrow(/dropped session\.create response/)
   })
 
   it('fires onOpen at stream-iteration start and taps server-request full forms', async () => {

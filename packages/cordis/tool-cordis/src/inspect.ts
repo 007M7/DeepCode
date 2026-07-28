@@ -1,6 +1,6 @@
 /**
  * Read-only renderers over the live runtime for `cordis_inspect`: the service list, the flat
- * plugin list, the registered tools, the dynamic-mount table (with per-mount provides/waits),
+ * plugin list, the registered tools, the temporary-plugin table (with per-plugin provides/waits),
  * and the catalog-backed `api` / `events` sections. Exact-name lookups add the
  * original source JSDoc without inflating the default reports.
  * @module @deepseek-ai/dsh-tool-cordis/inspect
@@ -63,8 +63,8 @@ export function describeServices(ctx: Context): string[] {
 /**
  * The `plugins` section: a flat list of every fiber the registry knows, one
  * line per fiber with its lifecycle state, sorted by plugin name (a plugin
- * mounted more than once repeats — one line per instance). Dynamic mounts are
- * listed like any other plugin; their ids live in the `dynamic` section.
+ * mounted more than once repeats — one line per instance). Temporary plugins are
+ * listed like any other plugin; their ids live in the `temporary` section.
  * @param ctx - the runtime whose registry is enumerated.
  * @returns one line per loaded plugin fiber.
  */
@@ -91,7 +91,7 @@ export function describeTools(ctx: Context, scope?: ScopeKey): string[] {
 }
 
 /**
- * The `dynamic` section: one line per mount with id, plugin name, lifecycle
+ * The `temporary` section: one line per temporary plugin with id, plugin name, lifecycle
  * state, the services its subtree provides, and — for a pending mount — the
  * services it waits for.
  * @param ctx - the runtime the mounts live in.
@@ -99,13 +99,14 @@ export function describeTools(ctx: Context, scope?: ScopeKey): string[] {
  * @returns one line per mount, or a single placeholder line when none exist.
  */
 export function describeDynamic(ctx: Context, mounts: ReadonlyMap<string, DynamicMount>): string[] {
-  if (mounts.size === 0) return ['(no dynamic plugins mounted)']
+  if (mounts.size === 0) {
+    return ['No temporary Plugins are running. Temporary Plugins created with cordis_mount disappear when DSH restarts.']
+  }
   return [...mounts].map(([id, mount]) => {
     const provides = providedServices(ctx, mount.fiber)
     const waiting = missingServices(ctx, mount.fiber)
-    const providesNote = provides.length > 0 ? ` — provides: ${provides.join(', ')}` : ''
-    const waitingNote = waiting.length > 0 ? ` — waiting for: ${waiting.join(', ')}` : ''
-    return `- ${id}: ${mount.pluginName} [${STATE_LABELS[mount.fiber.state]}]${providesNote}${waitingNote}`
+    const state = mount.fiber.state === FiberState.ACTIVE ? 'running' : STATE_LABELS[mount.fiber.state]
+    return `- Temporary Plugin ${id}: ${mount.pluginName} [${state}] — provides: ${provides.join(', ') || 'none'}; waiting for: ${waiting.join(', ') || 'none'}; lifetime: until unmounted or DSH restarts`
   })
 }
 

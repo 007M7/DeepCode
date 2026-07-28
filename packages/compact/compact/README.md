@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-compact
 
+English | [中文](README.zh.md)
+
 The **compaction seam**: an abstract `CompactService` (`ctx.compact`) defining WHAT compaction does — decide when history is too large and summarize an older range into a single surface node — without saying HOW.
 
 This package is the interface tier of the compaction capability, split so each concern evolves (and swaps) independently:
@@ -33,7 +35,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 ## Surface contract
 
-`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
+`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,

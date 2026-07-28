@@ -1,19 +1,17 @@
 /**
  * Execution types for the bash executor seam. Background task semantics belong
- * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles.
+ * to `@deepseek-ai/dsh-tasks`; this seam exposes only process handles. The
+ * managed-environment and captured-output vocabulary is owned by the
+ * subprocess seam and re-exported here so bash consumers keep one import
+ * root.
  * @module dsh-bash/types
  */
 
 import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-subprocess'
 
-/** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
-export const DSH_ENV_PREFIX = 'DSH_' as const
-
-/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
-export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
-
-/** Trusted DeepSeek Harness variables for one bash execution. */
-export type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
+export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Sandbox facts for one run, present iff a sandboxing executor handled it.
@@ -62,17 +60,18 @@ export interface BashExecRequest {
   stdin?: string | undefined
   /**
    * Ordinary environment entries for the command, merged after the credential
-   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
-   * here. Set by in-process plugins (the hooks bridges set
-   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
-   * does not expose it as a parameter.
+   * scrub. Managed facts belong in {@link dshEnv}, which merges after this
+   * map, so an entry here can never displace one. Set by in-process plugins
+   * (the hooks bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the
+   * model-facing bash tool does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
   /**
-   * Harness-owned `DSH_*` variables for this execution. Executors discard
-   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
-   * current fact cannot inherit a stale value from the harness process, and
-   * reject non-`DSH_*` names supplied through this managed channel.
+   * Harness-owned `DSH_*` variables for this execution (typed to managed
+   * keys). Executors discard ambient `DSH_*` entries before merging this
+   * snapshot last, so an unavailable current fact cannot inherit a stale
+   * value from the harness process and a caller {@link env} entry cannot
+   * displace a managed one.
    */
   dshEnv?: DshEnvironment | undefined
   /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
@@ -99,25 +98,15 @@ export interface BashExecSpec {
   stdin?: string | undefined
   /**
    * Ordinary environment entries carried through from
-   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * {@link BashExecRequest.env}; {@link dshEnv} still merges after them.
    * OPTIONAL on the spec for the same reason as `stdin`: absent means no
    * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  /** Managed `DSH_*` snapshot (typed to managed keys); merges after {@link env}. */
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
-}
-
-/** One captured stream: the (possibly truncated) text plus recovery info. */
-export interface CollectedOutput {
-  /** Collected text — the TAIL of the stream when truncated. */
-  text: string
-  /** True when bytes were dropped from `text`. */
-  truncated: boolean
-  /** Path to a file holding the COMPLETE stream, when truncated and available. */
-  spillPath?: string
 }
 
 /** The outcome of one completed (or killed) foreground run. */
@@ -165,8 +154,9 @@ export interface BashProcessRead {
 
 /**
  * A background process handle returned by {@link BashExecutor.start}. It is the
- * only access path; buffered output remains readable after exit. Executor
- * disposal kills running processes and awaits {@link done}.
+ * only access path; buffered output remains readable after exit. Composition
+ * teardown (the subprocess service's disposal) kills running processes and
+ * awaits {@link done}; an executor-only reload leaves them running.
  */
 export interface BashProcess {
   /** Process lifecycle state (settled exactly once). */

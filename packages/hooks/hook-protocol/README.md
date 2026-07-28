@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-hook-protocol
 
+English | [中文](README.zh.md)
+
 The **shared core** of the Claude Code / Codex hook wire protocol. NOT a cordis plugin — it registers nothing and injects nothing. It is a **library** of dialect-neutral primitives the two bridge plugins (`@deepseek-ai/dsh-hooks-claude`, `@deepseek-ai/dsh-hooks-codex`) import so neither re-implements the identical halves of the protocol.
 
 Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claude Code hook protocol — the same `hooks.json` matcher-group shape, the same exit-code/stdout output contract, the same command-hook execution model. The genuinely-shared parts live here; each bridge owns only what differs.
@@ -27,7 +29,7 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 
 Declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT a `SurfaceEventType`, no `surfaceOp`): `hook/invoked` (a hook command ran) and `hook/result` (its outcome, paired by `handlerId`, with `appendHookResult` owning the decision rule). Payloads and per-event JSDoc are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md); `stderrSummary` is truncated to the record's `stderrSummaryMaxChars` (the bridge's config, reference default `DEFAULT_STDERR_SUMMARY_MAX_CHARS` = 500; omitted when empty).
 
-Like every event they must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn by construction; `SessionStart` gets no `hook/*` record (its injected `context/message` is the durable evidence) — see the hooks Agent Note.
+Hook provenance records must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`Stop`) satisfy that owner-defined relation by construction. `SessionStart` and the pre-turn `UserPromptSubmit` admission seam get no `hook/*` record; allowed context is instead evidenced by its sourced `user/message` — see the hooks Agent Note.
 
 ## Model Experience
 

@@ -18,7 +18,6 @@
 
 export {
   runScenario,
-  type ElicitationAnswer,
   type HarvestedLog,
   type InputScript,
   type InputStep,
@@ -33,6 +32,7 @@ export {
   type LaunchedAcpTestAgent,
 } from './launcher.ts'
 export {
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,

@@ -9,18 +9,6 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.pulse {
-  display: inline-block;
-  width: 8px;
-  height: 14px;
-  background: var(--dsw-alias-state-business-primary);
-  animation: pulse 1s infinite ease-in-out;
-}
-
-@keyframes pulse {
-  50% { opacity: 0.2; }
-}
-
 /* Interrupted-turn terminal marker: quiet inline tag, no animation. */
 .stopped {
   align-self: flex-start;

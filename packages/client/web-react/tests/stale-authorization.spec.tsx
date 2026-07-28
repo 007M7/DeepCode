@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Stale renderSlot bindings (slot terminal design §9): a binding dies with
- * its entry — a retained closure invoked after the entry's disposal throws
- * StaleAuthorizationError off the ledger check, and an HMR-style reload (new
- * entry, same key) mints a NEW binding rather than reviving the old one.
+ * A retained render binding dies with its entry. Re-registering the same key
+ * creates a new binding rather than reviving the stale closure.
  */
 import { describe, expect, it } from 'vitest'
 import { act, render } from '@testing-library/react'
@@ -23,6 +21,7 @@ function makeHost() {
   const versions = new Map<string, number>()
   const subs = new Map<string, Set<() => void>>()
   const live = new Set<StoredEntry>()
+  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
     for (const fn of [...(subs.get(key) ?? [])]) fn()
@@ -34,15 +33,17 @@ function makeHost() {
       subs.set(key, set)
       return () => { set.delete(fn) }
     },
-    getVersion: (key) => versions.get(key) ?? 0,
-    entriesOf: (key) => entries.get(key) ?? [],
+    getVersion: key => versions.get(key) ?? 0,
+    entriesOf: key => entries.get(key) ?? [],
     specOf: () => ({ kind: 'single', scope: 'root' }),
-    isLive: (entry) => live.has(entry),
+    isLive: entry => live.has(entry),
     storeOf: () => undefined,
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
-      current: { getSnapshot: () => undefined, subscribe: () => () => {} },
-      cell: () => undefined,
+      provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
+    },
+    workspaces: {
+      list: { getSnapshot: () => ({}), subscribe: () => () => {} },
     },
   }
   return {
@@ -52,7 +53,7 @@ function makeHost() {
       live.add(entry)
       bump(key)
       return () => {
-        entries.set(key, (entries.get(key) ?? []).filter((e) => e !== entry))
+        entries.set(key, (entries.get(key) ?? []).filter(e => e !== entry))
         live.delete(entry)
         bump(key)
       }

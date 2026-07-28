@@ -1,13 +1,15 @@
 /**
- * Session-prefix skill catalog and model-facing `skill` loader tool.
+ * Durable session skill catalog and model-facing `skill` loader tool.
  *
  * @module @deepseek-ai/dsh-tool-skill
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
@@ -28,7 +30,7 @@ export const Config: z<Config> = z.object({
 
 /**
  * Register the model-facing skill loader and its visibility-matched
- * session-prefix catalog. The catalog is emitted only when the calling agent
+ * durable session catalog. The catalog is emitted only when the calling agent
  * resolves this plugin's exact tool registration; a restriction or scoped
  * same-name shadow therefore removes both the schema and its call guidance.
  */
@@ -115,12 +117,19 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
-  ctx.on('agent/session-prefix', async (agent, _prefix, signal, next): Promise<Message[]> => {
-    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) return await next()
+  const catalogLoaded = new WeakSet<object>()
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+    if (catalogLoaded.has(agent.session)) return
+    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) {
+      catalogLoaded.add(agent.session)
+      return
+    }
     const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
-    const rest = await next()
-    if (skills.length === 0) return rest
-    return [renderCatalogMessage(skills, catalogDescriptionMaxLength), ...rest]
+    if (skills.length > 0) {
+      const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
+      agent.inject(catalog)
+    }
+    catalogLoaded.add(agent.session)
   })
 }
 
@@ -170,10 +179,9 @@ function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceB
   }
 }
 
-function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): Message {
+function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
   const entries = skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
-  return {
-    role: 'user',
+  return createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -188,7 +196,8 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
         '</system-reminder>',
       ].join('\n'),
     }],
-  }
+    source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+  })
 }
 
 function catalogDescription(value: string, maxLength: number): string {

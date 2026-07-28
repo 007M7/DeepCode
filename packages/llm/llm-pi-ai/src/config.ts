@@ -5,9 +5,11 @@
  */
 
 import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
-import type { CacheRetention, ThinkingBudgets, ThinkingLevel, Transport } from '@earendil-works/pi-ai'
+import type { CacheRetention, ModelThinkingLevel, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
@@ -23,7 +25,7 @@ export interface PiAiProviderProfile {
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
-  reasoning?: ThinkingLevel
+  reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
   /** Prompt-cache retention preference. */
@@ -36,12 +38,16 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  retryPolicy?: RetryPolicyConfig
 }
 
 /** Validated profile with every adapter-owned default resolved. */
-export interface ResolvedPiAiProviderProfile extends PiAiProviderProfile {
+export interface ResolvedPiAiProviderProfile extends Omit<PiAiProviderProfile, 'retryPolicy'> {
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
+  /** Immutable retry policy captured with this provider route. */
+  retryPolicy: ResolvedRetryPolicy
 }
 
 /** Plugin configuration: the non-empty provider profiles this instance owns. */
@@ -62,13 +68,14 @@ const profile = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   headers: z.dict(z.string()),
-  reasoning: z.union(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
+  reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),
   timeoutMs: z.natural(),
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+  retryPolicy: RetryPolicySchema,
 })
 
 /** Runtime schema for {@link Config}. */
@@ -115,6 +122,10 @@ export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): Resol
     return {
       ...source,
       streamIdleTimeoutMs,
+      retryPolicy: resolveRetryPolicy(
+        source.retryPolicy,
+        `llm-pi-ai: provider "${source.provider}" retryPolicy`,
+      ),
       ...source.headers === undefined ? {} : { headers: { ...source.headers } },
       ...source.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...source.thinkingBudgets } },
     }

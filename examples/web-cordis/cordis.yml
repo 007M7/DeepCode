@@ -1,0 +1,18 @@
+# Opt-in Web composition for inspecting the self-referential Cordis tools.
+# Temporary Plugin code can reach every injected live capability; treat this
+# deployment like shell access, not as a security boundary.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ../../apps/cli/cordis.yml
+    patches:
+      # AppCLIEntry normally injects this assembly-owned path before `dsh web`
+      # boots; the standalone Cordis launcher needs the equivalent patch here.
+      - id: webserver
+        config:
+          host: 127.0.0.1
+          port: 3081
+          distIndex: !!js "new URL('./apps/web/dist/index.html', 'file://' + process.cwd() + '/').pathname"
+      - insert:
+          - id: tool-cordis
+            name: '@deepseek-ai/dsh-tool-cordis'

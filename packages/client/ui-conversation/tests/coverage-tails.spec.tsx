@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample error pill, the node-half empty
+// PendingCard question arm, bash sample state dots, the node-half empty
 // apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { RunningToolCall, SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -22,7 +22,7 @@ afterEach(cleanup)
 
 describe('tails', () => {
   it('node-half apply is an intentional no-op', () => {
-    expect(nodeApply()).toBeUndefined()
+    expect(() => { nodeApply() }).not.toThrow()
   })
 
   it('ToolRow stopped state renders the warning dot in the leading slot', () => {
@@ -60,6 +60,20 @@ describe('tails', () => {
     expect(stopped.getByText('已停止')).toBeTruthy()
   })
 
+  it('AssistantMarkdown skips the root shell when only tool-call heads remain', () => {
+    // Tool heads are drawn by ChatView's tool groups; an empty root between
+    // groups is layout noise (no text, no pulse, no interrupted marker).
+    const empty = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'tool-call', callId: 'c', name: 'todo_write', argsRaw: '{}' }]}
+        streaming={false}
+      />,
+    )
+    expect(empty.container.firstChild).toBeNull()
+    const blank = render(<AssistantMarkdown blocks={[]} streaming={false} />)
+    expect(blank.container.firstChild).toBeNull()
+  })
+
   it('a settled others-variant row renders the sparkle icon in the leading slot', () => {
     const settled: ToolResultNode = {
       kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
@@ -68,7 +82,7 @@ describe('tails', () => {
       content: [], isError: false, callView: null, resultView: null,
     }
     const props: ToolRowOwnerProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled, openDetails: vi.fn(),
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(),
     }
     const view = render(<GenericToolCard {...props} />)
     // Settled ok state keeps the variant icon (sparkle) instead of a StateDot.
@@ -76,26 +90,48 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows the failed pill on error results (root session arm)', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
+    const sid = 'root-1' as SessionId
+    const list = createSnapshotStore<SessionListState>({
+      ids: [sid],
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
+      current: undefined,
+      phase: 'ready',
+    })
+    const props = (block: RunningToolCall | ToolResultNode) => ({
+      callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+      sessionId: sid, useSessions: bindSnapshotSelector(list),
+    } as unknown as ToolRowProps)
+
+    const running: RunningToolCall = {
+      callId: 'c1', name: 'bash', argsRaw: '{"command":"ls","description":"List"}',
+      turn: 1, step: 1, time: 1_000, callView: null,
+    }
     const errorResult: ToolResultNode = {
       kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
       call: { name: 'bash', argsRaw: '{"command":"boom"}' },
       callTime: 500,
       content: [], isError: true, callView: null, resultView: null,
     }
-    // Root session (no parentId): the global arm renders, error pill visible.
-    const sid = 'root-1' as SessionId
-    const list = createSnapshotStore<SessionListState>({
-      ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', running: false, updatedAt: 0 } },
-      current: undefined,
-    } as SessionListState)
-    const props = {
-      callId: 'c1', toolName: 'bash', block: errorResult, openDetails: vi.fn(),
-      sessionId: sid, useSessions: bindSnapshotSelector(list),
-    } as unknown as ToolRowProps
-    const view = render(<BashRow {...props} />)
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
-    expect(view.getByText('failed')).toBeTruthy()
+    const stoppedResult: ToolResultNode = {
+      ...errorResult,
+      error: { name: 'E', code: 'interrupted' },
+    }
+
+    const runningView = render(<BashRow {...props(running)} />)
+    expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
+    expect(runningView.getByText('Bash')).toBeTruthy()
+    expect(runningView.getByText('List')).toBeTruthy()
+    runningView.unmount()
+
+    const errorView = render(<BashRow {...props(errorResult)} />)
+    expect(errorView.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(errorView.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(errorView.getByText('失败')).toBeTruthy()
+    errorView.unmount()
+
+    const stoppedView = render(<BashRow {...props(stoppedResult)} />)
+    expect(stoppedView.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    expect(stoppedView.getByText('已停止')).toBeTruthy()
   })
 })

@@ -13,17 +13,15 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 export function extractSessionEventText(event: SessionEvent): string {
   switch (event.type) {
     case 'user/message':
-    case 'assistant/message':
-    case 'context/message':
-    case 'steering/message':
       return contentText(event.data.content)
-    case 'prompt/blocked':
-      return joinText([contentText(event.data.content), event.data.reason])
+    case 'assistant/message':
+    case 'steering/message':
+      return contentText(event.data.message.content)
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])
     case 'tool/result':
       return joinText([
-        contentText(event.data.content),
+        contentText(event.data.message.content),
         event.data.error?.name ?? '',
         event.data.error?.code ?? '',
       ])
@@ -52,8 +50,6 @@ function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string
         : joinText(['error', reason.message, reason.code ?? ''])
     case 'aborted':
       return 'aborted'
-    case 'rejected':
-      return joinText(['rejected', reason.reason])
     case 'disposed':
     case 'max-tokens':
     case 'interrupted':

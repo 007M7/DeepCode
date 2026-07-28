@@ -1,6 +1,6 @@
 ---
 name: dsh-find-simplifications
-description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates and write proposed Agent Notes or inline TODO/FIXME/XXX notes for dead, duplicated, speculative, or over-built code surfaces; especially for requests like "find simplification Agent Notes", "look for unnecessary complexity", "audit for removal-style cleanups", or "fold worthwhile simplification ideas from another PR".'
+description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, added-then-removed, or hand-rolled-where-a-dependency-exists surfaces.'
 ---
 
 # Finding DeepSeek Harness Simplifications
@@ -25,6 +25,7 @@ A strong simplification removes, folds, or demotes something real and has clear 
 - A package boundary exists only for test/demo/support code and adds publish or dependency overhead.
 - A feature implements speculative product generality: multi-session/session-load, background task rosters, live registry invalidation, mid-turn steering, tool-owned UI rendering, and similar shapes with no product owner.
 - An invariant, rollback path, set of expected outputs, or special-case test exists only to protect an unused surface.
+- Hand-rolled code reimplements what a well-maintained external package or a Node builtin at the engine floor already provides, and the swap would delete the implementation plus its dedicated tests ([dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - The simplified behavior may differ slightly, but the new behavior is still reasonable and easier to explain.
 
 Thin candidates are usually not enough for an Agent Note: deleting one typo, running `knip` once, removing an intentionally documented backend/adapter, or flagging "this looks complex" without call-site proof.
@@ -34,7 +35,7 @@ Thin candidates are usually not enough for an Agent Note: deleting one typo, run
 Use parallel subagents when the user asks for breadth or many candidates. Give each agent a domain and require evidence, not guesses. Useful domains:
 
 - Agent loop and session log: turn/step boundaries, steering, abort/cancel, durable events, replay, load/resume.
-- ACP and UI surfaces: `session/*` methods, terminal `_meta`, transcript rendering, single vs multi-session state.
+- ACP automation and human UI surfaces: prompt settlement and teardown on the protocol side; transcript rendering and interaction state on the UI side.
 - LLM/tools/system prompt: stream/generate surfaces, assemblers, registries, tool schema defaults, presentation hooks.
 - Bash and tool execution: foreground/background split, task ownership, output spill files, executor methods.
 - Packages/examples/scripts/tests: package boundaries, static inventories, redundant snapshot expected outputs, support packages.
@@ -48,6 +49,17 @@ Start with the largest production-code deltas. A broad simplification audit that
 Classify every defensive copy, freeze, validator, and callback capture by the boundary it crosses. Same-process typed service/plugin calls ordinarily borrow readonly values; parser/config, queue, model/tool JSON, durable/file, worker, process, and wire boundaries own or validate data. Tests built around hostile getters, fake typed objects, callback replacement, or mutation after a same-process handoff are evidence of a potentially speculative contract, not automatic justification for keeping it.
 
 For complex asynchronous code, draw the ownership graph and map each sentinel, readiness promise, cancellation path, disposer, and state flag to a distinct owner or transition. When several mechanisms mirror the same liveness or settlement fact, propose one transaction or lifecycle controller instead. Preserve separate machinery where it protects a real boundary: synchronous publication and rollback, callback containment, first-terminal-outcome arbitration, worker/process ownership, or dispose-to-quiescence.
+
+## Hand-Rolled Code Versus A Dependency
+
+Introducing a dependency is a valid simplification move, not a policy exception: the [dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md) owns the bar. When surveying, ask of protocol parsers, framers, retry/backoff loops, glob matchers, diff engines, and similar infrastructure: does a well-maintained npm package or a Node builtin at the repo's engine floor already do this?
+
+Prove a dependency-swap candidate like any other, plus:
+
+- Read the hand-rolled implementation and name the exact surface the package covers; residual semantics the package does not cover count against the swap and stay in the Agent Note.
+- Check the package's health honestly (maintenance, adoption, transitive footprint) and prefer builtins when the engine floor has them.
+- Check the Agent Note tree first: schemastery, vendored Cordis, the twin adapters, and other recorded seams are settled — a swap that collapses one needs to beat the recorded rationale, not just cite the policy.
+- Weigh net deletion: implementation plus dedicated tests plus docs, minus the glue that remains. A wrapper that relocates the same complexity is not a win.
 
 ## Prove Or Reject Each Candidate
 
@@ -65,6 +77,24 @@ Reject or downgrade a candidate when:
 - The surface is explicitly justified by an implemented Agent Note or a hard-won defensive pattern, and the new evidence does not beat that reason.
 - The removal would force unrelated churn without actually making the contract smaller.
 - The idea is correct but tiny. Add a targeted TODO/FIXME/XXX instead, using the urgency semantics in [docs/development.md](../../../docs/development.md).
+
+## Coalesce Superseded Agent Notes
+
+Audit the Agent Note tree when the user asks to reduce or coalesce it, or when the simplification being implemented makes an owning note obsolete. Do not expand every code-simplification survey into a repository-wide note audit.
+
+Use [`dsh-archive-agent-notes`](../dsh-archive-agent-notes/SKILL.md) for retention judgment and archive mechanics. Low-future-value implemented notes move as frozen triplets to `archived/{kind}`; proposed notes are never archived; rejected notes that no longer prevent a tempting mistake are deleted. Do not edit an archived note while simplifying current prose or code.
+
+Follow the deletion rule in the [Agent Note contract](../../notes/README.md#when-to-write-one); do not duplicate or weaken it here. For each candidate chain:
+
+1. Identify the current owner from shipped code, configuration, generated catalogs, package docs, newer Agent Notes, and inbound links; dates and titles are discovery hints, not proof.
+2. Classify the old note as fully or partially superseded. Any surviving behavior, current contract, durable format, compatibility obligation, or independently current rejected alternative makes it partial. Rationale that can be transferred to the current owner does not by itself make supersession partial.
+3. For full supersession, move every unique rationale, alternative, consequence, shipped verification contract, and named coverage gap into the current owner. An inventory that only describes deleted implementation mechanics is not one of those decision facts.
+4. Repair every inbound link, then delete the English note, Chinese counterpart, and consistency record together.
+5. Search exact filenames, symbols, config keys, event names, and wire strings after the edit. Keep partial supersessions cross-linked and current.
+
+An added-then-removed feature is a common full-supersession case. Let the removal note own the history only when the feature is absent from production code, configuration, schemas, durable or wire formats, migration, and compatibility behavior; no current documentation presents it as available; and no test exercises it as supported behavior. Removal rationale and tests that enforce absence may remain. Preserve why the feature originally existed, why that motivation no longer justified it, alternatives to full removal, the capability given up, conditions for reintroduction, and evidence that removal is complete. Old tests and implementation mechanics that verified only the deleted behavior are not current verification contracts.
+
+Reject consolidation when the removal is only one transport, default, implementation, or presentation of a feature; when persisted data or compatibility handling survives; or when the removal note does not yet carry enough rationale to prevent accidental reintroduction. A current negative design decision may legitimately need its own note even though the removed implementation is gone.
 
 ## Write The Agent Note
 
@@ -106,9 +136,11 @@ For docs-only Agent Note work, run at least `pnpm run doc-sync`, `pnpm run lint`
 
 When opening or updating a PR, summarize:
 
-- How many Agent Notes and inline notes were added.
+- How many Agent Notes and inline notes were added, consolidated, retained as partial supersessions, or deleted.
 - The main areas surveyed.
 - What was intentionally excluded.
 - Which checks passed.
+
+For each consolidation group, name the old and current owners, state the evidence for full supersession, and explain why deletion is safe. If an added-then-removed scan finds no qualifying note, report that result and the representative partial cases retained.
 
 Use a draft PR while the survey is still expanding; mark ready only when the candidate set, review responses, and validation are settled.

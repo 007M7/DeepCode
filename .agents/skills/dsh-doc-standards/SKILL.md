@@ -13,6 +13,7 @@ The contract lives in [docs/AGENTS.md](../../../docs/AGENTS.md). This workflow c
 - [.agents/notes/README.md](../../notes/README.md) — when a decision earns an Agent Note, how to file it, and what goes inside one (the header block, per-lifecycle skeleton, and Alternatives-considered mandate, gated by `verify-agent-note-format`); [docs/postmortem/README.md](../../../docs/postmortem/README.md) — when an incident earns a postmortem.
 - [docs/i18n/README.md](../../../docs/i18n/README.md) — the bilingual pairing contract; editing either side of a pair obligates the counterpart in the same change.
 - Root [AGENTS.md](../../../AGENTS.md) — the standing orders whose budget discipline this skill protects.
+- [Archived Agent Notes](../../notes/archived/AGENTS.md) — frozen historical snapshots excluded from editorial maintenance and evolving documentation gates.
 
 ## Placing content
 
@@ -25,7 +26,7 @@ Run the placement test in the standard's taxonomy table, then check the constrai
 
 ## Auditing the corpus
 
-The audit is a hunt for the standard's slop checklist, cheapest probes first. Establish the PR's current base first; after a retarget or base merge, repeat the audit for prose introduced by the new base rather than relying on the earlier result.
+The audit is a hunt for the standard's slop checklist, cheapest probes first. Verify and fetch the PR's live base, then run `pnpm --silent run change-scope --base <verified-base-ref>` to identify committed and dirty paths before applying semantic judgment. After a retarget or base merge, rerun the report and repeat the audit for prose introduced by the new base rather than relying on the earlier result.
 
 1. Measure: `pnpm run verify-doc-budgets --list`, then `git ls-files '*.md' ':(exclude)vendor/**' | xargs wc -w | sort -rn | head -30` to spot unbudgeted outliers.
 2. Hunt narrated history: `rg -n "no longer|used to|previously|was moved|renamed" --glob '*.md' --glob '*.ts' --glob '!vendor/**'` and keep only contrasts against a live alternative. Keep the vendor exclusion last so include globs cannot override it.
@@ -35,6 +36,8 @@ The audit is a hunt for the standard's slop checklist, cheapest probes first. Es
 6. In `implemented/` Agent Notes, remove migration plans, acceptance-task checklists, and future-tense spec language. Keep concise verification contracts that identify the behaviors and tiers pinning the shipped decision, plus named coverage gaps.
 7. If removing prose changes a promised behavior rather than its explanation, use a proposed Agent Note first (follow [dsh-find-simplifications](../dsh-find-simplifications/SKILL.md)).
 
+Exclude `.agents/notes/archived/` from corpus audits and edits. Active prose may repair, redirect, or delete an inbound link, but never follow an archive-wide cleanup into the frozen target.
+
 Keep every load-bearing rule, preferably as one to three lines plus a link to its rationale. Cut stories, duplicates, status notes, and the path used to derive the rule. Do not create a new explanation merely to relocate disposable reasoning.
 
 ## When verify-doc-budgets goes red
@@ -43,4 +46,4 @@ Apply the ordered relocate-condense-raise policy in [docs/AGENTS.md](../../../do
 
 ## Validation and PR hygiene
 
-Run at least `pnpm run doc-sync`, `pnpm run lint`, and `git diff --check`; JSDoc changes may regenerate catalogs. If a paired doc changed, follow [dsh-translate-docs](../dsh-translate-docs/SKILL.md) and run `pnpm run verify-translation-pairing --write`. The PR body should give word deltas, explain any deliberately long exception, and list checks.
+Run at least `pnpm run doc-sync`, `pnpm run lint`, and `git diff --check`; JSDoc changes may regenerate catalogs. If a paired doc changed, follow [dsh-translate-docs](../dsh-translate-docs/SKILL.md) and run `pnpm run verify-translation-pairing --write <pair>`. The PR body should give word deltas, explain any deliberately long exception, and list checks.

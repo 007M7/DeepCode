@@ -1,8 +1,10 @@
 # @deepseek-ai/dsh-tui-demo
 
-The full-screen terminal app: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), persisted same-session goals, the human-command registry and `/goal` producer, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). Its `bin` boots a leaf `cordis.yml`.
+English | [中文](README.zh.md)
 
-Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and other non-interactive runs. This package requires a TTY pair and has no line-oriented fallback.
+The full-screen terminal app bundle: a Cordis plugin that composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), persisted same-session goals, the human-command registry and `/goal` producer, JSONL persistence, keyboard-backed user interaction, a pre-created `main` agent, and [`@deepseek-ai/dsh-tui`](../../ui/tui/README.md). A `cordis.yml` mounts it as one entry; the [`dsh`](../../../apps/cli/README.md) CLI is the front door that boots such a config.
+
+Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and other non-interactive runs. This bundle requires a TTY pair and has no line-oriented fallback.
 
 ## What it bakes in
 
@@ -13,7 +15,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 | `@deepseek-ai/dsh-command-goal` | Direct `/goal` status and mutation over the spine's persisted-goal stack |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | Semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
-| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | Combined exact/FTS session queries and bounded `@session` snapshots consumed by the TUI |
+| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | Combined exact/FTS session queries and bounded `@session` snapshots consumed by the TUI; model-facing query tools remain a leaf opt-in |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
 | `@deepseek-ai/dsh-tool-ask-user` | Model-facing `ask_user_question` tool |
@@ -47,9 +49,9 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 
 Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; an embedding host may additionally provide `tuiResumeHost` for in-place process handoff.
 
-## The bin
+## Front door
 
-`dsh-tui-demo [path-to-cordis.yml]` defaults to `./cordis.yml`, loads the optional cwd `.env`, boots the Cordis Loader, and waits for the full plugin tree. The repository installs Loader's optional native helper, so bare package specifiers resolve under plain Node.
+This package ships no bin. The [`dsh`](../../../apps/cli/README.md) CLI is the terminal front door: bare `dsh` boots the shipped `examples/tui-agent/cordis.yml` (which mounts this bundle), and `dsh --config <path-to-cordis.yml>` boots an alternate leaf config that mounts it. It loads the optional cwd `.env`, drives the Cordis Loader, and waits for the full plugin tree. The repository installs Loader's optional native helper, so bare package specifiers resolve under plain Node.
 
 ## Example leaf
 

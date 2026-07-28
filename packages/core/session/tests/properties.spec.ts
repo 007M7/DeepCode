@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap, SessionEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 
@@ -27,11 +27,45 @@ const textContentArb = fc.array(
 // A message-producing event (these DO affect derived history). Each carries an
 // explicit `surfaceOp: 'append'` intent — the marker the real loop passes.
 const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
-  textContentArb.map((content): Appendable => ({ type: 'user/message', data: { content, source: { kind: 'user' } }, intent: { surfaceOp: 'append' } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, provenance: { provider: 'mock', model: 'mock' } }, intent: { surfaceOp: 'append' } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, provenance: { provider: 'mock', model: 'mock' }, usage: { inputTokens: 1, outputTokens: 1 } }, intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({ type: 'user/message', data: createUserMessage({
+    content, source: { kind: 'user' },
+  }), intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({
+    type: 'assistant/message',
+    data: {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content,
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    },
+    intent: { surfaceOp: 'append' },
+  })),
+  textContentArb.map((content): Appendable => ({
+    type: 'assistant/message',
+    data: {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content,
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+      usage: { inputTokens: 1, outputTokens: 1 },
+    },
+    intent: { surfaceOp: 'append' },
+  })),
   fc.record({ id: fc.string({ minLength: 1 }), content: textContentArb, isError: fc.boolean() })
-    .map((r): Appendable => ({ type: 'tool/result', data: { turn: 1, step: 1, callId: CallId(r.id), content: r.content, isError: r.isError }, intent: { surfaceOp: 'append' } })),
+    .map((r): Appendable => ({ type: 'tool/result', data: {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId(r.id),
+        content: r.content,
+        isError: r.isError,
+      }),
+    }, intent: { surfaceOp: 'append' } })),
 )
 
 // A non-message event (trace/replay data — must NOT affect derived history).

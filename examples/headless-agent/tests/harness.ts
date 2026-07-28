@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -59,6 +60,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   await ctx.plugin(LlmDeepSeek, options.modelContextWindow === undefined ? {} : {
     models: [{ id: 'deepseek-v4-flash', contextWindow: options.modelContextWindow }],
   })
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(ToolTodo)
@@ -92,7 +94,7 @@ export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 export function finalText(events: SessionEvent[]): string {
   const message = events.findLast(event => event.type === 'assistant/message')
   if (message?.type !== 'assistant/message') return ''
-  return message.data.content
+  return message.data.message.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')

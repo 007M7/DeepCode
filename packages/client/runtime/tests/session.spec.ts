@@ -75,13 +75,18 @@ describe('open', () => {
     const page = plainTurn(10, 0, '早', '安')
     session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
-    gate.resolve(ok({ events: entries(page) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(page) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
 })
+
 
 describe('live event path', () => {
   async function opened(events: SessionEvent[] = plainTurn(0, 0, 'a', 'b')) {
@@ -97,6 +102,28 @@ describe('live event path', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(3, '重放') })
     await Promise.resolve()
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
+  })
+
+  it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
+    // Live path: run mints an executing node, done settles it in the flow.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(6, 'cmd-live', 'plan'))
+    let command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', name: 'plan', args: '', outcome: null })
+    feed(ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'))
+    command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', seq: 6, outcome: { kind: 'success', text: '已进入 plan mode' } })
+
+    // Replay path (refresh): the same pair inside the history window folds identically.
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.commandRun(6, 'cmd-live', 'plan'),
+      ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'),
+    ])
+    expect(replayed.session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'command', seq: 6, name: 'plan', outcome: { kind: 'success', text: '已进入 plan mode' },
+    })
   })
 
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
@@ -210,26 +237,44 @@ describe('paging', () => {
     api.onHistory = () => gate.promise
     const first = session.loadOlder()
     const second = session.loadOlder()
-    gate.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
+    gate.resolve(ok({
+      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
 })
 
 describe('prompt and cancel errors', () => {
-  it('sends content through session.prompt with the mode passed through', async () => {
+  it('sends content through session.prompt; composerPhase steps blank → engaging synchronously at send entry', async () => {
     const { api, session } = makeSession()
-    const result = await session.prompt([{ type: 'text', text: '要发的' }], 'queue')
+    // The blank → engaging edge fires before the RPC settles: the first-send
+    // flow reads the phase on the session area's first frame to keep the
+    // guidance hero from flashing back in.
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const inFlight = session.prompt([{ type: 'text', text: '要发的' }], 'queue')
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
+    const result = await inFlight
     expect(result.ok).toBe(true)
+    // Monotone: settlement alone does not step the phase anywhere.
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
     expect(api.callsOf('session.prompt')).toMatchObject([{ sessionId: SID, mode: 'queue', content: [{ type: 'text', text: '要发的' }] }])
+    // First content lands (running turn): engaging → active.
+    session.handleRunning(true)
+    expect(session.getSnapshot().composerPhase).toBe('active')
   })
 
-  it('business failure lands in promptError with op=send', async () => {
+  it('business failure lands in promptError with op=send; the phase stays engaging (retry, no hero bounce)', async () => {
     const { api, session } = makeSession()
     api.onPrompt = () => Promise.resolve(err({ code: 'agent-busy', message: 'busy', details: { reason: 'x' } }))
     const result = await session.prompt([{ type: 'text', text: '失败的' }], 'queue')
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'send', error: { code: 'agent-busy' } })
+    // Failed first prompt: composer + error strip is the retry surface —
+    // blank is unreachable once a send was initiated.
+    expect(session.getSnapshot().composerPhase).toBe('engaging')
   })
 
   it('lands cancel failures in promptError with op=stop', async () => {
@@ -482,7 +527,11 @@ describe('remaining branches', () => {
     const opening = session.open()
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
-    stale.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '代')) as never[], hasMore: false })) // success, but its generation is gone
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
   })
@@ -501,7 +550,11 @@ describe('remaining branches', () => {
     const opening = session.open() // triggers the second pull, which parks
     await vi.waitFor(() => { expect(call).toBe(2) })
     const resynced = session.resync()
-    secondPull.resolve(ok({ events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[], hasMore: false }))
+    secondPull.resolve(ok({
+      events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
   })
@@ -515,7 +568,11 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
-    repairPull.resolve(ok({ events: entries(plainTurn(0, 0, '旧', '页')) as never[], hasMore: false })) // repair result: stale, dropped
+    repairPull.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
+    })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
@@ -559,6 +616,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
@@ -627,6 +685,95 @@ describe('resync', () => {
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
+  })
+})
+
+describe('run_code sub-dispatch indexing', () => {
+  it('a start event lands as a running-shaped sub-call and its settle replaces it in place', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatchStart(8, 'p1', 1, 'bash', { command: 'sleep' }))
+    feed(ev.codeDispatchStart(9, 'p1', 2, 'read', { path: 'a.txt' }))
+    const live = session.getSnapshot().codeDispatches.get('p1')
+    expect(live).toHaveLength(2)
+    // Running shape (no 'kind'): the exact RunningToolCall form native rows use.
+    expect(live?.[0]).toMatchObject({ callId: 'p1:code:1', name: 'bash', argsRaw: '{"command":"sleep"}' })
+    expect(live?.[0] !== undefined && 'kind' in live[0]).toBe(false)
+    // Settle out of order (parallel run): #2 first — replaces in place, keeping start order.
+    feed(ev.codeDispatch(10, 'p1', 2, 'read', { path: 'a.txt' }, 'alpha'))
+    const mixed = session.getSnapshot().codeDispatches.get('p1')
+    expect(mixed?.map(sub => 'kind' in sub)).toEqual([false, true])
+    expect(mixed?.[1]).toMatchObject({ callId: 'p1:code:2', content: [{ type: 'text', text: 'alpha' }] })
+    // The settle carries the paired start's time as callTime (duration source).
+    feed(ev.codeDispatch(11, 'p1', 1, 'bash', { command: 'sleep' }, 'done'))
+    const settled = session.getSnapshot().codeDispatches.get('p1')
+    expect(settled?.map(sub => 'kind' in sub)).toEqual([true, true])
+    expect(settled?.[0]).toMatchObject({ callId: 'p1:code:1', callTime: 1_700_000_000_008 })
+  })
+
+  it('indexes live tool/code-dispatch events under their parent as native-shaped result nodes', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls', description: '列目录' }, 'demo.txt'))
+    feed(ev.codeDispatch(9, 'p1', 2, 'read', { path: 'a.txt' }, 'Error: ENOENT', true))
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(2)
+    expect(subs?.[0]).toMatchObject({
+      kind: 'tool-result', callId: 'p1:code:1',
+      call: { name: 'bash', argsRaw: '{"command":"ls","description":"列目录"}' },
+      // The settle event carries no start time: callTime stays null (never a
+      // fabricated zero-duration).
+      callTime: null,
+      isError: false, content: [{ type: 'text', text: 'demo.txt' }],
+    })
+    expect(subs?.[1]).toMatchObject({ callId: 'p1:code:2', isError: true })
+    // No paired start in the window: duration is UNKNOWN (null), never a
+    // fabricated zero-duration span.
+    expect(subs?.[0]).toMatchObject({ callTime: null })
+    // Sub-dispatches never join the surface flow.
+    expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
+  })
+
+  it('rebuilds the same index from a history window (replay parity)', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([
+      ...plainTurn(0, 0, '问', '答'),
+      ev.turnStart(6, 1),
+      ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'),
+      ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'demo.txt'),
+      ev.toolResult(9, 1, 'p1', '{"done":true}'),
+      ev.turnEnd(10, 1),
+    ])
+    await session.open()
+    const subs = session.getSnapshot().codeDispatches.get('p1')
+    expect(subs).toHaveLength(1)
+    expect(subs?.[0]).toMatchObject({ callId: 'p1:code:1', call: { name: 'bash' } })
+  })
+
+  it('keeps the dispatch map reference across unrelated changes and swaps it on a new dispatch', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '稳', '定'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
+    feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'x'))
+    const before = session.getSnapshot()
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '流式'))
+    const after = session.getSnapshot()
+    expect(after.codeDispatches).toBe(before.codeDispatches)
+    feed(ev.codeDispatch(11, 'p1', 2, 'read', { path: 'a' }, 'y'))
+    expect(session.getSnapshot().codeDispatches).not.toBe(after.codeDispatches)
+    expect(session.getSnapshot().codeDispatches.get('p1')).toHaveLength(2)
   })
 })
 

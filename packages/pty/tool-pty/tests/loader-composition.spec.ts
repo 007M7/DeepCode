@@ -8,7 +8,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -39,8 +39,8 @@ function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('pty-loader-agent')
   const value: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value
@@ -71,6 +71,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       '    pollIntervalMs: 10',
       '    exactProbeAfterMs: 20',
       '    idleSilenceMs: 250',
+      '    handoffGraceMs: 250',
       '    timeoutMs: 2000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pty'",

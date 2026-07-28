@@ -2,31 +2,52 @@
 // dispatch entry + list state, constructed and held by SessionsService (one per client runtime).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
-import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
+// Type-only merge edge: the title domain's client-namespace outlet declares
+// the 'title' projection key this manager projects into list rows (and any
+// useProjection('title') consumer reads). Zero value imports by construction.
+import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
+import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
+
+/**
+ * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
+ * `pending` (no successful pull yet — an empty items array means "nothing
+ * arrived", not "nothing exists") → `ready` (at least one pull landed).
+ * Monotone: `ready` never steps back — later pull failures and reconnect
+ * re-pulls ride the `state`/`error` axis, which is where failure is modeled
+ * (no `error` phase here; that would duplicate `state`).
+ */
+export type SessionListPhase = 'pending' | 'ready'
 
 /** Immutable session-list snapshot for useSessionList. */
 export interface SessionListSnapshot {
   items: readonly SessionListEntry[]
+  /** Selected Session id (validated against items; masked to undefined while its session is off the list). */
+  current: SessionId | undefined
   state: 'idle' | 'loading' | 'error'
+  /** Arrival lifecycle (see {@link SessionListPhase}); `state` stays the pull-activity axis. */
+  phase: SessionListPhase
   error: RpcError | null
 }
+
+type SessionListMutation =
+  | { kind: 'upsert'; summary: SessionSummary }
+  | { kind: 'remove'; sessionId: SessionId }
+  | { kind: 'status'; sessionId: SessionId; running: boolean }
+  /** Local first-send flip: the sender clears blank without waiting for a host frame. */
+  | { kind: 'engaged'; sessionId: SessionId }
 
 /** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
 const PENDING_BUFFER_CAP = 32
 
-/** Latest title control snapshot retained independently of list/instance arrival. */
-interface SessionTitleSnapshot {
-  title: string
-  eventSeq: number
-  updatedAt: number
-}
 
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
@@ -41,11 +62,21 @@ export class SessionManager {
    *  because the sidebar must light up for sessions never instantiated. Cleared per connection
    *  generation — the reopen replay re-adds still-pending questions — and on session-removed. */
   private readonly waitingApprovals = new Map<SessionId, Set<string>>()
-  private readonly titleSnapshots = new Map<SessionId, SessionTitleSnapshot>()
+  /** Per-session projection value stores, retained independently of instance arrival (the
+   *  title-snapshot precedent, generalized): push frames land here whether or not the Session
+   *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
+   *  same store so history-baseline seeding and frames converge on one row set. */
+  private readonly projectionStores = new Map<SessionId, ProjectionValueStore>()
   private summaries: SessionSummary[] = []
   private listState: 'idle' | 'loading' | 'error' = 'idle'
+  /** Arrival phase; the pending → ready edge fires on the first successful pull (see SessionListPhase). */
+  private listPhase: SessionListPhase = 'pending'
   private listError: RpcError | null = null
   private listInflight: Promise<void> | null = null
+  /** Mutations arriving after a list request starts are replayed over its response. */
+  private listMutations: SessionListMutation[] | null = null
+
+  private selected: SessionId | undefined
 
   private listSnapshotCache: SessionListSnapshot
   /** Entry-identity cache (§C.2 reference stability): list rebuilds reuse the previous entry
@@ -57,11 +88,49 @@ export class SessionManager {
     this.listSnapshotCache = this.buildListSnapshot()
   })
 
-  constructor(private readonly api: IApiClient) {
+  /**
+   * @param api - shared wire client.
+   * @param restoredSelection - persisted real-Session selection candidate.
+   */
+  constructor(
+    private readonly api: IApiClient,
+    restoredSelection?: SessionId,
+  ) {
+    this.selected = restoredSelection
     this.listSnapshotCache = this.buildListSnapshot()
   }
 
+  // ---- Selection ----
+
+  /**
+   * Select a listed Session.
+   * @param sessionId - listed Session id.
+   */
+  select(sessionId: SessionId): void {
+    if (!this.summaries.some(summary => summary.sessionId === sessionId)) {
+      throw new Error(`sessions.select: unknown session ${sessionId}`)
+    }
+    this.selected = sessionId
+    this.notifier.notifyNow()
+  }
+
+  /** Clear the selection (the layout falls to the no-session view state). */
+  clearSelection(): void {
+    this.selected = undefined
+    this.notifier.notifyNow()
+  }
+
   // ---- Instance management ----
+
+  /**
+   * Drop a session instance (scope-prune companion, decision 12: instance
+   * and scope share one lifecycle). The host session log is the durable
+   * truth — a later get() lazily rebuilds and open() backfills history.
+   * @param sessionId - the session to drop.
+   */
+  drop(sessionId: SessionId): void {
+    this.sessions.delete(sessionId)
+  }
 
   /**
    * Lazy build: return the existing instance or construct one (no auto-open —
@@ -72,19 +141,51 @@ export class SessionManager {
   get(sessionId: SessionId): Session {
     let session = this.sessions.get(sessionId)
     if (session === undefined) {
-      session = new Session(sessionId, this.api)
+      session = this.createSession(sessionId)
       this.sessions.set(sessionId, session)
-      // Sync the running bit from the list snapshot into the new instance (consistency when the list precedes open).
-      const summary = this.summaries.find(s => s.sessionId === sessionId)
-      if (summary !== undefined) session.handleRunning(summary.running)
-      // Replay approval/question frames buffered before instantiation (rpcId verbatim, same semantics as the subscribed baseline replay).
+      // Replay approval/question/queued frames buffered before instantiation (rpcId
+      // verbatim, same semantics as the subscribed baseline replay). Replay happens
+      // BEFORE the running-bit sync: a not-running summary must sweep replayed queue
+      // rows the same way a live status flip would (their retirement events dropped
+      // while the session was uninstantiated).
       const buffered = this.pendingBuffers.get(sessionId)
       if (buffered !== undefined) {
         this.pendingBuffers.delete(sessionId)
         for (const envelope of buffered) session.handleMuxEnvelope(envelope.rpcId, envelope.payload)
       }
+      // Sync the running and blank bits from the list snapshot into the new
+      // instance (consistency when the list precedes open).
+      const summary = this.summaries.find(s => s.sessionId === sessionId)
+      if (summary !== undefined) {
+        session.handleBlank(summary.blank)
+        session.handleRunning(summary.running)
+      }
     }
     return session
+  }
+
+  private createSession(sessionId: SessionId): Session {
+    return new Session(sessionId, this.api, {
+      // The sender's local first-send flip mirrors into the list row so the
+      // session surfaces (lists filter on blank) before any host frame lands.
+      onEngaged: (engaged) => {
+        this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
+      },
+      projections: this.projectionStore(sessionId),
+    })
+  }
+
+  /** Resident per-session projection store (create-on-demand; outlives instantiation). */
+  private projectionStore(sessionId: SessionId): ProjectionValueStore {
+    let store = this.projectionStores.get(sessionId)
+    if (store === undefined) {
+      store = new ProjectionValueStore()
+      // List rows project off store keys (title); any-key changes re-enter
+      // the manager's own batched rebuild channel.
+      store.subscribeAny(() => { this.notifier.markDirty() })
+      this.projectionStores.set(sessionId, store)
+    }
+    return store
   }
 
   // ---- List surface ----
@@ -94,15 +195,28 @@ export class SessionManager {
     if (this.listInflight !== null) return this.listInflight
     this.listState = 'loading'
     this.listError = null
+    const established = this.summaries
+    const mutations: SessionListMutation[] = []
+    this.listMutations = mutations
     this.notifier.markDirty()
     this.listInflight = (async () => {
       try {
         const { result } = await this.api.sessions.list({})
         if (result.ok) {
-          this.summaries = result.value.items
+          let summaries = this.listPhase === 'pending'
+            ? result.value.items
+            : mergeOrderedBaseline(established, result.value.items, summary => summary.sessionId)
+          for (const mutation of mutations) summaries = applyMutation(summaries, mutation)
+          this.summaries = summaries
           this.listState = 'idle'
-          // Push running bits down to instantiated Sessions (the list is the authoritative summary source).
-          for (const s of this.summaries) this.sessions.get(s.sessionId)?.handleRunning(s.running)
+          this.listPhase = 'ready'
+          // Push running/blank bits down to instantiated Sessions (the list is the authoritative summary source).
+          for (const s of this.summaries) {
+            const session = this.sessions.get(s.sessionId)
+            if (session === undefined) continue
+            session.handleBlank(s.blank)
+            session.handleRunning(s.running)
+          }
         } else {
           this.listState = 'error'
           this.listError = result.error
@@ -113,6 +227,7 @@ export class SessionManager {
         /* v8 ignore next -- the `? null` arm is unreachable: transportError always returns ok:false. */
         this.listError = folded.ok ? null : folded.error
       } finally {
+        this.listMutations = null
         this.listInflight = null
         this.notifier.markDirty()
       }
@@ -122,24 +237,60 @@ export class SessionManager {
 
   /**
    * Contract session.create; on success merge into summaries immediately (no
-   * wait for the next refresh).
-   * @param cwd - optional working directory for the new session.
+   * wait for the next refresh). A created session is blank by definition
+   * (entity birth precedes the first message).
+   * @param opts - target workspace or working directory, plus an optional caller-owned id.
    * @returns the create result.
    */
-  async create(cwd?: string): Promise<RpcResult<{ sessionId: SessionId }>> {
+  async create(
+    opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {},
+  ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
-      const { result } = await this.api.sessions.create(cwd === undefined ? {} : { cwd })
-      if (result.ok && !this.summaries.some(s => s.sessionId === result.value.sessionId)) {
-        this.summaries = [
-          { sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, ...(cwd !== undefined ? { cwd } : {}) },
-          ...this.summaries,
-        ]
-        this.notifier.markDirty()
+      const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
+      const payload = opts.workspaceId !== undefined
+        ? { workspaceId: opts.workspaceId, ...shared }
+        : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
+      const { result } = await this.api.sessions.create(payload)
+      if (result.ok) {
+        this.recordMutation({ kind: 'upsert', summary: {
+          sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
+          ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+        } })
+      } else {
+        const publishedSessionId = workspaceAttachSessionId(result.error)
+        // Publication precedes attachment. The error's id is a real Session,
+        // so expose it immediately as Ungrouped while the caller keeps the
+        // prompt buffer and decides whether to retry attachment.
+        if (publishedSessionId !== undefined) {
+          this.recordMutation({ kind: 'upsert', summary: {
+            sessionId: publishedSessionId,
+            updatedAt: Date.now(),
+            running: false,
+            blank: true,
+          } })
+        }
       }
       return result
     } catch (error) {
       return transportError(error)
     }
+  }
+
+  /**
+   * Insert-or-enrich a locally synthesized summary: a new id prepends; an
+   * existing entry only gains fields it lacks (the session-added frame and the
+   * create() echo race — whichever lands second must fill the placeholder's
+   * missing cwd/parentSessionId, never overwrite list-refresh data).
+   */
+  private mergeSummary(summary: SessionSummary): void {
+    this.recordMutation({ kind: 'upsert', summary })
+  }
+
+  /** Apply immediately and retain for replay when a list response is in flight. */
+  private recordMutation(mutation: SessionListMutation): void {
+    this.listMutations?.push(mutation)
+    this.summaries = applyMutation(this.summaries, mutation)
+    this.notifier.markDirty()
   }
 
   // ---- Subscription surface (for useSessionList) ----
@@ -173,22 +324,32 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
-    if (frame.type === 'session/title') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq >= frame.eventSeq) return
-      this.titleSnapshots.set(frame.sessionId, {
-        title: frame.title,
-        eventSeq: frame.eventSeq,
-        updatedAt: frame.updatedAt,
-      })
+    if (frame.type === 'session/projection') {
+      // Finished host-computed value: land it in the resident store whether or
+      // not the Session is instantiated (list rows read the 'title' key). The
+      // synchronous markDirty keeps the list snapshot same-tick fresh (the
+      // store's own any-key channel is microtask-batched).
+      this.projectionStore(frame.sessionId).apply(frame.key, frame.value, frame.seq)
       this.notifier.markDirty()
       return
     }
     if (frame.type === 'session/subscribed') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq > frame.lastSeq) {
-        this.titleSnapshots.delete(frame.sessionId)
-        this.notifier.markDirty()
+      // Rows past the host's durable baseline rode state a restart lost; drop
+      // them so last-wins cannot pin a phantom value over recomputed truth.
+      this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
+      this.notifier.markDirty()
+      // New mux-generation baseline: buffered session/queued frames belong to
+      // the previous generation and the host is about to resend the live
+      // snapshot — drop them, or every reconnect appends a duplicate batch
+      // (and enough reconnects push real approval/question frames past the
+      // cap). Same re-baseline signal Session uses for its own mirror.
+      const buffered = this.pendingBuffers.get(frame.sessionId)
+      if (buffered !== undefined) {
+        const kept = buffered.filter(item => item.payload.type !== 'session/queued')
+        if (kept.length !== buffered.length) {
+          if (kept.length === 0) this.pendingBuffers.delete(frame.sessionId)
+          else this.pendingBuffers.set(frame.sessionId, kept)
+        }
       }
     }
     // List-level waiting-approval bit (the sidebar amber dot): tracked here for
@@ -209,13 +370,15 @@ export class SessionManager {
     }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
-      // Approval/question frames never hit history: buffer for replay on instantiation;
-      // everything else drops (not instantiated — history fully backfills on open).
+      // Approval/question/queued frames never hit history: buffer for replay on
+      // instantiation; everything else drops (not instantiated — history fully
+      // backfills on open).
       switch (frame.type) {
         case 'approval/requested':
         case 'approval/resolved':
         case 'question/requested':
-        case 'question/resolved': {
+        case 'question/resolved':
+        case 'session/queued': {
           const buffer = this.pendingBuffers.get(frame.sessionId) ?? []
           buffer.push(envelope)
           if (buffer.length > PENDING_BUFFER_CAP) buffer.splice(0, buffer.length - PENDING_BUFFER_CAP)
@@ -237,32 +400,25 @@ export class SessionManager {
     const frame = envelope.payload
     switch (frame.type) {
       case 'host/session-added': {
-        if (!this.summaries.some(s => s.sessionId === frame.sessionId)) {
-          this.summaries = [
-            {
-              sessionId: frame.sessionId, updatedAt: Date.now(), running: false,
-              ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
-            },
-            ...this.summaries,
-          ]
-          this.notifier.markDirty()
-        }
+        this.mergeSummary({
+          sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
+          ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
+          ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
+        })
+        this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
         return
       }
       case 'host/session-removed': {
-        this.summaries = this.summaries.filter(s => s.sessionId !== frame.sessionId)
+        this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
-        this.titleSnapshots.delete(frame.sessionId)
-        this.notifier.markDirty()
+        this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
       }
       case 'host/session-status': {
-        this.summaries = this.summaries.map(s =>
-          s.sessionId === frame.sessionId && s.running !== frame.running ? { ...s, running: frame.running } : s)
+        this.recordMutation({ kind: 'status', sessionId: frame.sessionId, running: frame.running })
         this.sessions.get(frame.sessionId)?.handleRunning(frame.running)
-        this.notifier.markDirty()
         return
       }
       case 'host/agent-error': {
@@ -274,7 +430,7 @@ export class SessionManager {
     }
   }
 
-  /** After each connection generation (first connect included): refresh the list + resync opened instances (reconnect = rebuild). */
+  /** After each connection generation: refresh the session baseline and rebuild opened windows. */
   handleConnected(): void {
     // Approvals resolved while disconnected send no frame: drop the bits and
     // let the mux-open replay re-add every still-pending question.
@@ -288,16 +444,19 @@ export class SessionManager {
 
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
-      const title = this.titleSnapshots.get(summary.sessionId)
-      return title === undefined
-        ? summary
-        : { ...summary, title: title.title, updatedAt: Math.max(summary.updatedAt, title.updatedAt) }
+      // List rows read the generic 'title' projection key (host-computed unit
+      // value; the bespoke session/title frame is retired).
+      const title = this.projectionStores.get(summary.sessionId)?.get('title')
+      return typeof title === 'string' && title !== ''
+        ? { ...summary, title }
+        : summary
     })
     const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
+        && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.title === entry.title && prev.depth === entry.depth
         && prev.waitingApproval === entry.waitingApproval
@@ -310,6 +469,57 @@ export class SessionManager {
     }
     const sameOrder = items.length === this.itemsCache.length && items.every((e, i) => e === this.itemsCache[i])
     if (!sameOrder) this.itemsCache = items
-    return { items: this.itemsCache, state: this.listState, error: this.listError }
+    const selected = this.selected
+    const current = selected !== undefined && items.some(item => item.sessionId === selected)
+      ? selected
+      : undefined
+    return {
+      items: this.itemsCache,
+      current,
+      state: this.listState,
+      phase: this.listPhase,
+      error: this.listError,
+    }
   }
+}
+
+/** Apply one list mutation without deriving display order. */
+function applyMutation(summaries: readonly SessionSummary[], mutation: SessionListMutation): SessionSummary[] {
+  switch (mutation.kind) {
+    case 'upsert': {
+      const existing = summaries.find(summary => summary.sessionId === mutation.summary.sessionId)
+      if (existing === undefined) return [mutation.summary, ...summaries]
+      const filled: SessionSummary = {
+        ...existing,
+        // Blank only lowers: a stale true (session-added racing the local
+        // first send) never re-hides an already-surfaced session.
+        blank: existing.blank && mutation.summary.blank,
+        ...(existing.cwd === undefined && mutation.summary.cwd !== undefined ? { cwd: mutation.summary.cwd } : {}),
+        ...(existing.parentSessionId === undefined && mutation.summary.parentSessionId !== undefined
+          ? { parentSessionId: mutation.summary.parentSessionId } : {}),
+      }
+      if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
+        && filled.blank === existing.blank) return [...summaries]
+      return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
+    }
+    case 'remove':
+      return summaries.filter(summary => summary.sessionId !== mutation.sessionId)
+    case 'status':
+      // running:true doubles as the cross-端 blank flip (a blank session
+      // never runs, so the first running frame proves a message landed).
+      return summaries.map(summary => summary.sessionId === mutation.sessionId
+        && (summary.running !== mutation.running || (mutation.running && summary.blank))
+        ? { ...summary, running: mutation.running, blank: summary.blank && !mutation.running }
+        : summary)
+    case 'engaged':
+      return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.blank
+        ? { ...summary, blank: false }
+        : summary)
+  }
+}
+
+/** Temporary source-plane bridge while the Host contract and client project build independently. */
+function workspaceAttachSessionId(error: RpcError): SessionId | undefined {
+  const candidate = error as unknown as { code: string; details: { sessionId?: SessionId } }
+  return candidate.code === 'workspace-attach-failed' ? candidate.details.sessionId : undefined
 }

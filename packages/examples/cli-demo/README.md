@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-cli-demo
 
+English | [中文](README.zh.md)
+
 Headless one-shot app and bin for running one agent task without an interactive UI or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
 
 The package mounts no console logger, interactive UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
@@ -19,7 +21,6 @@ The package mounts no console logger, interactive UI, user-interaction service, 
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds |
-| `llmRetry` | owner defaults | bounded transient model-request retry policy |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |

@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
-import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import LlmService, { createUserMessage, CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -177,15 +177,13 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     options: {},
     session,
     status: 'idle',
-    send() {},
-    steer() {},
-    inject(content, options) {
-      session.append('context/message', {
-        content,
-        source: options?.source ?? { kind: 'user' },
-        ...options?.meta !== undefined ? { meta: options.meta } : {},
-      }, { surfaceOp: 'append' })
+    acceptsNextStep: false,
+    followup: () => {},
+    steer: () => {},
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
     },
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -202,31 +200,32 @@ function blocksText(blocks: { type: string; text?: string }[] | undefined): stri
   return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
 }
 
-function workspaceContextOf(result: { additionalContexts?: HookContext[] }): HookContext | undefined {
+function workspaceContextOf(result: { additionalContexts?: UserMessage[] }): UserMessage | undefined {
   return result.additionalContexts?.find(context =>
-    context.source.kind === 'plugin' && context.source.plugin === 'workspace-context')
+    context.source.kind === 'workspace-instructions')
 }
 
-function workspaceChangeContext(scope: string, digest: string): HookContext {
-  return {
+function baselineEvents(agent: Agent): SessionEvent[] {
+  return agent.session.events.filter(event =>
+    event.type === 'user/message'
+    && event.data.source.kind === 'workspace-instructions'
+    && event.data.source.baseline === true)
+}
+
+function workspaceChangeContext(scope: string, digest: string): UserMessage {
+  return createUserMessage({
     content: [{ type: 'text', text: `instructions for ${scope}` }],
-    source: { kind: 'plugin', plugin: 'workspace-context' },
-    meta: {
+    source: {
       kind: 'workspace-instructions',
-      version: 1,
       changes: [{ action: 'set', scope, path: `${scope}/AGENTS.md`, digest }],
     },
-  }
+  })
 }
 
-function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: HookContext[] }): number | undefined {
+function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: UserMessage[] }): number | undefined {
   let lastSeq: number | undefined
   for (const context of result.additionalContexts ?? []) {
-    lastSeq = agent.session.append('context/message', {
-      content: context.content,
-      source: context.source,
-      ...context.meta !== undefined ? { meta: context.meta } : {},
-    }, { surfaceOp: 'append' }).seq
+    lastSeq = agent.session.append('user/message', context, { surfaceOp: 'append' }).seq
   }
   return lastSeq
 }
@@ -234,11 +233,8 @@ function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: H
 const composedPrefixes = new WeakMap<object, Message[]>()
 
 async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
-  const empty: Message[] = []
-  const prefix = await ctx.waterfall(
-    'agent/session-prefix', agent, empty, AbortSignal.timeout(1000),
-    () => Promise.resolve(empty),
-  )
+  await agentEvents(ctx, agent).serial('agent/step', 1, 1, AbortSignal.timeout(1000))
+  const prefix = agent.session.deriveMessages()
   composedPrefixes.set(agent, prefix)
   return prefix
 }
@@ -928,7 +924,7 @@ describe('workspace context request injection', () => {
         kind: 'accept' as const,
       }))
       expect(accepted.kind).toBe('accept')
-      expect(workspaceContextOf(accepted)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
+      expect(workspaceContextOf(accepted)?.source).toMatchObject({ kind: 'workspace-instructions' })
       expect(blocksText(workspaceContextOf(accepted)?.content)).toContain('nested package rule')
     } finally {
       await ctx.fiber.dispose()
@@ -937,7 +933,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('contributes baseline instructions through the frozen session prefix instead of durable history', async () => {
+  it('contributes baseline instructions through durable injected history', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -949,7 +945,20 @@ describe('workspace context request injection', () => {
 
       await composeBaselinePrefix(ctx, agent)
 
-      expect(agent.session.deriveMessages()).toEqual([])
+      expect(baselineEvents(agent)).toHaveLength(1)
+      expect(baselineEvents(agent)[0]).toMatchObject({
+        type: 'user/message',
+        data: {
+          role: 'user',
+          source: {
+            kind: 'workspace-instructions',
+            baseline: true,
+            changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+          },
+        },
+      })
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline?.type === 'user/message' && Array.isArray(baseline.data.content)).toBe(true)
       expect(composedPrefixes.get(agent)).toHaveLength(1)
       expect(derivedText(agent)).toContain('<system-reminder>')
       expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
@@ -962,7 +971,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('returns one baseline contribution per session-prefix composition without appending context events', async () => {
+  it('injects one durable baseline contribution on the first step only', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -976,8 +985,118 @@ describe('workspace context request injection', () => {
       const second = await composeBaselinePrefix(ctx, agent)
 
       expect(second).toEqual(first)
-      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(0)
+      expect(agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toHaveLength(1)
       expect(derivedText(agent)).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('retains a visible baseline after a plugin remount', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      const fiber = await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      // Hot remount over the live session: the durable baseline remains
+      // visible, so the fresh mount does not append a duplicate.
+      await fiber.dispose()
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(baselineEvents(agent)).toHaveLength(1)
+
+      await write(join(root, 'AGENTS.md'), 'updated repo rule')
+      const update = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-after-remount'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      expect(workspaceContextOf(update)?.source).toMatchObject({
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('restores a compacted baseline on a hot plugin remount', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      const fiber = await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+
+      await fiber.dispose()
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(baselineEvents(agent)).toHaveLength(2)
+      expect(blocksText(agent.session.deriveMessages().at(-1)?.content)).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'old root rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      // Offline edit to the baseline file, then resume on a fresh session whose
+      // seeded log already carries the original baseline. A resumed session is
+      // registered after this mount's apply(), so the remount guard never seeds
+      // it: its first step re-composes a fresh baseline from current files,
+      // reflecting the offline edit before the first resumed request. The old
+      // baseline stays in history unmutated (note: resume without mutating an
+      // earlier history event).
+      await write(join(root, 'AGENTS.md'), 'new root rule after offline edit')
+      const resumed = stubAgent(root, [...original.session.events])
+
+      // Resume announces its lifecycle start before the first step.
+      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      await composeBaselinePrefix(ctx, resumed)
+
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const latest = baselines.at(-1)
+      expect(latest?.type === 'user/message' && blocksText(latest.data.content))
+        .toContain('new root rule after offline edit')
+      const original0 = baselines[0]
+      expect(original0?.type === 'user/message' && blocksText(original0.data.content))
+        .toContain('old root rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1006,7 +1125,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('places workspace instructions before later session-prefix contributors such as a skills catalog', async () => {
+  it('places workspace instructions before later step contributors such as a skills catalog', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1014,9 +1133,8 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
-        const rest = await next()
-        return [{ role: 'user', content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }] }, ...rest]
+      ctx.on('agent/step', (agent) => {
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } }))
       })
 
       const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
@@ -1048,7 +1166,7 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-change'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Updated instructions from: AGENTS.md')
@@ -1077,7 +1195,7 @@ describe('workspace context request injection', () => {
         callId: CallId('read-after-baseline-remove'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Instructions removed: AGENTS.md')
@@ -1148,7 +1266,9 @@ describe('workspace context request injection', () => {
 
       await composeBaselinePrefix(ctx, agent)
 
-      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(0)
+      expect(agent.session.events.filter(event =>
+        event.type === 'user/message' && event.data.source.kind !== 'user',
+      )).toHaveLength(1)
       expect(derivedText(agent)).not.toContain('workspace-context:')
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -1271,7 +1391,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('aborts an in-flight baseline stream with the session-prefix signal', async () => {
+  it('aborts an in-flight baseline stream with the step signal', async () => {
     const root = join(await tempRepo(), 'virtual-repo')
     const home = join(await tempRepo(), 'virtual-home')
     const ctx = new Context()
@@ -1283,11 +1403,7 @@ describe('workspace context request injection', () => {
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const controller = new AbortController()
       const reason = new Error('cancel prefix')
-      const empty: Message[] = []
-      const pending = ctx.waterfall(
-        'agent/session-prefix', stubAgent(root), empty, controller.signal,
-        () => Promise.resolve(empty),
-      )
+      const pending = agentEvents(ctx, stubAgent(root)).serial('agent/step', 1, 1, controller.signal)
 
       await fs.started.promise
       controller.abort(reason)
@@ -1517,7 +1633,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('cleans up its agent/session-prefix listener when the plugin fiber is disposed', async () => {
+  it('cleans up its agent/step listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1714,16 +1830,18 @@ describe('dynamic nested workspace context injection', () => {
         },
       }))
 
-      agent.send([{ type: 'text', text: 'read and abort' }])
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'read and abort' }], source: { kind: 'user' } }))
       await agent.whenIdle()
-      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(1)
+      expect(agent.session.events.filter(event =>
+        event.type === 'user/message' && event.data.source.kind !== 'user',
+      )).toHaveLength(0)
 
-      agent.send([{ type: 'text', text: 'retry the read' }])
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'retry the read' }], source: { kind: 'user' } }))
       await agent.whenIdle()
 
-      const contexts = agent.session.events.filter(event => event.type === 'context/message')
-      // The aborted batch drained its accepted context before step close, so the
-      // retry sees durable history without producing a duplicate instruction.
+      const contexts = agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      // Cancellation discards the aborted step's pending context. The next
+      // successful read discovers and durably injects it once.
       expect(contexts).toHaveLength(1)
       expect(adapter.requests).toHaveLength(3)
       expect(adapter.requests[2]?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
@@ -1808,19 +1926,18 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       expect(result.isError).toBe(false)
-      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
-        version: 1,
         changes: [{
           action: 'set',
           scope: sk('pkg', 'AGENTS.md'),
           path: join('pkg', 'AGENTS.md'),
         }],
       })
-      const meta = workspaceContextOf(result)?.meta
-      const firstChange = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
-        ? meta.changes[0]
+      const source = workspaceContextOf(result)?.source
+      const firstChange = source?.kind === 'workspace-instructions'
+        ? source.changes[0]
         : undefined
       const changeDigest = typeof firstChange === 'object' && firstChange !== null && !Array.isArray(firstChange)
         ? firstChange.digest
@@ -1899,9 +2016,9 @@ describe('dynamic nested workspace context injection', () => {
         agent: stubAgent(root),
       })
 
-      const meta = workspaceContextOf(result)?.meta
-      const changes = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
-        ? meta.changes
+      const source = workspaceContextOf(result)?.source
+      const changes = source?.kind === 'workspace-instructions'
+        ? source.changes
         : []
       expect(changes).toEqual(expect.arrayContaining([
         expect.objectContaining({ action: 'set', path: join('pkg', 'AGENTS.md') }),
@@ -1996,6 +2113,7 @@ describe('dynamic nested workspace context injection', () => {
       const instructionPath = join(root, 'pkg/AGENTS.md')
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(instructionPath, { type: 'file', content: 'nested package rule' })
+      fs.omitSizes.add(instructionPath)
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
@@ -2120,7 +2238,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(changed)?.meta).toMatchObject({
+      expect(workspaceContextOf(changed)?.source).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
@@ -2166,7 +2284,7 @@ describe('dynamic nested workspace context injection', () => {
       })
 
       // Removing one candidate only removes its own scope; the sibling scope is untouched.
-      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+      expect(workspaceContextOf(removed)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
@@ -2194,7 +2312,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-nested-dup-siblings'), name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       const text = blocksText(workspaceContextOf(result)?.content)
@@ -2274,7 +2392,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-dup-convergence'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+      expect(workspaceContextOf(converged)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') }],
       })
       expect(blocksText(workspaceContextOf(converged)?.content)).toContain(`Instructions removed: ${join('pkg', 'CLAUDE.md')}`)
@@ -2308,7 +2426,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-earlier-converges'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+      expect(workspaceContextOf(converged)?.source).toMatchObject({
         changes: [
           { action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
           { action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') },
@@ -2345,9 +2463,8 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-remove'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(removed)?.meta).toEqual({
+      expect(workspaceContextOf(removed)?.source).toEqual({
         kind: 'workspace-instructions',
-        version: 1,
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
@@ -2392,7 +2509,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-symlink-dir'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+      expect(workspaceContextOf(removed)?.source).toMatchObject({
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
@@ -2431,7 +2548,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-after-tombstone'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(restored)?.meta).toMatchObject({
+      expect(workspaceContextOf(restored)?.source).toMatchObject({
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(restored)?.content)).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
@@ -2496,10 +2613,7 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
       appendAdditionalContexts(agent, first)
-      const resumed = {
-        ...agent,
-        session: new Session(agent.session.id, [...agent.session.events], agent.session.header),
-      }
+      const resumed = stubAgent(root, [...agent.session.events])
 
       const afterResume = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2537,11 +2651,11 @@ describe('dynamic nested workspace context injection', () => {
 
       await composeBaselinePrefix(ctx, resumed)
 
-      const update = resumed.session.events.findLast(event => event.type === 'context/message')
-      expect(update?.type === 'context/message' && update.data.meta).toMatchObject({
+      const update = resumed.session.events.findLast(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(update?.type === 'user/message' && update.data.source).toMatchObject({
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
-      expect(update?.type === 'context/message' && blocksText(update.data.content)).toContain('new nested rule after resume')
+      expect(update?.type === 'user/message' && blocksText(update.data.content)).toContain('new nested rule after resume')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2574,10 +2688,10 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
 
-      agent.session.append('user/message', {
+      agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'compacted summary' }],
         source: { kind: 'plugin', plugin: 'compact' },
-      }, {
+      }), {
         surfaceOp: { op: 'replace', start: contextSeq, end: contextSeq },
         sourceEventSeqs: [contextSeq],
       })
@@ -2594,6 +2708,63 @@ describe('dynamic nested workspace context injection', () => {
       expect(visibleBeforeCompact.additionalContexts).toBeUndefined()
       expect(afterCompact.additionalContexts).toBeDefined()
       expect(blocksText(workspaceContextOf(afterCompact)?.content)).toContain('nested package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('re-arms an unchanged baseline after compaction removes it from the surface', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root rule')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      const whileVisible = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-visible-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+
+      const rearmed = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-compacted-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+      appendAdditionalContexts(agent, rearmed)
+      const afterRearm = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-rearmed-baseline'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      })
+
+      expect(whileVisible.additionalContexts).toBeUndefined()
+      expect(workspaceContextOf(rearmed)?.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+      expect(blocksText(workspaceContextOf(rearmed)?.content)).toContain('root rule')
+      expect(afterRearm.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2687,37 +2858,29 @@ describe('dynamic nested workspace context injection', () => {
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
-      agent.session.append('context/message', {
+      agent.session.append('user/message', createUserMessage({
         content: [
           { type: 'reasoning', text: 'Additional instructions from: pkg/AGENTS.md' },
           { type: 'text', text: 'Updated instructions from: pkg/AGENTS.md' },
         ],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
-        meta: {
+        source: {
           kind: 'workspace-instructions',
-          version: 1,
           changes: [
             null,
             { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
             { action: 'set', scope: 'pkg', path: 42 },
             { action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 42 },
           ],
-        },
-      }, { surfaceOp: 'append' })
-      agent.session.append('context/message', {
+        } as never,
+      }), { surfaceOp: 'append' })
+      agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'stale metadata version' }],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
-        meta: { kind: 'workspace-instructions', version: 0, changes: [] },
-      }, { surfaceOp: 'append' })
-      agent.session.append('context/message', {
+        source: { kind: 'workspace-instructions', changes: 'invalid' } as never,
+      }), { surfaceOp: 'append' })
+      agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'foreign plugin context' }],
         source: { kind: 'plugin', plugin: 'other' },
-        meta: {
-          kind: 'workspace-instructions',
-          version: 1,
-          changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 'spoof' }],
-        },
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2861,10 +3024,10 @@ describe('dynamic nested workspace context injection', () => {
           lines: [{ number: 1, text: 'downstream replacement' }],
           totalLines: 1,
         },
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text' as const, text: 'downstream context' }],
           source: { kind: 'plugin' as const, plugin: 'downstream' },
-        }],
+        })],
       }))
 
       const result = await ctx.tools.execute({
@@ -2885,14 +3048,16 @@ describe('dynamic nested workspace context injection', () => {
       })
       expect(blocksText(result.content)).toContain('downstream replacement')
       expect(result.additionalContexts).toHaveLength(2)
-      expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.meta).toMatchObject({
+      expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
+      expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
       expect(blocksText(workspaceContextOf(result)?.content)).not.toContain('downstream context')
       expect(result.additionalContexts?.[1]).toEqual({
+        id: expect.any(String) as unknown,
+        role: 'user',
         content: [{ type: 'text', text: 'downstream context' }],
         source: { kind: 'plugin', plugin: 'downstream' },
       })
@@ -3064,7 +3229,9 @@ describe('dynamic nested workspace context injection', () => {
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('contextless-child'), name: 'read', arguments: {}, agent, parent,
-      }), { ...plainResult, additionalContexts: [{ content: [], source: { kind: 'plugin', plugin: 'workspace-context' } }] })
+      }), { ...plainResult, additionalContexts: [createUserMessage({
+        content: [], source: { kind: 'plugin', plugin: 'workspace-context' },
+      })] })
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('first-child'), name: 'read', arguments: {}, agent, parent,
@@ -3237,27 +3404,25 @@ describe('workspace context pending state', () => {
       path: join('pkg', 'AGENTS.md'), version: FsVersion('v1'), digest: 'one', trimmedDigest: 'one',
     }]]))
 
-    const unrelated = agent.session.append('context/message', {
+    const unrelated = agent.session.append('user/message', createUserMessage({
       content: [], source: { kind: 'plugin', plugin: 'other' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, unrelated, pending, versions)
     expect(pending.get(agent.session)?.has('pkg')).toBe(true)
 
     const otherContext = workspaceChangeContext('other', 'other')
-    const otherWorkspaceEvent = agent.session.append('context/message', {
+    const otherWorkspaceEvent = agent.session.append('user/message', createUserMessage({
       content: otherContext.content,
       source: otherContext.source,
-      ...otherContext.meta !== undefined ? { meta: otherContext.meta } : {},
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, otherWorkspaceEvent, pending, versions)
     expect(pending.get(agent.session)?.has('pkg')).toBe(true)
 
     const context = workspaceChangeContext('pkg', 'one')
-    const confirmed = agent.session.append('context/message', {
+    const confirmed = agent.session.append('user/message', createUserMessage({
       content: context.content,
       source: context.source,
-      ...context.meta !== undefined ? { meta: context.meta } : {},
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, confirmed, pending, versions)
 
     expect(pending.has(agent.session)).toBe(false)
@@ -3281,6 +3446,29 @@ describe('workspace context pending state', () => {
     expect(versions.has(agent.session)).toBe(false)
   })
 
+  it('keeps an unrelated scope\'s version fast path when a step-close discard empties only its own scope', () => {
+    const agent = stubAgent('/')
+    const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
+    const versions: InstructionVersionCache = new WeakMap()
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
+    versions.set(agent.session, new Map([
+      ['pkg', {
+        path: join('pkg', 'AGENTS.md'), version: FsVersion('v1'), digest: 'one', trimmedDigest: 'one',
+      }],
+      ['other', {
+        path: join('other', 'AGENTS.md'), version: FsVersion('v2'), digest: 'two', trimmedDigest: 'two',
+      }],
+    ]))
+
+    const ended = agent.session.append('step/end', { turn: 1, step: 1 })
+    observeInstructionSessionEvent(agent.session, ended, pending, versions)
+
+    expect(pending.has(agent.session)).toBe(false)
+    expect(versions.get(agent.session)?.has('pkg')).toBe(false)
+    expect(versions.get(agent.session)?.has('other')).toBe(true)
+  })
+
   it('rolls back only the exact current transition and releases empty session state', () => {
     const agent = stubAgent('/')
     const pending = new WeakMap<object, Map<string, PendingInstructionChange>>()
@@ -3288,9 +3476,16 @@ describe('workspace context pending state', () => {
     rollbackPendingInstructionChanges(agent, [{
       action: 'set', scope: 'missing', path: 'missing/AGENTS.md', digest: 'none',
     }], pending)
-    expect(commitPendingInstructionContexts(agent, [{
+    expect(commitPendingInstructionContexts(agent, [createUserMessage({
       content: [], source: { kind: 'plugin', plugin: 'workspace-context' },
-    }], pending)).toEqual([])
+    })], pending)).toEqual([])
+    // A workspace-instructions source whose change list filters to nothing
+    // must not mint per-session pending state.
+    expect(commitPendingInstructionContexts(agent, [createUserMessage({
+      content: [],
+      source: { kind: 'workspace-instructions', changes: [] },
+    })], pending)).toEqual([])
+    expect(pending.has(agent.session)).toBe(false)
 
     const committed = commitPendingInstructionContexts(agent, [
       workspaceChangeContext('first', 'one'),

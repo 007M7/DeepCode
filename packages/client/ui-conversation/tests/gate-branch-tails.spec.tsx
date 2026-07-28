@@ -1,16 +1,11 @@
 // @vitest-environment jsdom
-// Final branch tails for the coverage gate, terminal slot form:
-// AssistantMarkdown non-final reasoning, StatsLine usage-less node,
-// DetailsPanel titleless selection. (The old cwd WeakMap-cache account
-// retired with the mechanism — derivation lives in EmptyState now, covered
-// by the skeleton specs.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
@@ -23,10 +18,10 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [],
-    pending: [], running: false, removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
-  } as ConversationSnapshot
+    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+  }
 }
 
 describe('render branch tails', () => {
@@ -70,12 +65,20 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined } as SessionListState)
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
+        useInput={(() => { throw new Error('unused') })}
+        inputActions={{ setDraft: () => {}, submit: () => {} }}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
@@ -83,5 +86,44 @@ describe('render branch tails', () => {
     )
     expect(view.getByText('详情')).toBeTruthy()
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
+  })
+
+  it('DetailsPanel resolves a run_code sub-callId to its full logged args and output', () => {
+    localStorage.clear()
+    const snap = snapshotBase()
+    const longText = 'x'.repeat(1_000)
+    snap.codeDispatches = new Map([['p1', [{
+      kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
+      call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
+      callTime: 8_000,
+      content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
+    }]]])
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
+    const emptyList = createSnapshotStore<SessionListState>(
+      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
+      items: [], state: 'idle', phase: 'ready', error: null,
+      baselinesReady: true, recentWorkspaceId: undefined,
+    })
+    const view = render(
+      <DetailsPanel
+        sessionId={SID}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
+        useSessions={bindSnapshotSelector(emptyList)}
+        useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
+        useInput={(() => { throw new Error('unused') })}
+        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
+      />,
+    )
+    // Sub-call material: the sub-tool name titles the panel, args pretty-print,
+    // and the COMPLETE logged output renders (no truncation anywhere).
+    expect(view.getByText('read')).toBeTruthy()
+    expect(view.getByText(/notes\/demo\.txt/)).toBeTruthy()
+    expect(view.getByText(longText)).toBeTruthy()
   })
 })

@@ -1,7 +1,8 @@
+import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Events } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -37,23 +38,37 @@ describe('scoped-dispatch invariants', () => {
     const other = { id: 'a2' } as unknown as Agent
     const signal = new AbortController().signal
     const config = { provider: 'p', model: 'm' }
-    const message = { role: 'assistant' as const, content: [] }
+    const message = freezeMessage({
+      id: MessageId('m'),
+      role: 'user',
+      content: [],
+      source: { kind: 'user' },
+    })
     const agentRows = {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/queued': [agent, [], { source: { kind: 'user' }, contexts: [], steering: false }],
+      'agent/inbox/enqueue': [agent, message, 'queued'],
+      'agent/inbox/dequeue': [agent, message, 'queued'],
+      'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
-      'agent/pre-step': [agent, 1, 1, signal],
-      'agent/post-step': [agent, 1, 1, signal],
-      'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
-      'agent/request': [agent, 1, 1, config, signal, () => Promise.resolve(config)],
-      'agent/request-error': [agent, 1, 1, new Error('request failed'), { message: 'request failed', code: 'UNKNOWN' }, [], signal, () => Promise.resolve({ action: 'fail' })],
-      'agent/session-prefix': [agent, [], signal, () => Promise.resolve([])],
-      'agent/step-result': [agent, 1, 1, message, signal, () => Promise.resolve(message)],
-      'agent/turn-continuation': [agent, 1, { action: 'stop' }, signal, () => Promise.resolve({ action: 'stop' })],
-      'agent/turn-stop': [agent, 1, signal],
+      'agent/step': [agent, 1, 1, signal],
+      'agent/prompt-submit': [agent, message, signal, () => Promise.resolve({ kind: 'allow' })],
+      'agent/request': [agent, 1, 1, signal, () => Promise.resolve(config)],
+      'agent/request-error': [
+        agent,
+        1,
+        1,
+        new Error('request'),
+        { message: 'request', code: 'UNKNOWN' },
+        [],
+        undefined,
+        signal,
+        () => Promise.resolve(undefined),
+      ],
+      'agent/turn-stopping': [agent, 1, signal],
+      'agent/settled': [agent, 1, { kind: 'completed' }],
       'agent/error': [agent, 1, 0, new Error('x')],
     } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [
@@ -61,6 +76,7 @@ describe('scoped-dispatch invariants', () => {
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['system-prompt/assemble', [[], { scope: agent }]],
+      ['tools/code-dispatch-log', [{ exec: { callId: 'c', name: 't', arguments: {} }, agent, subCallId: 'c:code:1', name: 't', isError: false, content: [] }, () => Promise.resolve([])]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],

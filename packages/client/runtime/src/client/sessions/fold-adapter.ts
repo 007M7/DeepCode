@@ -8,8 +8,9 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { ConversationNode } from './conversation.ts'
+import type { CommandNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
@@ -24,10 +25,10 @@ export interface CallIndexEntry {
   callView: ToolCallView | null
 }
 
-/** Non-surface-eligible sentinel event (safely skipped by surfaceOpOf's undefined branch).
- *  'noop/padding' is not a real event type on purpose: a genuine type with fake data would
- *  surface as garbage the day anyone adds handling for it (design §D.1; the cast is the one
- *  place a synthetic event enters the window). */
+/** Non-surface sentinel used to preserve paged-window sequence offsets.
+ * `noop/padding` is deliberately not a real event type, so it cannot acquire
+ * surface behavior; this cast is the only synthetic event entry point.
+ */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
 }
@@ -40,6 +41,14 @@ function materializeNode(
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
+      // Injected context (plugin/goal source) folds to a context node, not a
+      // user message; only a direct human prompt is a user node.
+      if (event.data.source.kind !== 'user') {
+        return {
+          kind: 'context', seq: event.seq, time: event.time,
+          content: event.data.content, source: event.data.source,
+        }
+      }
       return {
         kind: 'user', seq: event.seq, time: event.time,
         content: event.data.content, source: event.data.source,
@@ -48,34 +57,30 @@ function materializeNode(
       return {
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
-        blocks: toAssistantBlocks(event.data.content), usage: event.data.usage,
+        blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
       }
     case 'steering/message':
       return {
         kind: 'steering', seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.content, source: event.data.source,
-      }
-    case 'context/message':
-      return {
-        kind: 'context', seq: event.seq, time: event.time,
-        content: event.data.content, source: event.data.source,
-        meta: event.data.meta,
+        content: event.data.message.content, source: event.data.message.source,
       }
     case 'tool/result': {
-      const call = callIndex.get(String(event.data.callId))
+      const result = event.data.message.content[0]
+      const callId = String(event.data.message.source.callId)
+      const call = callIndex.get(callId)
       return {
         kind: 'tool-result', seq: event.seq, time: event.time,
-        callId: String(event.data.callId),
+        callId,
         call: call ? { name: call.name, argsRaw: call.argsRaw } : null,
         callTime: call?.time ?? null,
-        content: event.data.content, isError: event.data.isError,
+        content: result.content, isError: result.isError === true,
         ...(event.data.error !== undefined ? { error: event.data.error } : {}),
         meta: event.data.meta,
         callView: call?.callView ?? null,
         resultView,
       }
     }
-    /* v8 ignore next 2 -- defensive arm: fold output only carries the five
+    /* v8 ignore next 2 -- defensive arm: fold output only carries the four
     surface-eligible types, and each has a case above; reachable only if core
     adds an eligible type. */
     default:
@@ -97,6 +102,15 @@ export class FoldAdapter {
   private callIdx = new Map<string, CallIndexEntry>()
   /** Wire result views keyed by the tool/result event's seq (views ride the envelope, not the event). */
   private resultViews = new Map<number, ToolResultView>()
+  /**
+   * Command lifecycle nodes by commandId (insertion = run order). The
+   * `command/run`/`command/done` pair is log-only, so the surface fold never
+   * emits it; this index folds the pair (done settles its run's node in
+   * place) and nodes() merges the products into the flow by seq. Window cuts
+   * soft-fall like tool pairs: a done with no in-window run still builds a
+   * node.
+   */
+  private commandIdx = new Map<string, CommandNode>()
   /** Window revision (bumped on reset/append) keying the nodes() result cache: an unchanged
    *  window returns the previous ARRAY reference, not just cached elements — the snapshot's
    *  reference-stability contract (§A.9.4) starts here. */
@@ -126,10 +140,14 @@ export class FoldAdapter {
     this.degraded = false
     this.callIdx = new Map()
     this.resultViews.clear()
+    this.commandIdx = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
-      if (event !== undefined) this.indexCall(event, views?.[i])
+      if (event !== undefined) {
+        this.indexCall(event, views?.[i])
+        this.indexCommand(event)
+      }
     }
   }
 
@@ -143,6 +161,7 @@ export class FoldAdapter {
     this.rev++
     this.padded.push(event)
     this.indexCall(event, view)
+    this.indexCommand(event)
   }
 
   /**
@@ -178,7 +197,23 @@ export class FoldAdapter {
       this.nodeCache.set(seq, node)
       out.push(node)
     }
-    const value = { nodes: out, degraded: this.degraded }
+    // Command nodes fold outside the surface (log-only events); merge by seq.
+    // Both inputs are seq-ascending (surface order and run-index insertion
+    // order share the log order), so one linear merge keeps flow order.
+    let nodes = out
+    if (this.commandIdx.size > 0) {
+      nodes = []
+      const commands = [...this.commandIdx.values()]
+      let next = 0
+      for (const node of out) {
+        for (let cmd = commands[next]; cmd !== undefined && cmd.seq < node.seq; cmd = commands[++next]) {
+          nodes.push(cmd)
+        }
+        nodes.push(node)
+      }
+      for (let cmd = commands[next]; cmd !== undefined; cmd = commands[++next]) nodes.push(cmd)
+    }
+    const value = { nodes, degraded: this.degraded }
     this.nodesResult = { rev: this.rev, value }
     return value
   }
@@ -191,6 +226,36 @@ export class FoldAdapter {
       if (event !== undefined && isSurfaceEligibleType(event.type)) seqs.push(event.seq)
     }
     return seqs
+  }
+
+  /** Fold one command lifecycle event into its node (run mints, done settles in place; done-only soft-falls). */
+  private indexCommand(event: SessionEvent): void {
+    // Log-only plugin events: the host-side dsh-commands declaration cannot
+    // enter the client program, so this wire consumer narrows structurally
+    // (the same posture as tool/code-dispatch in session.ts).
+    if ((event.type as string) === 'command/run') {
+      const data = event.data as unknown as { commandId: CommandId; name: string; args: string }
+      this.commandIdx.set(data.commandId, {
+        kind: 'command', seq: event.seq, time: event.time,
+        commandId: data.commandId, name: data.name, args: data.args, outcome: null,
+      })
+      return
+    }
+    if ((event.type as string) !== 'command/done') return
+    const data = event.data as unknown as { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+    const run = this.commandIdx.get(data.commandId)
+    const outcome = { kind: data.kind, ...data.text === undefined ? {} : { text: data.text } }
+    if (run === undefined) {
+      // Cross-window cut: the run page fell out of the window — build the
+      // node from the done alone (same soft-fall as a call-less tool result).
+      this.commandIdx.set(data.commandId, {
+        kind: 'command', seq: event.seq, time: event.time,
+        commandId: data.commandId, name: null, args: null, outcome,
+      })
+      return
+    }
+    // Settle in place: a fresh node object (published references stay immutable).
+    this.commandIdx.set(data.commandId, { ...run, outcome })
   }
 
   private indexCall(event: SessionEvent, view?: ToolEventView): void {

@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
 import { parseMarkdown, visitMarkdown } from './markdown.ts'
-import { uniqueRepoFiles } from './repo-files.ts'
+import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -25,6 +25,7 @@ const PATTERNS = [
   'AGENTS.md',
   'packages/AGENTS.md',
   '.agents/skills/**/*.md',
+  'skills/**/*.md',
 ]
 
 /** A broken relative link: a target path that does not resolve to a file. */
@@ -95,7 +96,8 @@ function findViolations(absPath: string): Violation[] {
   return out
 }
 
-const files = uniqueRepoFiles(root, PATTERNS)
+// Archived notes remain valid link targets, but their historical outbound links are frozen.
+const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
 const all = files.flatMap(file => findViolations(file.abs))
 const checked = files.length
 

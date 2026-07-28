@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,6 +11,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as HooksCodex from '@deepseek-ai/dsh-hooks-codex'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -31,13 +33,14 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await mountAgentLoopTestDependencies(ctx)
   if (opts.sessionRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: opts.sessionRoot })
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   await ctx.plugin(HooksCodex, { configPath, model: 'm', ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 function events(agent: Agent): SessionEvent[] { return [...agent.session.events] }
 /** Poll until `predicate` holds or the deadline passes — robust to detached
@@ -65,7 +68,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
         const ctx = await harness(path, adapter, { ...sessionRoot !== undefined ? { sessionRoot } : {} })
         ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
         const agent = ctx.agentLoop.create(SessionId('transcript'), { provider: 'mock', model: 'mock' })
-        agent.send([{ type: 'text', text: 'go' }])
+        agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
         await waitForIdle(ctx, agent)
         return {
           payload: JSON.parse(readFileSync(cap, 'utf8')) as { transcript_path: string | null },
@@ -78,16 +81,15 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect((await capture()).payload.transcript_path).toBeNull()
     }, 15_000) // Two real agent/hook subprocess loops need process startup and teardown headroom.
 
-    it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
+    it('UserPromptSubmit block (exit 2) rejects admission without a turn', async () => {
       const d = dir()
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
       const adapter = new MockAdapter([textResponse('no')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
-      const te = events(agent).findLast(e => e.type === 'turn/end')
-      expect(te?.type === 'turn/end' && te.data.reason.kind).toBe('rejected')
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('UserPromptSubmit additionalContext is injected; a no-op hook proceeds', async () => {
@@ -96,7 +98,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('ctx-x')
     })
 
@@ -109,11 +111,10 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message')).toBe(false)
-      const te = events(agent).findLast(e => e.type === 'turn/end')
-      expect(te?.type === 'turn/end' && te.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
+      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
@@ -124,24 +125,22 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.on('agent/prompt-submit', async () => ({
         kind: 'allow' as const,
         content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          meta: { owner: 'policy' },
-        }],
+        })],
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const req = JSON.stringify(adapter.requests[0]!.messages)
       expect(req).toContain('from-bridge')
       expect(req).toContain('from-downstream')
       expect(req).toContain('rewritten-prompt')
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
   })
 
@@ -154,10 +153,10 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, value: [{ type: 'text' as const, text: 'rewritten-result' }] }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
-      expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(result?.type === 'tool/result' && result.data.message.content[0].content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
     it('keeps bridge and downstream PostToolUse contexts as separate sourced events', async () => {
@@ -168,21 +167,19 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       ctx.on('tools/post-execute', async () => ({
         kind: 'accept' as const,
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text' as const, text: 'downstream-note' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
-          meta: { owner: 'policy' },
-        }],
+        })],
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
 
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
@@ -193,11 +190,11 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       ctx.on('tools/post-execute', async () => ({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'downstream-block' }] }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
-      expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
-      expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(result?.type === 'tool/result' && result.data.message.content[0].isError).toBe(true)
+      expect(result?.type === 'tool/result' && result.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
     it('SessionStart additionalContext is injected for the first request', async () => {
@@ -206,9 +203,9 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('start-ctx'))))
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('start-ctx')
     })
 
@@ -219,10 +216,10 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const r = events(agent).find(e => e.type === 'tool/result')
-      expect(r?.type === 'tool/result' && r.data.isError).toBe(true)
-      expect(r?.type === 'tool/result' && r.data.content.some(b => b.type === 'text' && b.text.includes('blocked by PostToolUse hook'))).toBe(true)
+      expect(r?.type === 'tool/result' && r.data.message.content[0].isError).toBe(true)
+      expect(r?.type === 'tool/result' && r.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('blocked by PostToolUse hook'))).toBe(true)
     })
 
     it('PostToolUse additionalContext (clean exit) is attached after the result', async () => {
@@ -232,8 +229,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('post-ctx')))).toBe(true)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('post-ctx')))).toBe(true)
     })
   })
 
@@ -246,7 +243,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(true) // clean-exit hook allows; commandOf returned ''
     })
 
@@ -257,7 +254,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
       expect(res?.type === 'hook/result' && res.data.exitCode).toBe(0)
       expect(res?.type === 'hook/result' && 'stderrSummary' in res.data).toBe(false)
@@ -270,7 +267,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
       expect(res?.type === 'hook/result' && res.data.stderrSummary?.endsWith('…')).toBe(true)
       expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
@@ -293,7 +290,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter, { stderrSummaryMaxChars: 40 })
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
       expect(res?.type === 'hook/result' && res.data.stderrSummary).toBe('x'.repeat(40) + '…')
     })
@@ -310,13 +307,14 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = new Context()
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
       ctx.logger.warn = warn as never
       // Direct apply (schema bypass) → the `model ?? ''` fallback is exercised.
       HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('async hook'))
     })
@@ -329,7 +327,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(true)
     })
 
@@ -344,8 +342,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       await waitFor(() => existsSync(marker)) // the clean no-output hook has finished
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'context/message')).toBe(false)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
     })
 
     it('a throwing SessionStart inject is contained (logged)', async () => {
@@ -370,7 +368,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(true)
     })
 
@@ -383,7 +381,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(true) // matcher didn't match → no hook ran → tool proceeded
       expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false)
     })
@@ -399,7 +397,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
       expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
       expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
@@ -412,9 +410,9 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const r = events(agent).find(e => e.type === 'tool/result')
-      expect(r?.type === 'tool/result' && r.data.content.some(b => b.type === 'text' && b.text.includes('blocked by PreToolUse hook'))).toBe(true)
+      expect(r?.type === 'tool/result' && r.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('blocked by PreToolUse hook'))).toBe(true)
     })
 
     it('PostToolUse block AND additionalContext are surfaced together', async () => {
@@ -424,11 +422,11 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const r = events(agent).find(e => e.type === 'tool/result')
-      expect(r?.type === 'tool/result' && r.data.isError).toBe(true)
-      expect(r?.type === 'tool/result' && r.data.content.some(b => b.type === 'text' && b.text.includes('bad'))).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
+      expect(r?.type === 'tool/result' && r.data.message.content[0].isError).toBe(true)
+      expect(r?.type === 'tool/result' && r.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('bad'))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
     })
 
     it('commandOf reads a non-string command arg as an empty command', async () => {
@@ -441,7 +439,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'number' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_input: { command: string } }
       expect(payload.tool_input.command).toBe('')
     })
@@ -477,7 +475,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.bash.run = (() => Promise.reject(new Error('executor down')))
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
       expect(res?.type === 'hook/result' && 'exitCode' in res.data).toBe(false)
     })
@@ -493,7 +491,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(2) // empty-reason block forced continuation
       expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('blocked by Stop hook')
     })
@@ -506,7 +504,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('extra guidance from a plain hook')
     })
 
@@ -521,7 +519,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       await waitFor(() => existsSync(marker)) // the exit-2 hook has finished
-      expect(events(agent).some(e => e.type === 'context/message'
+      expect(events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('stale')))).toBe(false)
     })
 
@@ -534,7 +532,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(1) // exit 1 is non-blocking → the turn ran
       expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('stale')
     })
@@ -545,9 +543,9 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('session preamble'))))
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')
     })
 
@@ -559,7 +557,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('unrelated')
     })
 
@@ -574,7 +572,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'shell', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_name: string; tool_input: { command: string } }
       expect(payload.tool_name).toBe('shell')
       expect(payload.tool_input.command).toBe('ls')
@@ -590,7 +588,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineContentToolFixture({ name: 'shell', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(ran).toBe(false) // the matcher fired → the hook denied the tool
       expect(events(agent).some(e => e.type === 'hook/invoked' && e.data.point === 'PreToolUse')).toBe(true)
     })
@@ -602,7 +600,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const warn = vi.fn(); ctx.logger.warn = warn as never
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('systemMessage'))
       expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('heads up')
     })
@@ -619,13 +617,14 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = new Context()
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
       await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm' })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })
-      handle.agent.send([{ type: 'text', text: 'go' }])
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
       expect(existsSync(marker)).toBe(true)
       expect(readFileSync(marker, 'utf8').trim().endsWith(sessionDir.split('/').pop()!)).toBe(true)

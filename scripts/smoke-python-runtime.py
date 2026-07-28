@@ -36,8 +36,14 @@ return (ctx) => {
     name: 'snapshot_double',
     description: 'Double a number for executable snapshot verification.',
     parameters: { value: { type: 'number', required: true } },
+    output: {
+      schema: { type: 'number' },
+      render(_args, value) {
+        return [{ type: 'text', text: String(value) }]
+      }
+    },
     async execute(args) {
-      return [{ type: 'text', text: String(args.value * 2) }]
+      return args.value * 2
     }
   }))
 }
@@ -151,7 +157,11 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         )
     if prompt == CODE_PROMPT:
         assert_advertised_tool(body, "run_code")
-        return tool_call_chunks("call-code-worker", "run_code", {"code": "return 6 * 7"})
+        return tool_call_chunks(
+            "call-code-worker",
+            "run_code",
+            {"code": "return 6 * 7", "description": "Compute the smoke value"},
+        )
     if prompt == WORKFLOW_PROMPT:
         assert_advertised_tool(body, "workflow")
         return tool_call_chunks(
@@ -178,14 +188,17 @@ def advanced_tool_followup(
     if not call_id.startswith("advanced-"):
         return None
     if call_id == "advanced-mount" and tool_name == "cordis_mount":
-        if "mounted dyn-1" not in tool_text:
-            raise AssertionError(f"cordis_mount returned no mount id: {tool_text}")
+        if "Temporary Plugin dyn-1 is running" not in tool_text:
+            raise AssertionError(f"cordis_mount returned no temporary Plugin id: {tool_text}")
         assert_advertised_tool(body, "run_code")
         assert_advertised_tool(body, "snapshot_double")
         return tool_call_chunks(
             "advanced-code",
             "run_code",
-            {"code": "return await tools.snapshot_double({ value: 21 })"},
+            {
+                "code": "return await tools.snapshot_double({ value: 21 })",
+                "description": "Run the temporary Plugin tool",
+            },
         )
     if call_id == "advanced-code" and tool_name == "run_code":
         if "42" not in tool_text:
@@ -224,8 +237,8 @@ def advanced_tool_followup(
             {"id": "dyn-1"},
         )
     if call_id == "advanced-unmount" and tool_name == "cordis_unmount":
-        if "unmounted dyn-1" not in tool_text:
-            raise AssertionError(f"cordis_unmount returned no disposal result: {tool_text}")
+        if "Temporary Plugin dyn-1 was unmounted and removed." not in tool_text:
+            raise AssertionError(f"cordis_unmount returned no unmount result: {tool_text}")
         if "snapshot_double" in advertised_tool_names(body):
             raise AssertionError("snapshot_double remained advertised after cordis_unmount")
         return text_chunks(SNAPSHOT_FINAL_TEXT)
@@ -732,8 +745,6 @@ def scrub_snapshot_header(value: dict[object, object]) -> None:
                 tool.get("name") if isinstance(tool, dict) else "{{tools}}"
                 for tool in tools
             ]
-        if isinstance(header.get("messagePrefix"), list):
-            header["messagePrefix"] = ["{{messagePrefix}}" for _ in header["messagePrefix"]]
 
 
 def render_jsonl(records: list[object]) -> str:

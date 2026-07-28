@@ -1,5 +1,7 @@
 # Session Query
 
+English | [中文](session-query.zh.md)
+
 Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
@@ -47,6 +49,39 @@ interface SessionSurfaceSnapshot {
   /** Cloned current surface events in model-history order. */
   events: SurfaceEvent[]
 }
+```
+
+`SessionTitleObservation` applies the same atomic-observation rule to title folding, so an authorization consumer can validate the source header that supplied the title. Batch reads return one ordered `SessionTitleObservationResult` per unique requested id: operational failures remain local to that id, while cancellation rejects the complete operation.
+
+```ts type-equiv
+/** Latest folded title bound to the same session-header observation. */
+interface SessionTitleObservation {
+  /** Cloned header selected with the event log used for the title fold. */
+  session: SessionHeader
+  /** Latest title snapshot, absent when the observed log has no title. */
+  title?: SessionTitleSnapshot
+}
+```
+
+```ts type-equiv
+/** One ordered result from a batch title observation. */
+type SessionTitleObservationResult =
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Successful atomic header/title observation. */
+    status: 'fulfilled'
+    /** Header and optional latest title from one logical source. */
+    value: SessionTitleObservation
+  }
+  | {
+    /** Requested session id. */
+    sessionId: SessionId
+    /** Operational failure isolated to this session. */
+    status: 'rejected'
+    /** Original failure from logical-source resolution or title folding. */
+    reason: unknown
+  }
 ```
 
 ```ts type-equiv
@@ -153,6 +188,16 @@ interface SessionSearchPage<T> {
   items: readonly T[]
   /** Opaque continuation cursor, absent on the final page. */
   nextCursor?: SessionSearchCursor
+}
+```
+
+Unlike grouped cross-session hits, a within-session search must also expose its observed target header even when the page contains no hits.
+
+```ts type-equiv
+/** Event-search results bound to the indexed target-session observation. */
+interface SessionEventSearchPage extends SessionSearchPage<SessionEventSearchHit> {
+  /** Cloned target header from the same indexed generation as `items`. */
+  session: SessionHeader
 }
 ```
 
@@ -274,6 +319,14 @@ interface SessionEventTrace {
   sourceEventSeqs: number[]
   /** Later events that directly name the target as a provenance source, in log order. */
   derivedEventSeqs: number[]
+}
+```
+
+```ts type-equiv
+/** Event relationships bound to the same session-header observation. */
+interface SessionEventTraceObservation extends SessionEventTrace {
+  /** Cloned header selected with the event log used for the trace. */
+  session: SessionHeader
 }
 ```
 

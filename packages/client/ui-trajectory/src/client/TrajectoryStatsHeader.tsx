@@ -14,7 +14,7 @@ import css from './TrajectoryStatsHeader.module.css'
 export interface TrajectoryStatsHeaderProps { useSession: SnapshotSelectorHook<ConversationSnapshot> }
 
 export const TrajectoryStatsHeader = memo(function TrajectoryStatsHeader({ useSession }: TrajectoryStatsHeaderProps) {
-  const nodes = useSession((s) => s.nodes)
+  const nodes = useSession(s => s.nodes)
   const stats = useMemo(() => deriveSpanStats(deriveSpans(nodes)), [nodes])
   if (stats.turns === 0) return null
   return <div className={css.root}>{`${stats.turns} turns · ${stats.steps} steps · ${stats.calls} tool calls`}</div>

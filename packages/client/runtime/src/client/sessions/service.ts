@@ -2,8 +2,9 @@
  * SessionsService: root sessions service — list snapshot store (manager
  * projection; carries `current`, the persisted selection every
  * session-scoped surface keys off — migrated here from ui-layout per the
- * slot-parity design), session scope tree (mintScope pattern: no-op plugin
- * Fiber + ctx.extend scope tag), stable SessionBinding cache, ancestry walk.
+ * slot-parity design), Agent scope tree (mintScope pattern: no-op plugin
+ * Fiber + ctx.extend scope tag; one scope per session, agent id === session
+ * id), stable SessionBinding cache, ancestry walk.
  *
  * Scope lifecycle is stage-driven: a scope is minted lazily on first
  * resolution (pure — resolution has no side effects and is render-safe);
@@ -15,11 +16,15 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
+import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
+import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
+import type { SessionListPhase } from './manager.ts'
 import type { Session } from './session.ts'
 
 /** Session list row projected from the host list RPC plus live stream increments. */
@@ -34,6 +39,13 @@ export interface SessionSummary {
   running: boolean
   /** An approval question is pending on this session (sidebar amber-dot state). */
   waitingApproval: boolean
+  /**
+   * Empty-log bit (host summary derivation mirror). New Session reuses a blank
+   * one targeting the same workspace. Filtering stays with the consumer: the
+   * store carries every row, while the Workspace browser shows only the
+   * selected blank entry.
+   */
+  blank: boolean
   updatedAt: number
 }
 
@@ -42,7 +54,29 @@ export interface SessionSummary {
  * the single useSessions standard hook reads list and selection together —
  * sidebar highlighting and SessionProvider share one fact source).
  */
-export interface SessionListState { ids: SessionId[]; byId: Record<SessionId, SessionSummary>; current: SessionId | undefined }
+export interface SessionListState {
+  ids: SessionId[]
+  byId: Record<SessionId, SessionSummary>
+  current: SessionId | undefined
+  /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
+  phase: SessionListPhase
+}
+
+/** Structured session-create failure. */
+export class SessionCreateError extends Error {
+  override readonly name = 'SessionCreateError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param requestedSessionId - caller-preallocated id used for later stream/list reconciliation.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly requestedSessionId: SessionId | undefined,
+  ) {
+    super(`session create failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
 
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
@@ -51,20 +85,24 @@ export interface SessionBinding {
   readonly ctx: Context
 }
 
-/** Scope tag key (client counterpart of the host dsh-scope pattern). */
-const kScope = Symbol('dsh.client.scope')
+// Scope primitives live in ../agents/scope.ts (the client mirror of host
+// dsh-scope, keyed by Agent identity); re-exported here so existing
+// consumers keep their import site.
+export { scopeOf } from '../agents/scope.ts'
 
 /**
- * Read the session scope tag off a context.
- * @param ctx - any client context.
- * @returns the session id, or undefined on root contexts.
+ * Workspace display title of a session cwd: the path's last non-empty
+ * segment (both separators accepted; trailing separators ignored), or ''
+ * for separator-only paths — callers own their fallback (session id, raw
+ * cwd, default-directory copy). The repo-wide single basename derivation —
+ * every surface naming a workspace (picker rows, toggle labels, list titles)
+ * calls this instead of re-splitting paths.
+ * @param cwd - workspace directory path.
+ * @returns basename title, or '' when no non-empty segment exists.
  */
-export function scopeOf(ctx: Context): SessionId | undefined {
-  return (ctx as Context & { [kScope]?: SessionId })[kScope]
+export function workspaceTitleOf(cwd: string): string {
+  return cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? ''
 }
-
-/** Shared no-op plugin backing each session scope fiber. */
-function sessionScope(): void {}
 
 /**
  * Display title projection: durable title, project directory basename, then
@@ -73,8 +111,8 @@ function sessionScope(): void {}
 function displayTitleOf(title: string | undefined, cwd: string | undefined, id: SessionId): string {
   if (title !== undefined) return title
   if (cwd !== undefined && cwd !== '') {
-    const base = cwd.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
-    if (base !== undefined && base !== '') return base
+    const base = workspaceTitleOf(cwd)
+    if (base !== '') return base
   }
   return id
 }
@@ -83,16 +121,45 @@ interface ScopeRecord {
   fiber: Fiber
   ctx: Context
   binding: SessionBinding
-  /** Render-layer standard kit (identity-stable per scope; the renderer's per-cell caches key off it). */
-  cell: SessionCell
+  /** Render-layer standard-props bundle (identity-stable per scope; the renderer's per-info caches key off it). */
+  provideInfo: SessionProvideInfo
+}
+
+/** One plugin's per-session standard-props contribution (see {@link SessionsService.provide}). */
+export interface SessionProvideContribution {
+  /** Bare observable sources, keyed by hook base name ('input' → useInput). */
+  hooks?: Record<string, HostObservable<unknown>>
+  /** Stable plain members (action callbacks etc.), spread into standard props verbatim. */
+  props?: Record<string, unknown>
+}
+
+/**
+ * Static declaration plus per-session resolver for one standard-kit
+ * contribution. The declared names let the renderer construct the same hook
+ * and prop surface while no session is current.
+ */
+export interface SessionProvideDescriptor {
+  /** Hook base names (`input` becomes `useInput`). */
+  hooks?: readonly string[]
+  /** Plain standard-prop names. */
+  props?: readonly string[]
+  /** Resolve every declared member for one definite session. */
+  resolve(binding: SessionBinding): SessionProvideContribution
 }
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
 export class SessionsService {
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
-  /** The object-layer instance cluster and frame dispatch entry (wired to the connection by the runtime apply). */
-  readonly manager: SessionManager
+  /** The object-layer instance cluster and frame dispatch entry. */
+  private readonly manager: SessionManager
+  /**
+   * Atomic current-session provide projection: selection changes and
+   * provider-roster changes publish through this one source (the renderer
+   * host's `sessions.provide` feed), so a roster change under a stable
+   * current id republishes the bundle instead of stranding mounted entries.
+   */
+  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -105,6 +172,14 @@ export class SessionsService {
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
+  /** Registered per-session standard-props providers, in registration order. */
+  private readonly providers: SessionProvideDescriptor[] = []
+  /** Static no-session projection, rebuilt only when the provider roster changes. */
+  private maybeInfo: SessionMaybeProvideInfo
+  /** Latest published {@link SessionsService.currentProvideInfo} bundle (identity comparison dedupes republish). */
+  private currentProvideInfoSnapshot: SessionMaybeProvideInfo
+  /** currentProvideInfo subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
+  private readonly currentProvideInfoListeners = new Set<() => void>()
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -119,12 +194,14 @@ export class SessionsService {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, private readonly api: IApiClient) {
-    this.manager = new SessionManager(api)
+  constructor(private readonly rootCtx: Context, api: IApiClient) {
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
-    this.list = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined })
+    this.manager = new SessionManager(api, this.selection.getSnapshot().sessionId)
+    this.list = createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, phase: 'pending',
+    })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
     this.manager.subscribe(() => { this.projectList() })
@@ -134,8 +211,139 @@ export class SessionsService {
     // dedicated code path. Safe to run synchronously inside the store notify:
     // the follower writes no list state — session.open()'s synchronous prefix
     // touches only session-side state and its own microtask-batched notifier.
-    this.list.subscribe(() => { this.followCurrent() })
+    // The current-provide projection follows the same current writes.
+    this.list.subscribe(() => {
+      this.followCurrent()
+      this.updateCurrentProvideInfo()
+    })
+    // The runtime's own contribution comes first: useSession rides the same
+    // provide channel every plugin uses (no renderer special case).
+    this.providers.push({
+      hooks: ['session'],
+      resolve: binding => ({ hooks: { session: binding.session } }),
+    })
+    this.maybeInfo = this.materializeMaybeProvideInfo()
+    this.currentProvideInfoSnapshot = this.maybeInfo
+    this.currentProvideInfo = {
+      getSnapshot: () => this.currentProvideInfoSnapshot,
+      subscribe: (fn) => {
+        this.currentProvideInfoListeners.add(fn)
+        return () => { this.currentProvideInfoListeners.delete(fn) }
+      },
+    }
     rootCtx.reflect.provide('sessions', this, undefined)
+  }
+
+  /**
+   * Register a per-session standard-props provider: every session-scope slot
+   * component receives the contributed members as standard props (`hooks`
+   * sources become `use<Name>` selector hooks on the render side; `props`
+   * spread verbatim). Contributions materialize lazily with the session's
+   * scope record and die with it. Registration order is resolution order;
+   * duplicate member names fail loud at materialization.
+   * @param descriptor - static member roster plus per-session resolver.
+   * @returns disposer removing the provider (already-materialized bundles keep their members until their scope drops).
+   */
+  provide(descriptor: SessionProvideDescriptor): () => void {
+    this.providers.push(descriptor)
+    // Scopes may already exist (boot order: the list lands and resolves
+    // scopes before later plugins register) — their bundles must include
+    // every provider by first render, so re-materialize on roster change.
+    this.rematerializeProvideBundles()
+    return () => {
+      const at = this.providers.indexOf(descriptor)
+      if (at >= 0) this.providers.splice(at, 1)
+      this.rematerializeProvideBundles()
+    }
+  }
+
+  /** Rebuild every live scope's standard-props bundle after a provider roster change. */
+  private rematerializeProvideBundles(): void {
+    this.maybeInfo = this.materializeMaybeProvideInfo()
+    for (const record of this.scopes.values()) {
+      record.provideInfo = this.materializeProvideInfo(record.binding)
+    }
+    this.updateCurrentProvideInfo()
+  }
+
+  /**
+   * Re-derive the current selection's provide bundle and publish it when it
+   * changed. Bundles are identity-stable per (scope, roster)
+   * materialization, so an identity compare is exact; synchronous notify —
+   * both call sites (list.subscribe, provide()) already sit behind their own
+   * batching or registration edges.
+   */
+  private updateCurrentProvideInfo(): void {
+    const next = this.maybeProvideInfo(this.list.getSnapshot().current)
+    if (next === this.currentProvideInfoSnapshot) return
+    this.currentProvideInfoSnapshot = next
+    for (const fn of [...this.currentProvideInfoListeners]) {
+      try {
+        fn()
+      } catch (error) {
+        // Contain subscriber failures: this notify runs inside the list
+        // notification, where a throwing render-side subscriber would starve
+        // later listeners and abort the projection pass that scheduled it.
+        console.error('sessions.currentProvideInfo subscriber failed:', error)
+      }
+    }
+  }
+
+  /** Build the static no-session kit and reject duplicate declared names. */
+  private materializeMaybeProvideInfo(): SessionMaybeProvideInfo {
+    const hooks: Record<string, undefined> = {}
+    const props: Record<string, undefined> = {}
+    for (const descriptor of this.providers) {
+      for (const name of descriptor.hooks ?? []) {
+        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
+        hooks[name] = undefined
+      }
+      for (const name of descriptor.props ?? []) {
+        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
+        props[name] = undefined
+      }
+    }
+    return { sessionId: undefined, hooks, props } // no projections face: every key reads absent without a session
+  }
+
+  /** Materialize the standard-props bundle for one session (fails loud on duplicate member names). */
+  private materializeProvideInfo(binding: SessionBinding): SessionProvideInfo {
+    const hooks: Record<string, HostObservable<unknown>> = {}
+    const props: Record<string, unknown> = {}
+    for (const descriptor of this.providers) {
+      const contribution = descriptor.resolve(binding)
+      const contributedHooks = contribution.hooks ?? {}
+      const contributedProps = contribution.props ?? {}
+      for (const name of Object.keys(contributedHooks)) {
+        if (!(descriptor.hooks ?? []).includes(name)) {
+          throw new Error(`sessions.provide: undeclared hook "${name}"`)
+        }
+      }
+      for (const name of Object.keys(contributedProps)) {
+        if (!(descriptor.props ?? []).includes(name)) {
+          throw new Error(`sessions.provide: undeclared prop "${name}"`)
+        }
+      }
+      for (const name of descriptor.hooks ?? []) {
+        const source = contributedHooks[name]
+        if (source === undefined) throw new Error(`sessions.provide: missing hook "${name}"`)
+        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
+        hooks[name] = source
+      }
+      for (const name of descriptor.props ?? []) {
+        if (!Object.hasOwn(contributedProps, name)) throw new Error(`sessions.provide: missing prop "${name}"`)
+        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
+        props[name] = contributedProps[name]
+      }
+    }
+    return {
+      sessionId: binding.sessionId,
+      hooks,
+      props,
+      // The useProjection seat: key-addressed bare value faces off the
+      // session's projection store (open key space — never a static roster member).
+      projections: { faceOf: key => binding.session.projections.faceOf(key) },
+    }
   }
 
   /**
@@ -144,59 +352,70 @@ export class SessionsService {
    * @param id - session id (must exist in the list store).
    */
   open(id: SessionId): void {
-    if (this.list.getSnapshot().byId[id] === undefined) {
-      throw new Error(`sessions.open: unknown session ${id}`)
-    }
-    this.selection.update((draft) => { draft.sessionId = id })
-    this.list.update((draft) => { draft.current = id })
+    this.manager.select(id)
   }
 
   /**
    * Clear the current selection so the layout shows the no-session empty
-   * state. Wipes the persisted selection too — a reload stays on empty until
-   * the user opens or starts a session. Staging holds the previous occupant
-   * across the blank (same masked-gap rule as a transient list miss).
+   * state (new-session affordance and the workspace preselection flow).
+   * Wipes the persisted selection too — a reload stays on empty until the
+   * user opens or starts a session. The staged scope keeps its frozen view
+   * per the masked-gap contract until the next open() moves the stage.
    */
   clear(): void {
-    this.selection.set({})
-    this.list.update((draft) => { draft.current = undefined })
+    this.manager.clearSelection()
   }
 
   /**
-   * Create a session on the host.
-   * @param opts - creation options (project directory).
-   * @returns the new session id.
+   * Refresh the real Session baseline, reusing an in-flight pull.
+   * @returns completion of the current or newly started baseline pull.
    */
-  async create(opts: { cwd?: string } = {}): Promise<SessionId> {
-    const result = await this.manager.create(opts.cwd)
-    if (!result.ok) throw new Error(`session create failed: ${result.error.code}: ${result.error.message}`)
+  refresh(): Promise<void> {
+    return this.manager.refreshList()
+  }
+
+  /**
+   * Route a mux stream envelope into the Session object layer.
+   * @param envelope - validated mux stream envelope.
+   */
+  handleMuxEnvelope(envelope: Parameters<SessionManager['handleMuxEnvelope']>[0]): void {
+    this.manager.handleMuxEnvelope(envelope)
+  }
+
+  /**
+   * Route a Host stream envelope into the Session object layer.
+   * @param envelope - validated Host stream envelope.
+   */
+  handleHostEnvelope(envelope: Parameters<SessionManager['handleHostEnvelope']>[0]): void {
+    this.manager.handleHostEnvelope(envelope)
+  }
+
+  /** Rebuild the Session baseline and every opened window after connection. */
+  handleConnected(): void {
+    this.manager.handleConnected()
+  }
+
+  /**
+   * Create a session on the host. Resolution guarantee: by the time the
+   * promise resolves, the created session is in the list store and
+   * {@link SessionsService.binding} resolves it — callers (New Session
+   * draft hand-off) may address the scope synchronously, without waiting a
+   * notifier flush. The synchronous projection below makes this structural
+   * rather than an accident of microtask ordering.
+   * @param opts - target workspace or directory and an optional preallocated id.
+   * @returns the new session id.
+   * @throws {SessionCreateError} with the requested id.
+   */
+  async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
+    const result = await this.manager.create(opts)
+    if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
+    this.projectList()
     return result.value.sessionId
   }
 
   /**
-   * Create a workspace folder under the host process cwd and a session in it.
-   * Name is a single path segment (no separators); the host mkdir runs inside
-   * session.create. Caller opens the returned id when it wants the session staged.
-   * @param name - workspace folder basename.
-   * @returns the new session id.
-   */
-  async createWorkspace(name: string): Promise<SessionId> {
-    const trimmed = name.trim()
-    if (trimmed === '') throw new Error('sessions.createWorkspace: name is required')
-    if (/[/\\]/.test(trimmed)) {
-      throw new Error('sessions.createWorkspace: name must not contain path separators')
-    }
-    const { result } = await this.api.host.describe({})
-    if (!result.ok) {
-      throw new Error(`host.describe failed: ${result.error.code}: ${result.error.message}`)
-    }
-    const hostCwd = result.value.cwd.replace(/[/\\]+$/, '')
-    return this.create({ cwd: `${hostCwd}/${trimmed}` })
-  }
-
-  /**
-   * Resolve a session-scoped context view (use-and-discard).
-   * @param id - session id.
+   * Resolve an Agent-scoped context view (use-and-discard).
+   * @param id - session id (the agent identity — 1:1 same axis).
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.
    */
   scope(id: SessionId): Context | undefined {
@@ -204,7 +423,7 @@ export class SessionsService {
   }
 
   /**
-   * Read the session scope tag off a context. Service-method seam: fetch
+   * Read the Agent scope tag off a context. Service-method seam: fetch
    * bundles must reach scope resolution through ctx.sessions — a cross-bundle
    * value import of the standalone helper would inline a second module
    * instance whose private tag Symbol never matches.
@@ -212,7 +431,22 @@ export class SessionsService {
    * @returns the session id, or undefined on root contexts.
    */
   scopeOf(ctx: Context): SessionId | undefined {
-    return scopeOf(ctx)
+    return scopeTagOf(ctx)
+  }
+
+  /**
+   * Resolve the business Session behind an Agent-scoped context — the one
+   * hop every scoped consumer (event listeners, per-session controllers)
+   * takes from ctx-space into object-space (the client mirror of host
+   * `agent.session`). Same service-method seam as
+   * {@link SessionsService.scopeOf}.
+   * @param ctx - an Agent-scoped context.
+   * @returns the Session, or undefined when the ctx is untagged or its scope was pruned.
+   */
+  sessionOf(ctx: Context): Session | undefined {
+    const id = scopeTagOf(ctx)
+    if (id === undefined) return undefined
+    return this.scopes.get(id)?.binding.session
   }
 
   /**
@@ -226,16 +460,22 @@ export class SessionsService {
   }
 
   /**
-   * Resolve the render-layer session cell (SessionProvider's feed through
-   * the renderer host; ctx never enters the render layer). Pure resolution —
-   * render-safe: SessionProvider calls this during render, so no staging, no
-   * window side effects (StrictMode double-invokes and concurrent discarded
-   * passes must stay free).
-   * @param id - session id.
-   * @returns cell, or undefined for a session neither listed nor already scoped.
+   * Resolve one session's render-layer standard-props bundle (ctx never
+   * enters the render layer; the renderer subscribes to
+   * {@link SessionsService.currentProvideInfo}). Pure resolution — render-safe:
+   * no staging, no window side effects (StrictMode double-invokes and
+   * concurrent discarded passes must stay free).
    */
-  cell(id: string): SessionCell | undefined {
-    return this.resolve(id as SessionId)?.cell
+  private provideInfo(id: string): SessionProvideInfo | undefined {
+    return this.resolve(id as SessionId)?.provideInfo
+  }
+
+  /**
+   * Resolve the current-session-optional standard kit. Unknown or absent ids
+   * return the static no-session projection rather than removing hook props.
+   */
+  private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
+    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.maybeInfo
   }
 
   /**
@@ -246,11 +486,12 @@ export class SessionsService {
    * failed one retries the next time current is touched).
    */
   private followCurrent(): void {
-    const current = this.list.getSnapshot().current
+    const snapshot = this.list.getSnapshot()
+    const current = snapshot.current
     // A masked gap (current blanked while the selection's session is
     // transiently absent) holds the stage: tearing down on the gap would
     // destroy exactly the frozen scope the mask exists to preserve.
-    if (current === undefined || current === this.watched) return
+    if (current === undefined || snapshot.byId[current] === undefined || current === this.watched) return
     this.watched = current
     this.sweepDeferred()
     const record = this.resolve(current)
@@ -280,30 +521,42 @@ export class SessionsService {
     return chain
   }
 
-  /** Lazily mint the scope + binding for a listed (or already-scoped) session. */
+  /**
+   * Lazily mint the scope + binding for an eligible session. Eligibility and
+   * prune share one predicate (decision 12): listed on the host — a scope is
+   * born when its session enters the client's view (list mirror row from the
+   * baseline pull, a create() echo, or the session-added frame) and dies with
+   * the prune when the row leaves.
+   */
   private resolve(id: SessionId): ScopeRecord | undefined {
     const existing = this.scopes.get(id)
     if (existing !== undefined) return existing
-    // Frozen scopes outlive the list; new scopes are only minted for listed sessions.
-    if (this.list.getSnapshot().byId[id] === undefined) return undefined
-    const fiber = this.rootCtx.plugin(sessionScope)
-    const ctx = fiber.ctx.extend({ [kScope]: id })
+    if (!this.eligible(id)) return undefined
+    const { fiber, ctx } = createScope(this.rootCtx, id)
     const session = this.manager.get(id)
+    // The Session owns its scoped dispatch point (host Agent.loopCtx mirror);
+    // mint and bind are one step so a live scope record implies a bound actx.
+    session.bindScope(ctx)
+    const binding: SessionBinding = { sessionId: id, session, ctx }
     const record: ScopeRecord = {
       fiber,
       ctx,
-      binding: { sessionId: id, session, ctx },
-      // Bare source form (store migration): the Session object IS the
-      // observable; the React side binds the useSession hook per cell.
-      cell: { sessionId: id, session },
+      binding,
+      // Sources are bare observables; React binds selector hooks at its own seam.
+      provideInfo: this.materializeProvideInfo(binding),
     }
     this.scopes.set(id, record)
     return record
   }
 
+  /** The one aliveness predicate shared by scope mint and prune: host-listed. */
+  private eligible(id: SessionId): boolean {
+    return this.list.getSnapshot().byId[id] !== undefined
+  }
+
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
-    const items = this.manager.getListSnapshot().items
+    const { items, current, phase } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
     for (const entry of items) {
@@ -313,24 +566,30 @@ export class SessionsService {
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
         waitingApproval: entry.waitingApproval,
+        blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
       }
     }
-    // current = the persisted selection, masked while its session is absent
-    // (falls to the empty state; resurfaces if the session returns).
-    const selected = this.selection.getSnapshot().sessionId
-    const current = selected !== undefined && byId[selected] !== undefined ? selected : undefined
-    this.list.set({ ids, byId, current })
+    const persisted = this.selection.getSnapshot().sessionId
+    // No current (cleared, or masked gap) wipes the persisted cell — a reload
+    // stays on empty; the in-memory selection still resurfaces a masked id.
+    if (current === undefined) {
+      if (persisted !== undefined) this.selection.set({})
+    } else if (byId[current] !== undefined && persisted !== current) {
+      this.selection.set({ sessionId: current })
+    }
+    this.list.set({ ids, byId, current, phase })
     this.pruneScopes(byId)
   }
 
-  /** Tear down scopes for removed sessions off stage; the staged one defers until the stage moves. */
+  /** Tear down scope + instance for no-longer-eligible sessions off stage; the staged one defers until the stage moves. */
   private pruneScopes(byId: Record<SessionId, SessionSummary>): void {
+    void byId
     for (const [id, record] of this.scopes) {
-      if (byId[id] !== undefined) continue
+      if (this.eligible(id)) continue
       if (id === this.watched) {
         this.deferredRemovals.add(id)
         continue
@@ -341,12 +600,22 @@ export class SessionsService {
     }
   }
 
-  /** Dispose a scope fiber and its session-keyed slot-store instances together (single lifecycle axis). */
+  /**
+   * One teardown for the whole per-session axis (decision 12): the scope
+   * fiber (cascading every actx-registered effect: input shell, slash
+   * controller, popup, plugin stores, listeners), the session-keyed slot
+   * stores, and the Session instance itself — the host session log is the
+   * durable truth, a reopen lazily rebuilds and backfills via open().
+   */
   private dropScope(id: SessionId, record: ScopeRecord): void {
     void record.fiber.dispose()
+    // Release the Session's dispatch point with the scope it belongs to (a
+    // surviving instance — the live Intent — rebinds when resolve re-mints).
+    record.binding.session.unbindScope()
     // Optional lookup: slots and sessions are sibling services with no
     // declared dependency; a slots-less boot (object-layer tests) skips.
     this.rootCtx.get('slots')?.pruneStoreScope(id)
+    this.manager.drop(id)
   }
 
   /** Run deferred teardowns whose session is no longer staged (called when the stage moves). */
@@ -356,8 +625,8 @@ export class SessionsService {
        * stage move sweeps first, so the set cannot contain the id the stage just
        * moved to; kept as a guard against future extra sweep call sites. */
       if (id === this.watched) continue
-      // Still absent from the list? (A re-added id cancels the deferred teardown.)
-      if (this.list.getSnapshot().byId[id] !== undefined) {
+      // Eligible again? (A re-added id cancels the deferred teardown.)
+      if (this.eligible(id)) {
         this.deferredRemovals.delete(id)
         continue
       }

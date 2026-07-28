@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-tool-subagent
 
+English | [中文](README.zh.md)
+
 The model-facing delegation tool over one configured `ctx.subagents` provider. Changing the provider changes transport without changing the execution contract.
 
 ## Provider selection and lifecycle
@@ -19,7 +21,7 @@ With `run_in_background: true`, the tool registers the parent-owned task before 
 | `provider` (required) | Provider name (`spawn`, `fork`, `acp`, ...). |
 | `toolName` | Model-facing name, default `subagent`; distinct for every loaded instance. |
 | `enableRunInBackground` | Exposes background mode, default `true`; disabling also rejects forced background calls. |
-| `agentOptions` | Default child options, currently including `model`. |
+| `agentOptions` | Provider-specific child `provider`, `model`, and positive `maxTokens`; the in-process provider treats explicit values as overrides of inherited parent options. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
 | `maxDepth` | Absolute delegation-depth cap, default `3` (`0` forbids delegation); a numeric cap requires the `depthLimit` capability and fails the mount without it. `'provider-managed'` sends no cap for an out-of-process provider whose budget belongs to the child harness. The tool stays visible at the cap; each attempted start checks the calling agent's current depth and returns an errored tool result when rejected. |

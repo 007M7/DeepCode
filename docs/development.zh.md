@@ -8,8 +8,8 @@
 
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
-- Git。
-- 可选：一个 DeepSeek API key，用于 TUI/Headless/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
+- Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。
+- 可选：一个 DeepSeek API key，用于 TUI、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -19,13 +19,19 @@
 pnpm install
 ```
 
-安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。包装脚本使用 lefthook 经过评审的 `--force` 模式，确保已存在 `core.hooksPath` 的关联 worktree 不会导致正常的 `pnpm run …` 命令失败。
+安装过程同时会运行根目录的 `postinstall` 脚本，该脚本通过 `scripts/install-lefthook.mjs` 从仓库 dev 依赖安装 lefthook。当 `CI=true` 或 `GITHUB_ACTIONS=true` 时，该脚本会在探测 Git 前返回，因为自动化任务不会使用贡献者钩子。否则，包装脚本要求使用 Git 2.26 或更高版本，并会为当前 worktree 在其自身的 Git 目录下设置显式钩子目录；因此，关联 worktree 会使用各自的 lefthook 二进制文件和配置，而不会改写共用钩子。首次安装会启用 Git 的 worktree 专属配置扩展和仓库格式 1；见 [worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md)。
 
 如果依赖是从缓存恢复或 `postinstall` 被跳过而导致缺少钩子，请手动安装：
 
 ```sh
-pnpm exec lefthook install --force
+node scripts/install-lefthook.mjs
 ```
+
+包装层会拒绝用户自有的 `core.hooksPath` 值。继承自系统、全局或共用仓库配置的路径必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`；命令作用域和 worktree 作用域的自定义路径必须显式集成或移除。
+
+启用 worktree 配置之前，请迁移格式 0 共用配置中直接设置的 `extensions.*`，并迁移直接设置的 `core.worktree` 或 `core.bare=true`，以及任何非空且尚未生效的 `config.worktree`。共用配置和每个 worktree 配置都必须是常规文件，而自有钩子目录只能包含不带别名的常规文件。
+
+检出目录移动后，请重新运行包装层，使其重新定位自有路径并重新生成钩子。对于陈旧或无效的安装程序锁，请先确认没有安装程序正在运行，再移除报告的锁并重试。若安装和钩子路径回滚都失败，请在重试前检查报告的 worktree 配置。完整安全契约由 [worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) 统一定义。
 
 新克隆后请先运行一次类型检查：
 
@@ -112,6 +118,7 @@ pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README 
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
+pnpm run gen-translation-brief   # print the minimal-update briefing for out-of-sync translation pairs (--apply splices code-only edits)
 pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
@@ -142,7 +149,7 @@ pnpm run demo:tui
 pnpm run demo:cordis
 ```
 
-ACP 服务器 agent 演示通过 JSON-RPC stdio 暴露 agent，同样需要 `DEEPSEEK_API_KEY`：
+ACP 自动化服务器通过 JSON-RPC stdio 提供全新 agent 会话，同样需要 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:acp
@@ -166,7 +173,7 @@ pnpm run demo:acp
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明及其附带的 JSDoc，并断言代码块同时匹配两者。对于不应把实现体写进目录的类，请使用 ` ```ts public-api ` 并设置 `"projection": "public-api"`；门禁检查的投影会保留公共字段、构造函数、访问器、方法以及类和成员的原始 JSDoc，同时省略实现体和私有或受保护成员。比对会忽略空白和非 JSDoc 注释，但要求保留每条原始 JSDoc（包括成员文档），让读者同时看到源码契约和确切形状。该门禁还按文档、符号和投影强制 1:1 对应，因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过两种围栏（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个已记录的类型声明或其 JSDoc 时，门禁会失败直到你更新粘贴内容；当你增删一个块时，请在同一个变更里更新 manifest。
+`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明及其附带的 JSDoc，并断言代码块同时匹配两者。对于不应把实现体写进目录的类，请使用 ` ```ts public-api ` 并设置 `"projection": "public-api"`；门禁检查的投影会保留公共字段、构造函数、访问器、方法以及类和成员的原始 JSDoc，同时省略实现体和私有或受保护成员。比对会忽略空白和非 JSDoc 注释，但要求保留每条原始 JSDoc（包括成员文档），让读者同时看到源码契约和确切形状。该门禁按文档、符号和投影，在主块与 manifest 条目之间强制 1:1 对应；只有当配对 `.zh.md` 块的完整受跟踪围栏序列与其无后缀兄弟文件按字节一致且顺序相同时，才会复用后者的条目。`doc-typecheck` 对可编译围栏应用同一派生规则，同时跳过两种源码等价围栏的编译，并将其排除在 opt-out 比例之外。当你改动一个已记录的类型声明或其 JSDoc 时，门禁会失败直到你更新粘贴内容；当你增删一个主块时，请在同一个变更里更新 manifest。
 
 ## 架构上下文
 

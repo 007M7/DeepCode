@@ -8,12 +8,12 @@ import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connecti
 import { flattenLineage } from '../src/client/sessions/lineage.ts'
 
 const s = (id: string, updatedAt: number, parent?: string): SessionSummary => ({
-  sessionId: id as SessionId, updatedAt, running: false,
+  sessionId: id as SessionId, updatedAt, running: false, blank: false,
   ...(parent !== undefined ? { parentSessionId: parent as SessionId } : {}),
 })
 
 describe('flattenLineage', () => {
-  it('sorts roots by updatedAt desc and expands children DFS with depth, children sorted too', () => {
+  it('keeps established root and sibling order while expanding children DFS with depth', () => {
     const out = flattenLineage([
       s('old-root', 10),
       s('new-root', 30),
@@ -22,7 +22,7 @@ describe('flattenLineage', () => {
       s('grandkid', 5, 'kid-new'),
     ])
     expect(out.map(e => [e.sessionId, e.depth])).toEqual([
-      ['new-root', 0], ['kid-new', 1], ['grandkid', 2], ['kid-old', 1], ['old-root', 0],
+      ['old-root', 0], ['new-root', 0], ['kid-old', 1], ['kid-new', 1], ['grandkid', 2],
     ])
   })
 

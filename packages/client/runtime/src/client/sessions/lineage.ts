@@ -1,6 +1,6 @@
 // flattenLineage: summaries -> flat list with lineage indentation (pure function).
-// Roots sort by updatedAt desc, DFS expansion with children in the same order; orphaned lineage
-// degrades to root level; cycles fail soft and emit as roots.
+// The input order is authoritative; lineage only makes each child adjacent to its parent.
+// Orphaned lineage degrades to root level; cycles fail soft and emit as roots.
 
 import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
 
@@ -15,6 +15,8 @@ export interface SessionListEntry {
   title?: string
   updatedAt: number
   running: boolean
+  /** Empty-log bit mirrored from the summary; lists hide blank sessions (filtering stays with the consumer). */
+  blank: boolean
   parentSessionId?: SessionId
   cwd?: string
   /** An approval question is pending on this session (mux-frame derived; the sidebar's amber dot). */
@@ -24,8 +26,9 @@ export interface SessionListEntry {
 }
 
 /**
- * summaries -> flat list with lineage indentation (pure; roots by updatedAt
- * desc, DFS children in the same order, orphans degrade to roots).
+ * Summaries -> flat list with lineage indentation. Root and sibling order
+ * follows the established input order; this projection never re-sorts a
+ * hydrated list from mutable timestamps.
  * @param summaries - the host's session.list items.
  * @param waitingApproval - sessions with a pending approval question (manager-owned live fact; absent = false).
  * @returns display rows in render order.
@@ -46,9 +49,6 @@ export function flattenLineage(summaries: readonly TitledSessionSummary[], waiti
     }
   }
 
-  const byUpdatedDesc = (a: TitledSessionSummary, b: TitledSessionSummary): number => b.updatedAt - a.updatedAt
-  roots.sort(byUpdatedDesc)
-
   const out: SessionListEntry[] = []
   const visited = new Set<SessionId>()
   const walk = (s: TitledSessionSummary, depth: number): void => {
@@ -60,7 +60,6 @@ export function flattenLineage(summaries: readonly TitledSessionSummary[], waiti
     out.push({ ...s, waitingApproval: waitingApproval?.has(s.sessionId) ?? false, depth })
     const kids = children.get(s.sessionId)
     if (kids === undefined) return
-    kids.sort(byUpdatedDesc)
     for (const kid of kids) walk(kid, depth + 1)
   }
   for (const root of roots) walk(root, 0)

@@ -344,8 +344,8 @@ export class TokenMeterService extends Service {
       }
       assembler.push(sourceEvent.data.chunk)
     }
-    const providerMessage = assembler.message()
-    return providerMessage.content.length === 0 ? 0 : this.estimateMessage(providerMessage)
+    const providerContent = assembler.blocks()
+    return providerContent.length === 0 ? 0 : this._estimateContent(providerContent) + ROLE_OVERHEAD
   }
 
   /** Price content blocks recursively under the fixed density heuristic. */
@@ -378,7 +378,6 @@ export class TokenMeterService extends Service {
   private _estimateHeader(header: EpochHeader | undefined): number {
     if (header === undefined) return 0
     let tokens = 0
-    for (const message of header.messagePrefix ?? []) tokens += this.estimateMessage(message)
     if (header.system !== undefined) {
       tokens += Math.ceil(header.system.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD
     }

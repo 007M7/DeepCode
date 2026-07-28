@@ -28,7 +28,7 @@ Manager tests pin FIFO admission, cancellation, repeated close, shutdown outcome
 
 **Expose pi-tui objects directly.** This gives plugins maximum freedom but makes private focus, rendering, and teardown state a public compatibility contract. It also cannot arbitrate independently loaded overlays.
 
-**Put interactive callbacks on command definitions.** Commands are shared by TUI and ACP and remain useful without a terminal. Adding terminal state to `ctx.commands` would couple discovery and dispatch to one presentation implementation.
+**Put interactive callbacks on command definitions.** Commands remain transport-neutral domain entries even though TUI is their only shipped consumer. Adding terminal state to `ctx.commands` would couple discovery and dispatch to one presentation implementation.
 
 **Create a complete TUI slot and action framework at once.** Actions, editor replacement, transcript renderers, status regions, and completion providers have different composition and conflict rules. Shipping them behind one broad API would freeze those rules before a concrete consumer proves them.
 

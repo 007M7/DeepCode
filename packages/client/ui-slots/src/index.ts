@@ -14,10 +14,12 @@
  * consumer merges keys in and the intersection is what keeps them string-typed.
  * The rule fires on the empty-map view, not on real redundancy. */
 import type { ReactNode } from 'react'
+import type { HostObservable } from './renderer.ts'
 import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDecl } from './store.ts'
 
 export * from './store.ts'
 export * from './renderer.ts'
+export * from './deferred.ts'
 
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
@@ -25,8 +27,8 @@ export interface SlotMap {}
 /** Slot cardinality: single occupant, ordered list, key-dispatched, or selector-routed chain. */
 export type SlotKind = 'single' | 'list' | 'keyed' | 'chain'
 
-/** Slot data context: root (no session) or session-bound. */
-export type SlotScope = 'root' | 'session'
+/** Slot data context: global, current-session-optional, or strict session-bound. */
+export type SlotScope = 'root' | 'session-maybe' | 'session'
 
 /**
  * One SlotMap entry: kind/scope axes plus the optional owner-supplied props
@@ -73,9 +75,16 @@ export type ScopeOf<K extends keyof SlotMap & string> = SlotMap[K]['scope']
 export interface SessionStandardProps {}
 
 /**
+ * Framework standard kit delivered to current-session-optional slots. Its
+ * hooks stay callable while no session is selected and return `undefined`
+ * until one becomes current; concrete members merge in at runtime packages.
+ */
+export interface SessionMaybeStandardProps {}
+
+/**
  * Framework standard kit delivered to EVERY slot component (the global seat).
- * Declared empty here; the runtime package merges `useSessions` (the session
- * list selector hook — the sidebar tree's single derivation source).
+ * Declared empty here; the runtime package merges the global object-layer
+ * selector hooks that shared page composition consumes.
  */
 export interface GlobalStandardProps {}
 
@@ -92,14 +101,27 @@ export type SessionIdOf = SessionStandardProps extends { sessionId: infer S } ? 
  */
 export type PropsRuntime<K extends keyof SlotMap & string> =
   OwnerOf<K> &
-  (ScopeOf<K> extends 'session' ? SessionStandardProps : object) &
+  (ScopeOf<K> extends 'session' ? SessionStandardProps
+    : ScopeOf<K> extends 'session-maybe' ? SessionMaybeStandardProps
+      : object) &
   GlobalStandardProps
 
 /** renderSlot dispatch options: keyed dispatch key, list filtering, empty fallback. */
 export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
 
-/** renderSlotChain dispatch options: the owner's fallback body, rendered when every entry's selector declines. */
-export interface ChainRenderOpts { fallback?: ReactNode }
+/** renderSlotChain dispatch options. */
+export interface ChainRenderOpts {
+  /** The owner's fallback body, rendered when every entry's selector declines. */
+  fallback?: ReactNode
+  /**
+   * Keep the fallback permanently mounted: an election hides it (wrapped,
+   * display:none) instead of unmounting it, and the all-decline case shows it
+   * as-is — fallback-held state (composer drafts, DOM state) survives a
+   * takeover. Chain kind only. Sole consumer today: the
+   * 'conversation.composer' chain.
+   */
+  overlay?: boolean
+}
 
 /**
  * Chain-entry selector: the routing decision of one chain contribution.
@@ -142,13 +164,9 @@ export interface SessionAreaProps {
 }
 
 /**
- * The framework-wired session area component (slot terminal design §7):
- * subscribes to the current-session selection internally (design fiat ① —
- * selection authority lives with runtime sessions) and switches between the
- * session body and the empty branch. Delivered as a standard seat to every
- * entry whose children declaration contains a session-scope slot (the
- * derivation rides {@link PropsRenderSlots}); the value is injected by the
- * installed renderer — business code never imports it.
+ * Framework-wired session area component. It subscribes to runtime-owned
+ * session selection and is injected into entries that declare session-scoped
+ * children; business code does not import it directly.
  */
 export type SessionProviderComponent = (props: SessionAreaProps) => ReactNode
 
@@ -198,10 +216,39 @@ export type PropsRenderSlots<S extends keyof SlotMap & string> = {
 export type SlotComponent<P> = (props: P) => ReactNode
 
 /**
+ * Registrant hooks compartment: bare observable sources (getSnapshot +
+ * subscribe pairs) supplied under the reserved `hooks` key of an inject
+ * face. The registrant-private twin of the `sessions.provide` hooks
+ * compartment: the renderer binds each source into a `use<Name>` selector
+ * hook, so the sources never reach the component and plugin-private reactive
+ * facts ride the same subscription machinery as the standard kit instead of
+ * hand-rolled component subscriptions.
+ */
+export type HooksSources = Record<string, HostObservable<unknown>>
+
+/**
+ * Selector-hook share synthesized from a hooks compartment: each source
+ * `name` becomes a `use<Name>` selector hook over its snapshot type.
+ */
+export type PropsHooks<HS extends HooksSources> = {
+  [N in keyof HS & string as `use${Capitalize<N>}`]:
+  SnapshotSelectorHook<HS[N] extends HostObservable<infer T> ? T : never>
+}
+
+/**
+ * The component-side view of an inject face: the reserved `hooks`
+ * compartment (when declared) arrives as bound `use<Name>` selector hooks;
+ * every other member passes through verbatim.
+ */
+export type InjectFace<I extends object> =
+  I extends { hooks: infer HS extends HooksSources } ? Omit<I, 'hooks'> & PropsHooks<HS> : I
+
+/**
  * The four-share component props intersection: runtime share (SlotMap) +
  * child-render share (children declaration) + store share (declared handle) +
- * the registrant's injected business face. Each share derives from its single
- * source of truth; components reference this composition, never re-type it.
+ * the registrant's injected business face (its hooks compartment bound, see
+ * {@link InjectFace}). Each share derives from its single source of truth;
+ * components reference this composition, never re-type it.
  */
 export type ComposedProps<
   K extends keyof SlotMap & string,
@@ -209,19 +256,24 @@ export type ComposedProps<
   H,
   I extends object,
   M = never,
-> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & I & MatchedShare<SlotMap[K], M>
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M>
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
- * session slots receive the framework-resolved `sessionId`; a declared store
- * appends the baked `actions` (the same callbacks the component receives);
- * root slots without a store take no parameters. Business data access happens
- * through the apply closure's ctx — no binding object parameter exists.
+ * strict session slots receive a definite framework-resolved `sessionId`;
+ * session-maybe slots receive the current id or `undefined`; a declared store
+ * appends the baked `actions` (the same callbacks the component receives).
+ * Business data access happens through the apply closure's ctx — no binding
+ * object parameter exists.
  */
 export type InjectParams<K extends keyof SlotMap & string, H> =
   ScopeOf<K> extends 'session'
     ? ([H] extends [StoreDecl] ? [sessionId: SessionIdOf, actions: BoundActions<HandleOf<H>>] : [sessionId: SessionIdOf])
-    : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
+    : ScopeOf<K> extends 'session-maybe'
+      ? ([H] extends [StoreDecl]
+        ? [sessionId: SessionIdOf | undefined, actions: BoundActions<HandleOf<H>> | undefined]
+        : [sessionId: SessionIdOf | undefined])
+      : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
 export type KindOptions<E extends SlotEntryDef, M = never> =
@@ -352,8 +404,7 @@ export class SlotCore {
 
   /**
    * Contribute a component to a declared slot and (optionally) declare child
-   * slots, a store seat, and the registrant's business face — the single
-   * composition API (the separate define API is retired).
+   * slots, a store seat, and the registrant's business face.
    *
    * Load-time validation (misconfiguration fails loud; the render hot path
    * re-checks nothing): registering into an undeclared slot throws; declaring
