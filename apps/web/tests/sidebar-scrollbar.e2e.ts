@@ -14,11 +14,35 @@
 //
 // Headless-chromium caveats, load-bearing for what is asserted below.
 //
-// Chromium paints an OVERLAY scrollbar that consumes no layout width, so
-// comparing the time element's right edge against the list's client-area right
-// edge holds with and without the reservation and proves nothing; the reserved
-// band width is the only layout signal that distinguishes the two states. See
-// the assertions for which one is the control.
+// Headless chromium defaults to an OVERLAY scrollbar: one drawn on top of the
+// content, consuming no layout width unless something reserves space. That is
+// the mode in which the reported symptom exists at all, so this environment
+// reproduces it rather than merely approximating it — measured against clean
+// master, where the list's band is 0 and the bar covers 7px of the relative
+// time. (Under a classic space-consuming bar, `clientWidth` already excludes
+// the bar and nothing can be covered; a headed run under xvfb behaves that way
+// and cannot show the symptom.)
+//
+// The consequence for assertions: comparing the time element's right edge
+// against the list's CLIENT-area right edge holds in both states and proves
+// nothing, because with an overlay bar the client edge is the border edge. The
+// two signals that do separate the states are the reserved band width and
+// `timeCoveredBy`, which measures the overlap against the bar's own width.
+//
+// Both the `scrollbar-gutter: stable` reservation and the sheet's
+// `::-webkit-scrollbar` width are needed for that band, and neither suffices:
+// measured on the running app, deleting either one takes the band from 8 to 0
+// while the other stays in force. The gutter states that space be reserved; the
+// pseudo-element width is what makes chromium treat the bar as occupying layout
+// space in the first place.
+//
+// That conjunction is why `band` and `timeCoveredBy` are both asserted and
+// neither replaces the other. Removing only the gutter leaves `timeCoveredBy` at
+// 0, because the bar is then 8px wide and the row's right padding is also 8px,
+// so it abuts the timestamp without covering it; `band` catches that case.
+// Removing both — the actual master state — is what produces the reported
+// overlap, and `timeCoveredBy` measures it at 7. Each was mutation-checked with
+// the other assertions in its test silenced.
 //
 // Chromium also takes the `::-webkit-scrollbar*` path, not the standard
 // properties: scrollbar.css gates `scrollbar-width`/`scrollbar-color` behind
@@ -74,6 +98,14 @@ interface ListMetrics {
   borderRight: number
   /** Right edge of the first row's relative-time element, the content the unreserved bar covered. */
   timeRight: number
+  /**
+   * Pixels of the relative time the scrollbar paints over: how far its right
+   * edge reaches into the band the bar occupies, `[borderRight - barWidth,
+   * borderRight]`. This is the reported symptom as a number, and it is the one
+   * geometric signal that separates the two states in this environment — see
+   * the file header on why `clientWidth` comparisons cannot.
+   */
+  timeCoveredBy: number
 }
 
 /**
@@ -119,9 +151,11 @@ function measureList(page: Page): Promise<ListMetrics> {
       .filter(rule => rule.selectorText === '::-webkit-scrollbar-thumb:hover')
       .map(rule => rule.style.getPropertyValue('background'))
     const style = getComputedStyle(list)
+    const pseudoWidth = getComputedStyle(list, '::-webkit-scrollbar').width
+    const barWidth = pseudoWidth === 'auto' ? 15 : Number.parseFloat(pseudoWidth)
     return {
       gutter: style.scrollbarGutter,
-      width: getComputedStyle(list, '::-webkit-scrollbar').width,
+      width: pseudoWidth,
       track: getComputedStyle(list, '::-webkit-scrollbar-track').backgroundColor,
       standardWidth: style.scrollbarWidth,
       standardColor: style.scrollbarColor,
@@ -133,6 +167,14 @@ function measureList(page: Page): Promise<ListMetrics> {
       clientRight: list.getBoundingClientRect().left + list.clientWidth,
       borderRight: list.getBoundingClientRect().right,
       timeRight: time.getBoundingClientRect().right,
+      // The bar is drawn in the rightmost `barWidth` of the border box, whether
+      // or not that space was reserved. Its width comes from the sheet where the
+      // sheet applies, and from the UA's own overlay bar otherwise — 15px is
+      // what this chromium paints, measured against master where the rule is
+      // absent. Taking the UA width as the fallback is what keeps the assertion
+      // honest: assuming 0 there would report no occlusion precisely in the
+      // state that has it.
+      timeCoveredBy: Math.max(0, time.getBoundingClientRect().right - (list.getBoundingClientRect().right - barWidth)),
     }
   })
 }
@@ -201,11 +243,19 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     // drawn over it. Removing the declaration makes it exactly 0. The value
     // itself is not pinned — it tracks `scrollbar-width` and the platform.
     expect(metrics.band).toBeGreaterThan(0)
-    // With the band reserved, the row's relative time — flush against the
-    // row's right padding, the element the unreserved bar covered — ends
-    // inside the content area, clear of the bar. Alone this would be vacuous
-    // under chromium's overlay scrollbar (see the file header); it is
-    // meaningful only conjoined with the band assertion above.
+    // The reported symptom, stated directly: no part of the row's relative time
+    // lies under the bar. Measures 7 on clean master — the `h` of `1h` is the
+    // covered part. Unlike the client-edge comparison below it does not go
+    // vacuous under an overlay scrollbar, because it measures against the bar's
+    // own width rather than against a content edge the overlay bar does not
+    // move. It is not a replacement for the band assertion above; see the file
+    // header for which regression each one catches.
+    expect(metrics.timeCoveredBy).toBe(0)
+    // Corollaries of the reservation, kept because they pin where the band sits
+    // rather than only that it exists: the time ends inside the content area,
+    // and the content area ends before the border box. Each holds in both
+    // states on its own (see the file header) and is meaningful only alongside
+    // the two assertions above.
     expect(metrics.timeRight).toBeLessThanOrEqual(metrics.clientRight)
     expect(metrics.clientRight).toBeLessThan(metrics.borderRight)
     expect(tripwire.pageErrors).toEqual([])

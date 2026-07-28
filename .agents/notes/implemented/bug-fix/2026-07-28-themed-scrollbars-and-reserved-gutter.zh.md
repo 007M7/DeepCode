@@ -26,6 +26,8 @@ Status: implemented
 
 `.list` 声明 `scrollbar-gutter: stable`，使滚动条位于行的旁边而非行的上方。取 `stable` 而非 `auto`，因为 `auto` 只在列表确实溢出时才预留空位：那样展开一个工作区分组时，所有行会在列表开始滚动的那一刻发生水平位移。`stable` 的预留是无条件的，行不会移动。
 
+面对覆盖式滚动条——也就是这个症状唯一存在的那种形态——空位声明与样式表里的 `::-webkit-scrollbar` 宽度是共同必要的。在运行中的应用上实测：保留其中一条、从活的层叠中删掉另一条，任意一次单独删除都会让列表的条带从 8 降到 0。空位声明表述的是「要预留空间」，而伪元素宽度才是让 chromium 把滚动条视为占据布局空间、而不是浮在内容之上的原因。因此对这个 bug 而言，本次变更的两半都不是可选项，这也是两半必须一起交付的第二个理由。
+
 ## 曾考虑的替代方案
 
 **在每个滚动组件的样式表里各写一份 `::-webkit-scrollbar` 规则。** 之所以否决：客户端共有分布在九个包中的十三个滚动容器，每一个都要带上同一段规则，而第十四个会在没有任何门禁报错的情况下漏掉主题。由设计 token 驱动的皮肤应当归属于拥有这些 token 的包。
@@ -65,6 +67,8 @@ chromium 上有两处测量限制决定了 e2e 能断言什么。门禁使 chrom
 
 门禁本身在它起作用的层面有反向对照：把样式表中的 `@supports` 包裹去掉、重新 `build:web`、再跑 e2e，`scrollbar-width: auto` 那条断言会以 `thin` 变红，而这正是门禁存在所要阻止的那种静音。
 
-headless chromium 绘制的是覆盖式滚动条，因此其中预留空位不会缩小 `clientWidth`。该预留表现为列表上非零的 `offsetWidth - clientWidth` 条带；仅凭内容区几何无法证明它，而把时间元素右边缘与内容区右边缘做比较的断言，在有无预留的两种状态下都成立，因此它的通过或失败取决于平台的滚动条样式，而不是取决于被测的那条声明。
+headless chromium 绘制的是覆盖式滚动条，而这恰好就是被报告症状存在的那种形态，因此这个 e2e 复现的是这个 bug 本身，而不是它的近似：在干净的 master 上，列表条带为 0，滚动条盖住相对时间 7px。其中预留空位不会缩小 `clientWidth`，因此把时间元素右边缘与内容区右边缘做比较的断言在有无预留的两种状态下都成立，它的通过或失败取决于平台的滚动条样式，而不是取决于被测的那条声明。真正能区分两种状态的两个量是 `offsetWidth - clientWidth` 条带，以及以滚动条自身宽度为基准量出的重叠量 `timeCoveredBy`。
+
+两者都要断言，因为各自捕捉的是不同的回归；这一点通过每次只改动一条声明、并把同一个测试里的其余断言静音来确定。只删掉空位声明时 `timeCoveredBy` 仍为 0——此时滚动条是 8px，而行的右内边距也是 8px，于是它紧贴时间戳但并未盖住——失败的是条带那条断言。再把伪元素宽度也删掉（这才是 master 的真实状态）才会产生重叠，此时 `timeCoveredBy` 以 7 变红。在 xvfb 下的有头运行无论哪种状态都看不到这个症状，因为 chromium 在那里画的是经典占位滚动条，`clientWidth` 本来就已经把它排除了。
 
 验证浏览器可见的插件 CSS 需要一次 `pnpm run build:web` 并不执行的重建。`WorkspaceBrowser.module.css` 从不进入 `apps/web/dist`：ui-workspace 以运行时插件方式加载，其 CSS 内联进 `packages/client/ui-workspace/lib/client.js`，由该包自己的 `bundle` 脚本构建。因此只重跑 `build:web` 的反向对照实际测的是旧产物，去掉声明后仍会通过，看起来像测试无效，实际是对照无效。正确做法是先 `pnpm --filter @deepseek-ai/dsh-client-ui-workspace run bundle`，用 grep 在 `lib/client.js` 中确认该声明确实存在或消失，然后再 `build:web`。web 通道中没有任何脚本会做这一步：`test:web` 只运行 `build:web`，因此任何滚动区域或插件 CSS 的改动都会碰到同一个陷阱。
