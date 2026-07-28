@@ -102,9 +102,9 @@ export class LocalSubprocessService extends SubprocessService {
   }
 
   private executableCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
-    const path = env.PATH ?? ''
+    const path = environmentValue(env, 'PATH') ?? ''
     const extensions = process.platform === 'win32' && extname(command) === ''
-      ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
+      ? (environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';')
       : ['']
     return path.split(delimiter).flatMap(directory =>
       directory === '' ? [] : extensions.map(extension => resolve(this.cwd, directory, command + extension)))
@@ -154,6 +154,14 @@ export class LocalSubprocessService extends SubprocessService {
     void handle.done.then(release, release).catch(() => {})
     return handle
   }
+}
+
+/** Read a Windows environment key using the platform's case-insensitive semantics. */
+function environmentValue(env: NodeJS.ProcessEnv, name: 'PATH' | 'PATHEXT'): string | undefined {
+  const exact = env[name]
+  if (exact !== undefined || process.platform !== 'win32') return exact
+  const normalized = name.toUpperCase()
+  return Object.entries(env).find(([key]) => key.toUpperCase() === normalized)?.[1]
 }
 
 export default LocalSubprocessService

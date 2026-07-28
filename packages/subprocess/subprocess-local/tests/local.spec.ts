@@ -62,8 +62,10 @@ describe('LocalSubprocessService', () => {
     }).executableCandidates.bind(service)
     const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     try {
-      expect(candidates('tool', { PATH: `${delimiter}/bin`, PATHEXT: '.EXE;.CMD' }))
+      expect(candidates('tool', { Path: `${delimiter}/bin`, PathExt: '.EXE;.CMD' }))
         .toEqual(['/bin/tool.EXE', '/bin/tool.CMD'])
+      expect(candidates('tool', { Path: '/ambient', PATH: '/explicit', PATHEXT: '.EXE' }))
+        .toEqual(['/explicit/tool.EXE'])
       expect(candidates('tool.exe', {})).toEqual([])
       expect(candidates('tool', { PATH: '/bin' })).toHaveLength(4)
     } finally {
