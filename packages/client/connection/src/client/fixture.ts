@@ -776,6 +776,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
       pickDirectory: request => ok(request, { path: null }),
+      openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
       list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
@@ -1027,6 +1028,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)

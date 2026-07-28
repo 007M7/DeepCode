@@ -26,7 +26,8 @@ export function apply(ctx: Context): void {
     path: API_PATH,
     handler: async (req, res) => {
       const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      if (pathname === `${API_PATH}/host.pickDirectory`
+      if ((pathname === `${API_PATH}/host.pickDirectory`
+        || pathname === `${API_PATH}/host.openPath`)
         && !isTrustedNativeDialogRequest(req)) {
         res.writeHead(403)
         res.end('forbidden')

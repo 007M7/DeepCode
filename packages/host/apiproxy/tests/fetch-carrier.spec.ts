@@ -80,6 +80,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
       },
+      async openPath(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+      },
     },
     workspace: {
       async list(request) {
