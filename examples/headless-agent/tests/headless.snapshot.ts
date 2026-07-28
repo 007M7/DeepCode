@@ -243,6 +243,7 @@ describe('headless stream-json snapshots', () => {
         const children = logs.filter(log => typeof log.header.parentSession === 'string')
           .sort((left, right) => Number(left.header.createdAt) - Number(right.header.createdAt))
         const actualSessions = [parent, ...children]
+        const actualContext = contextFromLogs(actualSessions.map(log => log.content))
         if (refreshing) {
           const harvested = actualSessions.map((log): HarvestedLog => ({
             id: String(log.header.id),
@@ -259,12 +260,11 @@ describe('headless stream-json snapshots', () => {
             if (existing === undefined || file === undefined) {
               throw new Error(`headless snapshot has no fixture for persisted log ${index}`)
             }
-            const stable = stabilizeRefreshLog(actual.content, existing, replacements)
+            const stable = stabilizeRefreshLog(actual.content, existing, replacements, actualContext)
             await writeFile(file, stable)
             return stable
           }))
         }
-        const actualContext = contextFromLogs(actualSessions.map(log => log.content))
         const expectedContext = contextFromLogs(expectedSessions)
         for (const [index, actual] of actualSessions.entries()) {
           const expected = expectedSessions[index]
@@ -439,6 +439,7 @@ describe('headless stream-json snapshots', () => {
         expect(logs).toHaveLength(1)
         const actual = logs[0]
         if (actual === undefined) throw new Error('headless PTY snapshot did not persist its session')
+        const actualContext = contextFromLogs([actual.content])
         if (refreshing) {
           const harvested: HarvestedLog = {
             id: String(actual.header.id),
@@ -446,10 +447,9 @@ describe('headless stream-json snapshots', () => {
             content: actual.content,
           }
           const replacements = refreshFixtureReplacements([harvested], [expectedSession])
-          expectedSession = stabilizeRefreshLog(actual.content, expectedSession, replacements)
+          expectedSession = stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext)
           await writeFile(ptySessionFixture, expectedSession)
         }
-        const actualContext = contextFromLogs([actual.content])
         const expectedContext = contextFromLogs([expectedSession])
         expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
           .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))

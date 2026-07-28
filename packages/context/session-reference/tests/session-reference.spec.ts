@@ -188,7 +188,7 @@ describe('session reference URI and inline mentions', () => {
 })
 
 describe('session reference discovery and preparation', () => {
-  it('ranks metadata candidates by cwd without depending on full-text search', async () => {
+  it('matches candidate metadata and titles before ranking by cwd', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same', createdAt: 10 } })
     ctx.sessions.create(SessionId('other'), { meta: { cwd: '/else', createdAt: 40 } })
@@ -210,6 +210,9 @@ describe('session reference discovery and preparation', () => {
     await expect(ctx.sessionReferences.listCandidates(fakeAgent(target), 'els', 1)).resolves.toEqual([
       { sessionId: SessionId('other'), label: 'other', cwd: '/else', createdAt: 40 },
     ])
+    await expect(ctx.sessionReferences.listCandidates(fakeAgent(target), 'LATEST', 1)).resolves.toEqual([
+      { sessionId: SessionId('same-later'), label: 'Latest title', cwd: '/same', createdAt: 25 },
+    ])
     await expect(ctx.sessionReferences.listCandidates(fakeAgent(target), '', 0))
       .rejects.toThrow(expectCode('SESSION_REFERENCE_INVALID_REFERENCE'))
 
@@ -227,6 +230,40 @@ describe('session reference discovery and preparation', () => {
     releaseList?.()
     await Promise.resolve()
     listSessions.mockRestore()
+  })
+
+  it('keeps metadata matches when one title observation fails and cancels a stalled title batch', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const source = ctx.sessions.create(SessionId('source'))
+    const readTitles = vi.spyOn(ctx.sessionQuery, 'readTitleSnapshots')
+    readTitles.mockResolvedValueOnce([{
+      sessionId: source.id,
+      status: 'rejected',
+      reason: new Error('broken title log'),
+    }])
+
+    await expect(ctx.sessionReferences.listCandidates(fakeAgent(target), 'source')).resolves.toEqual([
+      { sessionId: source.id, label: source.id, createdAt: source.header.createdAt },
+    ])
+
+    let releaseTitles: (() => void) | undefined
+    let titleSignal: AbortSignal | undefined
+    readTitles.mockImplementationOnce(async (_ids, signal) => {
+      titleSignal = signal
+      await new Promise<void>((resolve) => { releaseTitles = resolve })
+      return []
+    })
+    const controller = new AbortController()
+    const pending = ctx.sessionReferences.listCandidates(fakeAgent(target), 'source', undefined, controller.signal)
+    await vi.waitFor(() => { expect(releaseTitles).toBeTypeOf('function') })
+    expect(titleSignal).toBe(controller.signal)
+    const cancelledTitles = expect(pending).rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
+    controller.abort('autocomplete superseded')
+    await cancelledTitles
+    releaseTitles?.()
+    await Promise.resolve()
+    readTitles.mockRestore()
   })
 
   it('projects only the current user/assistant surface and records snapshot metadata', async () => {

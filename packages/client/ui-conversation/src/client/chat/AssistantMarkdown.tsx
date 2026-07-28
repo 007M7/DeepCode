@@ -40,13 +40,20 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, streaming, interrupted }: AssistantMarkdownProps) {
   const last = blocks.length - 1
+  // Tool-call heads render as tool rows in the chat view's grouping pass, so
+  // a node that is only those heads (or empty) would paint an empty root
+  // between tool groups — skip the shell unless something visible remains.
+  const hasVisible = streaming
+    || interrupted === true
+    || blocks.some(block => block.kind !== 'tool-call')
+  if (!hasVisible) return null
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
       {blocks.map((block, i) => {
         switch (block.kind) {
           case 'text': return <MarkdownText key={i} text={block.text} streaming={streaming} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
-          // Tool-call heads render as tool rows in the chat view's grouping pass.
+          // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
           case 'tool-call': return null
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />
         }

@@ -96,7 +96,7 @@ jobs:
           tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
           apps/*/lib packages/*/*/lib vendor/*/lib
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: node-24-built-tree
           path: ${{ runner.temp }}/node-24-built-tree.tar.gz
@@ -323,7 +323,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6.3.0
         with:
           python-version: '3.10'
           cache: pip
