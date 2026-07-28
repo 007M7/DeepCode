@@ -268,4 +268,50 @@ describe('WorkspacePicker', () => {
     )
     expect(directoryPickerKind).not.toHaveBeenCalled()
   })
+
+  /** Render the picker with an owner-controlled `open` and a scripted kind read. */
+  function togglable(directoryPickerKind: () => Promise<string>) {
+    const anchorRef = anchor()
+    const props = (open: boolean) => (
+      <WorkspacePicker
+        open={open} anchorRef={anchorRef} useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
+        onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()} pickDirectory={vi.fn()}
+        directoryPickerKind={directoryPickerKind}
+      />
+    )
+    const view = render(props(true))
+    return { setOpen: (open: boolean) => { view.rerender(props(open)) } }
+  }
+
+  it('discards a kind settlement from a superseded flow open', async () => {
+    let resolveFirst!: (kind: string) => void
+    const first = new Promise<string>((settle) => { resolveFirst = settle })
+    const directoryPickerKind = vi.fn<() => Promise<string>>()
+      .mockImplementationOnce(() => first)
+      .mockImplementation(async () => 'browse')
+    const t = togglable(directoryPickerKind)
+    // Close while the first read is in flight, then let it answer 'dialog':
+    // the settlement is stale and must not leak into the next open.
+    t.setOpen(false)
+    await act(async () => { resolveFirst('dialog') })
+    t.setOpen(true)
+    await screen.findByRole('menuitem', { name: 'Create a new workspace' })
+    await waitFor(() => { expect(directoryPickerKind).toHaveBeenCalledTimes(2) })
+    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+  })
+
+  it('discards a stale describe failure after a newer open already answered', async () => {
+    let rejectFirst!: (reason: Error) => void
+    const first = new Promise<string>((_settle, reject) => { rejectFirst = reject })
+    const directoryPickerKind = vi.fn<() => Promise<string>>()
+      .mockImplementationOnce(() => first)
+      .mockImplementation(async () => 'dialog')
+    const t = togglable(directoryPickerKind)
+    t.setOpen(false)
+    t.setOpen(true)
+    await screen.findByRole('menuitem', { name: 'Open local folder…' })
+    // The superseded read failing late must not hide the freshly shown entry.
+    await act(async () => { rejectFirst(new Error('late loss')); await first.catch(() => {}) })
+    expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
+  })
 })

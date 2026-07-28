@@ -80,12 +80,18 @@ export function WorkspaceCreateFlow({
   const [dialogPicker, setDialogPicker] = useState(false)
   useEffect(() => {
     if (!open) return
+    // Reset before each read: a reconnect can change the composed backend, so
+    // a previous open's answer must not leak into this one; and a settlement
+    // from a superseded open (flow closed, or a newer read started) is
+    // discarded via the cleanup-toggled flag.
+    setDialogPicker(false)
+    let stale = false
     void directoryPickerKind()
-      .then((kind) => { setDialogPicker(kind === 'dialog') })
+      .then((kind) => { if (!stale) setDialogPicker(kind === 'dialog') })
       // A failed describe hides the entry too: the same Host that cannot
-      // answer describe cannot serve pickDirectory. (Post-unmount settlement
-      // is safe: React 18 no-ops setState on unmounted components.)
-      .catch(() => { setDialogPicker(false) })
+      // answer describe cannot serve pickDirectory.
+      .catch(() => { if (!stale) setDialogPicker(false) })
+    return () => { stale = true }
   }, [open, directoryPickerKind])
 
   const items: MenuEntry[] = [

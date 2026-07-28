@@ -128,3 +128,5 @@ export abstract class DirectoryPicker extends Service {
    */
   abstract capability(): DirectoryPickerCapability
 }
+
+export default DirectoryPicker
