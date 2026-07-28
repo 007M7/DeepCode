@@ -2005,7 +2005,7 @@ list(): string[]
  * @param request - child prompt, parent, signal, and optional capabilities.
  * @returns the ready holder-owned run.
  */
-async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
+async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentFollowupResult](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)

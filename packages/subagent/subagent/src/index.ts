@@ -298,10 +298,8 @@ export class SubagentService extends Service {
    * @param request - child prompt, parent, signal, and optional capabilities.
    * @returns the ready holder-owned run.
    */
-  async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
-    // A provider request is structurally assignable to the caller shape. Clear
-    // its wider field so only startContinuable can supply service-owned state.
-    return this.startProvider(name, { ...request, continuation: undefined })
+  async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun> {
+    return this.startProvider(name, request)
   }
 
   /** Validate and dispatch one ordinary or service-resolved provider start. */

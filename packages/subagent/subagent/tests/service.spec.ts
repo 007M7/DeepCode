@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent } from '@deepseek-ai/dsh-agent'
 
@@ -105,22 +105,16 @@ describe('SubagentService', () => {
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
   })
 
-  it('keeps provider continuation state out of raw start and exposes no raw resume operation', async () => {
+  it('borrows ordinary start requests and exposes no provider continuation operations', async () => {
     const { subagents } = await service()
     const provider = new StubProvider('one-shot')
     subagents.registerProvider(provider)
-    const descriptor = snapshotSubagentDescriptor({ provider: 'one-shot' })
-    const sessionId = SessionId('continuable-child')
-    const parent = fakeParent()
-    const signal = new AbortController().signal
+    const request = baseRequest()
+    await subagents.start('one-shot', request)
 
-    const providerRequest: SubagentProviderStartRequest = {
-      ...baseRequest({ parent, signal }),
-      continuation: { sessionId, descriptor },
-    }
-    await subagents.start('one-shot', providerRequest)
-
-    expect(provider.lastRequest?.continuation).toBeUndefined()
+    expect(provider.lastRequest).toBe(request)
+    expectTypeOf<SubagentProviderStartRequest>()
+      .not.toExtend<Parameters<SubagentService['start']>[1]>()
     expect('resume' in subagents).toBe(false)
   })
 

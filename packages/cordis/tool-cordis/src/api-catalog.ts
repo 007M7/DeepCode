@@ -905,7 +905,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List registered provider names in insertion order.\n * @returns the registered names.\n */',
       },
       {
-        signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
+        signature: 'async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>',
         jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
       },
     ],

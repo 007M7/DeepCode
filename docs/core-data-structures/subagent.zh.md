@@ -94,7 +94,7 @@ interface SubagentStartRequest {
 
 `signal` 是就绪前后唯一的取消通道。[subagent 组合控制 Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)规定 persona、live 全局工具过滤、绝对深度以及「可见性而非权限」的设计理由。
 
-提供方会接收单独的已解析请求类型。直接调用 `SubagentService.start()` 会清除继续执行状态；只有 `startContinuable()` 才会提供由服务分配的标识和描述符。
+提供方会接收单独的已解析请求类型。`SubagentService.start()` 的参数类型不包含继续执行状态；只有 `startContinuable()` 才会提供由服务分配的标识和描述符。
 
 ```ts type-equiv
 /**

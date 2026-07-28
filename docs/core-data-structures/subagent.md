@@ -94,7 +94,7 @@ interface SubagentStartRequest {
 
 `signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
-Providers receive a separate resolved shape. Raw `SubagentService.start()` clears continuation state, while `startContinuable()` alone supplies the service-allocated identity and descriptor.
+Providers receive a separate resolved shape. The `SubagentService.start()` parameter type excludes continuation state, while `startContinuable()` alone supplies the service-allocated identity and descriptor.
 
 ```ts type-equiv
 /**
