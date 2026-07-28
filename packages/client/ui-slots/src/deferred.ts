@@ -89,3 +89,40 @@ export function deferRegistration(
     },
   }
 }
+
+/**
+ * Defer ONE occupant into several holes as a unit. Construction that throws
+ * partway (a declared hole already occupied registers synchronously) rolls
+ * every earlier deferral back before rethrowing; a failure surfacing from a
+ * LATER ledger flush (holes declared after rival providers activated) rolls
+ * the whole group back the same way and re-raises the wrapped error on the
+ * global channel the boot's fail-loud handler owns — never a throw through
+ * the slot flush, never partial occupancy from the group's owner.
+ * @param registry - the slot registry face.
+ * @param names - the target holes (one registration per name).
+ * @param component - the occupant whose ledger presence marks "registered".
+ * @param register - performs one hole's registration; returns its disposer.
+ * @returns the group handle (dispose in the owning effect's disposer).
+ * @throws the immediate registration's failure, after rolling the group back.
+ */
+export function deferGroupRegistration<K extends string>(
+  registry: DeferralRegistry,
+  names: readonly K[],
+  component: unknown,
+  register: (name: K) => () => void,
+): { dispose: () => void } {
+  const deferred: DeferredRegistration[] = []
+  const lateFailure = (error: unknown): void => {
+    for (const entry of deferred) entry.dispose()
+    queueMicrotask(() => { throw error instanceof Error ? error : new Error(String(error)) })
+  }
+  try {
+    for (const name of names) {
+      deferred.push(deferRegistration(registry, name, component, () => register(name), lateFailure))
+    }
+  } catch (error) {
+    for (const entry of deferred) entry.dispose()
+    throw error
+  }
+  return { dispose: () => { for (const entry of deferred) entry.dispose() } }
+}
