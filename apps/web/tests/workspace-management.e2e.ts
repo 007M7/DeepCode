@@ -13,8 +13,8 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  acknowledgeReloadConnectionLoss, assertFixtureInventory, launchWebScaffold, seedSession, watchConsole,
-  webSnapshotMode, type WebScaffold,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -23,6 +23,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/workspace-management', i
 // spec needs any one cold session row, not new recorded content.
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const MODE = webSnapshotMode()
+const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
 
 describe('web e2e: workspace management (create / rename / flat view / hover card)', () => {
@@ -345,6 +346,35 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('matches the directory-browser dialog aria golden at a staged directory', async () => {
+    // A staged subtree under the scaffold cwd keeps the listing deterministic
+    // (normalizeAria scrubs the cwd), and pointing the in-process host's HOME
+    // at the cwd collapses the breadcrumb ancestry into the Home crumb — no
+    // machine-specific path segments or real $HOME contents enter the golden.
+    const staged = join(scaffold.workspaceCwd, 'browse-golden')
+    await mkdir(join(staged, 'alpha'), { recursive: true })
+    await mkdir(join(staged, 'beta'), { recursive: true })
+    const realHome = process.env.HOME
+    process.env.HOME = scaffold.workspaceCwd
+    try {
+      await page.getByRole('button', { name: 'Create workspace' }).click()
+      await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+      const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+      await dialog.waitFor({ timeout: 10_000 })
+      await dialog.getByRole('button', { name: '编辑路径' }).click()
+      await dialog.getByLabel('编辑路径').fill(staged)
+      await dialog.getByLabel('编辑路径').press('Enter')
+      await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+      const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(BROWSER_EXPECTED, snapshot, MODE)
+      await dialog.getByRole('button', { name: '取消' }).click()
+      await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+    } finally {
+      process.env.HOME = realHome
+    }
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('shows the session hover card after a dwell on the row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
     // Expand Ungrouped to reveal the seeded session row, then dwell on it
@@ -376,8 +406,8 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.warnings).toEqual([])
-    // This spec mints no fixture directory contents of its own; the seed it
-    // reuses is owned (and inventory-guarded) by seeded-history.
-    await assertFixtureInventory(SNAPSHOT_DIR, ['.gitkeep'])
+    // The directory-browser aria golden is this spec's one owned artifact;
+    // the seed it reuses is owned (and inventory-guarded) by seeded-history.
+    await assertFixtureInventory(SNAPSHOT_DIR, ['.gitkeep', 'directory-browser.expected.md'])
   })
 })

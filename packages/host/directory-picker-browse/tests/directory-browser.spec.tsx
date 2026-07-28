@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowseError } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowser } from '../src/client/DirectoryBrowser.tsx'
@@ -205,6 +205,63 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('button', { name: 'data' })).toBeTruthy() })
     expect(screen.getByRole('button', { name: '/' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'browser.home' })).toBeNull()
+  })
+
+  it('scopes Escape to the topmost dialog: the nested create closes first, the browser only after', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    expect(screen.getByLabelText('browser.folderName')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    // The nested dialog consumed Escape; the browser stays up.
+    expect(screen.queryByLabelText('browser.folderName')).toBeNull()
+    expect(b.onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(b.onClose).toHaveBeenCalledOnce()
+  })
+
+  it('keeps both dialogs open when Escape lands during an in-flight creation', async () => {
+    let resolve!: (path: string) => void
+    const createDirectory = vi.fn(() => new Promise<string>((settle) => { resolve = settle }))
+    const b = mount({ createDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'pending' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    // The in-flight fence holds the nested dialog, and the browser must not
+    // fall out from under it either.
+    expect(screen.getByLabelText('browser.folderName')).toBeTruthy()
+    expect(b.onClose).not.toHaveBeenCalled()
+    await act(async () => { resolve(`${HOME}/pending`) })
+  })
+
+  it('keeps New folder disabled while the post-create relist is still loading', async () => {
+    const pending: (() => void)[] = []
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    // Every listing after the create hangs until drained: the button must not
+    // offer a second create against a target the pending relist/select
+    // sequence is about to change.
+    const fresh: DirectoryListing = {
+      path: `${HOME}/fresh`, home: HOME,
+      crumbs: [...listingFor(HOME).crumbs, { name: 'fresh', path: `${HOME}/fresh`, hidden: false }],
+      entries: [],
+    }
+    b.listDirectory.mockImplementation((path?: string) =>
+      new Promise<DirectoryListing>((settle) => {
+        pending.push(() => { settle(path === `${HOME}/fresh` ? fresh : listingFor(path)) })
+      }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'fresh' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    await waitFor(() => { expect(screen.queryByLabelText('browser.folderName')).toBeNull() })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(true)
+    // Drain the relist and the follow-up selection listing; only then does
+    // the affordance return.
+    await act(async () => { for (const settle of pending.splice(0)) settle() })
+    await act(async () => { for (const settle of pending.splice(0)) settle() })
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.newFolder' }).disabled).toBe(false)
   })
 
   it('creates a folder through the nested dialog and lands with it selected', async () => {

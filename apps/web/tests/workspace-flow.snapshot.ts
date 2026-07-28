@@ -197,8 +197,11 @@ it('adopts a directory through the composed in-app browse flow and lands in its 
   // The browse occupant renders the Select Workspace Directory dialog at the
   // fixture home; select Documents, advance into project, and adopt it.
   const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' }, { timeout: 10_000 })
-  fireEvent.click(await within(dialog).findByRole('listitem', { name: /Documents/ }, { timeout: 10_000 }))
-  fireEvent.click(await within(dialog).findByRole('listitem', { name: /^project/ }, { timeout: 10_000 }))
+  // Row targeting goes through the visible label text: listitem accessible-name
+  // computation differs across dom-accessibility-api environments, while the
+  // row's name span is stable (clicks bubble to the row button).
+  fireEvent.click(await within(dialog).findByText('Documents', {}, { timeout: 10_000 }))
+  fireEvent.click(await within(dialog).findByText('project', {}, { timeout: 10_000 }))
   fireEvent.click(within(dialog).getByRole('button', { name: '打开' }))
   await findHeroComposer()
   await waitFor(() => {

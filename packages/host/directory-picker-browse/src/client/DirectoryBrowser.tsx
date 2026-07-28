@@ -112,6 +112,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const requestSeq = useRef(0)
+  // Deep ancestry overflows the trail; keep its tail (the current directory
+  // and the edit zone beside it) in view whenever the chain changes.
+  const crumbTrailRef = useRef<HTMLSpanElement | null>(null)
 
   /** Replace the whole view with one freshly listed level (no selection). */
   const navigate = useCallback((path?: string) => {
@@ -213,16 +216,24 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }
 
   // After the hooks: a closed dialog renders nothing and evaluates no copy.
-  if (!open) return null
-
   const crumbSource = child ?? parent
   const crumbs = crumbSource === null ? [] : displayCrumbs(crumbSource, t('browser.home'))
+  const crumbTail = crumbs.at(-1)?.path
+  useEffect(() => {
+    const trail = crumbTrailRef.current
+    if (trail !== null) trail.scrollLeft = trail.scrollWidth
+  }, [crumbTail])
+
+  if (!open) return null
   const twoPane = selected !== null
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      // Escape and mask reach every mounted Modal's document listener; while
+      // the nested create dialog is up, only that topmost dialog may close
+      // (its own guard keeps an in-flight creation open).
+      onClose={() => { if (folderDraft === null) onClose() }}
       title={t('browser.title')}
       className={clsx(css.dialog)}
       headless
@@ -233,19 +244,21 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           {pathDraft === null
             ? (
               <>
-                {crumbs.map((crumb, index) => (
-                  <span key={crumb.path} className={css.crumbSeat}>
-                    {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
-                    <button
-                      type="button"
-                      className={css.crumb}
-                      disabled={busy}
-                      onClick={() => { navigate(crumb.path) }}
-                    >
-                      {crumb.name}
-                    </button>
-                  </span>
-                ))}
+                <span className={css.crumbTrail} ref={crumbTrailRef}>
+                  {crumbs.map((crumb, index) => (
+                    <span key={crumb.path} className={css.crumbSeat}>
+                      {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
+                      <button
+                        type="button"
+                        className={css.crumb}
+                        disabled={busy}
+                        onClick={() => { navigate(crumb.path) }}
+                      >
+                        {crumb.name}
+                      </button>
+                    </span>
+                  ))}
+                </span>
                 {/* The empty zone right of the crumbs is the path-edit affordance. */}
                 <button
                   type="button"
@@ -308,7 +321,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         <Button
           variant="outline"
           icon={<IconPlusOutline16 size={14} />}
-          disabled={parent === null || busy || folderDraft !== null}
+          disabled={parent === null || busy || loading || folderDraft !== null}
           onClick={() => {
             setFolderDraft('')
             setCreateError(null)

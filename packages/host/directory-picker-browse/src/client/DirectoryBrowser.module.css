@@ -39,6 +39,18 @@
   min-height: 20px;
 }
 
+/* Deep chains scroll inside the trail (the effect pins the tail into view)
+ * so the edit zone to the right never leaves the bar. */
+.crumbTrail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
 .crumbSeat {
   display: inline-flex;
   align-items: center;
@@ -74,7 +86,7 @@
 /* The empty remainder of the bar: invisible, but a real click target that
  * flips the bar into path-edit mode. */
 .crumbEditZone {
-  flex: 1 1 0;
+  flex: 1 0 34px;
   min-width: 34px;
   align-self: stretch;
   border: none;
