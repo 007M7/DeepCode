@@ -88,18 +88,18 @@ describe('ui-workspace apply', () => {
 
     const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
-    expect(browser.hasDirectoryFlow()).toBe(false)
-    expect(picker.hasDirectoryFlow()).toBe(false)
-    // A flow occupant flips exactly its own surface.
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(false)
+    expect(picker.hooks.directoryFlow.getSnapshot()).toBe(false)
+    // A flow occupant flips exactly its own surface, and the source notifies.
     const notified = vi.fn()
-    const unsubscribe = browser.subscribeDirectoryFlow(notified)
+    const unsubscribe = browser.hooks.directoryFlow.subscribe(notified)
     const dispose = b.slots.register({ name: 'sidebar.workspaces.directoryFlow' } as never, () => null)
-    expect(browser.hasDirectoryFlow()).toBe(true)
-    expect(picker.hasDirectoryFlow()).toBe(false)
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(true)
+    expect(picker.hooks.directoryFlow.getSnapshot()).toBe(false)
     await Promise.resolve()
     expect(notified).toHaveBeenCalled()
     dispose()
-    expect(browser.hasDirectoryFlow()).toBe(false)
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(false)
     unsubscribe()
   })
 
