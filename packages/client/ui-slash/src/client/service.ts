@@ -50,7 +50,16 @@ export class SlashService extends Service implements SlashServiceContract {
       throw new Error(`slash source "${src.trigger}${src.name}" is already registered`)
     }
     live.sources.push(src)
-    for (const controller of live.controllers.values()) controller.sourceAdded(src)
+    for (const controller of live.controllers.values()) {
+      try {
+        controller.sourceAdded(src)
+      } catch (error) {
+        // Contain faulty source callbacks (warm/subscribeLexicon): the
+        // registration must stand with a usable disposer and the remaining
+        // controllers must still be notified.
+        console.error(`[ui-slash] source "${src.trigger}${src.name}" late-registration setup failed:`, error)
+      }
+    }
     return () => {
       const at = live.sources.indexOf(src)
       if (at < 0) return

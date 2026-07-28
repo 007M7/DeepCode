@@ -290,7 +290,16 @@ export class SlashController {
     const rolls = new Map<TriggerChar, readonly string[]>()
     for (const src of this.deps.roster.all()) {
       if (src.lexicon === undefined) continue
-      const names = src.lexicon(projection)
+      let names: readonly string[] | undefined
+      try {
+        names = src.lexicon(projection)
+      } catch (error) {
+        // A faulty source drops silently with a console record (the
+        // candidate-fetch failure policy); the refresh runs inside
+        // notification callbacks, where a throw would starve other consumers.
+        console.error(`[ui-slash] source "${src.name}" lexicon failed:`, error)
+        continue
+      }
       if (names === undefined) continue
       const prev = rolls.get(src.trigger)
       rolls.set(src.trigger, prev === undefined ? names : [...prev, ...names])

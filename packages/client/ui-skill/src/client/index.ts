@@ -48,7 +48,16 @@ export function apply(ctx: ClientContext): void {
   const lexiconListeners = new Map<SessionId, Set<() => void>>()
 
   const notifyLexicon = (sessionId: SessionId): void => {
-    for (const listener of [...(lexiconListeners.get(sessionId) ?? [])]) listener()
+    for (const listener of [...(lexiconListeners.get(sessionId) ?? [])]) {
+      try {
+        listener()
+      } catch (error) {
+        // Contain listener failures: settlement notifies from an ignored
+        // promise chain (a throw would surface as an unhandled rejection)
+        // and one faulty consumer must not starve the others.
+        console.error('[ui-skill] lexicon listener failed:', error)
+      }
+    }
   }
 
   const fetchCatalog = (sessionId: SessionId): Promise<readonly SkillEntry[]> => {

@@ -275,7 +275,16 @@ export class SessionsService {
     const next = this.maybeProvideInfo(this.list.getSnapshot().current)
     if (next === this.currentProvideInfoSnapshot) return
     this.currentProvideInfoSnapshot = next
-    for (const fn of [...this.currentProvideInfoListeners]) fn()
+    for (const fn of [...this.currentProvideInfoListeners]) {
+      try {
+        fn()
+      } catch (error) {
+        // Contain subscriber failures: this notify runs inside the list
+        // notification, where a throwing render-side subscriber would starve
+        // later listeners and abort the projection pass that scheduled it.
+        console.error('sessions.currentProvideInfo subscriber failed:', error)
+      }
+    }
   }
 
   /** Build the static no-session kit and reject duplicate declared names. */
