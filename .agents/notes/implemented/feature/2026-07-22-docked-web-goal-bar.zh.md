@@ -10,7 +10,7 @@ Web UI 此前没有任何目标相关的界面：目标栈已随模型工具、T
 
 ## 决策
 
-`GoalBar`（`packages/client/ui-conversation/src/client/skeleton/GoalBar.tsx`）是一个新的、由 props 驱动的自包含组件；`ConversationRoot` 将它挂载在输入框 `InputBar` 紧上方。横条的 CSS 对齐输入框的水平几何（两侧 32px 内边距、776px 居中上限），再加上设计稿的 12px 内缩，并用 -10px 的下外边距吃掉 InputBar 的 8px 上内边距，使它方形的底边收进输入框卡片顶边之下 2px。横条的所有状态共享固定的 38px 高度，状态切换不会引起尺寸变化。加载中（`goal === undefined`）、无目标（`goal === null`）和 `phase === 'complete'` 时不渲染任何内容：已完成的目标是历史记录，不是常驻界面元素。
+`GoalBar`（`packages/client/ui-goal/src/client/GoalBar.tsx`）是一个新的、由 props 驱动的自包含组件；`ConversationRoot` 将它挂载在输入框 `InputBar` 紧上方。横条的 CSS 对齐输入框的水平几何（两侧 32px 内边距、776px 居中上限），再加上设计稿的 12px 内缩，并用 -10px 的下外边距吃掉 InputBar 的 8px 上内边距，使它方形的底边收进输入框卡片顶边之下 2px。横条的所有状态共享固定的 38px 高度，状态切换不会引起尺寸变化。加载中（`goal === undefined`）、无目标（`goal === null`）和 `phase === 'complete'` 时不渲染任何内容：已完成的目标是历史记录，不是常驻界面元素。
 
 可见性决定标签和操作：active 状态显示 "Ongoing Goal" 并提供编辑／清除；paused 状态显示 "Paused Goal"，并增加一个恢复图标按钮；blocked 状态显示 "Blocked Goal"，并把 `blockedReason.message` 作为横条的 `title` 悬浮提示。创建目标的入口在 `/goal` 命令上，不在横条里。铅笔图标把横条切换为内联编辑表单，预填当前目标内容：Enter 或勾选按钮通过 `GoalBarActions.onEdit(objective)` 保存，Esc 取消，目标内容全为空白字符时保存按钮保持禁用。编辑成功后表单才会关闭；编辑失败时保留草稿，并在横条中显示错误。恢复和清除失败也显示在横条中。除此之外，清除直接调用 `onClear`，不做确认——清除会保留 durable 墓碑，没有不可恢复的损失。一个以目标 id 为键的 effect 会在目标身份变化时丢弃编辑表单，因此存留的草稿绝不可能覆盖掉替换它的新目标。
 
@@ -22,7 +22,7 @@ Web UI 此前没有任何目标相关的界面：目标栈已随模型工具、T
 
 ## 测试
 
-`packages/client/ui-conversation/tests/goalbar.spec.tsx` 仅通过 props 固定这些行为：加载中／无目标／已完成时不渲染；active 横条渲染标签和目标内容并触发清除；编辑表单预填内容、拒绝空值、按 Enter 保存、按 Esc 取消，并在目标身份变化时重置；paused 横条触发恢复；blocked 横条暴露原因悬浮提示。组件失败路径用例证明编辑失败时保留草稿，并且编辑／恢复／清除错误持续显示在横条中。skeleton 规格测试分别挂载带与不带 `goalActions` 的 `ConversationRoot`；未定义的情形预置了一个 active 目标，因此隐藏横条的是缺失的挂载门，而不是缺失的目标。运行时会话规格测试固定了折叠错误结果、仅 live 的执行中读取加尾随读取，以及陈旧读取守卫。一个无密钥真实浏览器冒烟测试通过 `boot → RPC → runtime → GoalBar` 启动组装后的应用，并以内联快照记录渲染出的标签、目标内容和操作。
+`packages/client/ui-goal/tests/goalbar.spec.tsx` 仅通过 props 固定这些行为：加载中／无目标／已完成时不渲染；active 横条渲染标签和目标内容并触发清除；编辑表单预填内容、拒绝空值、按 Enter 保存、按 Esc 取消，并在目标身份变化时重置；paused 横条触发恢复；blocked 横条暴露原因悬浮提示。组件失败路径用例证明编辑失败时保留草稿，并且编辑／恢复／清除错误持续显示在横条中。skeleton 规格测试分别挂载带与不带 `goalActions` 的 `ConversationRoot`；未定义的情形预置了一个 active 目标，因此隐藏横条的是缺失的挂载门，而不是缺失的目标。运行时会话规格测试固定了折叠错误结果、仅 live 的执行中读取加尾随读取，以及陈旧读取守卫。一个无密钥真实浏览器冒烟测试通过 `boot → RPC → runtime → GoalBar` 启动组装后的应用，并以内联快照记录渲染出的标签、目标内容和操作。
 
 ## 考虑过的替代方案
 
