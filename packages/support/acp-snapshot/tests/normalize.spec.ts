@@ -46,6 +46,28 @@ describe('normalizeStdout', () => {
     expect(out).not.toContain(ctx.sessionIds[0] as string)
   })
 
+  it('scrubs cwd at file URI and chained-punctuation boundaries', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        uri: `file://${ctx.cwd}/proof.txt`,
+        punctuated: `${ctx.cwd}.,`,
+        dottedSegment: `${ctx.cwd}.backup`,
+        dashedSegment: `${ctx.cwd}-backup`,
+      },
+    })
+    const frame = JSON.parse(normalizeStdout(raw, ctx)) as {
+      params: Record<string, string>
+    }
+    expect(frame.params).toEqual({
+      uri: 'file://{{cwd}}/proof.txt',
+      punctuated: '{{cwd}}.,',
+      dottedSegment: `${ctx.cwd}.backup`,
+      dashedSegment: `${ctx.cwd}-backup`,
+    })
+  })
+
   it('scrubs every filesystem spelling of the cwd longest-first', () => {
     const longCwd = String.raw`C:\Users\runneradmin\AppData\Local\Temp\acp-snapshot`
     const aliasedCtx: NormalizeContext = {
@@ -211,6 +233,22 @@ describe('normalizeSessionLog', () => {
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
     expect(out).toContain('{{cwd}}')
     expect(out).not.toContain(ctx.cwd)
+  })
+
+  it('scrubs cwd at file URI and chained-punctuation boundaries in event data', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result',
+      seq: 2,
+      time: 5,
+      data: {
+        uri: `file://${ctx.cwd}/proof.txt`,
+        punctuated: `${ctx.cwd}.,`,
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('file://{{cwd}}/proof.txt')
+    expect(out).toContain('{{cwd}}.,')
+    expect(out).not.toContain(`file://${ctx.cwd}`)
   })
 
   it('scrubs random local spill paths under the snapshot cwd', () => {
