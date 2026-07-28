@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "node-addon-landlock-run": "workspace:*",
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.0.1",
     "tsx": "^4.20.6",
     "typescript": "^6.0.3"
   }
