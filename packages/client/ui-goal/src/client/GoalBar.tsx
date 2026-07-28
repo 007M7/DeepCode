@@ -77,8 +77,8 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
             type="text"
             aria-label="Goal objective"
             value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => {
+            onChange={(e) => { setDraft(e.target.value) }}
+            onKeyDown={(e) => {
               if (e.key === 'Enter') void handleEdit()
               if (e.key === 'Escape') setEditing(false)
             }}
@@ -99,7 +99,7 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
             <button
               type="button"
               className={css.iconBtn}
-              onClick={() => setEditing(false)}
+              onClick={() => { setEditing(false) }}
               disabled={pending}
               title="Cancel edit"
               aria-label="Cancel edit"

@@ -59,10 +59,10 @@ describe('GoalBar', () => {
     render(<GoalBar goal={makeGoal()} {...actions} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
     const box = screen.getByRole('textbox', { name: 'Goal objective' })
-    expect((box as HTMLInputElement).value).toBe('Ship the redesign')
+    expect(box).toHaveProperty('value', 'Ship the redesign')
 
     fireEvent.change(box, { target: { value: '   ' } })
-    expect((screen.getByRole('button', { name: 'Save goal' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: 'Save goal' })).toHaveProperty('disabled', true)
 
     fireEvent.change(box, { target: { value: 'Ship v2' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -89,7 +89,7 @@ describe('GoalBar', () => {
     expect(screen.getByText('Ongoing Goal')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    expect((screen.getByRole('textbox', { name: 'Goal objective' }) as HTMLInputElement).value).toBe('Ship the redesign')
+    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toHaveProperty('value', 'Ship the redesign')
   })
 
   it('Enter with a blank draft neither saves nor closes the form', () => {
@@ -151,7 +151,7 @@ describe('GoalBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save goal' }))
 
     expect((await screen.findByRole('alert')).textContent).toBe('stale revision（agent-busy）')
-    expect((screen.getByRole('textbox', { name: 'Goal objective' }) as HTMLInputElement).value).toBe('retry this draft')
+    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toHaveProperty('value', 'retry this draft')
   })
 
   it('reports resume and clear failures without hiding the goal', async () => {

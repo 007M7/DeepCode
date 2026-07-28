@@ -46,7 +46,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },
-  } as Agent
+  }
   ctx.agents.register(agent)
   return agent
 }
@@ -63,7 +63,7 @@ async function harness(withGoal: boolean): Promise<Bench> {
     ctx,
     session,
     agent,
-    tailValues: () => ctx.sessionProjections.snapshot(session).values as Record<string, unknown>,
+    tailValues: () => ctx.sessionProjections.snapshot(session).values,
     tailAsOfSeq: () => ctx.sessionProjections.snapshot(session).asOfSeq,
   }
 }
@@ -142,6 +142,18 @@ describe('goal projection unit', () => {
     // Same-reference return: the registry's Object.is gate sees no change.
     expect(applyGoalProjection(state, malformed)).toBe(state)
     expect(applyGoalProjection(null, malformed)).toBeNull()
+
+    // A non-message event (the registry drives EVERY committed event through
+    // apply): early same-reference return.
+    const turnStart = { type: 'turn/start', seq: 3, time: 4, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never
+    expect(applyGoalProjection(state, turnStart)).toBe(state)
+
+    // A round-zero goal source whose change carries a foreign kind: same posture.
+    const foreignKind = { type: 'user/message', seq: 2, time: 3, data: createUserMessage({
+      content: [{ type: 'text', text: 'foreign' }],
+      source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0, change: { kind: 'not-a-goal-change' } } as never,
+    }) } as never
+    expect(applyGoalProjection(state, foreignKind)).toBe(state)
   })
 
   it('has no goal key when the goal service is not composed', async () => {
