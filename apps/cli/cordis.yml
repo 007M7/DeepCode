@@ -175,6 +175,18 @@
 - id: commands
   name: '@deepseek-ai/dsh-commands'
 
+# Goal service + automatic same-session continuation + the /goal command.
+# The GoalService registers the 'goal' session projection unit; the web
+# GoalBar reads it through useProjection.
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+
+- id: goal-session
+  name: '@deepseek-ai/dsh-goal-session'
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
 # Plan mode registers /plan (the first real command on the web surface).
 # Section text mirrors examples/tui-agent/cordis.yml (the reference
 # deployment); plan-mode throws at load on an empty section.
@@ -325,6 +337,10 @@
 
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
+
+# Goal surface: GoalBar in the input dock over the goal session projection.
+- id: ui-goal
+  name: '@deepseek-ai/dsh-client-ui-goal'
 
 # Model selection: the /model popupSelect + composer seat over session.models.
 - id: ui-model

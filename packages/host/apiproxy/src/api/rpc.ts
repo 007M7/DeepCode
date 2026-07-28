@@ -40,6 +40,10 @@ export interface RpcErrorDetailsMap {
   'workspace-name-conflict': { name: string }
   'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
   'agent-busy': { reason: string }
+  /** A known slash command reported a usage/state error; the message is the command's own text. */
+  'command-error': {}
+  /** A leading-/ prompt named no registered command; the message names the token. */
+  'unknown-command': {}
   'internal': {}
 }
 

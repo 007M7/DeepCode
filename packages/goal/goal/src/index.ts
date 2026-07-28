@@ -7,10 +7,14 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { z as zod } from 'zod'
+import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import {
   applyGoalChange,
   applyGoalEvent,
@@ -26,22 +30,30 @@ import {
   GoalId,
 } from './runtime.ts'
 import type {
+  GoalBlockReason,
+  GoalPhase,
+  GoalProjection,
+  GoalRef,
+  GoalSnapshot,
+} from './types.ts'
+import type {
   CreateGoalRequest,
   EditGoalRequest,
   GoalActivation,
-  GoalBlockReason,
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
   GoalOperation,
-  GoalPhase,
-  GoalRef,
-  GoalSnapshot,
   GoalSnapshotChangeMeta,
   GoalView,
-} from './types.ts'
+} from './domain.ts'
 
-export * from './types.ts'
+// The pure payload outlet (./types.ts, ONE home of the `goal` projection-key
+// declaration) re-exported onto the package root keeps the module edge in
+// the emitted index.d.ts, so aggregate programs consuming the declarations
+// still receive the SessionProjectionMap merge.
+export type * from './types.ts'
+export type * from './domain.ts'
 export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
 export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
 export { renderGoalChange } from './render.ts'
@@ -49,6 +61,56 @@ export { renderGoalChange } from './render.ts'
 declare module 'cordis' {
   interface Context {
     goals: GoalService
+  }
+}
+
+/** Wire payload schema of the `goal` projection (whole current goal or pre-create/cleared null). */
+const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
+  zod.object({
+    goal: zod.object({
+      id: zod.string().min(1),
+      revision: zod.number().int().positive(),
+      objective: zod.string().min(1),
+      phase: zod.union([zod.literal('active'), zod.literal('paused'), zod.literal('blocked'), zod.literal('complete')]),
+      blockedReason: zod.object({ code: zod.string(), message: zod.string() }).optional(),
+      maxGoalRounds: zod.number().int().positive(),
+    }),
+    roundsStarted: zod.number().int().nonnegative(),
+    createdAt: zod.number(),
+    updatedAt: zod.number(),
+  }),
+  zod.null(),
+]) as ZodType<GoalProjection | null>
+
+/**
+ * Light last-wins fold of the `goal` projection unit. Unlike the strict
+ * replay fold (fold.ts: transition validation, fail-loud on malformed
+ * changes, Set-typed state), this transition is projection-grade: the state
+ * is plain JSON (persisted-cache precondition), any non-goal or malformed
+ * event returns the same reference (the registry's Object.is gate — the
+ * title/todos posture), and correctness of the written change is the write
+ * side's job (GoalService validated it before appending; the package
+ * invariant rejects a violating stream fail-loud where it is installed).
+ * @param state - the projection covering all prior events.
+ * @param event - the next committed session event.
+ * @returns the next projection (same reference when the event is not a goal change).
+ */
+export function applyGoalProjection(state: GoalProjection | null, event: SessionEvent): GoalProjection | null {
+  if (event.type !== 'user/message') return state
+  const source = event.data.source
+  if (source.kind !== 'goal' || source.round !== 0) return state
+  const change = source.change
+  // Session-log data is a durable boundary: the static type promises the kind,
+  // but a foreign or corrupted change record must degrade to same-reference,
+  // never feed the zod parse in the registry drive.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- durable-boundary guard
+  if (change === undefined || change.kind !== 'goal/change') return state
+  if (change.operation === 'clear') return null
+  return {
+    goal: change.goal,
+    roundsStarted: change.roundsStarted,
+    createdAt: change.createdAt,
+    updatedAt: change.updatedAt,
   }
 }
 
@@ -149,6 +211,19 @@ export class GoalService extends Service {
     }
     ctx.on('agent/session-start', (agent) => {
       this.cache(agent.session).activation = 'disarmed'
+    })
+    // The `goal` projection unit: last-wins fold of goal/change whole values
+    // (see applyGoalProjection). The unit child activates only when a
+    // projection registry is composed (headless assemblies stay unaffected).
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'goal', GoalProjection | null>({
+        key: 'goal',
+        schema: goalProjectionSchema,
+        init: () => null,
+        apply: applyGoalProjection,
+        view: state => state,
+        stateVersion: 1,
+      })
     })
   }
 

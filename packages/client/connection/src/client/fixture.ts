@@ -311,6 +311,8 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (GoalService unit composed): null before create / after clear.
+  values['goal'] = backscanGoal(log)
   return values
 }
 
@@ -322,6 +324,14 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
     if (!Object.hasOwn(values, 'title')) return []
     return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
+  }
+  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
+  if (type === 'user/message') {
+    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
+    if (source?.kind === 'goal' && source.round === 0) {
+      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
+    }
+    return []
   }
   // Standing-plan fold: writes replace the list; turn/start clears it (null).
   if (type === 'todo/write' || type === 'turn/start') {
@@ -379,6 +389,55 @@ function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
     if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/** Fixture-local mirror of the goal projection value (dsh-goal's GoalProjection shape). */
+interface FxGoalProjection {
+  goal: {
+    id: string
+    revision: number
+    objective: string
+    phase: 'active' | 'paused' | 'blocked' | 'complete'
+    maxGoalRounds: number
+  }
+  roundsStarted: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One durable goal change riding a round-zero goal-sourced user message. */
+type FxGoalChange =
+  | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
+
+/**
+ * Current goal projection over the full log (host parallel: the GoalService
+ * unit's last-wins fold of goal/change whole values; clear returns null).
+ */
+function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'goal' || source.round !== 0) continue
+    const change = source.change
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (change === undefined || change.kind !== 'goal/change') continue
+    if (change.operation === 'clear') return null
+    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+  }
+  return null
 }
 
 interface StreamConn<F> {
@@ -570,6 +629,47 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       : { type: 'session/event', sessionId: id, event, view })
     // Host eager-drive parallel: a unit-advancing event pushes its finished value.
     for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
+  }
+
+  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
+    const ref = change.operation === 'clear' ? change.cleared : change.goal
+    const payload = change.operation === 'clear'
+      ? { cleared: change.cleared, clearedAt: change.clearedAt }
+      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    append(id, {
+      type: 'user/message', surfaceOp: 'append',
+      data: userMessage(
+        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+      ),
+    })
+    return backscanGoal(logOf(id)) as FxGoalProjection
+  }
+
+  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
+  const fxMutateGoal = (
+    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
+    ref: { id: string; revision: number },
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
+    const missing = requireSession(request)
+    if (missing !== undefined) return missing
+    const id = request.payload.sessionId
+    const current = backscanGoal(logOf(id))
+    if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+    }
+    const goal = next(current)
+    if (goal === undefined) {
+      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+    }
+    const projection = appendGoalChange(id, {
+      kind: 'goal/change', version: 1,
+      operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
+      goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
+    })
+    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -934,7 +1034,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
           ],
         })
       },
@@ -950,10 +1050,32 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        if (name === 'goal') {
+          // Host parallel: /goal with an objective creates (or reports) the
+          // current goal; the command lifecycle pair brackets the mutation.
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const objective = args.trim()
+          const current = backscanGoal(logOf(id))
+          let text: string
+          if (objective === '') {
+            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+          } else if (current !== null && current.goal.phase !== 'complete') {
+            text = `A goal already exists (${current.goal.objective}). Clear it first.`
+          } else {
+            const created = appendGoalChange(id, {
+              kind: 'goal/change', version: 1, operation: 'create',
+              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+            })
+            text = `Goal created: ${created.goal.objective}`
+          }
+          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
+          return ok(request, { matched: true as const, commandId })
+        }
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),
-          'goal-fixture': `fixture：goal 已设置（${id}）`,
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
@@ -972,6 +1094,62 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
           ],
         })
+      },
+    },
+    goals: {
+      // Mutation-only mirror of the host handlers: each verb CAS-checks the
+      // projected current goal, appends the whole-value change (the mux
+      // stream and projection frame ride the shared append path), and
+      // acknowledges with the new ref only.
+      create: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current !== null && current.goal.phase !== 'complete') {
+          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
+        }
+        const projection = appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'create',
+          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
+          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        })
+        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+      },
+      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+      })),
+      pause: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      )),
+      resume: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      )),
+      complete: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      )),
+      clear: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
+          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+        }
+        appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'clear',
+          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
+        })
+        return ok(request, { cleared: true as const })
       },
     },
     events: {
@@ -1104,6 +1282,12 @@ export class FixtureApiClient extends AbstractApiClient {
       // The in-memory execute never blocks, so a never-aborting signal is faithful here.
       case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
     }
   }
 
