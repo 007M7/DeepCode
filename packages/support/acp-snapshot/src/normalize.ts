@@ -22,6 +22,7 @@ const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
 const EVENT_READ_TARGET_REGION_RE
   = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
 const PATH_TEXT_BOUNDARY_RE = /[\s<>'"`()\[\]{},;:!?=]/
+const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -97,12 +98,14 @@ function isCwdMatch(value: string, start: number, length: number): boolean {
   const before = value[start - 1]
   const after = value[start + length]
   const afterPunctuation = value[start + length + 1]
-  const startsAtBoundary = before === undefined || PATH_TEXT_BOUNDARY_RE.test(before)
+  const startsAtBoundary = before === undefined
+    || PATH_TEXT_BOUNDARY_RE.test(before)
+    || FILE_URI_PATH_PREFIX_RE.test(value.slice(0, start))
   const endsAtBoundary = after === undefined
     || after === '/'
     || after === '\\'
     || PATH_TEXT_BOUNDARY_RE.test(after)
-    || after === '.' && (afterPunctuation === undefined || /\s/.test(afterPunctuation))
+    || after === '.' && (afterPunctuation === undefined || PATH_TEXT_BOUNDARY_RE.test(afterPunctuation))
   return startsAtBoundary && endsAtBoundary
 }
 
