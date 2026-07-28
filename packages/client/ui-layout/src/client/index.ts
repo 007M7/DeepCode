@@ -17,14 +17,16 @@ import { ThemePresenter } from './theme-presenter.ts'
 
 // Contract surface only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
-// LayoutService: the ctx.layout service class (consumers type against it).
+// ILayout: the ctx.layout face consumers and test fakes type against.
 // OwnerShare contracts below are the render-side halves registrants compose
 // against; the frame components and the store factory are package-internal.
 export { LayoutService } from './service.ts'
+export type { ILayout } from './service.ts'
 
 declare module 'cordis' {
   interface Context {
-    layout: LayoutService
+    /** The outward face only; the concrete service stays inside this plugin. */
+    layout: import('./service.ts').ILayout
   }
 }
 
