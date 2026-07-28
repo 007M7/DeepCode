@@ -355,6 +355,17 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByText('harness')).toBeNull()
   })
 
+  it('keeps an intact selection preview when a path edit is cancelled', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Escape' })
+    // Nothing was superseded: the two-pane view survives the cancel.
+    expect(columns()).toHaveLength(2)
+  })
+
   it('falls back to the single-pane level when a path edit superseded the preview and was cancelled', async () => {
     const pending: ((listing: DirectoryListing) => void)[] = []
     const b = mount()
