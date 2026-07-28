@@ -12,12 +12,27 @@
 // content) and never launches a replay row. A stray stream would fail loud
 // with NO_ADAPTER.
 //
-// Headless-chromium caveat, load-bearing for what is asserted below: chromium
-// paints an OVERLAY scrollbar that consumes no layout width. Comparing the
-// time element's right edge against the list's client-area right edge
-// therefore holds with and without the reservation and proves nothing; the
-// reserved band width is the only layout signal that distinguishes the two
-// states. See the assertions for which one is the control.
+// Headless-chromium caveats, load-bearing for what is asserted below.
+//
+// Chromium paints an OVERLAY scrollbar that consumes no layout width, so
+// comparing the time element's right edge against the list's client-area right
+// edge holds with and without the reservation and proves nothing; the reserved
+// band width is the only layout signal that distinguishes the two states. See
+// the assertions for which one is the control.
+//
+// Chromium also takes the `::-webkit-scrollbar*` path, not the standard
+// properties: scrollbar.css gates `scrollbar-width`/`scrollbar-color` behind
+// `@supports not selector(::-webkit-scrollbar)`, which is false here. The
+// resolved standard properties therefore read `auto`, and that reading is
+// asserted — a concrete value would mean the gate leaked and silenced the
+// pseudo-element rules. What the theme test measures instead is the pair the
+// pseudo-element rules read: the indirection variables as they resolve ON the
+// list, plus the `::-webkit-scrollbar-thumb:hover` declaration as it stands in
+// the cascade. The hover thumb colour is not observable any other way —
+// chromium folds the `:hover` rule into `getComputedStyle(el,
+// '::-webkit-scrollbar-thumb')`, so that query reports the hover colour at
+// rest and cannot pin either state (measured by deleting the hover rule live:
+// the same query flipped from the hover colour to the resting one).
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -35,14 +50,20 @@ const SEED_COUNT = 24
 interface ListMetrics {
   /** Resolved `scrollbar-gutter`. */
   gutter: string
-  /** Resolved `scrollbar-width`. */
+  /** Resolved `::-webkit-scrollbar` width: the pseudo-element path's own sizing. */
   width: string
-  /** Resolved `scrollbar-color` (thumb then track). */
-  color: string
-  /** The thumb half of `scrollbar-color`, split off the track half. */
-  thumb: string
-  /** `--dsw-alias-scrollbar-bg-l1` resolved on the list into the same colour serialization `scrollbar-color` reports. */
+  /** Resolved `::-webkit-scrollbar-track` background. */
+  track: string
+  /** Resolved `scrollbar-width`, expected `auto` because the gate excludes chromium. */
+  standardWidth: string
+  /** Resolved `scrollbar-color`, expected `auto` for the same reason. */
+  standardColor: string
+  /** `::-webkit-scrollbar-thumb:hover` background declarations found in the cascade, in sheet order. */
+  hoverRules: string[]
+  /** `--dsh-scrollbar-thumb` resolved on the list, serialized as a colour. */
   token: string
+  /** `--dsh-scrollbar-thumb-hover` resolved on the list, serialized the same way. */
+  hoverToken: string
   /** True when the list actually scrolls. */
   overflows: boolean
   /** Border-box width minus client width: the space the scrollbar takes out of the content area. */
@@ -66,27 +87,47 @@ function measureList(page: Page): Promise<ListMetrics> {
     if (list === null) throw new Error('sidebar session list not in the DOM')
     const time = list.querySelector<HTMLElement>('[class*="time"]')
     if (time === null) throw new Error('no row relative-time element in the sidebar list')
-    // The token needs the same serialization `scrollbar-color` reports: the
-    // palette sheet writes it in whatever notation it chose, so it is
-    // resolved through a probe element's `color`. The probe is appended to
-    // the list so `var()` substitution happens where the list sits in the
-    // cascade — the token reaching THIS element is the claim.
-    const probe = document.createElement('span')
-    list.append(probe)
-    probe.style.color = 'var(--dsw-alias-scrollbar-bg-l1)'
-    const token = getComputedStyle(probe).color
-    probe.remove()
+    // Each indirection variable is resolved through its own throwaway probe
+    // appended to the list: `var()` substitution then happens where the list
+    // sits in the cascade, which is the claim, and `color` normalizes whatever
+    // notation the palette sheet chose into one comparable serialization. A
+    // REUSED probe would report only the last value read — `getComputedStyle`
+    // returns a live declaration, so reassigning `style.color` retroactively
+    // changes every earlier read.
+    const resolve = (name: string): string => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${name})`
+      list.append(probe)
+      const value = getComputedStyle(probe).color
+      probe.remove()
+      return value
+    }
+    // The hover colour is read out of the cascade rather than computed:
+    // chromium reports the `:hover` background for the resting pseudo-element
+    // too (see the file header), so no computed query separates the states.
+    // Cross-origin sheets throw on `cssRules`; none is expected, and skipping
+    // them cannot mask the rule under test, which ships in the app's own CSS.
+    const hoverRules = [...document.styleSheets]
+      .flatMap((sheet) => {
+        try {
+          return [...sheet.cssRules]
+        } catch {
+          return []
+        }
+      })
+      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+      .filter(rule => rule.selectorText === '::-webkit-scrollbar-thumb:hover')
+      .map(rule => rule.style.getPropertyValue('background'))
     const style = getComputedStyle(list)
-    // `scrollbar-color` serializes as `<thumb> <track>`; both halves are
-    // functional colours, so the split is on the space before the track's
-    // opening token, not on every space.
-    const thumb = style.scrollbarColor.replace(/\s+rgba?\([^)]*\)$/, '')
     return {
       gutter: style.scrollbarGutter,
-      width: style.scrollbarWidth,
-      color: style.scrollbarColor,
-      thumb,
-      token,
+      width: getComputedStyle(list, '::-webkit-scrollbar').width,
+      track: getComputedStyle(list, '::-webkit-scrollbar-track').backgroundColor,
+      standardWidth: style.scrollbarWidth,
+      standardColor: style.scrollbarColor,
+      hoverRules,
+      token: resolve('--dsh-scrollbar-thumb'),
+      hoverToken: resolve('--dsh-scrollbar-thumb-hover'),
       overflows: list.scrollHeight > list.clientHeight,
       band: list.getBoundingClientRect().width - list.clientWidth,
       clientRight: list.getBoundingClientRect().left + list.clientWidth,
@@ -170,28 +211,38 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('resolves the themed thumb colour on the list in both palettes', async () => {
+  it('renders the themed thumb through the WebKit path in both palettes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-scrollbar-theme'))
     const light = await measureList(page)
-    // `thin`, not `auto`: the sheet's per-element declaration reached a
-    // container it never names.
-    expect(light.width).toBe('thin')
-    // A concrete colour, not `auto`, and byte-equal to the alias token
-    // resolved on this element: the indirection carried the token here rather
-    // than falling back to the UA thumb.
-    expect(light.color).not.toBe('auto')
-    expect(light.thumb).toBe(light.token)
-    // Transparent track, so the thumb reads against the scrolling surface.
-    expect(light.color.endsWith('rgba(0, 0, 0, 0)')).toBe(true)
+    // The gate's signature on this engine, and the reason it exists: chromium
+    // implements `::-webkit-scrollbar`, so the standard properties stay at
+    // their initial `auto`. A concrete value here would mean the gate leaked,
+    // which is exactly what makes chromium discard the pseudo-element rules —
+    // the hover token included.
+    expect(light.standardWidth).toBe('auto')
+    expect(light.standardColor).toBe('auto')
+    // The pseudo-element path is the one in force: the sheet's own 8px sizing
+    // and transparent track reached a container it never names.
+    expect(light.width).toBe('8px')
+    expect(light.track).toBe('rgba(0, 0, 0, 0)')
+    // The resting and the hover rule each read the rebindable indirection, and
+    // the two resolve to DIFFERENT colours on this list: the l1 pair arrived
+    // here intact rather than collapsing to one value or falling back.
+    expect(light.hoverRules).toEqual(['var(--dsh-scrollbar-thumb-hover)'])
+    expect(light.token).toMatch(/^rgba?\(/)
+    expect(light.hoverToken).not.toBe(light.token)
     // The dark palette declares different scrollbar tokens; driving the body
     // attribute pins the cascade the way lifecycle-chrome does (the Settings
     // gesture that sets it is owned there).
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
     const dark = await measureList(page)
-    expect(dark.thumb).toBe(dark.token)
-    expect(dark.thumb).not.toBe(light.thumb)
+    expect(dark.token).not.toBe(light.token)
+    expect(dark.hoverToken).not.toBe(dark.token)
+    expect(dark.hoverToken).not.toBe(light.hoverToken)
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
-    expect((await measureList(page)).thumb).toBe(light.thumb)
+    const restored = await measureList(page)
+    expect(restored.token).toBe(light.token)
+    expect(restored.hoverToken).toBe(light.hoverToken)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

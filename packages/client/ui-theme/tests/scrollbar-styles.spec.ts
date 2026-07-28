@@ -59,6 +59,27 @@ function parseRules(css: string): CssRule[] {
 }
 
 /**
+ * Half-open source span of one at-rule's block, excluding its prelude.
+ * @param css - stylesheet text.
+ * @param prelude - exact at-rule prelude to locate, without the opening brace.
+ * @returns the block's brace offsets, or undefined when the prelude is absent.
+ */
+function atRuleBlock(css: string, prelude: string): { start: number; end: number } | undefined {
+  const opening = css.indexOf(`${prelude} {`)
+  if (opening === -1) return undefined
+  const start = css.indexOf('{', opening)
+  let depth = 0
+  for (let index = start; index < css.length; index += 1) {
+    if (css[index] === '{') depth += 1
+    else if (css[index] === '}') {
+      depth -= 1
+      if (depth === 0) return { start, end: index }
+    }
+  }
+  throw new Error(`unbalanced braces after ${prelude}`)
+}
+
+/**
  * Custom-property names a value reads.
  * @param value - declaration value, possibly with nested var() calls.
  * @returns every referenced custom-property name, in source order.
@@ -262,6 +283,60 @@ describe('scrollbar.css selectors', () => {
       .filter(rule => rule.declarations.some(([property]) => property === 'scrollbar-width'))
       .flatMap(rule => rule.selectors)
     expect(widthSelectors).toContain('body *')
+  })
+})
+
+describe('scrollbar.css rendering paths', () => {
+  /** The gate prelude, spelled exactly as the sheet must spell it for the split to exist. */
+  const GATE = '@supports not selector(::-webkit-scrollbar)'
+  const withoutComments = scrollbarCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const gate = atRuleBlock(withoutComments, GATE)
+  /** Standard scrollbar properties, the ones whose non-`auto` values suppress the pseudo-elements. */
+  const STANDARD_PROPERTIES = ['scrollbar-width', 'scrollbar-color']
+
+  it('gates the standard properties behind the absence of the WebKit pseudo-element', () => {
+    // A non-`auto` scrollbar-width or scrollbar-color makes Chromium and
+    // Safari discard every ::-webkit-scrollbar* rule for that element,
+    // ::-webkit-scrollbar-thumb:hover included. Declaring both paths
+    // unconditionally therefore renders the hover token nowhere: the engines
+    // implementing the hover pseudo-element are exactly the ones the standard
+    // properties silence, and Firefox has no hover pseudo-element at all.
+    expect(gate, GATE).toBeDefined()
+    for (const property of STANDARD_PROPERTIES) {
+      const offsets = [...withoutComments.matchAll(new RegExp(String.raw`(^|[;{\s])${property}\s*:`, 'g'))]
+        .map(match => match.index)
+      expect(offsets.length, property).toBeGreaterThan(0)
+      for (const offset of offsets) {
+        expect(offset, `${property} outside ${GATE}`).toBeGreaterThan(gate!.start)
+        expect(offset, `${property} outside ${GATE}`).toBeLessThan(gate!.end)
+      }
+    }
+  })
+
+  it('leaves the WebKit pseudo-element rules outside the gate', () => {
+    // Gating these in turn would only restate selector matching: an engine
+    // without the pseudo-elements drops the rules as unknown selectors. Inside
+    // the gate they would be dropped by the engines that do implement them,
+    // which is every engine that can render them.
+    const offsets = [...withoutComments.matchAll(/::-webkit-scrollbar/g)]
+      .map(match => match.index)
+      .filter(offset => withoutComments.slice(offset).search(/^[\w:-]*\s*[,{]/) === 0)
+    expect(offsets.length).toBeGreaterThan(0)
+    for (const offset of offsets) {
+      expect(offset > gate!.start && offset < gate!.end, `::-webkit-scrollbar rule inside ${GATE}`).toBe(false)
+    }
+  })
+
+  it('renders the hover token only through the pseudo-element path', () => {
+    // The standard path has no hover counterpart — scrollbar-color states one
+    // thumb colour and the engine derives its own hover treatment — so the
+    // hover indirection has to be read outside the gate or it renders nowhere.
+    const hoverOffsets = [...withoutComments.matchAll(new RegExp(String.raw`var\(\s*${INDIRECTION_PREFIX}thumb-hover`, 'g'))]
+      .map(match => match.index)
+    expect(hoverOffsets.length).toBeGreaterThan(0)
+    for (const offset of hoverOffsets) {
+      expect(offset > gate!.start && offset < gate!.end, 'hover indirection read inside the gate').toBe(false)
+    }
   })
 })
 
