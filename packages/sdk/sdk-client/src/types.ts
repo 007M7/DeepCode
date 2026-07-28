@@ -67,9 +67,9 @@ export interface TurnResult {
   reason: TurnEndReason | undefined
   /** Concatenated text of the session's last assistant message (empty when none). */
   finalResponse: string
-  /** Every `session.event` payload for this session tree, in wire order. */
+  /** Every `session.event` payload for the root session, in wire order. */
   events: SessionEvent[]
-  /** Every notification observed during the turn, in wire order. */
+  /** Every notification for the root session and discovered descendants, in wire order. */
   notifications: HarnessNotification[]
 }
 

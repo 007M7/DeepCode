@@ -1,29 +1,44 @@
-/* todo_write plan-update row: title + progress summary on one line. */
+/* todo_write plan-update row: ToolRow chrome (figma 780:53675) —
+   [16 checklist] gap6 [title 14/24] gap8 [2x2 dot] gap8 [summary FILL truncate]. */
 
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
   height: 24px;
   min-width: 0;
   cursor: pointer;
   border-radius: 6px;
-  font-size: 13px;
 }
 
 .row:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.badge {
+.leading {
   flex: none;
-  color: var(--dsw-alias-state-business-primary);
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .title {
   flex: none;
-  font-weight: 510;
-  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-primary-dimmed);
+}
+
+.sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  margin: 0 8px;
+  background: var(--dsw-alias-label-caption);
 }
 
 .summary {
@@ -32,11 +47,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .err {
   flex: none;
+  margin-left: 8px;
   color: var(--dsw-alias-state-error-primary);
   font-size: 11px;
+  line-height: 16px;
 }
