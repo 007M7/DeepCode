@@ -15,20 +15,22 @@ export interface SessionHistoryInspection {
 
 /**
  * Create a lazy inspection projection over an immutable history window.
- * Conversation consumers retain the cheap wrapper; only Trajectory reads the
- * getters that replay event order and request lifecycle state.
- * @param entries - Contiguous raw history entries in sequence order.
+ * Conversation consumers retain the cheap wrapper; only Trajectory snapshots
+ * the entries and replays event order and request lifecycle state.
+ * @param loadEntries - Lazily snapshots contiguous raw entries in sequence order.
  * @returns Lazy, memoized inspection fields for that exact window.
  */
 export function createHistoryInspection(
-  entries: readonly HistoryEntry[],
+  loadEntries: () => readonly HistoryEntry[],
 ): SessionHistoryInspection {
+  let entries: readonly HistoryEntry[] | undefined
   let conversation: ReturnType<typeof projectConversationHistory> | undefined
   let requests: ReturnType<typeof inspectRequests> | undefined
+  const historyEntries = () => entries ??= loadEntries()
   const conversationProjection = () =>
-    conversation ??= projectConversationHistory(entries)
+    conversation ??= projectConversationHistory(historyEntries())
   const requestProjection = () =>
-    requests ??= inspectRequests(entries)
+    requests ??= inspectRequests(historyEntries())
   return {
     get eventNodes() {
       return conversationProjection().eventNodes

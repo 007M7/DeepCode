@@ -5,7 +5,9 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type {
   AssistantMessageNode, ConversationContext, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { deriveTrajectoryContextBranches } from './context-branches.ts'
+import {
+  deriveTrajectoryContextBranches, trajectoryBranchContainsSeq,
+} from './context-branches.ts'
 import {
   TrajectoryTable,
   type TrajectoryRequestNumber,
@@ -97,9 +99,13 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   )
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = inspection === undefined || inspection.eventNodes.length === 0
-    ? nodes
-    : inspection.eventNodes
+  const selectedNodes = currentBranch.nodes
+  const selectedRequests = useMemo(
+    () => requests.filter(request =>
+      trajectoryBranchContainsSeq(currentBranch, request.startSeq),
+    ),
+    [currentBranch, requests],
+  )
   const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
@@ -235,12 +241,12 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
       nodes: selectedNodes,
       partial,
       runningCalls,
-      requests,
+      requests: selectedRequests,
       ...(callSchemas === undefined ? {} : { callSchemas }),
       codeDispatches,
     }),
     [
-      selectedNodes, partial, runningCalls, requests, callSchemas, codeDispatches,
+      selectedNodes, partial, runningCalls, selectedRequests, callSchemas, codeDispatches,
     ],
   )
   const collapsibleTurnIds = useMemo(

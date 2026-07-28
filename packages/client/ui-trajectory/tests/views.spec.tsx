@@ -16,7 +16,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, SessionId, SessionListState, WorkspaceListState,
+  ConversationSnapshot, RequestView, SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -267,6 +267,79 @@ describe('span derivation', () => {
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
+  })
+})
+
+describe('TrajectoryView branches', () => {
+  it('renders only the selected rewind branch while retaining session-global requests', () => {
+    const retained = {
+      kind: 'user',
+      seq: 1,
+      time: 1_000,
+      content: [{ type: 'text', text: 'retained user' }],
+      source: null,
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const abandoned = {
+      kind: 'assistant',
+      seq: 3,
+      time: 3_000,
+      turn: 1,
+      step: 1,
+      blocks: [{ kind: 'text', text: 'abandoned response' }],
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const current = {
+      kind: 'assistant',
+      seq: 5,
+      time: 5_000,
+      turn: 2,
+      step: 1,
+      blocks: [{ kind: 'text', text: 'current response' }],
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const request = (startSeq: number, turn: number): RequestView => ({
+      purpose: 'assistant',
+      startSeq,
+      turn,
+      step: 1,
+      startedAt: startSeq * 1_000,
+      completedAt: startSeq * 1_000 + 100,
+      status: 'complete',
+    })
+    const store = createSnapshotStore({
+      nodes: [retained, current],
+      inspection: {
+        eventNodes: [retained, abandoned, current],
+        contexts: [
+          { id: 0, nodes: [retained, abandoned] },
+          {
+            id: 1,
+            parentId: 0,
+            origin: 'rewind' as const,
+            originSeq: 4,
+            nodes: [retained, current],
+          },
+        ],
+        requests: [request(2, 1), request(4, 2)],
+        callSchemas: new Map(),
+      },
+      openState: 'open' as const,
+      hasMore: false,
+      partial: null,
+      runningCalls: [] as ConversationSnapshot['runningCalls'],
+      codeDispatches: new Map(),
+    })
+
+    const view = render(
+      <TrajectoryView
+        {...standaloneProps([])}
+        useSession={bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>}
+        loadAllHistory={vi.fn(() => Promise.resolve())}
+      />,
+    )
+
+    expect(screen.queryByText('abandoned response')).toBeNull()
+    expect(screen.getByText('current response')).toBeTruthy()
+    expect(screen.getByRole('row', { name: /Request 2, ASSISTANT/ })).toBeTruthy()
+    expect(view.container.querySelectorAll('[data-request-only="true"]')).toHaveLength(0)
   })
 })
 

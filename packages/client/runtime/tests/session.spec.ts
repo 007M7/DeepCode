@@ -124,6 +124,21 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
+  it('keeps a lazily inspected snapshot pinned to its original history window', async () => {
+    const { session } = await opened()
+    const before = session.getSnapshot()
+
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.user(6, 'later'),
+    })
+
+    expect(before.inspection?.eventNodes.map(node => node.seq)).toEqual([1, 3])
+    expect(session.getSnapshot().inspection?.eventNodes.map(node => node.seq))
+      .toEqual([1, 3, 6])
+  })
+
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -290,6 +305,36 @@ describe('paging', () => {
 
     expect(api.callsOf('session.history')).toHaveLength(2)
     expect(session.getSnapshot().hasMore).toBe(true)
+  })
+
+  it('continues complete-history loading after an already active page', async () => {
+    const pages = [
+      plainTurn(0, 0, '最早问', '最早答'),
+      plainTurn(6, 1, '中间问', '中间答'),
+      plainTurn(12, 2, '最新问', '最新答'),
+    ]
+    const middle = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const { api, session } = makeSession()
+    api.onHistory = (payload) => {
+      if (payload.beforeSeq === undefined) return histResponse(pages[2]!, true)
+      if (payload.beforeSeq === 12) return middle.promise
+      return histResponse(pages[0]!, false)
+    }
+
+    await session.open()
+    const activePage = session.loadOlder()
+    const completeHistory = session.loadAllHistory()
+    middle.resolve(ok({
+      events: entries(pages[1]!) as never[],
+      hasMore: true,
+      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    }))
+    await Promise.all([activePage, completeHistory])
+
+    expect(api.callsOf('session.history')).toHaveLength(3)
+    expect(session.getSnapshot().hasMore).toBe(false)
+    expect(session.getSnapshot().nodes.map(node => node.seq))
+      .toEqual([1, 3, 7, 9, 13, 15])
   })
 
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {

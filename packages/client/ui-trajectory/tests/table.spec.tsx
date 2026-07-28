@@ -96,6 +96,33 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('ToolError: non_zero_exit')).toBeTruthy()
   })
 
+  it('renders a single-text JSON tool result as a JSON tree', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'tool',
+          text: 'read {"path":"result.json"}',
+          outputDetail: '{"value":1,"nested":{"ok":true}}',
+          outputBlocks: [{
+            type: 'text',
+            content: '{"value":1,"nested":{"ok":true}}',
+          }],
+          timeSeconds: 0.1,
+        }],
+      }],
+    }]
+
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Result' }))
+
+    expect(screen.getByRole('tree', { name: 'Result JSON' })).toBeTruthy()
+    expect(screen.getByText('value:')).toBeTruthy()
+  })
+
   it('keeps the first row and a compact summary when a turn is collapsed', () => {
     render(
       <TrajectoryTable

@@ -111,13 +111,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
-  /** Raw history revision; published entries are copied so later live appends never mutate a prior snapshot. */
+  /** Raw history revision; inspection wrappers capture the exact array window and length. */
   private historyRev = 0
-  private historyEntriesCache: { rev: number; value: readonly HistoryEntry[] } | null = null
   private historyInspectionCache: {
     rev: number
     value: SessionHistoryInspection
   } | null = null
+  private loadOlderPromise: Promise<void> | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -252,42 +252,56 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return promise
   }
 
-  /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
-  async loadOlder(): Promise<void> {
-    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
+  /**
+   * Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2).
+   * Concurrent callers share the active page so complete-history readers can continue afterward.
+   * @returns When the active or newly started page request settles.
+   */
+  loadOlder(): Promise<void> {
+    if (this.loadOlderPromise !== null) return this.loadOlderPromise
+    if (this.openState !== 'open' || !this.hasMore) return Promise.resolve()
     this.loadingOlder = true
     this.notifier.markDirty()
-    try {
-      const { result } = await this.api.sessions.history({
-        sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
-      })
-      if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
-      const older = result.value.events
-      if (older.length === 0) {
+    const generation = this.openGeneration
+    const operation = (async () => {
+      try {
+        const { result } = await this.api.sessions.history({
+          sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
+        })
+        if (generation !== this.openGeneration || this.openState !== 'open') return
+        if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
+        const older = result.value.events
+        if (older.length === 0) {
+          this.hasMore = result.value.hasMore
+          return
+        }
+        const tail = older[older.length - 1]
+        if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
+          // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
+          console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
+          this.hasMore = false
+          return
+        }
+        this.events = [...older.map(e => e.event), ...this.events]
+        this.views = [...older.map(e => e.view), ...this.views]
+        this.historyRev++
+        /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
+        this.baseSeq = older[0]?.event.seq ?? this.baseSeq
         this.hasMore = result.value.hasMore
-        return
+        this.foldAdapter.reset(this.events, this.baseSeq, this.views) // prepend forces a rebuild (sentinel count changed)
+        this.rebuildDerivedFromWindow()
+      } catch (error) {
+        console.error('[web-runtime] loadOlder failed:', error)
       }
-      const tail = older[older.length - 1]
-      if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
-        // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
-        this.hasMore = false
-        return
-      }
-      this.events = [...older.map(e => e.event), ...this.events]
-      this.views = [...older.map(e => e.view), ...this.views]
-      this.historyRev++
-      /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
-      this.baseSeq = older[0]?.event.seq ?? this.baseSeq
-      this.hasMore = result.value.hasMore
-      this.foldAdapter.reset(this.events, this.baseSeq, this.views) // prepend forces a rebuild (sentinel count changed)
-      this.rebuildDerivedFromWindow()
-    } catch (error) {
-      console.error('[web-runtime] loadOlder failed:', error)
-    } finally {
+    })()
+    const settled = operation.finally(() => {
+      if (this.loadOlderPromise !== settled) return
+      this.loadOlderPromise = null
       this.loadingOlder = false
       this.notifier.markDirty()
-    }
+    })
+    this.loadOlderPromise = settled
+    return settled
   }
 
   /**
@@ -297,7 +311,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @returns When the available history has been exhausted or paging stops making progress.
    */
   async loadAllHistory(): Promise<void> {
-    while (this.openState === 'open' && this.hasMore && !this.loadingOlder) {
+    while (this.openState === 'open' && this.hasMore) {
       const previousBaseSeq = this.baseSeq
       await this.loadOlder()
       if (this.baseSeq === previousBaseSeq) return
@@ -844,24 +858,27 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
-  /** Build the lazy history inspection wrapper without leaking mutable window arrays. */
+  /** Build a lazy inspection wrapper for the exact current history window. */
   private buildHistoryInspection(): SessionHistoryInspection {
-    if (this.historyEntriesCache === null || this.historyEntriesCache.rev !== this.historyRev) {
-      this.historyEntriesCache = {
-        rev: this.historyRev,
-        value: this.events.map((event, index) => {
-          const view = this.views[index]
-          return view === undefined ? { event } : { event, view }
-        }),
-      }
-    }
     if (
       this.historyInspectionCache === null
       || this.historyInspectionCache.rev !== this.historyRev
     ) {
+      const events = this.events
+      const views = this.views
+      const length = events.length
       this.historyInspectionCache = {
         rev: this.historyRev,
-        value: createHistoryInspection(this.historyEntriesCache.value),
+        value: createHistoryInspection(() =>
+          Array.from({ length }, (_, index) => {
+            const event = events[index]
+            if (event === undefined) {
+              throw new Error('captured history window changed before inspection')
+            }
+            const view = views[index]
+            return view === undefined ? { event } : { event, view }
+          }),
+        ),
       }
     }
     return this.historyInspectionCache.value

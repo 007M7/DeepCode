@@ -1188,6 +1188,20 @@ function RecordPayload({
     : 'No result captured'
   if (!value) return <p className={css.noPayload}>{missing}</p>
 
+  const json = parseJsonContainer(value)
+  const singleTextResult = direction === 'output'
+    && record.cell.outputBlocks?.length === 1
+    && record.cell.outputBlocks[0]?.type === 'text'
+  if (singleTextResult && json !== undefined) {
+    return (
+      <JsonTree
+        data={json}
+        label="Result JSON"
+        className={preview ? css.jsonPreview : css.jsonPayload}
+      />
+    )
+  }
+
   if (
     direction === 'output'
     && record.cell.outputBlocks?.some(block =>
@@ -1214,7 +1228,6 @@ function RecordPayload({
       </div>
     )
   }
-  const json = parseJsonContainer(value)
   if (json !== undefined) {
     return (
       <JsonTree

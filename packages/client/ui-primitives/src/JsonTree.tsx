@@ -289,6 +289,7 @@ function JsonTreeNode({
       />
       <NodeField field={field} expandable onToggle={toggle} />
       <span className={css.preview}>{previewValue(value, 0)}</span>
+      {!lastElement && <span className={css.punctuation}>,</span>}
       {expanded && (
         <ul id={contentsId} role="group" className={css.children}>
           {entries.map(([key, item], index) => (
@@ -524,7 +525,7 @@ export function JsonTree({
                   field={key}
                   value={value}
                   path={[Array.isArray(data) ? index : key]}
-                  lastElement
+                  lastElement={index === rootEntries.length - 1}
                   initialExpanded={false}
                   tabStopId={tabStopId}
                   onClaimTabStop={setTabStopId}

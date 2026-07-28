@@ -34,7 +34,7 @@ describe('JsonTree', () => {
     const tree = screen.getByRole('tree', { name: 'Payload' })
     const rows = within(tree).getAllByRole('treeitem')
     expect(rows).toHaveLength(2)
-    expect(rows[0]?.textContent).toBe('nested:{answer: 42}')
+    expect(rows[0]?.textContent).toBe('nested:{answer: 42},')
     expect(rows[1]?.textContent).toBe('list:["alpha", "beta"]')
 
     const expanders = within(tree).getAllByRole('button', { name: 'Expand JSON node' })
