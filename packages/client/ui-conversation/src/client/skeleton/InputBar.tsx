@@ -10,6 +10,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the `plan` projection key merge (the TodoDock posture — the
+// composer reads a host-computed value; the domain owns the key).
+import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import css from './InputBar.module.css'
@@ -28,7 +31,7 @@ const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
 ]
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, stop, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
@@ -37,6 +40,9 @@ export function InputBar({
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
+  // Plan mode swaps the textarea placeholder (the projection is the folded
+  // host value; owner-prop placeholders — hero, session-unavailable — win).
+  const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
   // Prompt failures are ordinary failures (no create/attach transaction
   // exists anymore): the strip renders promptError, the draft stays in the
   // machine, and the user resubmits.
@@ -334,7 +340,9 @@ export function InputBar({
             disabled={locked}
             readOnly={machineBusy}
             data-phase={input.phase}
-            placeholder={placeholder ?? (disabled ? 'Session unavailable' : 'Message the agent')}
+            placeholder={placeholder ?? (disabled
+              ? 'Session unavailable'
+              : planActive ? 'describe your task to generate plan' : 'Message the agent')}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -361,15 +369,15 @@ export function InputBar({
               <IconPlusOutline16 size={14} />
             </button>
             <div className={css.modes}>
-              {renderSlot('conversation.input.plan', { locked })}
               {accessSelect}
+              {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
-            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
+            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <button
               type="button"
               className={css.primary}

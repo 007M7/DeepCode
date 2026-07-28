@@ -124,13 +124,12 @@ describe('matrix row: claimed', () => {
 describe('matrix row: submitting', () => {
   it('locks enter, renders pending + read-only, keeps the claim snapshot on the currency', async () => {
     const submit = vi.fn(() => new Promise<SubmitOutcome>(() => {})) // never settles
-    const { view, textarea, shell, sink, claim } = bench({ submit })
+    const { textarea, shell, sink, claim } = bench({ submit })
     claim()
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(shell.snapshot.phase).toBe('submitting')
     expect(shell.snapshot.claim).toBeDefined()
     expect((textarea).readOnly).toBe(true)
-    expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     // Enter is dead inside the lock (submit dispatch is microtask-deferred).
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledTimes(1) })
     fireEvent.keyDown(textarea, { key: 'Enter' })

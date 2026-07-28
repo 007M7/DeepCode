@@ -47,6 +47,8 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('directory-create-failed'), message: z.string(), details: z.object({ path: z.string() }) }),
   z.object({ code: z.literal('directory-picker-unavailable'), message: z.string(), details: z.object({ capability: z.string() }) }),
   z.object({ code: z.literal('agent-busy'), message: z.string(), details: z.object({ reason: z.string() }) }),
+  z.object({ code: z.literal('command-error'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('unknown-command'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('internal'), message: z.string(), details: z.object({}) }),
 ]) as unknown as z.ZodType<RpcError>
 

@@ -15,8 +15,8 @@ buffer
   style 0-2 fg=bright-blue bold underline
 5| "Reply with exactly the word: ONE. No tools.                                                         "
 6| <blank>
-7| "Entering plan mode (applies from the next step). Use /plan off to leave.                            "
-  style 0-71 fg=bright-black
+7| "Plan mode on. Use /plan off to leave.                                                               "
+  style 0-36 fg=bright-black
 8| <blank>
 9| "Assistant                                                                                           "
   style 0-8 fg=bright-magenta bold underline
@@ -28,17 +28,17 @@ buffer
 13| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
   style 0-46 dim
 14| <blank>
-15| "Leaving plan mode (applies from the next step).                                                     "
-  style 0-46 fg=bright-black
-16| <blank>
-17| "You                                                                                                 "
-  style 0-2 fg=bright-blue bold underline
-18| "Reply with exactly the word: TWO. No tools.                                                         "
-19| <blank>
-20| "Context · plan-mode                                                                                 "
+15| "Context · plan-mode                                                                                 "
   style 0-18 dim
-21| "The user switched this session back to the default mode.                                            "
+16| "The user switched this session back to the default mode.                                            "
   style 0-55 fg=bright-black
+17| <blank>
+18| "Plan mode off.                                                                                      "
+  style 0-13 fg=bright-black
+19| <blank>
+20| "You                                                                                                 "
+  style 0-2 fg=bright-blue bold underline
+21| "Reply with exactly the word: TWO. No tools.                                                         "
 22| <blank>
 23| "Assistant                                                                                           "
   style 0-8 fg=bright-magenta bold underline
