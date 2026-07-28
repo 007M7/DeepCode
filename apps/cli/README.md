@@ -26,4 +26,6 @@ Symlink the source-running launcher onto your PATH; it resolves the checkout thr
 ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
 ```
 
+Source launches run `apps/cli/src/bin.ts` through Node's `--experimental-transform-types`; `scripts/tspath-loader.ts` only projects tsconfig `paths` into module resolution and does not transform code. Every module reachable from the CLI source entry follows Node's transform-types contract: erased bindings use `import type`, exports use native ESM, and the graph contains no TSX/JSX or transforms that only tsx/esbuild provides. The loader reads `TSX_TSCONFIG_PATH` when set (relative paths resolve from the invoking cwd), otherwise the repository's root tsconfig, using the root TypeScript development tool rather than an application dependency. It maps a workspace import only for a package self-reference or a declared runtime dependency. The TUI configs resolve bare plugins through `examples/package.json`, while the Web/headless `cordis.yml` resolves them through this package's `dependencies`; `verify-cordis-config` requires every configured bare plugin to be declared, while allowing unrelated dependencies.
+
 `pnpm run dsh` runs the same entry from the repo root and forwards arguments directly, for example `pnpm run dsh -p "task"`. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.

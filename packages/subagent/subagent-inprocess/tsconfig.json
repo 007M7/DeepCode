@@ -33,7 +33,13 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../ui/user-approval"
     }
   ]
 }

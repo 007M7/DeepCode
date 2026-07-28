@@ -13,8 +13,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { meta, oneTurnLog, appendLog } from './contract.ts'
 
 /**
@@ -43,6 +43,80 @@ const OTHER = '/other'
 /** Append a whole event log to a live session, event by event (drives session/event). */
 function send(session: Session, events: readonly SessionEvent[]): void {
   appendLog(session, events)
+}
+
+/** A valid persisted log from immediately before messages gained wrappers and identities. */
+function legacyMessageLog(): SessionEvent[] {
+  return [
+    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    {
+      type: 'user/message',
+      seq: 1,
+      time: 2,
+      data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
+      surfaceOp: 'append',
+    },
+    { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+    {
+      type: 'assistant/message',
+      seq: 3,
+      time: 4,
+      data: {
+        turn: 1,
+        step: 1,
+        content: [{ type: 'tool-call', id: 'call-1', name: 'read', arguments: '{}' }],
+        provenance: { provider: 'mock', model: 'mock' },
+      },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'tool/call',
+      seq: 4,
+      time: 5,
+      data: { turn: 1, step: 1, callId: 'call-1', name: 'read', arguments: '{}' },
+    },
+    {
+      type: 'tool/result',
+      seq: 5,
+      time: 6,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: 'call-1',
+        content: [{ type: 'text', text: 'full result' }],
+        isError: false,
+      },
+      sourceEventSeqs: [4],
+      surfaceOp: 'append',
+    },
+    {
+      type: 'steering/message',
+      seq: 6,
+      time: 7,
+      data: {
+        turn: 1,
+        content: [{ type: 'text', text: 'continue' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'tool/result',
+      seq: 7,
+      time: 8,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: 'call-1',
+        content: [{ type: 'text', text: 'pruned' }],
+        isError: false,
+      },
+      sourceEventSeqs: [5],
+      surfaceOp: { op: 'replace', start: 5, end: 5 },
+    },
+    { type: 'step/end', seq: 8, time: 9, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, reason: { kind: 'completed' } } },
+  ] as unknown as SessionEvent[]
 }
 
 /** A live session created inside its OWN fiber, so it survives a backend reload. */
@@ -269,6 +343,48 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('loads pre-identity message logs into resumable current sessions', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('legacy-message-load')
+        await ctx.sessionPersistence.create(meta(id, WORK))
+        await ctx.sessionPersistence.append(id, legacyMessageLog())
+
+        for (const snapshot of [
+          await ctx.sessionPersistence.inspect(id),
+          await ctx.sessionPersistence.load(id),
+        ]) {
+          const messages = snapshot.events.flatMap((event) => {
+            if (event.type === 'user/message') return [event.data]
+            if (event.type === 'assistant/message'
+              || event.type === 'tool/result'
+              || event.type === 'steering/message') return [event.data.message]
+            return []
+          })
+          expect(messages.map(message => message.id)).toEqual([
+            `legacy-message:${id}:1`,
+            `legacy-message:${id}:3`,
+            `legacy-message:${id}:5`,
+            `legacy-message:${id}:6`,
+            `legacy-message:${id}:5`,
+          ])
+          expect(messages.every(message => Object.isFrozen(message))).toBe(true)
+
+          const resumed = new Session(id, snapshot.events, snapshot.meta)
+          expect(resumed.deriveMessages().map(message => message.id)).toEqual([
+            `legacy-message:${id}:1`,
+            `legacy-message:${id}:3`,
+            `legacy-message:${id}:5`,
+            `legacy-message:${id}:6`,
+          ])
+        }
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('rejects malformed persisted message events before returning them', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
@@ -292,6 +408,31 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           .rejects.toThrow('message must have role "user"')
         await expect(ctx.sessionPersistence.load(id))
           .rejects.toThrow('message must have role "user"')
+
+        for (const type of ['tool/result', 'steering/message'] as const) {
+          const malformedId = SessionId(`invalid-${type}`)
+          await ctx.sessionPersistence.create(meta(malformedId, WORK))
+          await ctx.sessionPersistence.append(malformedId, [{
+            type,
+            seq: 0,
+            time: 1,
+            surfaceOp: 'append',
+            data: { message: null },
+          } as unknown as SessionEvent])
+          await expect(ctx.sessionPersistence.inspect(malformedId))
+            .rejects.toThrow('lacks an identified message')
+        }
+
+        const pluginId = SessionId('non-object-plugin-event')
+        await ctx.sessionPersistence.create(meta(pluginId, WORK))
+        await ctx.sessionPersistence.append(pluginId, [{
+          type: 'plugin/test',
+          seq: 0,
+          time: 1,
+          data: null,
+        } as unknown as SessionEvent])
+        await expect(ctx.sessionPersistence.inspect(pluginId))
+          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null }] })
       } finally {
         await fiber.dispose()
         await fix.cleanup()

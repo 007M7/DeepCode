@@ -150,6 +150,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
+      {
+        signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
+        jsDoc: '/**\n * Read the session override without applying the configured default.\n * @param session - session whose log supplies the override.\n * @returns the last logged policy, or `undefined` without one.\n */',
+      },
     ],
   },
   {
@@ -508,6 +512,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
       },
+      {
+        signature: 'overrideOf(session: Session): SandboxMode | undefined',
+        jsDoc: '/**\n * Read the session override without applying the deployment default.\n * @param session - session whose log supplies the override.\n * @returns the last logged mode, or `undefined` without one.\n */',
+      },
     ],
   },
   {
@@ -528,11 +536,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen; malformed identified messages reject before any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen. Coordinator-backed implementations upgrade supported pre-identity\n * message events before validation; other malformed messages reject before\n * any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
         signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with deeply frozen identified messages, so observers cannot mutate message\n * identity/content or backend-owned state. Malformed identified messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with upgraded, deeply frozen identified messages, so observers\n * cannot mutate message identity/content or backend-owned state. Other\n * malformed messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+      },
+      {
+        signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Like\n * {@link inspect} it is non-mutating and detached: no torn-tail truncation,\n * no synthetic closers, no coordinator-state publication; only events from\n * the valid contiguous stored prefix are returned, so a torn fragment never\n * reaches the caller. `fromSeq` at or beyond the stored prefix returns an\n * empty event list (never an error). Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -541,6 +553,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>',
         jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @param signal - optional cancellation for backend snapshot-listing work.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+      },
+    ],
+  },
+  {
+    key: 'sessionProjectionCache',
+    summary: 'The persisted projection cache service.',
+    methods: [
+      {
+        signature: 'cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined',
+        jsDoc: '/**\n * The zero-I/O listing read: whole values viewed straight from the stored\n * rows (version-matching keys only), each cut carried with its watermark\n * so a client value store can seed under its higher-seq-wins rule — as\n * stale as the last durable checkpoint but never wrong, and never from an\n * unrelated log (the caller\'s header is the identity witness). Fresher\n * paths (the history tail baseline, {@link coldSnapshot}) supersede these\n * values whenever a session is actually opened.\n * @param meta - the listed session\'s header (identity witness; no log read).\n * @returns the cut (`asOfSeq` = lowest served-row watermark), or\n *   `undefined` when no usable row exists for this lifecycle.\n */',
+      },
+      {
+        signature: 'async write(session: Session): Promise<void>',
+        jsDoc: '/**\n * Durably checkpoint one live session NOW (both mandatory points call\n * this; tests and carriers may too). The registry cut is snapshotted at\n * this boundary (states are live references), then the whole record is\n * replaced. NOT fail-soft — callers on the fail-soft paths contain it.\n * @param session - the live session to checkpoint.\n * @returns resolution after durability and event emission.\n */',
+      },
+      {
+        signature: 'async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>',
+        jsDoc: '/**\n * Cold-read one persisted session\'s projections with zero full-log load:\n * cached rows + a persistence `readFrom` tail from the registry\'s restore\n * floor, refolded by the registry and written back (fail-soft) so the next\n * cold read starts closer. A cache row invalidated by a shrunk log\n * (crash-repair truncation) triggers one full re-read from seq 0 — the\n * ladder\'s slow rung, still no crash. Rejects when the session has no\n * persisted log (`not found` from the persistence seam).\n * @param id - the persisted session to read.\n * @param signal - optional cancellation for the persistence reads.\n * @returns the snapshot cut at the stored log end.\n */',
       },
     ],
   },
@@ -559,6 +589,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'snapshot(session: Session): ProjectionSnapshot',
         jsDoc: '/**\n * One consistent cut over every registered unit for one session, read from\n * the watermark cache (missing cells fold lazily over the in-memory log).\n * Fully synchronous — every value and `asOfSeq` reflect the same log\n * position. Each value passes its unit\'s schema before leaving.\n * @param session - the session whose projection values are read.\n * @returns the snapshot; `values` is empty when no unit is registered.\n */',
+      },
+      {
+        signature: 'checkpoint(session: Session): ProjectionCheckpoint',
+        jsDoc: '/**\n * State-level checkpoint of every registered unit for one session, read\n * from the watermark cache (missing cells fold lazily over the in-memory\n * log). This is the write side of the persisted projection cache: the\n * returned rows are the `(key → {ver, seq, val})` part of the durable\n * `(sessionId, key, ver, seq, val)`\n * rows. Every `val` is a DETACHED structured clone — never the live\n * cell reference: the watermark cache is this registry\'s authoritative\n * mutable state, and a caller reaching the live reference could corrupt\n * every subsequent snapshot and frame through it (plain JSON by the unit\n * contract, so the clone is total).\n * @param session - the session whose unit states are checkpointed.\n * @returns one row per registered key; empty when no unit is registered.\n */',
+      },
+      {
+        signature: 'restoreFloor(checkpoint: ProjectionCheckpoint): number | undefined',
+        jsDoc: '/**\n * The stored seq a {@link restore} tail read over `checkpoint` must start\n * at: one event BELOW the lowest usable watermark (a row is usable when\n * its `ver` matches the live unit\'s `stateVersion`; an absent or mismatched row\n * pulls the floor to `0` — that key must refold the full log). The\n * one-below anchor is load-bearing: the tail then proves how far the\n * stored log still extends, so {@link restore} can detect a log that\n * shrank below a row\'s watermark (crash-repair truncation) instead of\n * serving the stale row as current — an empty tail read from the anchor\n * yields an end below every watermark and the restore rejects for a full\n * re-read.\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @returns the seq to hand the persistence `readFrom`, or `undefined`\n *   when no unit is registered (no read needed — {@link restore} would\n *   serve empty values regardless).\n */',
+      },
+      {
+        signature: 'viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>',
+        jsDoc: '/**\n * View a checkpoint\'s rows without any log read: for every registered\n * unit whose row\'s `ver` matches, serve the schema-validated\n * `view` of the stored state; mismatched or absent rows leave their key\n * absent (a cold or listing consumer treats it as not-yet-available and a\n * fuller read path refolds it). The zero-I/O rung of the read ladder —\n * values are as stale as their rows, never wrong.\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @returns whole values per key with a usable row; empty when none.\n */',
+      },
+      {
+        signature: 'restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }',
+        jsDoc: '/**\n * Cold read: fold every registered unit over a stored log suffix, seeding\n * each from its checkpoint row when usable — the one read recipe (cached\n * state + forward tail replay + `view`) applied without a live `Session`.\n * Call with the events returned by a persistence\n * `readFrom(id, restoreFloor(checkpoint))` and that same floor as\n * `baseSeq`; the floor\'s one-below anchor makes the supplied end honest,\n * so a shrunk log is detected here. A row is usable iff its\n * `ver` matches the live unit\'s `stateVersion`, it does not predate `baseSeq`\n * (`seq >= baseSeq - 1`), and it does not claim events past the\n * supplied end (`seq <= endSeq`); an unusable row is discarded\n * and its key refolds from `init` — which is only sound over the full\n * log, so a discarded row with `baseSeq > 0` throws (the caller re-reads\n * from seq 0, e.g. after a crash-repair truncation shrank the log below\n * a row\'s watermark).\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @param events - the stored events with `seq >= baseSeq`, in seq order.\n * @param baseSeq - the seq `events` starts at (its first event\'s seq when non-empty).\n * @returns the snapshot cut at the supplied log end (`asOfSeq` is the last\n *   supplied event\'s seq, `baseSeq - 1` for an empty tail) plus the\n *   refreshed checkpoint rows at that cut, ready for a durable write-back.\n */',
       },
     ],
   },
@@ -1888,6 +1934,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
+  },
+  {
+    name: 'ProjectionCheckpoint',
+    declaration: 'export type ProjectionCheckpoint = Record<string, ProjectionCheckpointRow>;',
+  },
+  {
+    name: 'ProjectionCheckpointRow',
+    declaration: 'export interface ProjectionCheckpointRow {\n    ver: number;\n    seq: number;\n    val: unknown;\n}',
   },
   {
     name: 'ProjectionDefinition',
