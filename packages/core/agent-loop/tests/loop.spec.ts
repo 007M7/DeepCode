@@ -46,6 +46,19 @@ function send(agent: Agent, text: string) {
 }
 
 describe('agent loop', () => {
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid AgentOptions.maxTokens %s before publication',
+    async (maxTokens) => {
+      const ctx = await harness(new MockAdapter([]))
+      expect(() => ctx.agentLoop.create(
+        SessionId('invalid-max-tokens'),
+        { provider: 'mock', model: 'mock', maxTokens },
+      )).toThrow('agent maxTokens must be a positive safe integer')
+      expect(ctx.agents.list()).toEqual([])
+      expect(ctx.sessions.list()).toEqual([])
+    },
+  )
+
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)

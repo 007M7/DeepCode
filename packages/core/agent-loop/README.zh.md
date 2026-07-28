@@ -42,13 +42,14 @@ interface Config {
     id: string                 // required
     provider?: string
     model?: string
+    maxTokens?: number         // positive per-request output-token cap
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件提供逐 agent 的 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
+通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。可选的正整数 `maxTokens` 会为每次对话请求提供初始输出上限，并记录在请求 header 中。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件提供逐 agent 的 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
 
 ### 包内部实体驱动器
 

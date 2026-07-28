@@ -20,6 +20,8 @@ export interface InitializeParams {
   provider: string
   /** Model name every SDK-created agent runs on (the server may mount a fallback adapter; see `HarnessSdkServer.initialize`). */
   model: string
+  /** Optional positive output-token cap inherited by SDK-created agents and their in-process descendants. */
+  maxTokens?: number
 }
 
 /** Wire-stable server identity returned by initialization. */
