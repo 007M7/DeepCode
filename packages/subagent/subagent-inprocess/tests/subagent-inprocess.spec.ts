@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -21,7 +21,7 @@ async function mountInvariants(ctx: Context): Promise<void> {
   await ctx.plugin(AgentLoopInvariant)
 }
 
-async function setup(script: Script) {
+async function setup(script: Script, parentOptions: Partial<AgentOptions> = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await mountInvariants(ctx)
@@ -29,7 +29,7 @@ async function setup(script: Script) {
   await ctx.plugin(SubagentService)
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock', ...parentOptions })
   return { ctx, parent, adapter }
 }
 
@@ -108,6 +108,27 @@ describe('startInProcessRun', () => {
     // a depth that lived only in AgentOptions would reset to 0 on resume.
     expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
     await run.dispose()
+  })
+
+  it('inherits the parent output-token cap and accepts an explicit child override', async () => {
+    const { ctx, parent, adapter } = await setup(
+      [textResponse('inherited'), textResponse('overridden')],
+      { maxTokens: 111 },
+    )
+    const inherited = await startInProcessRun(request(parent), {})
+    await inherited.result
+    expect(adapter.requests[0]?.maxTokens).toBe(111)
+    expect(ctx.agents.get(inherited.id)?.options.maxTokens).toBe(111)
+    await inherited.dispose()
+
+    const overridden = await startInProcessRun({
+      ...request(parent),
+      agentOptions: { maxTokens: 222 },
+    }, {})
+    await overridden.result
+    expect(adapter.requests[1]?.maxTokens).toBe(222)
+    expect(ctx.agents.get(overridden.id)?.options.maxTokens).toBe(222)
+    await overridden.dispose()
   })
 
   it('counts a RESUMED child by its persisted header depth, not the absent runtime depth', async () => {
