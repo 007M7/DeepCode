@@ -12,15 +12,14 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   DeepSeekHarness,
-  finalResponse,
   HarnessClient,
-  normalizeInput,
+  JsonRpcResponseError,
   RequestTimeoutError,
   SdkProtocolError,
   TransportClosedError,
   type HarnessNotification,
 } from '../src/index.ts'
-import { JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-protocol'
+import { finalResponse, normalizeInput } from '../src/api.ts'
 
 const fakeRuntime = fileURLToPath(new URL('./fake-runtime.ts', import.meta.url))
 
@@ -69,7 +68,7 @@ describe('DeepSeekHarness', () => {
     await harness.close()
   })
 
-  it('streams notifications to the observer and scopes them to the session tree', async () => {
+  it('keeps events root-scoped while streaming notifications for the session tree', async () => {
     const harness = harnessWith({ FAKE_SUBAGENT: '1' })
     const seen: HarnessNotification[] = []
     const result = await harness.run('delegate', {
@@ -83,7 +82,8 @@ describe('DeepSeekHarness', () => {
     expect(seen.map(n => n.method)).toContain('subagent.finished')
     const childEvents = seen.filter(n => n.method === 'session.event' && n.params.sessionId === 'parent-1-child')
     expect(childEvents.length).toBeGreaterThan(0)
-    // Child events do not count as the parent's own turn events.
+    // TurnResult.events is the root session's typed stream; descendants retain
+    // their session ids in the raw notification stream above.
     expect(result.events.every(event => event.type !== 'assistant/message'
       || (event.data as { content: { type: string; text?: string }[] }).content[0]?.text !== 'child says hi')).toBe(true)
     await harness.close()
