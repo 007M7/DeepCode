@@ -421,7 +421,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:118`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
