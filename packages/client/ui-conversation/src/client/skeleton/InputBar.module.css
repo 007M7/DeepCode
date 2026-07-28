@@ -171,6 +171,10 @@
 .input,
 .mirror,
 .backdrop {
+  /* Textareas default to content-box (unlike buttons/inputs): without this the
+     width:100% textarea gains its padding OUTSIDE the card and text runs past
+     the right padding — and wraps 28px later than the mirror/backdrop layers. */
+  box-sizing: border-box;
   /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4. Backdrop MUST share these
      metrics or the highlight ranges drift off the glyphs. */
   padding: 4px 12px 0 16px;
@@ -306,25 +310,20 @@
   border: none;
   border-radius: 999px;
   background: var(--dsw-alias-button-info-fill);
-  color: var(--dsw-alias-label-primary-foreground);
+  /* Static white, not the foreground token: the arrow stays white on the blue
+     fill in both themes (design 34:10465). */
+  color: #fff;
   cursor: pointer;
+  transition: background-color 100ms ease;
 }
 
-.primary:hover {
+.primary:hover:not(:disabled) {
   background: var(--dsw-alias-button-info-hover);
 }
 
 .primary:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-/* Stop state: same slot, dimmed brand fill — the running-state send-key
-   replacement is a design gap filled by us (figma gives no stop form). */
-.stopping,
-.stopping:hover {
-  background: var(--dsw-alias-button-primary-dimmed);
-  color: var(--dsw-alias-label-primary);
 }
 
 .retry {

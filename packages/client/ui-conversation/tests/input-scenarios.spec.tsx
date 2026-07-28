@@ -110,7 +110,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
     sessionId, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
   })
@@ -125,9 +125,12 @@ async function scopedBench(register?: (slash: SlashService) => void) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    useNotices: bindSnapshotSelector(shell.notices),
+    useLexicon: bindSnapshotSelector(shell.lexicon),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     variant: 'composer',
@@ -231,6 +234,35 @@ describe('scenario H: backspace breaks the token', () => {
     b.type('/goa ')
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.view.container.querySelector('[data-decoration="token"]')).toBeNull()
+  })
+})
+
+describe('scenario: reference decoration lights up when the lexicon settles', () => {
+  it('a typed /name token gains the text-ref mark without further input once the roll goes hot', async () => {
+    let roll: readonly string[] | undefined
+    let notify: (() => void) | undefined
+    const b = await scopedBench((slash) => {
+      slash.registerSource({
+        trigger: '/', name: 'skill',
+        candidates: () => Promise.resolve([]),
+        onPick: () => undefined,
+        lexicon: () => roll,
+        subscribeLexicon: (_session: ClientSessionContext, listener: () => void) => {
+          notify = listener
+          return () => { notify = undefined }
+        },
+      } as never)
+    })
+    // Typed before the catalog settled: a plain token, no decoration.
+    b.type('/deploy now')
+    expect(b.view.container.querySelector('[data-decoration="text-ref"]')).toBeNull()
+    // The catalog settles (ui-skill's settle path fires the same notification).
+    act(() => {
+      roll = ['deploy']
+      notify?.()
+    })
+    const mark = b.view.container.querySelector('[data-decoration="text-ref"]')
+    expect(mark?.textContent).toBe('/deploy')
   })
 })
 

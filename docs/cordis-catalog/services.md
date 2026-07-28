@@ -423,17 +423,29 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 
 /**
  * Parse and execute a known command without sending it to the model.
+ *
+ * A resolved command's lifecycle is logged: `command/run` is appended
+ * before the handler is invoked and `command/done` after settlement (a
+ * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+ * log-only appends — no turn wraps them, and persistence drains them at
+ * ordinary checkpoints. Admission misses (syntax or unknown name) log
+ * nothing — they never entered a handler. A `command/run` append failure
+ * fails the execution loud; a `command/done` append failure on the
+ * handler-failure path is contained so the handler's own error stays the
+ * reported failure.
+ *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
  * @param signal - cancellation signal owned by the UI request.
- * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ * @returns the settled execution (result + lifecycle pairing id), or
+ *   `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:227`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -1096,6 +1108,44 @@ Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../cor
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
 
+## `ctx.sessionProjections` — `SessionProjectionRegistry`
+
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+
+```ts cordis-catalog
+/**
+ * Register one domain's unit. The registration is an effect on the calling
+ * context's fiber: disposing the fiber (or calling the returned disposer)
+ * removes the key — and the unit's cached cells — from subsequent drives
+ * and snapshots.
+ * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @returns the exact disposer that unregisters this unit.
+ */
+register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
+
+/**
+ * Subscribe to the change feed. The registration is an effect on the
+ * calling context's fiber.
+ * @param listener - called once per unit whose state reference changed, per committed event.
+ * @returns the exact disposer that unsubscribes.
+ */
+onChanged(listener: ProjectionChangeListener): () => void
+
+/**
+ * One consistent cut over every registered unit for one session, read from
+ * the watermark cache (missing cells fold lazily over the in-memory log).
+ * Fully synchronous — every value and `asOfSeq` reflect the same log
+ * position. Each value passes its unit's schema before leaving.
+ * @param session - the session whose projection values are read.
+ * @returns the snapshot; `values` is empty when no unit is registered.
+ */
+snapshot(session: Session): ProjectionSnapshot
+```
+
+Types: [Session](../core-data-structures/session.md)
+
+Source: [`packages/session-projection/session-projection/src/index.ts:136`](../../packages/session-projection/session-projection/src/index.ts)
+
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
 Unified live-preferred session query service.
@@ -1231,7 +1281,7 @@ Exact-read consumer that prepares immutable cross-session message context.
 /**
  * List reference candidates, ranked by working-directory affinity.
  * @param agent - target agent; self is excluded and its cwd drives ranking.
- * @param query - optional case-insensitive session-id/cwd substring.
+ * @param query - optional case-insensitive session-id/cwd/title substring.
  * @param limit - optional positive result cap.
  * @param signal - optional cancellation boundary for host autocomplete teardown.
  * @returns candidates labeled by latest title or, when absent, session id.
@@ -1348,28 +1398,6 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
- * Append one plugin-declared log-only event without borrowing the agent
- * loop's lifecycle. An open turn receives the event directly and remains
- * responsible for its ordinary checkpoint. A closed log receives one
- * zero-step turn around the event, followed by an awaited flush.
- *
- * Once the synthetic `turn/start` commits, this method always attempts its
- * matching `turn/end` and flush, including when the target append fails.
- * Detachment requested by an event or flush listener is deferred until that
- * sequence settles, so publication cannot switch from a live scoped session
- * to an unobserved bare `Session` halfway through the update.
- *
- * @param session - exact live session that owns the target log.
- * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
- * @param data - typed JSON payload for the target event.
- * @param trigger - plugin-owned turn trigger used only when the log is closed.
- * @returns the accepted target event with its assigned sequence and timestamp.
- * @throws when the session is detached, another out-of-band append is active,
- *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
- */
-async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>
-
-/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -1383,9 +1411,10 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 
 /**
- * Create a live child session from a turn-enclosed prefix of a live source.
+ * Create a live child session from a stable prefix of a live source.
  * `boundary` is an inclusive source event seq; omitted means the source's
- * current last event. A non-empty selected slice must end at `turn/end`.
+ * current last event. The selected slice may end with a between-turn event
+ * but must not end inside an open turn.
  *
  * @param source - Live source session object or id.
  * @param boundary - Inclusive source event seq to fork through; omitted means
@@ -1398,9 +1427,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:622`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:621`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1418,7 +1447,7 @@ get(session: Session): SessionTitleSnapshot | undefined
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
- * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+ * @param signal - optional caller cancellation.
  * @returns latest accepted title, or `undefined` when no eligible text exists.
  */
 async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
@@ -1434,7 +1463,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

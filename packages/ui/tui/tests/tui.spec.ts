@@ -1309,6 +1309,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     result.terminal.send('/clear')
     result.terminal.send('\r')
+    await tick() // the executor logs command/run durably before the handler clears
     appendAssistant(result.session, [{ type: 'text', text: 'answer after clear' }], undefined, { turn: 3, step: 1 })
     await tick()
     expect(result.terminal.output).toContain('answer after clear')
@@ -2139,7 +2140,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('/workspace/status')
     expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
     expect(result.terminal.output).toContain('hidden)')
-    expect(result.terminal.output).toContain('running · 6 events · 1 turn · 1 step · 2 tool calls')
+    // 6 domain events + the /status invocation's own command/run (open turn: joined directly).
+    expect(result.terminal.output).toContain('running · 7 events · 1 turn · 1 step · 2 tool calls')
     expect(result.terminal.output).toContain('1,250 input + 340 output')
     expect(result.terminal.output).toContain('[███████████░░░░░] 67% hit (3,000 read + 250 write)')
     expect(result.terminal.output).toContain('[█████░░░░░░░░░░░] 33% used (42,000 / 128,000)')
@@ -2180,7 +2182,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('untitled')
     expect(result.terminal.output).toContain('unset (effort unset; reasoning blocks shown)')
-    expect(result.terminal.output).toContain('idle · 0 events · 0 turns · 0 steps · 0 tool calls')
+    // The /status invocation's command/run lands directly on the empty log — no turn wraps it.
+    expect(result.terminal.output).toContain('idle · 1 event · 0 turns · 0 steps · 0 tool calls')
     expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
     expect(result.terminal.output).toContain('7 used · capacity unknown')
     expect(result.terminal.output).toContain('2026-07-22 10:11:12 UTC')
@@ -2232,8 +2235,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     for (const command of ['/clear', '/wat']) {
       result.terminal.send(command)
       result.terminal.send('\r')
+      await tick() // /clear's handler runs after the durable command/run append; keep it from wiping the next notice
     }
-    await tick()
     result.terminal.send('draft')
     result.terminal.send('\x03')
     result.terminal.send('\x04')
@@ -2271,21 +2274,50 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('combines session autocomplete with files and prepares send/steer references asynchronously', async () => {
-    let sourceId = SessionId('uninitialized')
+    const sourceId = SessionId('source-session')
+    const sourceHeader: SessionHeader = {
+      version: 0,
+      id: sourceId,
+      cwd: '/workspace',
+      createdAt: 1,
+    }
+    const noCwdHeader: SessionHeader = {
+      version: 0,
+      id: SessionId('no-cwd'),
+      createdAt: 2,
+    }
+    const sourceEvents: SessionEvent[] = [
+      {
+        type: 'user/message',
+        seq: 0,
+        time: 1,
+        data: { content: [{ type: 'text', text: 'source background' }], source: { kind: 'user' } },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'session/title',
+        seq: 1,
+        time: 2,
+        data: {
+          title: 'Source chat',
+          messageSeqs: [0],
+          source: { kind: 'fallback' },
+        },
+      },
+    ]
     const result = await setup({
+      sessionPersistence: {
+        list: async () => [noCwdHeader, sourceHeader],
+        load: async (id) => {
+          if (id === sourceId) return { meta: sourceHeader, events: sourceEvents }
+          if (id === noCwdHeader.id) return { meta: noCwdHeader, events: [] }
+          throw new Error(`unexpected persisted session ${id}`)
+        },
+      },
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
-        const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
-        sourceId = source.id
-        appendUser(source, 'source background')
-        source.append('session/title', {
-          title: 'Source chat',
-          messageSeqs: [0],
-          source: { kind: 'fallback' },
-        })
-        ctx.sessions.create(SessionId('no-cwd'), { meta: { createdAt: 2 } })
       },
     })
 
@@ -2294,7 +2326,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('(no cwd)')
     result.terminal.send('\x03')
 
-    result.terminal.send('@source-session')
+    result.terminal.send('@chat')
     await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · Source chat') })
     expect(result.terminal.output).toContain('source-session')
     result.terminal.send('\t')
@@ -3011,12 +3043,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('advertised by multiple providers')
     expect(result.terminal.output).toContain('already alpha/a1')
 
+    const firstSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select model')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
+    })
     result.terminal.send('\x1b')
     await tick()
 

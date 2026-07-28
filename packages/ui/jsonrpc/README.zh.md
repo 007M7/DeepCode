@@ -22,7 +22,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 ## 协议说明
 
-`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。一个会话只接受一个进行中的提示词；重叠请求会立即失败，其他会话保持独立，当前请求结算后该会话可再次使用。`session.finished` 报告由该提示词消息触发的轮次结果；后续注入或插件持有的零步骤轮次仍会作为 `session.event` 通知流式发出，但不能替换该提示词的状态。持久化根目录和 persona 由 `cordis.yml` 提供。
+`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。一个会话只接受一个进行中的提示词；重叠请求会立即失败，其他会话保持独立，当前请求结算后该会话可再次使用。`session.finished` 报告由该提示词消息触发的轮次结果；后续轮次间记录仍会作为 `session.event` 通知流式发出，但不能替换该提示词的状态。持久化根目录和 persona 由 `cordis.yml` 提供。
 
 ## 模型体验
 

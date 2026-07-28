@@ -22,7 +22,7 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 - `ctx.sandboxPolicy.overrideOf(session)` (the pure `sandboxOverrideOf` export, also consumed by the permission presets) — the session's override chain, never the deployment default: with an inherited `sandboxMode` header baseline (a delegation child), the fold of the session's OWN switches past `SessionHeader.seedLength`, else the baseline, validated against the closed vocabulary on read (throws on foreign values — a durable boundary); without one (a top-level session or a generic `SessionStore.fork` child), the whole-log fold, so seed-carried switches remain the replayed inherited truth. The in-process subagent driver captures this at delegation and writes it into each child's creation-time header, so a delegating parent's tightened mode binds its children with no first-turn timing window ([rationale](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)).
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
 
-The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and turn-enclosure rules.
+The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and core execution-enclosure rules.
 
 ## The per-session store
 

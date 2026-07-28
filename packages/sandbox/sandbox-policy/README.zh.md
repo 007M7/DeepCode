@@ -22,7 +22,7 @@
 - `ctx.sandboxPolicy.overrideOf(session)`（即纯函数导出 `sandboxOverrideOf`，也供权限 preset 消费）：会话的覆盖链，绝不包含部署默认值：当存在继承的 `sandboxMode` 会话头基线时（即委派子 agent），先折叠会话自己在 `SessionHeader.seedLength` 之后的切换，否则取该基线，读取时按封闭词汇校验（遇到词汇之外的值即抛出异常——这是一条持久边界）；没有基线时（顶层会话或通用的 `SessionStore.fork` 子会话），折叠覆盖完整日志，因此种子携带的切换仍是回放所得的继承事实。进程内 subagent 驱动器在委派时捕获该值，并写入每个子 agent 创建时的会话头，使发起委派的父级收紧后的模式约束其子 agent，且不存在任何第一轮次的时序窗口（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)）。
 - `SANDBOX_MODES`：所有模式，用于选项展示与运行时验证。
 
-可选的 `./invariant` 配套组件会拒绝伪造的持久 `sandbox/mode` 事件，只要其值不在该封闭词汇中；Session 与其配套组件拥有周围的存储与轮次封闭规则。
+可选的 `./invariant` 配套组件会拒绝伪造的持久 `sandbox/mode` 事件，只要其值不在该封闭词汇中；Session 与其配套组件拥有周围的存储与核心执行封闭规则。
 
 ## 逐会话 store
 

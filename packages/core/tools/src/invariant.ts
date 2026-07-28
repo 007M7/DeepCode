@@ -1,6 +1,7 @@
 /** Package-owned tool-pipeline invariants. @module @deepseek-ai/dsh-tools/invariant */
 
 import type { Context } from 'cordis'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { ToolExecution, ToolExecutionResult } from './index.ts'
 
@@ -28,10 +29,40 @@ function validateResult(
   }
 }
 
-/** Install monotonic pipeline and final-snapshot checks. */
-const install: InvariantInstaller = (ctx, fail) => {
+/** Install monotonic pipeline, final-snapshot, and code-dispatch enclosure checks. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const stages = new WeakMap<object, ToolStage>()
+  const openTurns = new WeakMap<Session, number | null>()
+  const seed = (session: Session): number | null => {
+    let openTurn: number | null = null
+    for (const event of session.events) {
+      if (event.type === 'turn/start') openTurn = event.data.turn
+      else if (event.type === 'turn/end') openTurn = null
+      else if ((event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch')
+        && openTurn === null) {
+        fail(`${event.type} appended outside any open turn`)
+      }
+    }
+    openTurns.set(session, openTurn)
+    return openTurn
+  }
+  const openTurnFor = (session: Session): number | null => openTurns.get(session) ?? seed(session)
+
+  for (const session of ctx.sessions.list()) seed(session)
+  ctx.on('session/created', (session) => { seed(session) }, { global: true })
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/start') openTurns.set(session, event.data.turn)
+    else if (event.type === 'turn/end') openTurns.set(session, null)
+  }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName === 'session/event') {
+      const [session, event] = args as [Session, SessionEvent]
+      if ((event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch')
+        && openTurnFor(session) === null) {
+        fail(`${event.type} appended outside any open turn`)
+      }
+      return
+    }
     if (eventName === 'tools/pre-execute') {
       const exec = args[0] as ToolExecution
       if (stages.has(exec)) fail('tools/pre-execute repeated for one execution')
@@ -58,7 +89,7 @@ const install: InvariantInstaller = (ctx, fail) => {
     validateResult(exec, result, fail)
     stages.delete(exec)
   }, { global: true })
-}
+}, { inject: ['sessions'] })
 
 /**
  * Register the tools invariant companion.

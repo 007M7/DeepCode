@@ -58,4 +58,10 @@ describe('publint package runner', () => {
     expect(result.status).toBe(1)
     expect(result.stdout).toContain('unpublished.js')
   })
+
+  it('rejects a public export whose built file is missing', () => {
+    const result = run(fixture('./lib/missing.js'))
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('missing.js')
+  })
 })

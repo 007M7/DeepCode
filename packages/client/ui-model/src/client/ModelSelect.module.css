@@ -72,9 +72,11 @@
   max-height: min(360px, calc(100vh - 96px));
   overflow: hidden;
   padding: 4px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  /* Surface tokens match the Menu primitive card (ui-primitives
+   * Menu.module.css) so every dropdown reads as the same material. */
+  border: 1px solid var(--dsw-alias-border-inverted);
   border-radius: 12px;
-  background: var(--dsw-specific-input-major);
+  background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
   color: var(--dsw-alias-label-primary);
 }
@@ -132,7 +134,7 @@
   top: 0;
   z-index: 1;
   padding: 5px 8px 3px;
-  background: var(--dsw-specific-input-major);
+  background: var(--dsw-specific-menu);
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
@@ -156,9 +158,14 @@
 }
 
 .option:hover:not(:disabled),
-.option:focus-visible,
-.selected {
+.option:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Selection marker is the trailing check, not a fill — matches the Menu
+ * primitive's selected treatment. */
+.selected {
+  background: transparent;
 }
 
 .option:disabled {
@@ -201,7 +208,7 @@
   display: grid;
   place-items: center;
   flex: 0 0 18px;
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary);
 }
 
 /* Two-level root cells (figma 496:26454 .Menu_cell): 40px row, 10px side

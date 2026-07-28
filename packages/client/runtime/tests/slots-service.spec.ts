@@ -97,18 +97,13 @@ function fakeWorkspaces() {
   return { list: { getSnapshot: () => state, subscribe: () => () => undefined } }
 }
 
-/** Minimal sessions face for the host seam (list observable + provide bundle). */
+/** Minimal sessions face for the host seam (list observable + current provide projection). */
 function fakeSessions() {
   const state = { ids: [], byId: {}, current: undefined as string | undefined }
+  const absentInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
   return {
     list: { getSnapshot: () => state, subscribe: () => () => undefined },
-    provideInfo: (id: string) => (id === 'known'
-      ? {
-        sessionId: id,
-        hooks: { session: { getSnapshot: () => undefined, subscribe: () => () => undefined } },
-        props: {},
-      }
-      : undefined),
+    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => undefined },
   }
 }
 
@@ -232,13 +227,11 @@ describe('host face', () => {
     expect(host.entriesOf('t.host')).toHaveLength(0)
   })
 
-  it('exposes sessions list/current/provideInfo (current riding the list snapshot)', async () => {
+  it('exposes the session list and the atomic current provide projection', async () => {
     const bench = await boot()
     const host = captureHost(bench)
     expect(host.sessions.list.getSnapshot()).toMatchObject({ ids: [] })
-    expect(host.sessions.current.getSnapshot()).toBeUndefined()
-    expect(host.sessions.provideInfo('known')).toMatchObject({ sessionId: 'known' })
-    expect(host.sessions.provideInfo('ghost')).toBeUndefined()
+    expect(host.sessions.provideInfo.getSnapshot()).toMatchObject({ sessionId: undefined })
   })
 
   it('exposes the independent Workspace list source', async () => {

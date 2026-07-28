@@ -72,7 +72,7 @@ export function Tooltip({ label, side = 'right', disabled = false, children }: {
       {cloneElement(children, {
         ref: mergedRef,
         onMouseEnter: (e) => { children.props.onMouseEnter?.(e); triggers.current.hover = true; show() },
-        onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; hide() },
+        onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; setPos(null) },
         onFocus: (e) => { children.props.onFocus?.(e); triggers.current.focus = true; show() },
         onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },
       })}

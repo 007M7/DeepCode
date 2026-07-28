@@ -7,6 +7,7 @@ import type { ViewTab } from './contract/views.ts'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
+import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { InputHub } from './input/hub.ts'
@@ -135,13 +136,15 @@ export function apply(ctx: Context): void {
       'conversation.input.model': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId): ComposerBarInjected => {
+      const shell = inputHub.shell(sessionId)
       return {
-        keyboard: inputHub.keyboard(sessionId),
+        keyboard: shell,
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
+        hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },
   }, InputBar)
@@ -156,7 +159,10 @@ export function apply(ctx: Context): void {
     id: 'chat',
     order: 0,
     label: 'Chat',
-    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+    children: {
+      'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const scoped = scopedConversation(sessions, sessionId)
@@ -164,6 +170,13 @@ export function apply(ctx: Context): void {
         openDetails: (target) => {
           actions.select(target)
           layout.openDetails()
+        },
+        openFile: (path) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+            // Host/OS open failures stay silent in the chat row; the native
+            // app surfaces its own error dialog when the path is unusable.
+          })
         },
         loadOlder: () => { void scoped.loadOlder() },
       }

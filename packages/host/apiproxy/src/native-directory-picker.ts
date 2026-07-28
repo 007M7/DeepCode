@@ -1,40 +1,15 @@
 /** Cross-platform native single-directory picker used by the local GUI carrier. */
 
-import { execFile } from 'node:child_process'
+import { runNativeCommand, type NativeCommandRunner } from './native-command.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
-export type DirectoryPickerRunner = (
-  command: string,
-  args: readonly string[],
-  signal: AbortSignal,
-) => Promise<{ stdout: string; stderr: string }>
+export type DirectoryPickerRunner = NativeCommandRunner
 
 /** Injectable platform facts for deterministic adapter tests. */
 export interface DirectoryPickerInternals {
   platform?: NodeJS.Platform
   run?: DirectoryPickerRunner
 }
-
-const runCommand: DirectoryPickerRunner = (command, args, signal) =>
-  new Promise((resolve, reject) => {
-    execFile(
-      command,
-      [...args],
-      { encoding: 'utf8', signal, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          const failure = Object.assign(new Error(error.message, { cause: error }), {
-            code: error.code,
-            stdout,
-            stderr,
-          })
-          reject(failure)
-          return
-        }
-        resolve({ stdout, stderr })
-      },
-    )
-  })
 
 function outputPath(stdout: string): string | null {
   const path = stdout.replace(/[\r\n]+$/, '')
@@ -72,7 +47,7 @@ export async function pickNativeDirectory(
   internals: DirectoryPickerInternals = {},
 ): Promise<string | null> {
   const platform = internals.platform ?? process.platform
-  const run = internals.run ?? runCommand
+  const run = internals.run ?? runNativeCommand
 
   if (platform === 'darwin') {
     try {

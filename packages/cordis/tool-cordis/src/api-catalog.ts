@@ -245,8 +245,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
       },
       {
-        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
-        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax or name does not resolve.\n */',
+        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
+        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n *\n * A resolved command\'s lifecycle is logged: `command/run` is appended\n * before the handler is invoked and `command/done` after settlement (a\n * thrown or aborted handler settles as `kind: \'error\'`). Both are direct\n * log-only appends — no turn wraps them, and persistence drains them at\n * ordinary checkpoints. Admission misses (syntax or unknown name) log\n * nothing — they never entered a handler. A `command/run` append failure\n * fails the execution loud; a `command/done` append failure on the\n * handler-failure path is contained so the handler\'s own error stays the\n * reported failure.\n *\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns the settled execution (result + lifecycle pairing id), or\n *   `undefined` when syntax or name does not resolve.\n */',
       },
     ],
   },
@@ -543,6 +543,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionProjections',
+    summary: '`ctx.sessionProjections`: the projection unit table and its drive.',
+    methods: [
+      {
+        signature: 'register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void',
+        jsDoc: '/**\n * Register one domain\'s unit. The registration is an effect on the calling\n * context\'s fiber: disposing the fiber (or calling the returned disposer)\n * removes the key — and the unit\'s cached cells — from subsequent drives\n * and snapshots.\n * @param definition - key, boundary schema, pure unit functions, and stateVersion.\n * @returns the exact disposer that unregisters this unit.\n */',
+      },
+      {
+        signature: 'onChanged(listener: ProjectionChangeListener): () => void',
+        jsDoc: '/**\n * Subscribe to the change feed. The registration is an effect on the\n * calling context\'s fiber.\n * @param listener - called once per unit whose state reference changed, per committed event.\n * @returns the exact disposer that unsubscribes.\n */',
+      },
+      {
+        signature: 'snapshot(session: Session): ProjectionSnapshot',
+        jsDoc: '/**\n * One consistent cut over every registered unit for one session, read from\n * the watermark cache (missing cells fold lazily over the in-memory log).\n * Fully synchronous — every value and `asOfSeq` reflect the same log\n * position. Each value passes its unit\'s schema before leaving.\n * @param session - the session whose projection values are read.\n * @returns the snapshot; `values` is empty when no unit is registered.\n */',
+      },
+    ],
+  },
+  {
     key: 'sessionQuery',
     summary: 'Unified live-preferred session query service.',
     methods: [
@@ -610,7 +628,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
-        jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
+        jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd/title substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
       },
       {
         signature: 'async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>',
@@ -643,10 +661,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
       },
       {
-        signature: 'async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>',
-        jsDoc: '/**\n * Append one plugin-declared log-only event without borrowing the agent\n * loop\'s lifecycle. An open turn receives the event directly and remains\n * responsible for its ordinary checkpoint. A closed log receives one\n * zero-step turn around the event, followed by an awaited flush.\n *\n * Once the synthetic `turn/start` commits, this method always attempts its\n * matching `turn/end` and flush, including when the target append fails.\n * Detachment requested by an event or flush listener is deferred until that\n * sequence settles, so publication cannot switch from a live scoped session\n * to an unobserved bare `Session` halfway through the update.\n *\n * @param session - exact live session that owns the target log.\n * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.\n * @param data - typed JSON payload for the target event.\n * @param trigger - plugin-owned turn trigger used only when the log is closed.\n * @returns the accepted target event with its assigned sequence and timestamp.\n * @throws when the session is detached, another out-of-band append is active,\n *   event acceptance fails, the synthetic turn cannot close, or flushing fails.\n */',
-      },
-      {
         signature: 'get(id: SessionId): Session | undefined',
         jsDoc: '/**\n * Look up a live session.\n * @param id - the session id to look up.\n * @returns the session, or undefined when no live session has that id.\n */',
       },
@@ -656,7 +670,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
-        jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
+        jsDoc: '/**\n * Create a live child session from a stable prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. The selected slice may end with a between-turn event\n * but must not end inside an open turn.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
       },
     ],
   },
@@ -670,7 +684,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
+        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
       {
         signature: 'register(provider: SessionTitleProvider): () => Promise<void>',
@@ -1530,6 +1544,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n}',
   },
   {
+    name: 'CommandExecution',
+    declaration: 'export interface CommandExecution {\n    readonly commandId: CommandId;\n    readonly result: CommandResult;\n}',
+  },
+  {
+    name: 'CommandId',
+    declaration: 'export type CommandId = Branded<\'CommandId\'>;',
+  },
+  {
     name: 'CommandInputDescriptor',
     declaration: 'export interface CommandInputDescriptor {\n    readonly hint: string;\n}',
   },
@@ -1814,14 +1836,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
-    name: 'OutOfBandSessionEventMap',
-    declaration: 'export interface OutOfBandSessionEventMap {\n}',
-  },
-  {
-    name: 'OutOfBandSessionEventType',
-    declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
-  },
-  {
     name: 'PreparedLlmCall',
     declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
@@ -1836,6 +1850,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'ProjectionChangeListener',
+    declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
+  },
+  {
+    name: 'ProjectionDefinition',
+    declaration: 'export interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {\n    key: K;\n    schema: ZodType<SessionProjectionMap[K]>;\n    init(): S;\n    apply(state: S, event: SessionEvent): S;\n    view(state: S): SessionProjectionMap[K];\n    stateVersion: number;\n}',
+  },
+  {
+    name: 'ProjectionSnapshot',
+    declaration: 'export interface ProjectionSnapshot {\n    asOfSeq: number;\n    values: Partial<SessionProjectionMap>;\n}',
   },
   {
     name: 'PromptAssembly',
@@ -2104,6 +2130,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceSnapshot',
     declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
+    name: 'SessionProjectionMap',
+    declaration: 'export interface SessionProjectionMap {\n}',
   },
   {
     name: 'SessionRecord',

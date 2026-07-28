@@ -8,8 +8,7 @@
   justify-content: center;
   height: 100%;
   min-width: 0;
-  padding: 24px;
-  margin-bottom: -70px;
+  padding: 0 24px;
 }
 
 /* Cap matches InputBar card width (800). Glow may paint past the sides. */
@@ -24,17 +23,15 @@
   overflow: visible;
 }
 
-/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt600; title block
-   keeps 36px below the headline before the flex gap. */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. */
 .headline {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding-bottom: 36px;
   font-size: 26px;
   line-height: 32px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -44,8 +41,9 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
-/* Workspace row sits 12px above the input card (figma y80 → y112). Glow is
-   centered on this block so it stays under the picker + InputBar together. */
+/* Workspace row sits 12px above the input card (figma y80 → y112). The blue
+   glow lives with the owner (ConversationRoot .heroGlow) so it can center on
+   the input card. */
 .body {
   position: relative;
   display: flex;
@@ -55,19 +53,7 @@
   overflow: visible;
 }
 
-/* Design input 776 → glow SVG 1051×468 (ellipse 851×268 + blur pad). */
-.glow {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 0;
-  width: calc(100% * 1051 / 776);
-  aspect-ratio: 1051 / 468;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.body > :not(.glow) {
+.body > * {
   position: relative;
   z-index: 1;
 }
@@ -88,7 +74,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: fit-content;
+  max-width: min(100%, 360px);
   min-height: 28px;
   padding: 0 8px;
   border: none;
