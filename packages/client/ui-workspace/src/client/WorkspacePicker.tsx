@@ -76,9 +76,10 @@ export function WorkspaceCreateFlow({
     if (!open) return
     let stale = false
     directoryPickerKind().then(
-      // The wire type is the closed two-kind union today; a fetch failure is
-      // the reachable 'unknown' arm (an unadvertisable host hides the entry).
-      (kind) => { if (!stale) setPickerKind(kind) },
+      // The wire kind is an open string (a merge-added capability advertises
+      // before this client knows it): anything but the two known kinds hides
+      // the entry, as does a fetch failure.
+      (kind) => { if (!stale) setPickerKind(kind === 'dialog' || kind === 'browse' ? kind : 'unknown') },
       () => { if (!stale) setPickerKind('unknown') },
     )
     return () => { stale = true }

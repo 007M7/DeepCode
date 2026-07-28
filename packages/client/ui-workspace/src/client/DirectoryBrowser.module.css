@@ -1,21 +1,40 @@
-/* Directory-browser dialog (figma 802-56979). The shared Modal owns the mask,
- * card, and title row; this module widens the card and rebuilds the figma
- * header/footer separators with bleed margins inside the 24px content column. */
+/* Directory-browser dialog (figma 802-56979). The shared Modal renders
+ * headless here — mask, card, Escape only — and this module owns the figma
+ * frame exactly: header (title + crumbs, l3 separator), one directory level,
+ * and the bordered footer. Card: w600 r24, bottom pad 12, no close chrome. */
 
-.dialog {
+/* Doubled class beats Modal's own .dialog regardless of stylesheet order. */
+.dialog.dialog {
   width: min(600px, 100%);
+  padding: 0 0 12px;
+  gap: 16px;
 }
 
-/* Breadcrumb bar sits visually inside the header block: bleed to the card
- * edges, close the header's 12px bottom pad, draw the l3 separator. */
+/* Header block: pl24 pr14 pt22 pb12, 8px between title row and crumb row. */
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 14px 12px 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+.title {
+  display: flex;
+  align-items: flex-end;
+  min-height: 28px;
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
 .crumbBar {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 32px;
-  margin: -12px -24px 0;
-  padding: 0 24px 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l3);
+  min-height: 20px;
 }
 
 .crumbSeat {
@@ -65,7 +84,7 @@
   box-sizing: border-box;
   flex: 1 1 0;
   min-width: 0;
-  height: 28px;
+  height: 24px;
   padding: 0 8px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
@@ -76,12 +95,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* One directory level: 28px rows, r6, folder icon + name + enter chevron. */
+/* One directory level: content column pt16 px24, 28px rows with 2px gaps. */
 .level {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: -4px;
+  padding: 16px 24px 0;
   max-height: 320px;
   overflow-y: auto;
 }
@@ -164,15 +183,12 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* Footer: the l3 separator above the action row, New-folder pinned left
- * (bleeds across the card; 12px stays below, matching the figma card pad). */
+/* Footer: l3 separator on top, pt12 px24, New-folder pinned left. */
 .footerBar {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% + 48px);
-  margin: 0 -24px -12px;
-  padding: 12px 24px;
+  padding: 12px 24px 0;
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 

@@ -280,6 +280,58 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
+  it('drops a picker-kind failure that lands after unmount', async () => {
+    let rejectKind!: (reason: unknown) => void
+    const pending = new Promise<'dialog'>((_settle, fail) => { rejectKind = fail })
+    const b = mount([], vi.fn(), vi.fn(), { directoryPickerKind: vi.fn(() => pending) })
+    b.view.unmount()
+    await act(async () => {
+      rejectKind(new Error('gone'))
+      await pending.catch(() => {})
+    })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('drops a picker-kind resolution that lands after unmount', async () => {
+    let resolveKind!: (kind: 'dialog') => void
+    const pending = new Promise<'dialog'>((settle) => { resolveKind = settle })
+    const b = mount([], vi.fn(), vi.fn(), { directoryPickerKind: vi.fn(() => pending) })
+    b.view.unmount()
+    await act(async () => {
+      resolveKind('dialog')
+      await pending
+    })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('reports a browse adoption failure thrown as a plain string', async () => {
+    const b = mount([], vi.fn(async () => { throw 'disk detached' }), vi.fn(), {
+      directoryPickerKind: vi.fn(async () => 'browse' as const),
+    })
+    await chooseLocalFolder()
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'browser.title' })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.open' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('disk detached') })
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
+  it('reports a native picker Error by its message', async () => {
+    const b = mount([], vi.fn(), vi.fn(async () => { throw new Error('no chooser installed') }))
+    await chooseLocalFolder()
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('no chooser installed') })
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('hides the local-folder entry for an unrecognized advertised kind', async () => {
+    mount([], vi.fn(), vi.fn(), {
+      directoryPickerKind: vi.fn(async () => 'electron-native'),
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    })
+    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
+  })
+
   it('hides the local-folder entry when the picker kind is unknown', async () => {
     mount([], vi.fn(), vi.fn(), {
       directoryPickerKind: vi.fn(async () => { throw new Error('unreachable host') }),

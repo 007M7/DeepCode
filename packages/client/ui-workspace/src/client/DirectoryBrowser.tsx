@@ -100,6 +100,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [open, navigate])
 
   const confirmFolder = (): void => {
+    /* v8 ignore next -- reentry fence: the inline row only renders with a listing and a draft, and the input disables while creating. */
     if (listing === null || folderDraft === null || creatingFolder) return
     const name = folderDraft.trim()
     if (name === '') return
@@ -126,78 +127,61 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       onClose={onClose}
       title={t('browser.title')}
       className={clsx(css.dialog)}
-      footer={(
-        <div className={css.footerBar}>
-          <Button
-            variant="outline"
-            icon={<IconPlusOutline16 size={14} />}
-            disabled={listing === null || busy || folderDraft !== null}
-            onClick={() => { setFolderDraft('') }}
-          >
-            {t('browser.newFolder')}
-          </Button>
-          <span className={css.footerGap} />
-          <Button variant="outline" className={css.footerAction} disabled={busy} onClick={onClose}>{t('browser.cancel')}</Button>
-          <Button
-            variant="primary"
-            className={css.footerAction}
-            disabled={listing === null || loading || busy}
-            onClick={() => { if (listing !== null) onOpen(listing.path) }}
-          >
-            {t('browser.open')}
-          </Button>
-        </div>
-      )}
+      headless
     >
-      <div className={css.crumbBar}>
-        {pathDraft === null
-          ? (
-            <>
-              {crumbs.map((crumb, index) => (
-                <span key={crumb.path} className={css.crumbSeat}>
-                  {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
-                  <button
-                    type="button"
-                    className={css.crumb}
-                    disabled={busy}
-                    onClick={() => { navigate(crumb.path) }}
-                  >
-                    {crumb.name}
-                  </button>
-                </span>
-              ))}
-              {/* The empty zone right of the crumbs is the path-edit affordance. */}
-              <button
-                type="button"
-                className={css.crumbEditZone}
+      <div className={css.header}>
+        <h2 className={css.title}>{t('browser.title')}</h2>
+        <div className={css.crumbBar}>
+          {pathDraft === null
+            ? (
+              <>
+                {crumbs.map((crumb, index) => (
+                  <span key={crumb.path} className={css.crumbSeat}>
+                    {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
+                    <button
+                      type="button"
+                      className={css.crumb}
+                      disabled={busy}
+                      onClick={() => { navigate(crumb.path) }}
+                    >
+                      {crumb.name}
+                    </button>
+                  </span>
+                ))}
+                {/* The empty zone right of the crumbs is the path-edit affordance. */}
+                <button
+                  type="button"
+                  className={css.crumbEditZone}
+                  aria-label={t('browser.editPath')}
+                  disabled={listing === null || busy}
+                  /* v8 ignore next -- narrowing guard: the zone disables while the listing is null. */
+                  onClick={() => { if (listing !== null) setPathDraft(listing.path) }}
+                />
+              </>
+            )
+            : (
+              <input
+                className={css.pathInput}
+                value={pathDraft}
                 aria-label={t('browser.editPath')}
-                disabled={listing === null || busy}
-                onClick={() => { if (listing !== null) setPathDraft(listing.path) }}
+                autoFocus
+                disabled={busy}
+                onChange={(event) => { setPathDraft(event.target.value) }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    const target = pathDraft.trim()
+                    if (target !== '') navigate(target)
+                  }
+                  if (event.key === 'Escape') {
+                    event.stopPropagation()
+                    setPathDraft(null)
+                    setError(null)
+                  }
+                }}
               />
-            </>
-          )
-          : (
-            <input
-              className={css.pathInput}
-              value={pathDraft}
-              aria-label={t('browser.editPath')}
-              autoFocus
-              disabled={busy}
-              onChange={(event) => { setPathDraft(event.target.value) }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  const target = pathDraft.trim()
-                  if (target !== '') navigate(target)
-                }
-                if (event.key === 'Escape') {
-                  event.stopPropagation()
-                  setPathDraft(null)
-                  setError(null)
-                }
-              }}
-            />
-          )}
+            )}
+        </div>
       </div>
       <div className={css.level} role="list" aria-label={t('browser.title')}>
         {folderDraft !== null && listing !== null && (
@@ -240,6 +224,27 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         ))}
         {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
         {error !== null && <div className={css.error} role="alert">{error}</div>}
+      </div>
+      <div className={css.footerBar}>
+        <Button
+          variant="outline"
+          icon={<IconPlusOutline16 size={14} />}
+          disabled={listing === null || busy || folderDraft !== null}
+          onClick={() => { setFolderDraft('') }}
+        >
+          {t('browser.newFolder')}
+        </Button>
+        <span className={css.footerGap} />
+        <Button variant="outline" className={clsx(css.footerAction)} disabled={busy} onClick={onClose}>{t('browser.cancel')}</Button>
+        <Button
+          variant="primary"
+          className={clsx(css.footerAction)}
+          disabled={listing === null || loading || busy}
+          /* v8 ignore next -- narrowing guard: Open disables while the listing is null. */
+          onClick={() => { if (listing !== null) onOpen(listing.path) }}
+        >
+          {t('browser.open')}
+        </Button>
       </div>
     </Modal>
   )
