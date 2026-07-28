@@ -40,18 +40,35 @@ export interface SlashControllerDeps {
 export class SlashController {
   /** Menu state store (per-session; survives session switches, dies with the scope). */
   readonly menu: SnapshotStore<MenuState> = createSnapshotStore<MenuState>(MENU_CLOSED)
+  /**
+   * Aggregated hot reference lexicon, grouped by trigger (decision 21):
+   * sources implementing the lexicon hook are polled with the session
+   * projection; undefined answers (roll not hot yet) are skipped; multiple
+   * sources on one trigger concatenate in registration order. A snapshot
+   * store because rolls change asynchronously (catalog settles, children
+   * spawn/exit) — render-side consumers subscribe instead of re-reading a
+   * mutable answer.
+   */
+  readonly lexicon: SnapshotStore<ReadonlyMap<TriggerChar, readonly string[]>> =
+    createSnapshotStore<ReadonlyMap<TriggerChar, readonly string[]>>(new Map())
 
   /** The authoritative hit: single truth for span CAS material (menu snapshot never carries it alone). */
   private hit: TriggerHit | null = null
   private fetch: AbortController | null = null
   private disposed = false
+  /** Per-source lexicon unsubscribers (sources without the hook never enter). */
+  private readonly lexiconOffs = new Map<SlashSource, () => void>()
 
   constructor(private readonly deps: SlashControllerDeps) {
     // Scope-birth prewarm: sessions are always agent-backed, so the one-time
     // roster warm here replaces the projection-transition watch — there are
     // no capability steps to react to.
     const projection = this.project()
-    for (const src of deps.roster.all()) src.warm?.(projection)
+    for (const src of deps.roster.all()) {
+      src.warm?.(projection)
+      this.watchLexicon(src, projection)
+    }
+    this.refreshLexicon()
   }
 
   /**
@@ -220,6 +237,23 @@ export class SlashController {
     if (state.open && state.hit !== null && state.hit.trigger === source.trigger) {
       this.reduce({ type: 'source-failed', generation: state.generation, source: source.name })
     }
+    this.lexiconOffs.get(source)?.()
+    this.lexiconOffs.delete(source)
+    this.refreshLexicon()
+  }
+
+  /**
+   * Admit a source registered after this controller's birth (root registry
+   * change notification): warm it and fold its roll into the live lexicon —
+   * the constructor-time prewarm covers only the roster present at scope
+   * birth.
+   * @param source - the newly registered source.
+   */
+  sourceAdded(source: SlashSource): void {
+    const projection = this.project()
+    source.warm?.(projection)
+    this.watchLexicon(source, projection)
+    this.refreshLexicon()
   }
 
   /** Scope teardown: close and abort (the service deletes the map entry). */
@@ -228,6 +262,8 @@ export class SlashController {
     this.stopFetch()
     this.reduce({ type: 'close' })
     this.hit = null
+    for (const off of this.lexiconOffs.values()) off()
+    this.lexiconOffs.clear()
   }
 
   /** The session projection handed to sources (agent-backed identity; constant per scope). */
@@ -248,25 +284,33 @@ export class SlashController {
     return actx.bail(actx, 'slash/input-insert-reference', { reference: outcome.insert, span }) === true
   }
 
-  /**
-   * Aggregate the sources' plain-text reference lexicons (decision 21),
-   * grouped by trigger: sources implementing the hook are polled with the
-   * session projection (onSpace's poll pattern); undefined answers (roll not
-   * hot yet) are skipped; multiple sources on one trigger concatenate in
-   * registration order.
-   * @returns trigger → decorated-name roll for the decoration scan.
-   */
-  lexicon(): ReadonlyMap<TriggerChar, readonly string[]> {
+  /** Re-poll every lexicon-bearing source and publish the aggregated rolls (see the store doc). */
+  private refreshLexicon(): void {
     const projection = this.project()
     const rolls = new Map<TriggerChar, readonly string[]>()
     for (const src of this.deps.roster.all()) {
       if (src.lexicon === undefined) continue
-      const names = src.lexicon(projection)
+      let names: readonly string[] | undefined
+      try {
+        names = src.lexicon(projection)
+      } catch (error) {
+        // A faulty source drops silently with a console record (the
+        // candidate-fetch failure policy); the refresh runs inside
+        // notification callbacks, where a throw would starve other consumers.
+        console.error(`[ui-slash] source "${src.name}" lexicon failed:`, error)
+        continue
+      }
       if (names === undefined) continue
       const prev = rolls.get(src.trigger)
       rolls.set(src.trigger, prev === undefined ? names : [...prev, ...names])
     }
-    return rolls
+    this.lexicon.set(rolls)
+  }
+
+  /** Wire one source's lexicon invalidation channel into refresh (hookless or roll-less sources never notify). */
+  private watchLexicon(source: SlashSource, projection: ClientSessionContext): void {
+    if (source.lexicon === undefined || source.subscribeLexicon === undefined) return
+    this.lexiconOffs.set(source, source.subscribeLexicon(projection, () => { this.refreshLexicon() }))
   }
 
   /** Launch the candidate fetch for one hit generation, superseding the previous one. */

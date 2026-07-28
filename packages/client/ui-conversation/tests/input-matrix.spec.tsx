@@ -42,6 +42,8 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    useNotices: bindSnapshotSelector(shell.notices),
+    useLexicon: bindSnapshotSelector(shell.lexicon),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     variant: 'composer',

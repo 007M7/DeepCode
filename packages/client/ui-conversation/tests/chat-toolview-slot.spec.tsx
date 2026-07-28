@@ -24,6 +24,9 @@ import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/clien
 
 const SID = 's1' as SessionId
 
+/** Identity-stable no-session bundle (uSES getSnapshot contract). */
+const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear between cases.
 beforeEach(() => {
@@ -89,30 +92,28 @@ async function bench(nodes: ToolResultNode[]) {
       subscribe: (fn: () => void) => session.subscribe(fn),
     },
   })
+  const provideInfo = (id: string) => {
+    if (id !== SID) return undefined
+    if (info === undefined) {
+      const hooks: Record<string, unknown> = { session }
+      const props: Record<string, unknown> = {}
+      for (const provider of providers) {
+        const c = provider(bindingOf(SID))
+        Object.assign(hooks, c.hooks ?? {})
+        Object.assign(props, c.props ?? {})
+      }
+      info = { sessionId: SID, hooks, props }
+    }
+    return info
+  }
   ctx.provide('sessions', {
     list,
     binding: bindingOf,
     scope: () => actxFake,
-    provideInfo: (id: string) => {
-      if (id !== SID) return undefined
-      if (info === undefined) {
-        const hooks: Record<string, unknown> = { session }
-        const props: Record<string, unknown> = {}
-        for (const provider of providers) {
-          const c = provider(bindingOf(SID))
-          Object.assign(hooks, c.hooks ?? {})
-          Object.assign(props, c.props ?? {})
-        }
-        info = { sessionId: SID, hooks, props }
-      }
-      return info
-    },
-    maybeProvideInfo(id: string | undefined) {
-      // `this` inside an object-literal method is any under strict lint; the
-      // fake resolves through its own provideInfo above.
-      /* eslint-disable-next-line @typescript-eslint/no-unsafe-return,
-         @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-      return (id === undefined ? undefined : this.provideInfo(id)) ?? { hooks: {}, props: {} }
+    provideInfo,
+    currentProvideInfo: {
+      getSnapshot: () => provideInfo(SID),
+      subscribe: () => () => {},
     },
     provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
     scopeOf: () => SID,
@@ -254,7 +255,10 @@ describe('registrant load-order seam', () => {
       binding: () => undefined,
       scope: () => undefined,
       provideInfo: () => undefined,
-      maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+      currentProvideInfo: {
+        getSnapshot: () => ABSENT_INFO,
+        subscribe: () => () => {},
+      },
       provide: () => () => {},
       create: vi.fn(),
       open: vi.fn(),
