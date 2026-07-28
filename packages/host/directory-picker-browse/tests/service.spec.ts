@@ -95,8 +95,13 @@ describe('BrowseDirectoryPicker', () => {
     // own and there is nothing to close.
     await expect(capability.list(join(root, 'no-such-dir'), gone.signal)).rejects.toThrow('caller left')
     await new Promise(resolve => setTimeout(resolve, 10))
-    // A live signal changes nothing about ordinary failures.
+    // A live signal leaves a normal listing untouched — the reads and the
+    // symlink probes race it without ever losing.
     const live = new AbortController()
+    const complete = await capability.list(root, live.signal)
+    expect(complete.truncated).toBe(false)
+    expect(complete.entries.map(entry => entry.name)).toContain('linked')
+    // A live signal changes nothing about ordinary failures.
     const missing = join(root, 'no-such-dir')
     const failure = await capability.list(missing, live.signal).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(DirectoryPickerError)
