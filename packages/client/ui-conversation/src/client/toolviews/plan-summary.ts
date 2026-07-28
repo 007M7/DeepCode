@@ -38,8 +38,10 @@ export interface PlanSummary {
  * the first `in_progress` item and counts the remaining active ones, so a
  * parallel plan reports how many tasks are running rather than naming one and
  * hiding the others. `activeContent` is null when nothing is in progress, or
- * when the first active item carries no usable content — model JSON may, and
- * the caller then falls back to its own summary.
+ * when the first active item carries no usable content — model JSON may. The
+ * row then renders the counts alone rather than falling back to the generic
+ * tool summary: the counts are already known to be good, and the active-item
+ * clause is the only part an unusable name costs.
  * @param todos - the whole list, in model order.
  * @returns the done/total counts and the two summary halves.
  */
