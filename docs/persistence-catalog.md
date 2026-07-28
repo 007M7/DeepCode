@@ -178,10 +178,10 @@ Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/
  * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
  * rendered failure); presentation stays client-computed at render time.
  */
-'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
+'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:140`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:143`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -195,10 +195,10 @@ Source: [`packages/ui/commands/src/index.ts:140`](../packages/ui/commands/src/in
  * folding its own command records, a rich command card) never re-parses
  * a line.
  */
-'command/run': { commandId: string; name: string; args: string; source: CommandSource }
+'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:134`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:137`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 

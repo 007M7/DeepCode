@@ -419,7 +419,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:161`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:164`](../../packages/ui/commands/src/index.ts)
 
 ## `domain/*`
 
