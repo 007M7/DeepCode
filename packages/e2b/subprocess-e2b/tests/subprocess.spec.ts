@@ -103,6 +103,7 @@ class FakeSandbox {
   readonly signalErrors: unknown[] = []
   trapsTerm = false
   delaysKill = false
+  delaysKillCompletion = false
   sdkKillStops = true
   alive = true
   ambient = 'PATH=/ambient/bin\0KEEP=safe\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
@@ -247,7 +248,7 @@ class FakeSandbox {
             throw error
           }
           if (!this.delaysKill) this.alive = false
-          this.handle.fail(137)
+          if (!this.delaysKillCompletion) this.handle.fail(137)
           return { exitCode: 0, stdout: '', stderr: '' }
         }
         if ((options as StartOptions | undefined)?.background === true) {
@@ -471,6 +472,25 @@ describe('E2BSubprocessHandle', () => {
 
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     expect(fake.handle.disconnects).toBe(0)
+  })
+
+  it('preserves a requested signal when output draining expires', async () => {
+    const fake = new FakeSandbox()
+    fake.trapsTerm = true
+    fake.delaysKill = true
+    fake.delaysKillCompletion = true
+    fake.sdkKillStops = false
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 5 }), '/runtime/drain-signal')
+    await flush()
+
+    handle.terminate()
+    await vi.waitFor(() => { expect(fake.commandsSeen).toContain('kill -KILL -- -4242') })
+    fake.exitStatus = '143\n'
+
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+    expect(fake.handle.disconnects).toBe(1)
+    fake.alive = false
+    await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
   it('rejects an invalid direct-command exit status', async () => {

@@ -512,7 +512,9 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         this.stdoutReader?.invalidateSpill()
         this.stderrReader?.invalidateSpill()
         await handle.disconnect()
-        return { exitCode, signal: null }
+        return this.terminationSignal === null
+          ? { exitCode, signal: null }
+          : { exitCode: null, signal: this.terminationSignal }
       }
       const completed = await Promise.race([settlement, waitTick().then(() => undefined)])
       if (completed !== undefined) return this.commandOutcome(completed)
