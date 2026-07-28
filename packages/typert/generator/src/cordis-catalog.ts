@@ -6,6 +6,7 @@
  */
 
 import { WorkspaceAnalyzer } from './analyzer.ts'
+import { childTypeNodeIds } from './model.ts'
 import { TypeGraphRenderer } from './renderer.ts'
 import type {
   FaceModel,
@@ -15,7 +16,6 @@ import type {
   SourceDeclarationModel,
   SourceLocation,
   TypeNodeId,
-  TypeNodeModel,
 } from './model.ts'
 
 type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
@@ -514,45 +514,12 @@ function signatureTypeNames(renderer: TypeGraphRenderer, signature: SignatureMod
     const node = renderer.node(id)
     if (node.kind === 'reference' && node.target.kind !== 'type-parameter') names.add(node.name)
     if (node.kind === 'type-query') names.add(node.expression)
-    for (const child of childTypes(node)) visit(child)
+    for (const child of childTypeNodeIds(node)) visit(child)
     if (node.kind === 'object') for (const member of node.members) visitMember(member)
     if (node.kind === 'function' || node.kind === 'constructor') visitSignature(node.signature)
   }
   visitSignature(signature)
   return [...names].sort()
-}
-
-function childTypes(node: TypeNodeModel): TypeNodeId[] {
-  switch (node.kind) {
-    case 'parenthesized': return [node.type]
-    case 'reference': return [...node.arguments]
-    case 'union':
-    case 'intersection': return [...node.types]
-    case 'array': return [node.element]
-    case 'tuple': return node.elements.map(element => element.type)
-    case 'indexed-access': return [node.object, node.index]
-    case 'operator': return [node.type]
-    case 'conditional': return [node.check, node.extends, node.whenTrue, node.whenFalse]
-    case 'infer': return [node.parameter.constraint, node.parameter.default]
-      .filter((value): value is TypeNodeId => value !== undefined)
-    case 'mapped': return [node.parameter.constraint, node.parameter.default, node.nameType, node.value]
-      .filter((value): value is TypeNodeId => value !== undefined)
-    case 'template-literal': return node.spans.map(span => span.type)
-    case 'type-query':
-    case 'import-type': return [...node.arguments]
-    case 'predicate': return node.type === undefined ? [] : [node.type]
-    case 'keyword':
-    case 'literal':
-    case 'object':
-    case 'function':
-    case 'constructor':
-    case 'this': return []
-    default: return assertNever(node)
-  }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`unhandled TypeGraph node: ${JSON.stringify(value)}`)
 }
 
 /** Declarations longer than this render as a truncated stub. */

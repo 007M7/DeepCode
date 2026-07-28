@@ -6,12 +6,45 @@ import type {
   TypeGraph,
   TypeNodeModel,
 } from '../src/model.ts'
+import { childTypeNodeIds } from '../src/model.ts'
 import { TypeGraphRenderError, TypeGraphRenderer } from '../src/renderer.ts'
 
 const location = { file: 'fixture.ts', line: 1, column: 1 } as const
 const documentation = { tags: [] } as const
 
 describe('TypeGraphRenderer defensive and optional shapes', () => {
+  it('enumerates direct child edges for every type node kind', () => {
+    const signature = { typeParameters: [], parameters: [], returns: 'leaf' } as const
+    const cases: readonly (readonly [TypeNodeModel, readonly string[]])[] = [
+      [keyword('keyword', 'string'), []],
+      [{ id: 'literal', kind: 'literal', value: 1, text: '1' }, []],
+      [{ id: 'parenthesized', kind: 'parenthesized', type: 'leaf' }, ['leaf']],
+      [{ id: 'reference', kind: 'reference', name: 'Ref', target: { kind: 'standard', name: 'Ref' }, arguments: ['left', 'right'] }, ['left', 'right']],
+      [{ id: 'union', kind: 'union', types: ['left', 'right'] }, ['left', 'right']],
+      [{ id: 'intersection', kind: 'intersection', types: ['left', 'right'] }, ['left', 'right']],
+      [{ id: 'array', kind: 'array', element: 'leaf' }, ['leaf']],
+      [{ id: 'tuple', kind: 'tuple', elements: [{ type: 'leaf', optional: false, rest: false }] }, ['leaf']],
+      [{ id: 'object', kind: 'object', members: [] }, []],
+      [{ id: 'function', kind: 'function', signature }, []],
+      [{ id: 'constructor', kind: 'constructor', abstract: false, signature }, []],
+      [{ id: 'indexed', kind: 'indexed-access', object: 'left', index: 'right' }, ['left', 'right']],
+      [{ id: 'operator', kind: 'operator', operator: 'keyof', type: 'leaf' }, ['leaf']],
+      [{ id: 'conditional', kind: 'conditional', check: 'check', extends: 'extends', whenTrue: 'yes', whenFalse: 'no' }, ['check', 'extends', 'yes', 'no']],
+      [{ id: 'infer-full', kind: 'infer', parameter: { id: 'infer', name: 'Value', const: false, constraint: 'constraint', default: 'fallback' } }, ['constraint', 'fallback']],
+      [{ id: 'infer-empty', kind: 'infer', parameter: { id: 'infer', name: 'Value', const: false } }, []],
+      [{ id: 'mapped-full', kind: 'mapped', parameter: { id: 'key', name: 'Key', const: false, constraint: 'constraint', default: 'fallback' }, nameType: 'name', value: 'value', readonly: 'preserve', optional: 'preserve' }, ['constraint', 'fallback', 'name', 'value']],
+      [{ id: 'mapped-empty', kind: 'mapped', parameter: { id: 'key', name: 'Key', const: false }, readonly: 'preserve', optional: 'preserve' }, []],
+      [{ id: 'template', kind: 'template-literal', head: '', spans: [{ type: 'leaf', text: '' }] }, ['leaf']],
+      [{ id: 'query', kind: 'type-query', expression: 'value', arguments: ['leaf'] }, ['leaf']],
+      [{ id: 'import', kind: 'import-type', module: 'fixture', arguments: ['leaf'], typeof: false }, ['leaf']],
+      [{ id: 'predicate-full', kind: 'predicate', asserts: false, parameter: 'value', type: 'leaf' }, ['leaf']],
+      [{ id: 'predicate-empty', kind: 'predicate', asserts: true, parameter: 'value' }, []],
+      [{ id: 'this', kind: 'this' }, []],
+    ]
+
+    for (const [node, expected] of cases) expect(childTypeNodeIds(node)).toEqual(expected)
+  })
+
   it('renders optional source shapes and traverses every optional closure edge', () => {
     const dependency = declaration('dependency', 'Dependency', 'interface')
     const graph: TypeGraph = {
