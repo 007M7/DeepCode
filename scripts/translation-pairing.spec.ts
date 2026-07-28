@@ -1,6 +1,6 @@
 /** Regression tests for bilingual snapshots, corpus scope, and structure. */
 
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,11 +20,26 @@ function signature(markdown: string) {
   return translationStructureSignature(parseTranslationMarkdown(markdown), 'counterpart.zh.md')
 }
 
+function gitSupportsObjectFormat(format: 'sha256'): boolean {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-git-object-format-'))
+  try {
+    return spawnSync('git', ['init', '--quiet', `--object-format=${format}`, root], {
+      stdio: 'ignore',
+    }).status === 0
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+const supportsSha256ObjectFormat = gitSupportsObjectFormat('sha256')
+
 describe('translation pairing snapshots', () => {
   it('stores exact uncommitted bytes for later recovery by object ID', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-'))
     try {
-      execFileSync('git', ['init', '--quiet', root])
+      execFileSync('git', ['init', '--quiet', root], {
+        env: { ...process.env, GIT_DEFAULT_HASH: 'sha1' },
+      })
       const content = Buffer.from([0x75, 0x6e, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x74, 0x65, 0x64, 0x0a, 0xff])
 
       const objectId = storeGitBlob(root, content)
@@ -55,7 +70,7 @@ describe('translation pairing snapshots', () => {
     }
   })
 
-  it('rejects an object format that pairing records cannot represent', () => {
+  it.skipIf(!supportsSha256ObjectFormat)('rejects an object format that pairing records cannot represent', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-'))
     try {
       execFileSync('git', ['init', '--quiet', '--object-format=sha256', root])
