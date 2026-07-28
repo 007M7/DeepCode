@@ -293,6 +293,24 @@ describe('session/queued frames', () => {
     expect(frames.filter(f => f.type === 'session/queued')).toHaveLength(0)
   })
 
+  it('retires repeated sends of one message identity by occurrence', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const agent = stubAgent(ctx)
+    const repeated = inboxMessage('m-repeat', 'same prompt')
+    ctx.emit('agent/inbox/enqueue', agent, repeated, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, repeated, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, inboxMessage('unknown', 'not queued'))
+    ctx.emit('agent/inbox/dequeue', agent, repeated)
+
+    const abort = new AbortController()
+    const frames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-repeat'), payload: {} }, abort.signal), 2, abort)
+    expect(frames.filter(f => f.type === 'session/queued')).toEqual([
+      { type: 'session/queued', sessionId: agent.id, message: repeated, steering: false },
+    ])
+  })
+
   it('retires mirror entries on a batch discard (cancel path)', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)

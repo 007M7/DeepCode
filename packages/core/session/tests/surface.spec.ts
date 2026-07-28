@@ -171,6 +171,30 @@ describe('foldSurface tool-result rewrites', () => {
     expect(() => foldSurface(events)).toThrow(/may change only content/)
   })
 
+  it.each([
+    ['toolCallId', { toolCallId: CallId('changed') }],
+    ['isError', { isError: true }],
+  ] as const)('rejects a replacement that changes the result block %s', (_field, patch) => {
+    const original = toolResultEvent(0, 'original')
+    const data = original.data as Extract<SessionEvent, { type: 'tool/result' }>['data']
+    const result = data.message.content[0]
+    const replacement = {
+      ...original,
+      seq: 1,
+      time: 1,
+      data: {
+        ...data,
+        message: freezeMessage({
+          ...data.message,
+          content: [{ ...result, ...patch }] as [typeof result],
+        }),
+      },
+      surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
+    } as SessionEvent
+    expect(() => foldSurface([original, replacement])).toThrow(/may change only content/)
+  })
+
   it('compares array-valued rest fields structurally (meta arrays: equal accepted, drifted rejected)', () => {
     const withMeta = (seq: number, meta: unknown, surfaceOp: SurfaceEvent['surfaceOp'] = 'append', sourceEventSeqs?: number[]): SessionEvent => {
       const event = toolResultEvent(seq, 'c-meta', surfaceOp, sourceEventSeqs)

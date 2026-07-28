@@ -421,29 +421,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /**
-   * Per-session inbox mirror serving the mux-open queue snapshot (the same
-   * refresh-recovery baseline as pending questions). Keyed by the stable
-   * MessageId: every enqueued id receives exactly one terminal
-   * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
-   * the mirror needs no consumption heuristics or sweeps beyond disposal.
+   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * (the same refresh-recovery baseline as pending questions). Each terminal
+   * inbox event retires one matching occurrence, so repeated sends of the same
+   * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, Map<MessageId, { message: UserMessage; steering: boolean }>>()
+  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
   ctx.effect(() => {
     const retire = (agent: Agent, id: MessageId): void => {
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
-      entries.delete(id)
-      if (entries.size === 0) queuedMirror.delete(agent.id)
+      const index = entries.findIndex(entry => entry.message.id === id)
+      if (index !== -1) entries.splice(index, 1)
+      if (entries.length === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
-          entries = new Map<MessageId, { message: UserMessage; steering: boolean }>()
+          entries = []
           queuedMirror.set(agent.id, entries)
         }
         const steering = placement === 'steering'
-        entries.set(message.id, { message, steering })
+        entries.push({ message, steering })
         broadcast({
           type: 'session/queued',
           sessionId: agent.id,
@@ -1119,7 +1119,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries.values()) {
+          for (const entry of entries) {
             queue.push(frame({
               type: 'session/queued',
               sessionId,

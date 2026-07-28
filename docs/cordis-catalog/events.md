@@ -121,12 +121,12 @@ Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/t
 
 ### `agent/inbox/discard` — emit
 
-Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
+Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
 
 ```ts cordis-catalog
 /**
  * Pending inbox items were dropped without delivering them, so every
- * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+ * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
  * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
  * emits this after `agent/cancel-requested` when applicable and before
  * aborting the active work. Fires once per drop with every dropped item.
