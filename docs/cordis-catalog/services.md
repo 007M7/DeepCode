@@ -1042,7 +1042,9 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
  * A coordinator-backed cold load reserves the identity across storage awaits,
  * so concurrent publication of a same-id live Session rejects.
  * Returned events are detached, and every identified message is deeply
- * frozen; malformed identified messages reject before any stored event is returned.
+ * frozen. Coordinator-backed implementations upgrade supported pre-identity
+ * message events before validation; other malformed messages reject before
+ * any stored event is returned.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
@@ -1052,8 +1054,9 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * Inspect a header and its valid contiguous stored prefix without repairing
  * a torn tail, closing an interrupted turn, or publishing coordinator state.
  * This read is serialized with writes for the same id and returns detached
- * values with deeply frozen identified messages, so observers cannot mutate message
- * identity/content or backend-owned state. Malformed identified messages reject.
+ * values with upgraded, deeply frozen identified messages, so observers
+ * cannot mutate message identity/content or backend-owned state. Other
+ * malformed messages reject.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
