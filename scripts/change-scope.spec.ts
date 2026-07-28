@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { writeChangeScope } from './change-scope.ts'
+import { renderChangeScope } from './change-scope.ts'
 
 interface Report {
   formatVersion: number
-  repository: { root: string; branch: string | null; upstream: string | null }
+  repositoryRoot: string
   input: { base: string; head: string }
   resolved: { baseSha: string; headSha: string; mergeBaseSha: string }
   paths: { committed: string[]; staged: string[]; unstaged: string[]; untracked: string[] }
@@ -17,7 +17,6 @@ interface Report {
 interface Fixture {
   container: string
   root: string
-  origin: string
 }
 
 const fixtureRoots: string[] = []
@@ -66,7 +65,7 @@ function fixture(worktreeName = 'worktree'): Fixture {
   git(root, ['commit', '-m', 'initial'])
   git(root, ['remote', 'add', 'origin', origin])
   git(root, ['push', '--set-upstream', 'origin', 'master'])
-  return { container, root, origin }
+  return { container, root }
 }
 
 function commit(root: string, path: string, content: string): string {
@@ -77,40 +76,13 @@ function commit(root: string, path: string, content: string): string {
 }
 
 function invoke(root: string, args: string[]): string {
-  const output: string[] = []
-  writeChangeScope(args, root, chunk => output.push(chunk))
-  expect(output).toHaveLength(1)
-  return output[0] as string
+  return renderChangeScope(args, root)
 }
 
 function jsonReport(root: string, base: string, head?: string): Report {
-  const args = ['--base', base, '--json']
+  const args = ['--base', base]
   if (head !== undefined) args.push('--head', head)
   return JSON.parse(invoke(root, args)) as Report
-}
-
-function formatHumanFromJson(report: Report): string {
-  const value = (input: string | null): string => JSON.stringify(input) ?? 'null'
-  const paths = (label: string, entries: string[]): string[] => [
-    `${label} (${entries.length}):`,
-    ...(entries.length === 0 ? ['  (none)'] : entries.map(entry => `  - ${value(entry)}`)),
-  ]
-  return [
-    `Format version: ${report.formatVersion}`,
-    `Repository root: ${value(report.repository.root)}`,
-    `Branch: ${value(report.repository.branch)}`,
-    `Upstream: ${value(report.repository.upstream)}`,
-    `Base ref: ${value(report.input.base)}`,
-    `Head ref: ${value(report.input.head)}`,
-    `Base commit: ${report.resolved.baseSha}`,
-    `Head commit: ${report.resolved.headSha}`,
-    `Merge base: ${report.resolved.mergeBaseSha}`,
-    ...paths('Committed paths', report.paths.committed),
-    ...paths('Staged paths', report.paths.staged),
-    ...paths('Unstaged paths', report.paths.unstaged),
-    ...paths('Untracked paths', report.paths.untracked),
-    '',
-  ].join('\n')
 }
 
 function repositoryState(root: string): Record<string, string> {
@@ -132,7 +104,7 @@ describe('change-scope', () => {
     const headSha = commit(root, 'feature.txt', 'feature\n')
 
     const fresh = jsonReport(root, 'origin/master')
-    expect(fresh.repository).toEqual({ root: realpathSync(root), branch: 'feature', upstream: 'origin/master' })
+    expect(fresh.repositoryRoot).toBe(realpathSync(root))
     expect(fresh.resolved).toEqual({
       baseSha: git(root, ['rev-parse', 'origin/master']),
       headSha,
@@ -143,7 +115,6 @@ describe('change-scope', () => {
 
     git(root, ['push', '--set-upstream', 'origin', 'feature'])
     const pushed = jsonReport(root, 'origin/master')
-    expect(pushed.repository.upstream).toBe('origin/feature')
     expect(pushed.paths.committed).toEqual(['feature.txt'])
   })
 
@@ -151,22 +122,8 @@ describe('change-scope', () => {
     const { root } = fixture('worktree ')
     const report = jsonReport(root, 'HEAD')
 
-    expect(report.repository.root).toBe(realpathSync(root))
+    expect(report.repositoryRoot).toBe(realpathSync(root))
     expect(report.paths).toEqual({ committed: [], staged: [], unstaged: [], untracked: [] })
-  })
-
-  it('preserves legal Unicode edge whitespace in branch and upstream names', () => {
-    const { root } = fixture()
-    const branch = '\u00a0topic\u3000'
-    const upstreamBranch = '\u3000upstream\u00a0'
-    git(root, ['switch', '-c', branch])
-    git(root, ['push', 'origin', `HEAD:refs/heads/${upstreamBranch}`])
-    git(root, ['branch', '--set-upstream-to', `origin/${upstreamBranch}`])
-
-    const report = jsonReport(root, 'origin/master')
-
-    expect(report.repository.branch).toBe(branch)
-    expect(report.repository.upstream).toBe(`origin/${upstreamBranch}`)
   })
 
   it('reports an exact head above a non-master stacked base while dirty paths remain worktree-local', () => {
@@ -222,55 +179,7 @@ describe('change-scope', () => {
     expect(existsSync(sideEffect)).toBe(false)
   })
 
-  it.skipIf(process.platform === 'win32')('rejects non-UTF-8 branch and upstream names without partial output', () => {
-    const invalidBranch = fixture()
-    const branchHead = git(invalidBranch.root, ['rev-parse', 'HEAD'])
-    const invalidBranchName = Buffer.from([0x80])
-    writeFileSync(join(invalidBranch.root, '.git/packed-refs'), Buffer.concat([
-      Buffer.from(`${branchHead} refs/heads/`),
-      invalidBranchName,
-      Buffer.from('\n'),
-    ]))
-    writeFileSync(
-      join(invalidBranch.root, '.git/HEAD'),
-      Buffer.concat([Buffer.from('ref: refs/heads/'), invalidBranchName, Buffer.from('\n')]),
-    )
-    const branchOutput: string[] = []
-
-    expect(() => {
-      writeChangeScope(['--base', branchHead, '--json'], invalidBranch.root, chunk => branchOutput.push(chunk))
-    }).toThrow('cannot inspect the current branch: Git stdout is not valid UTF-8')
-    expect(branchOutput).toEqual([])
-
-    const invalidUpstream = fixture()
-    const upstreamHead = git(invalidUpstream.root, ['rev-parse', 'HEAD'])
-    const invalidUpstreamName = Buffer.from([0x81])
-    writeFileSync(join(invalidUpstream.root, '.git/packed-refs'), Buffer.concat([
-      Buffer.from(`${upstreamHead} refs/remotes/origin/`),
-      invalidUpstreamName,
-      Buffer.from('\n'),
-    ]))
-    const configPath = join(invalidUpstream.root, '.git/config')
-    const config = readFileSync(configPath)
-    const merge = Buffer.from('\tmerge = refs/heads/master\n')
-    const mergeIndex = config.indexOf(merge)
-    expect(mergeIndex).toBeGreaterThanOrEqual(0)
-    writeFileSync(configPath, Buffer.concat([
-      config.subarray(0, mergeIndex),
-      Buffer.from('\tmerge = refs/heads/'),
-      invalidUpstreamName,
-      Buffer.from('\n'),
-      config.subarray(mergeIndex + merge.length),
-    ]))
-    const upstreamOutput: string[] = []
-
-    expect(() => {
-      writeChangeScope(['--base', upstreamHead, '--json'], invalidUpstream.root, chunk => upstreamOutput.push(chunk))
-    }).toThrow('cannot inspect the configured upstream: Git stdout is not valid UTF-8')
-    expect(upstreamOutput).toEqual([])
-  })
-
-  it.skipIf(process.platform === 'win32')('rejects distinct non-UTF-8 Git paths without partial output', () => {
+  it.skipIf(process.platform === 'win32')('rejects distinct non-UTF-8 Git paths', () => {
     const { root } = fixture()
     const blobSha = git(root, ['hash-object', '-w', '--stdin'], 'content')
     const entry = Buffer.from(`100644 ${blobSha}\t`, 'ascii')
@@ -290,15 +199,12 @@ describe('change-scope', () => {
       secondPath,
       Buffer.from([0]),
     ]))
-    const output: string[] = []
-
     expect(() => {
-      writeChangeScope(['--base', 'HEAD', '--json'], root, chunk => output.push(chunk))
+      renderChangeScope(['--base', 'HEAD'], root)
     }).toThrow('cannot inspect staged paths: Git path 1 is not valid UTF-8')
-    expect(output).toEqual([])
   })
 
-  it('rejects missing, ambiguous, and non-commit refs before writing output', () => {
+  it('rejects missing, ambiguous, and non-commit refs', () => {
     const { root } = fixture()
     git(root, ['branch', 'collision'])
     git(root, ['tag', 'collision'])
@@ -312,32 +218,24 @@ describe('change-scope', () => {
       { args: ['--base', 'blob-ref'], message: /base ref .* does not resolve to a commit/u },
       { args: ['--base', 'HEAD', '--head', 'missing'], message: /head ref .* does not resolve to a commit/u },
     ]) {
-      const output: string[] = []
       expect(() => {
-        writeChangeScope(args, root, (chunk) => {
-          output.push(chunk)
-        })
+        renderChangeScope(args, root)
       }).toThrow(message)
-      expect(output).toEqual([])
     }
   })
 
-  it('renders deterministic human and JSON forms with the same facts', () => {
+  it('renders deterministic versioned JSON', () => {
     const { root } = fixture()
     git(root, ['switch', '-c', 'format'])
     commit(root, 'zeta.txt', 'zeta\n')
     commit(root, 'alpha.txt', 'alpha\n')
 
-    const json = invoke(root, ['--base', 'origin/master', '--json'])
-    const repeatedJson = invoke(root, ['--base', 'origin/master', '--json'])
-    const human = invoke(root, ['--base', 'origin/master'])
-    const repeatedHuman = invoke(root, ['--base', 'origin/master'])
+    const json = invoke(root, ['--base', 'origin/master'])
+    const repeatedJson = invoke(root, ['--base', 'origin/master'])
     const report = JSON.parse(json) as Report
 
     expect(json).toBe(repeatedJson)
     expect(report.formatVersion).toBe(1)
     expect(report.paths.committed).toEqual(['alpha.txt', 'zeta.txt'])
-    expect(human).toBe(repeatedHuman)
-    expect(human).toBe(formatHumanFromJson(report))
   })
 })

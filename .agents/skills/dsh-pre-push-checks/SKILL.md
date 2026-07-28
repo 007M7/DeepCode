@@ -19,10 +19,10 @@ git rev-parse --show-toplevel
 2. Verify the live PR base or stack parent, fetch that ref, and inspect the complete scope against it.
 
 ```sh
-pnpm run change-scope --base <verified-base-ref>
+pnpm --silent run change-scope --base <verified-base-ref>
 ```
 
-The command never guesses or fetches a base. Supply the ref verified from current remote or stack state; use `--head <ref>` when inspecting a commit other than `HEAD`, and `--json` when another tool consumes the report. Its committed paths are relative to the resolved merge base, while staged, unstaged, and untracked paths describe the current worktree. After merging a changed base, rerun the report, reassess which behavior the combined scope can affect, and rerun only checks invalidated by the merge.
+The command never guesses or fetches a base. Supply the ref verified from current remote or stack state; use `--head <ref>` when inspecting a commit other than `HEAD`. Its versioned JSON records committed paths relative to the resolved merge base, while staged, unstaged, and untracked paths describe the current worktree. After merging a changed base, rerun the report, reassess which behavior the combined scope can affect, and rerun only checks invalidated by the merge.
 
 ## Select relevant evidence
 
