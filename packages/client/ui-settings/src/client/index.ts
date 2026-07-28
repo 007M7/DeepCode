@@ -10,12 +10,12 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsRootInjected } from './contract/slots.ts'
+import type { SettingsRootInjected, SettingsSectionRow } from './contract/slots.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
 
 export type {
   SettingsHeaderOwnerProps, SettingsRootComponentProps, SettingsRootInjected,
-  SettingsSectionOwnerProps, SettingsTriggerOwnerProps,
+  SettingsSectionOwnerProps, SettingsSectionRow, SettingsTriggerOwnerProps,
 } from './contract/slots.ts'
 
 /**
@@ -32,17 +32,31 @@ export const inject = ['slots']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  // Ledger → nav-row projection as an observable source (uSES contract:
+  // getSnapshot returns the cached rows until the ledger version moves).
+  let rowsVersion = -1
+  let rows: readonly SettingsSectionRow[] = []
   const injected = (): SettingsRootInjected => ({
-    sectionsVersion: () => ctx.slots.getVersion('settings.section'),
-    subscribeSections: listener => ctx.slots.subscribe('settings.section', listener),
-    sections: () => ctx.slots.entries('settings.section')
-      .map(e => ({
-        /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
-        id: e.options.id ?? '',
-        order: e.options.order ?? 0,
-        label: e.options.label ?? '',
-      }))
-      .sort((a, b) => a.order - b.order),
+    hooks: {
+      sections: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.section')
+          if (version !== rowsVersion) {
+            rowsVersion = version
+            rows = ctx.slots.entries('settings.section')
+              .map(e => ({
+                /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
+                id: e.options.id ?? '',
+                order: e.options.order ?? 0,
+                label: e.options.label ?? '',
+              }))
+              .sort((a, b) => a.order - b.order)
+          }
+          return rows
+        },
+        subscribe: listener => ctx.slots.subscribe('settings.section', listener),
+      },
+    },
   })
   ctx.effect(() => {
     const deferred = deferRegistration(ctx.slots, 'sidebar.settings', SettingsRoot, () =>

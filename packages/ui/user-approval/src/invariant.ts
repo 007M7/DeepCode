@@ -18,19 +18,26 @@ type ApprovalTransition =
   | { kind: 'asked'; id: ApprovalRequestId }
   | { kind: 'decided'; id: ApprovalRequestId }
 
+interface ApprovalTrace {
+  openTurn: number | null
+  pending: Set<ApprovalRequestId>
+}
+
 /** Validate one approval event against committed unmatched questions. */
 function validateApprovalEvent(
-  pending: ReadonlySet<ApprovalRequestId>,
+  trace: ApprovalTrace,
   event: SessionEvent,
   fail: InvariantFailure,
 ): ApprovalTransition | undefined {
   if (event.type === 'approval/asked') {
+    if (trace.openTurn === null) fail('approval/asked appended outside any open turn')
     if (event.data.toolName.length === 0) fail('approval/asked toolName must be non-empty')
-    if (pending.has(event.data.id)) fail(`approval/asked repeated open id ${JSON.stringify(event.data.id)}`)
+    if (trace.pending.has(event.data.id)) fail(`approval/asked repeated open id ${JSON.stringify(event.data.id)}`)
     return { kind: 'asked', id: event.data.id }
   }
   if (event.type === 'approval/decided') {
-    if (!pending.has(event.data.id)) fail(`approval/decided has no matching approval/asked for id ${JSON.stringify(event.data.id)}`)
+    if (trace.openTurn === null) fail('approval/decided appended outside any open turn')
+    if (!trace.pending.has(event.data.id)) fail(`approval/decided has no matching approval/asked for id ${JSON.stringify(event.data.id)}`)
     if (!APPROVAL_OUTCOMES.includes(event.data.outcome)) {
       fail(`approval/decided carries unknown outcome ${JSON.stringify(event.data.outcome)}`)
     }
@@ -52,28 +59,39 @@ function applyApprovalTransition(pending: Set<ApprovalRequestId>, transition: Ap
 // Event owners keep precommit staging local so their vocabularies never move into a central helper.
 /* jscpd:ignore-start */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
-  const traces = new WeakMap<Session, Set<ApprovalRequestId>>()
+  const traces = new WeakMap<Session, ApprovalTrace>()
   const staged = new WeakMap<SessionEvent, { session: Session; transition: ApprovalTransition }>()
-  const seed = (session: Session): Set<ApprovalRequestId> => {
-    const pending = new Set<ApprovalRequestId>()
-    traces.set(session, pending)
+  const seed = (session: Session): ApprovalTrace => {
+    const trace: ApprovalTrace = { openTurn: null, pending: new Set() }
+    traces.set(session, trace)
     for (const event of session.events) {
-      const transition = validateApprovalEvent(pending, event, fail)
-      if (transition !== undefined) applyApprovalTransition(pending, transition)
+      if (event.type === 'turn/start') trace.openTurn = event.data.turn
+      else if (event.type === 'turn/end') trace.openTurn = null
+      const transition = validateApprovalEvent(trace, event, fail)
+      if (transition !== undefined) applyApprovalTransition(trace.pending, transition)
     }
-    return pending
+    return trace
   }
-  const traceFor = (session: Session): Set<ApprovalRequestId> => traces.get(session) ?? seed(session)
+  const traceFor = (session: Session): ApprovalTrace => traces.get(session) ?? seed(session)
 
   for (const session of ctx.sessions.list()) seed(session)
   ctx.on('session/created', (session) => { seed(session) }, { global: true })
   ctx.on('session/event', (session, event) => {
+    const trace = traceFor(session)
+    if (event.type === 'turn/start') {
+      trace.openTurn = event.data.turn
+      return
+    }
+    if (event.type === 'turn/end') {
+      trace.openTurn = null
+      return
+    }
     if (event.type !== 'approval/asked' && event.type !== 'approval/decided') return
     const candidate = staged.get(event)
     /* v8 ignore next -- internal/dispatch stages every package-owned pair event */
     if (candidate === undefined || candidate.session !== session) return fail('approval audit event published without pre-commit validation')
     staged.delete(event)
-    applyApprovalTransition(traceFor(session), candidate.transition)
+    applyApprovalTransition(trace.pending, candidate.transition)
   }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return

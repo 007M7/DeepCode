@@ -3040,12 +3040,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('advertised by multiple providers')
     expect(result.terminal.output).toContain('already alpha/a1')
 
+    const firstSelectorOutput = result.terminal.output.length
     result.terminal.send('/model')
     result.terminal.send('\r')
     result.terminal.send('/model')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select model')
+    await vi.waitFor(() => {
+      expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
+    })
     result.terminal.send('\x1b')
     await tick()
 

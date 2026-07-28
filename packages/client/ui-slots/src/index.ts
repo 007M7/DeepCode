@@ -14,6 +14,7 @@
  * consumer merges keys in and the intersection is what keeps them string-typed.
  * The rule fires on the empty-map view, not on real redundancy. */
 import type { ReactNode } from 'react'
+import type { HostObservable } from './renderer.ts'
 import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDecl } from './store.ts'
 
 export * from './store.ts'
@@ -215,10 +216,39 @@ export type PropsRenderSlots<S extends keyof SlotMap & string> = {
 export type SlotComponent<P> = (props: P) => ReactNode
 
 /**
+ * Registrant hooks compartment: bare observable sources (getSnapshot +
+ * subscribe pairs) supplied under the reserved `hooks` key of an inject
+ * face. The registrant-private twin of the `sessions.provide` hooks
+ * compartment: the renderer binds each source into a `use<Name>` selector
+ * hook, so the sources never reach the component and plugin-private reactive
+ * facts ride the same subscription machinery as the standard kit instead of
+ * hand-rolled component subscriptions.
+ */
+export type HooksSources = Record<string, HostObservable<unknown>>
+
+/**
+ * Selector-hook share synthesized from a hooks compartment: each source
+ * `name` becomes a `use<Name>` selector hook over its snapshot type.
+ */
+export type PropsHooks<HS extends HooksSources> = {
+  [N in keyof HS & string as `use${Capitalize<N>}`]:
+  SnapshotSelectorHook<HS[N] extends HostObservable<infer T> ? T : never>
+}
+
+/**
+ * The component-side view of an inject face: the reserved `hooks`
+ * compartment (when declared) arrives as bound `use<Name>` selector hooks;
+ * every other member passes through verbatim.
+ */
+export type InjectFace<I extends object> =
+  I extends { hooks: infer HS extends HooksSources } ? Omit<I, 'hooks'> & PropsHooks<HS> : I
+
+/**
  * The four-share component props intersection: runtime share (SlotMap) +
  * child-render share (children declaration) + store share (declared handle) +
- * the registrant's injected business face. Each share derives from its single
- * source of truth; components reference this composition, never re-type it.
+ * the registrant's injected business face (its hooks compartment bound, see
+ * {@link InjectFace}). Each share derives from its single source of truth;
+ * components reference this composition, never re-type it.
  */
 export type ComposedProps<
   K extends keyof SlotMap & string,
@@ -226,7 +256,7 @@ export type ComposedProps<
   H,
   I extends object,
   M = never,
-> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & I & MatchedShare<SlotMap[K], M>
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M>
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
