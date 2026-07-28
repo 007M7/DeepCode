@@ -30,10 +30,13 @@ class FakeTerminalCommandHandle {
   sdkKills = 0
   disconnectError: unknown
   sdkKillError: unknown
+  waitError: unknown
+  settleOnSdkKill = true
   private readonly result = Promise.withResolvers<CommandResult>()
   private settled = false
 
   wait(): Promise<CommandResult> {
+    if (this.waitError !== undefined) throw this.waitError
     return this.result.promise
   }
 
@@ -46,10 +49,10 @@ class FakeTerminalCommandHandle {
     this.sdkKills += 1
     if (this.sdkKillError !== undefined) {
       const error = this.sdkKillError
-      this.fail(137)
+      if (this.settleOnSdkKill) this.fail(137)
       throw error
     }
-    this.fail(137)
+    if (this.settleOnSdkKill) this.fail(137)
     return true
   }
 
@@ -94,8 +97,10 @@ class FakeTerminalSandbox {
   createError: unknown
   sendError: unknown
   commandFailure: unknown
+  sessionGroupsFailure: unknown
   foregroundFailure: unknown
   termFailure: unknown
+  ptyKillError: unknown
   removeError: unknown
   clearOnTerm = true
   clearOnKill = true
@@ -146,6 +151,7 @@ class FakeTerminalSandbox {
           return { exitCode: 0, stdout: this.foreground, stderr: '' }
         }
         if (command.startsWith('ps -eo sid=')) {
+          if (this.sessionGroupsFailure !== undefined) throw this.sessionGroupsFailure
           return { exitCode: 0, stdout: this.groups.map(group => `${group}\n`).join(''), stderr: '' }
         }
         if (command.startsWith('kill -TERM -- ')) {
@@ -173,6 +179,7 @@ class FakeTerminalSandbox {
       },
       kill: async (pid: number): Promise<boolean> => {
         this.ptyKills += 1
+        if (this.ptyKillError !== undefined) throw this.ptyKillError
         if (this.settleOnPtyKill) this.handle.fail(137)
         return pid === this.handle.pid
       },
@@ -282,7 +289,8 @@ describe('E2B terminal allocation', () => {
     failedInput.sendError = new Error('bootstrap failed')
     await expect(spawnE2BTerminal(runtime(failedInput), spec(), '/runtime/input'))
       .rejects.toThrow('bootstrap failed')
-    expect(failedInput.handle.sdkKills).toBe(1)
+    expect(failedInput.commands).toContain('kill -TERM -- -123')
+    expect(failedInput.groups).toEqual([])
 
     const exited = new FakeTerminalSandbox()
     exited.ready = new FileNotFoundError('not ready')
@@ -292,12 +300,61 @@ describe('E2B terminal allocation', () => {
 
     const invalidSession = new FakeTerminalSandbox()
     invalidSession.sessionId = 'not-a-session\n'
+    invalidSession.clearOnTerm = false
     await expect(spawnE2BTerminal(runtime(invalidSession), spec(), '/runtime/session'))
       .rejects.toThrow('cannot resolve process session')
-    expect(invalidSession.handle.sdkKills).toBe(1)
+    expect(invalidSession.commands).toContain('kill -TERM -- -123')
+    expect(invalidSession.commands).toContain('kill -KILL -- -123')
+    expect(invalidSession.groups).toEqual([])
+    expect(invalidSession.ptyKills).toBe(1)
     const lateData = invalidSession.createOptions?.onData
     if (lateData === undefined) throw new Error('missing captured terminal callback')
     expect(lateData(Buffer.from('late bytes'))).toBeUndefined()
+
+    const termFailed = new FakeTerminalSandbox()
+    termFailed.sendError = new Error('bootstrap failed')
+    termFailed.termFailure = new Error('TERM transport failed')
+    await expect(spawnE2BTerminal(runtime(termFailed), spec(), '/runtime/term-failed'))
+      .rejects.toThrow('bootstrap failed')
+    expect(termFailed.commands).toContain('kill -KILL -- -123')
+    expect(termFailed.ptyKills).toBe(1)
+
+    const uninspectable = new FakeTerminalSandbox()
+    uninspectable.sendError = new Error('bootstrap failed')
+    uninspectable.sessionGroupsFailure = 'session enumeration failed'
+    uninspectable.ptyKillError = new Error('PTY kill failed')
+    let uninspectableFailure: unknown
+    try {
+      await spawnE2BTerminal(runtime(uninspectable), spec(), '/runtime/uninspectable')
+    } catch (error: unknown) {
+      uninspectableFailure = error
+    }
+    expect(uninspectableFailure).toBeInstanceOf(AggregateError)
+    expect(uninspectable.ptyKills).toBe(1)
+    expect(uninspectable.handle.sdkKills).toBe(1)
+
+    const survivingGroups = new FakeTerminalSandbox()
+    survivingGroups.sendError = new Error('bootstrap failed')
+    survivingGroups.clearOnTerm = false
+    survivingGroups.clearOnKill = false
+    await expect(spawnE2BTerminal(runtime(survivingGroups), spec({ graceMs: 1 }), '/runtime/surviving-groups'))
+      .rejects.toThrow('bootstrap failed')
+
+    const survivingPid = new FakeTerminalSandbox()
+    survivingPid.sendError = new Error('bootstrap failed')
+    survivingPid.groups = []
+    survivingPid.settleOnPtyKill = false
+    survivingPid.handle.settleOnSdkKill = false
+    await expect(spawnE2BTerminal(runtime(survivingPid), spec({ graceMs: 1 }), '/runtime/surviving-pid'))
+      .rejects.toThrow('bootstrap failed')
+
+    const waitFailed = new FakeTerminalSandbox()
+    waitFailed.handle.waitError = new Error('wait failed')
+    waitFailed.handle.settleOnSdkKill = false
+    waitFailed.handle.sdkKillError = new Error('kill failed')
+    await expect(spawnE2BTerminal(runtime(waitFailed), spec(), '/runtime/wait-failed'))
+      .rejects.toThrow('wait failed')
+    expect(waitFailed.handle.sdkKills).toBe(1)
 
     const cleanupFailed = new FakeTerminalSandbox()
     cleanupFailed.handle.pid = 0
@@ -362,7 +419,7 @@ describe('E2B terminal lifecycle', () => {
 
   it.each([
     [7, { exitCode: 7, signal: null }],
-    [143, { exitCode: null, signal: 'SIGTERM' }],
+    [143, { exitCode: 143, signal: null }],
     [255, { exitCode: 255, signal: null }],
   ] as const)('classifies an unrequested command exit %i', async (exitCode, expected) => {
     const fake = new FakeTerminalSandbox()

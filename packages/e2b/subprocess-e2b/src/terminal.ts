@@ -1,7 +1,6 @@
 /** E2B PTY allocation and process-session ownership for the subprocess seam. */
 
 import { Buffer } from 'node:buffer'
-import { constants } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { posix } from 'node:path'
 import {
@@ -53,13 +52,8 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function commandSignal(exitCode: number): NodeJS.Signals | null {
-  const number = exitCode - 128
-  if (number <= 0) return null
-  for (const [name, value] of Object.entries(constants.signals)) {
-    if (value === number) return name as NodeJS.Signals
-  }
-  return null
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
 }
 
 function parsePositiveId(value: string, message: string): number {
@@ -119,6 +113,132 @@ async function waitUntilReady(
       throw new Error('subprocess-e2b: terminal exited before publishing readiness')
     }
   }
+}
+
+async function sessionProcessGroups(sandbox: Sandbox, sessionId: number): Promise<number[]> {
+  const result = await sandbox.commands.run(
+    `ps -eo sid=,pgid= | awk '$1 == ${sessionId} { print $2 }'`,
+  )
+  const groups = new Set<number>()
+  for (const raw of result.stdout.trim().split(/\s+/)) {
+    if (raw.length === 0) continue
+    const group = parsePositiveId(
+      raw,
+      `subprocess-e2b: invalid process group ${JSON.stringify(raw)} in terminal session ${sessionId}`,
+    )
+    if (group <= 1) {
+      throw new Error(`subprocess-e2b: unsafe process group ${group} in terminal session ${sessionId}`)
+    }
+    groups.add(group)
+  }
+  return [...groups]
+}
+
+async function signalGroups(sandbox: Sandbox, groups: number[], signal: 'TERM' | 'KILL'): Promise<void> {
+  try {
+    await sandbox.commands.run(`kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`)
+  } catch (error: unknown) {
+    if (!(error instanceof CommandExitError)) throw error
+  }
+}
+
+async function awaitSessionEmpty(
+  sandbox: Sandbox,
+  sessionId: number,
+  graceMs: number,
+  kill = false,
+): Promise<number[]> {
+  const deadline = Date.now() + graceMs
+  for (;;) {
+    const groups = await sessionProcessGroups(sandbox, sessionId)
+    if (groups.length === 0 || Date.now() >= deadline) return groups
+    if (kill) await signalGroups(sandbox, groups, 'KILL')
+    await delay(Math.min(POLL_MS, Math.max(1, deadline - Date.now())))
+  }
+}
+
+async function rollbackUnpublishedTerminal(
+  sandbox: Sandbox,
+  handle: CommandHandle,
+  completion: Promise<CommandResult>,
+  graceMs: number,
+): Promise<void> {
+  let topLevelExited = false
+  void completion.then(
+    () => { topLevelExited = true },
+    () => { topLevelExited = true },
+  )
+  const validPid = Number.isSafeInteger(handle.pid) && handle.pid > 1
+  const attemptFailures: Error[] = []
+  let sessionId: number | undefined
+  if (validPid) {
+    sessionId = handle.pid
+    try {
+      sessionId = await terminalSessionId(sandbox, handle.pid)
+    } catch (_sessionLookupFailure) {
+      // E2B's PTY leader is also the provisional POSIX session leader, so its
+      // PID remains usable after the setup lookup itself fails or is canceled.
+    }
+    try {
+      let groups = await sessionProcessGroups(sandbox, sessionId)
+      if (groups.length > 0) {
+        await signalGroups(sandbox, groups, 'TERM')
+        groups = await awaitSessionEmpty(sandbox, sessionId, graceMs)
+      }
+      if (groups.length > 0) {
+        await signalGroups(sandbox, groups, 'KILL')
+        await awaitSessionEmpty(sandbox, sessionId, graceMs, true)
+      }
+    } catch (error: unknown) {
+      attemptFailures.push(asError(error))
+    }
+  }
+  // Completion can settle while any awaited provider cleanup above is running.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (!topLevelExited) {
+    if (validPid) {
+      try {
+        await sandbox.pty.kill(handle.pid)
+      } catch (error: unknown) {
+        attemptFailures.push(asError(error))
+      }
+    }
+    // The awaited PTY fallback can settle completion before the SDK fallback.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!topLevelExited) {
+      try {
+        await handle.kill()
+      } catch (error: unknown) {
+        attemptFailures.push(asError(error))
+      }
+    }
+    await Promise.race([completion.catch(() => undefined), delay(graceMs)])
+  }
+  const proofFailures: Error[] = []
+  if (sessionId !== undefined) {
+    try {
+      const groups = await awaitSessionEmpty(sandbox, sessionId, graceMs, true)
+      if (groups.length > 0) {
+        proofFailures.push(new Error(
+          `subprocess-e2b: terminal setup rollback failed; surviving process groups: ${groups.join(', ')}`,
+        ))
+      }
+    } catch (error: unknown) {
+      proofFailures.push(asError(error))
+    }
+  }
+  // The bounded completion race above updates this callback-owned state.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (!topLevelExited) {
+    proofFailures.push(new Error(`subprocess-e2b: terminal setup rollback failed; surviving pid: ${handle.pid}`))
+  }
+  if (proofFailures.length > 0) {
+    throw new AggregateError(
+      [...attemptFailures, ...proofFailures],
+      'subprocess-e2b: terminal setup rollback did not reach quiescence',
+    )
+  }
+  await handle.disconnect()
 }
 
 /** One E2B PTY and all process groups in its remote process session. */
@@ -203,8 +323,9 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
       return { exitCode: result.exitCode, signal: null }
     } catch (error: unknown) {
       if (error instanceof CommandExitError) {
-        const signal = this.terminationSignal ?? commandSignal(error.exitCode)
-        return signal === null ? { exitCode: error.exitCode, signal: null } : { exitCode: null, signal }
+        return this.terminationSignal === null
+          ? { exitCode: error.exitCode, signal: null }
+          : { exitCode: null, signal: this.terminationSignal }
       }
       this.output.destroy(error instanceof Error ? error : new Error(String(error)))
       throw error
@@ -214,49 +335,12 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     }
   }
 
-  private async sessionProcessGroups(): Promise<number[]> {
-    const result = await this.sandbox.commands.run(
-      `ps -eo sid=,pgid= | awk '$1 == ${this.sessionId} { print $2 }'`,
-    )
-    const groups = new Set<number>()
-    for (const raw of result.stdout.trim().split(/\s+/)) {
-      if (raw.length === 0) continue
-      const group = parsePositiveId(
-        raw,
-        `subprocess-e2b: invalid process group ${JSON.stringify(raw)} in terminal session ${this.sessionId}`,
-      )
-      if (group <= 1) {
-        throw new Error(`subprocess-e2b: unsafe process group ${group} in terminal session ${this.sessionId}`)
-      }
-      groups.add(group)
-    }
-    return [...groups]
-  }
-
-  private async signalGroups(groups: number[], signal: 'TERM' | 'KILL'): Promise<void> {
-    try {
-      await this.sandbox.commands.run(`kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`)
-    } catch (error: unknown) {
-      if (!(error instanceof CommandExitError)) throw error
-    }
-  }
-
-  private async awaitSessionEmpty(kill = false): Promise<number[]> {
-    const deadline = Date.now() + this.graceMs
-    for (;;) {
-      const groups = await this.sessionProcessGroups()
-      if (groups.length === 0 || Date.now() >= deadline) return groups
-      if (kill) await this.signalGroups(groups, 'KILL')
-      await delay(Math.min(POLL_MS, Math.max(1, deadline - Date.now())))
-    }
-  }
-
   private async closeOnce(): Promise<void> {
-    let groups = await this.sessionProcessGroups()
+    let groups = await sessionProcessGroups(this.sandbox, this.sessionId)
     if (groups.length > 0) {
       this.terminationSignal = 'SIGTERM'
-      await this.signalGroups(groups, 'TERM')
-      groups = await this.awaitSessionEmpty()
+      await signalGroups(this.sandbox, groups, 'TERM')
+      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.graceMs)
     }
     if (groups.length === 0 && !this.topLevelExited) {
       await Promise.race([this.done.catch(() => undefined), delay(this.graceMs)])
@@ -264,7 +348,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     if (groups.length > 0 || !this.topLevelExited) {
       this.terminationSignal = 'SIGKILL'
       if (!this.topLevelExited) await this.sandbox.pty.kill(this.pid)
-      groups = await this.awaitSessionEmpty(true)
+      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.graceMs, true)
       if (!this.topLevelExited) await Promise.race([this.done.catch(() => undefined), delay(this.graceMs)])
     }
     if (groups.length > 0) {
@@ -348,9 +432,20 @@ export async function spawnE2BTerminal(
     )
   } catch (error: unknown) {
     output.destroy()
-    if (handle !== undefined) await handle.kill().catch(() => false)
-    if (completion !== undefined) await completion.catch(() => {})
+    let cleanupError: Error | undefined
+    if (handle !== undefined && completion !== undefined) {
+      try {
+        await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
+      } catch (rollbackError: unknown) {
+        cleanupError = asError(rollbackError)
+      }
+    } else if (handle !== undefined) {
+      await handle.kill().catch(() => false)
+    }
     await sandbox.files.remove(stateDir).catch(() => {})
+    if (cleanupError !== undefined) {
+      throw new AggregateError([asError(error), cleanupError], asError(error).message)
+    }
     throw error
   }
 }

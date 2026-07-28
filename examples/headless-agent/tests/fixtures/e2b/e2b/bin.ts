@@ -72,6 +72,19 @@ try {
   ].every(entry => environmentLines.has(entry))
   if (!explicitEnvironment) throw new Error(`E2B subprocess dropped an explicit environment entry: ${environmentText}`)
 
+  const splitUtf8Handle = ctx.subprocess.spawn({
+    argv: ['bash', '-c', "printf '\\344'; sleep 0.05; printf '\\275'; sleep 0.05; printf '\\240'; sleep 0.05; printf '\\345'; sleep 0.05; printf '\\245'; sleep 0.05; printf '\\275'"],
+    cwd: process.cwd(),
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 32 }, stderr: { maxBytes: 4_096 } },
+    graceMs: 500,
+    env: {},
+  })
+  const splitUtf8Outcome = await splitUtf8Handle.done
+  const splitUtf8Output = splitUtf8Handle.collected.stdout?.readFrom(0).text
+  if (splitUtf8Outcome.exitCode !== 0 || splitUtf8Output !== '你好') {
+    throw new Error(`E2B subprocess corrupted split UTF-8 output: ${JSON.stringify({ splitUtf8Outcome, splitUtf8Output })}`)
+  }
+
   const remoteFiles = sandbox.files as unknown as {
     read(path: string, options?: unknown): Promise<unknown>
   }
@@ -370,6 +383,7 @@ try {
     bashRead: bashRead.stdout.text,
     fsRead,
     explicitEnvironment,
+    splitUtf8Output,
     publicationRollback,
     spill: { liveBytes: liveSpillBytes, outcome: spillOutcome, read: spillRead },
     hover,

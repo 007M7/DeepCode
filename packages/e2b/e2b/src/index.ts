@@ -7,7 +7,7 @@
 import { posix } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { Sandbox } from 'e2b'
+import { Sandbox, SandboxNotFoundError } from 'e2b'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 export {
@@ -159,16 +159,22 @@ export class E2BSandboxService extends Service {
         // there is no remote resource for teardown to own.
         return
       }
-      switch (this.config.onDispose) {
-        case 'kill':
-          await sandbox.kill()
-          return
-        case 'pause': {
-          await sandbox.pause()
-          return
+      try {
+        switch (this.config.onDispose) {
+          case 'kill':
+            await sandbox.kill()
+            return
+          case 'pause': {
+            await sandbox.pause()
+            return
+          }
+          case 'leave':
+            return
         }
-        case 'leave':
-          return
+      } catch (error: unknown) {
+        // A kill-on-timeout sandbox is already quiescent; every other disposal
+        // failure still reports that the configured final disposition is unknown.
+        if (!(error instanceof SandboxNotFoundError)) throw error
       }
     }, 'e2b sandbox teardown')
   }

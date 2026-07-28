@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import type { Sandbox as SandboxType } from 'e2b'
 import E2BSandboxService, {
   E2BSandboxId,
+  SandboxNotFoundError,
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import * as E2BInvariant from '../src/invariant.ts'
@@ -138,6 +139,32 @@ describe('E2BSandboxService', () => {
     await ctx.e2b.getSandbox()
     await fiber.dispose()
     expect(fixture.pause).toHaveBeenCalledOnce()
+  })
+
+  it('treats a timeout-killed sandbox as already quiescent during disposal', async () => {
+    const fixture = fakeSandbox()
+    fixture.pause.mockRejectedValue(new SandboxNotFoundError('sandbox expired'))
+    sdk.create.mockResolvedValue(fixture.sandbox)
+    const ctx = new Context()
+    const fiber = await ctx.plugin(E2BSandboxService, {
+      apiKey: 'test-key',
+      onTimeout: 'kill',
+      onDispose: 'pause',
+    })
+    await ctx.e2b.getSandbox()
+    await expect(fiber.dispose()).resolves.toBeUndefined()
+    expect(fixture.pause).toHaveBeenCalledOnce()
+  })
+
+  it('does not classify other disposal failures as an already-gone sandbox', async () => {
+    const fixture = fakeSandbox()
+    fixture.kill.mockRejectedValue(new Error('disposition unknown'))
+    sdk.create.mockResolvedValue(fixture.sandbox)
+    const ctx = new Context()
+    const fiber = await ctx.plugin(E2BSandboxService, { apiKey: 'test-key' })
+    await ctx.e2b.getSandbox()
+    await expect(fiber.dispose()).resolves.toBeUndefined()
+    expect(fixture.kill).toHaveBeenCalledOnce()
   })
 
   it('reconnects without applying creation lifecycle options and can leave state running', async () => {

@@ -10,7 +10,7 @@ import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
 import * as E2BSubprocessInvariant from '../src/invariant.ts'
-import { E2BOutputReader } from '../src/output.ts'
+import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from '../src/output.ts'
 import { E2BSubprocessHandle } from '../src/process.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import { describe, expect, it, vi } from 'vitest'
@@ -91,6 +91,7 @@ class FakeSandbox {
   trapsTerm = false
   delaysKill = false
   alive = true
+  ambient = 'PATH=/ambient/bin\0KEEP=safe\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   processGroupId = '4242\n'
   readonly processGroupReads: string[] = []
   beforeProbe: (() => void) | undefined
@@ -110,15 +111,35 @@ class FakeSandbox {
 
   finish(exitCode = 0): void {
     this.alive = false
-    if (exitCode === 0) this.handle.succeed(0)
-    else this.handle.fail(exitCode)
+    void this.completeOutput().then(
+      () => {
+        if (exitCode === 0) this.handle.succeed(0)
+        else this.handle.fail(exitCode)
+      },
+      (error: unknown) => { this.handle.crash(error) },
+    )
+  }
+
+  async completeOutput(): Promise<void> {
+    await Promise.all([
+      this.stdoutWire(`${E2B_OUTPUT_COMPLETE_FRAME}\n`),
+      this.stderrWire(`${E2B_OUTPUT_COMPLETE_FRAME}\n`),
+    ])
   }
 
   async stdout(data: string): Promise<void> {
-    await this.startOptions?.onStdout?.(data)
+    await this.stdoutWire(data.length === 0 ? '' : `${Buffer.from(data).toString('base64')}\n`)
   }
 
   async stderr(data: string): Promise<void> {
+    await this.stderrWire(data.length === 0 ? '' : `${Buffer.from(data).toString('base64')}\n`)
+  }
+
+  async stdoutWire(data: string): Promise<void> {
+    await this.startOptions?.onStdout?.(data)
+  }
+
+  async stderrWire(data: string): Promise<void> {
     await this.startOptions?.onStderr?.(data)
   }
 
@@ -147,6 +168,7 @@ class FakeSandbox {
     commands: {
       run: async (command: string, options?: StartOptions | { signal?: AbortSignal }): Promise<CommandHandle | CommandResult> => {
         this.commandsSeen.push(command)
+        if (command === 'env -0') return { exitCode: 0, stdout: this.ambient, stderr: '' }
         if (command.startsWith('kill -0 ')) {
           this.beforeProbe?.()
           if (options?.signal?.aborted === true) throw new DOMException('aborted', 'AbortError')
@@ -221,11 +243,35 @@ async function flush(): Promise<void> {
 }
 
 describe('E2BOutputReader', () => {
+  it('decodes base64 across arbitrary callback boundaries and rejects malformed framing', () => {
+    const decoder = new E2BBase64Decoder()
+    expect(decoder.push('')).toEqual(Buffer.alloc(0))
+    expect(decoder.push('5')).toEqual(Buffer.alloc(0))
+    expect(decoder.push('L2')).toEqual(Buffer.alloc(0))
+    expect(decoder.push('g\n').toString()).toBe('你')
+    expect(decoder.push('YQ==\nYg==\n').toString()).toBe('ab')
+    expect(decoder.push(`${Buffer.from([0, 255]).toString('base64')}\n`)).toEqual(Buffer.from([0, 255]))
+    expect(decoder.push(`${E2B_OUTPUT_COMPLETE_FRAME}\n`)).toEqual(Buffer.alloc(0))
+    decoder.finish()
+
+    expect(() => new E2BBase64Decoder().push('%\n')).toThrow('invalid base64')
+    expect(() => new E2BBase64Decoder().push('AB==\n')).toThrow('invalid base64')
+    expect(() => decoder.push(`${E2B_OUTPUT_COMPLETE_FRAME}\n`)).toThrow('duplicate output transport completion')
+    expect(() => decoder.push('YQ==\n')).toThrow('continued after completion')
+    const truncated = new E2BBase64Decoder()
+    truncated.push('YQ')
+    expect(() => { truncated.finish() }).toThrow('truncated base64')
+    expect(() => { new E2BBase64Decoder().finish() }).toThrow('incomplete output transport')
+    const interrupted = new E2BBase64Decoder()
+    interrupted.push('YQ')
+    expect(() => { interrupted.finish(false) }).not.toThrow()
+  })
+
   it('keeps a byte-exact tail with independent whole-stream cursors', () => {
     const reader = new E2BOutputReader(4, 10, '/remote/spill')
-    reader.push('')
-    reader.push('ab')
-    reader.push('cdef')
+    reader.push(Buffer.alloc(0))
+    reader.push(Buffer.from('ab'))
+    reader.push(Buffer.from('cdef'))
     expect(reader.size).toBe(6)
     expect(reader.readFrom(0)).toEqual({ text: 'cdef', nextOffset: 6, lossy: true, spillPath: '/remote/spill' })
     expect(reader.readFrom(2)).toEqual({ text: 'cdef', nextOffset: 6, lossy: false })
@@ -235,11 +281,11 @@ describe('E2BOutputReader', () => {
 
   it('drops whole head chunks and withholds absent or over-cap spills', () => {
     const withoutSpill = new E2BOutputReader(2, undefined, '/unused')
-    withoutSpill.push('ab')
-    withoutSpill.push('cd')
+    withoutSpill.push(Buffer.from('ab'))
+    withoutSpill.push(Buffer.from('cd'))
     expect(withoutSpill.readFrom(0)).toEqual({ text: 'cd', nextOffset: 4, lossy: true })
     const overCap = new E2BOutputReader(2, 3, '/too-small')
-    overCap.push('abcd')
+    overCap.push(Buffer.from('abcd'))
     expect(overCap.readFrom(0)).toEqual({ text: 'cd', nextOffset: 4, lossy: true })
     expect(() => overCap.readFrom(-1)).toThrow(/non-negative safe integer/)
     expect(() => overCap.readFrom(1.5)).toThrow(/non-negative safe integer/)
@@ -265,16 +311,22 @@ describe('E2BSubprocessHandle', () => {
     expect(fake.handle.sent.map(value => String(value))).toEqual(['hello'])
     expect(fake.handle.closes).toBe(1)
     expect(fake.startOptions?.envs).toBeUndefined()
-    const command = fake.commandsSeen.find(value => value.startsWith('exec setsid'))!
-    expect(command).toContain('exec setsid --wait -- bash -c')
+    const command = fake.commandsSeen.find(value => value.includes('exec "$dsh_e2b_env_bin" -i'))!
+    expect(command).toContain('"$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c')
     expect(command).not.toContain('DEEPSEEK_API_KEY')
     expect(command).not.toContain('DSH_MODE')
     expect(command).not.toContain('FOO-BAR')
     expect(command).not.toContain('explicit-secret')
     expect(command).not.toContain('hyphen-value')
     expect(command).not.toContain('${!dsh_e2b_name}')
-    expect(command).toContain('env -0')
+    expect(fake.commandsSeen).toContain('env -0')
     expect(command).toContain('mapfile -d')
+    expect(command).toContain('dsh_e2b_node="$(command -v node)"')
+    expect(command).toContain('"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e')
+    expect(command).toContain('exec "$dsh_e2b_env_bin" -i "${dsh_e2b_env[@]}"')
+    expect(command).toContain('>&2 2>/dev/null')
+    expect(command).not.toContain('2>/dev/null >&2')
+    expect(command).toContain('base64')
     expect(fake.writtenFiles[0]).toEqual([
       '/workspace/.dsh-e2b/processes/one/pid',
       '/workspace/.dsh-e2b/processes/one/exit-code',
@@ -282,7 +334,7 @@ describe('E2BSubprocessHandle', () => {
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
     expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
-      'PATH=/bin\0FOO-BAR=hyphen-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+      'PATH=/bin\0KEEP=safe\0FOO-BAR=hyphen-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
     )
 
     let piped = ''
@@ -295,6 +347,47 @@ describe('E2BSubprocessHandle', () => {
     expect(handle.collected.stderr!.readFrom(0)).toMatchObject({ text: 'err', lossy: false })
     expect(fake.removed).toContain('/workspace/.dsh-e2b/processes/one/stderr.log')
     await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
+  it('preserves UTF-8 bytes when the ASCII transport is split across callbacks', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 4 } },
+    }), '/runtime/split-utf8')
+    await flush()
+    const chunks: Buffer[] = []
+    handle.stdout!.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    for (const character of `${Buffer.from('A你好B').toString('base64')}\n`) {
+      await fake.stdoutWire(character)
+    }
+    fake.finish()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('A你好B')
+  })
+
+  it('rejects malformed output transport without confusing it with a consumer sink failure', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/malformed-output')
+    await flush()
+    await fake.stdoutWire('%\n')
+    fake.finish()
+    await expect(handle.done).rejects.toThrow('invalid base64 output transport')
+
+    const stderrFake = new FakeSandbox()
+    const stderrHandle = new E2BSubprocessHandle(runtime(stderrFake), spec(), '/runtime/malformed-stderr')
+    await flush()
+    await stderrFake.stderrWire('%\n')
+    stderrFake.finish()
+    await expect(stderrHandle.done).rejects.toThrow('invalid base64 output transport')
+  })
+
+  it('rejects a naturally completed command whose encoder omits its completion frame', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/incomplete-output')
+    await flush()
+    fake.alive = false
+    fake.handle.succeed(0)
+    await expect(handle.done).rejects.toThrow('incomplete output transport')
   })
 
   it('surfaces deferred piped-stdin write and close failures as stream errors', async () => {
@@ -362,10 +455,10 @@ describe('E2BSubprocessHandle', () => {
     await handle.done
     expect(handle.collected.stdout!.readFrom(0)).toEqual({ text: 'cd', nextOffset: 4, lossy: true })
     expect(fake.removed).toContain('/runtime/oversize/stdout.log')
-    const command = fake.commandsSeen.find(value => value.startsWith('exec setsid'))!
-    expect(command).toContain('head -c 3')
+    const command = fake.commandsSeen.find(value => value.includes('dsh_e2b_tee='))!
+    expect(command).toContain('"$dsh_e2b_head" -c 3')
     expect(command).toContain('/runtime/oversize/stdout.log')
-    expect(command).toContain('tee --output-error=warn-nopipe')
+    expect(command).toContain('"$dsh_e2b_tee" --output-error=warn-nopipe')
     expect(command).not.toContain('tee -a')
   })
 
@@ -436,6 +529,7 @@ describe('E2BSubprocessHandle', () => {
     const fake = new FakeSandbox()
     const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/surviving-group')
     await flush()
+    await fake.completeOutput()
     fake.handle.succeed(0)
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     expect(fake.alive).toBe(true)
@@ -640,7 +734,13 @@ describe('E2BSubprocessHandle', () => {
     expect(failures[0].message).toContain('invalid process-group id')
     expect(failures[1].message).toBe('rollback signal failed')
     expect(fake.handle.kills).toBe(1)
-    fake.finish()
+    const bounded = new AbortController()
+    const waiting = handle.waitForExit(bounded.signal)
+    bounded.abort()
+    await expect(waiting).resolves.toBe(false)
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(fake.commandsSeen).toContain('kill -TERM -- -4242')
   })
 
   it('waits for delayed process-group publication', async () => {

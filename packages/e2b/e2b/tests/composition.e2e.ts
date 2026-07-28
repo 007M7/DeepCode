@@ -43,6 +43,22 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       const node = await ctx.subprocess.resolveExecutable('node')
       const relativeNodePath = posix.relative(ctx.subprocess.cwd, posix.dirname(node)) || '.'
       await expect(ctx.subprocess.resolveExecutable('node', { PATH: relativeNodePath })).resolves.toBe(node)
+      const environmentProbe = ctx.subprocess.spawn({
+        argv: ['/bin/bash', '-c', [
+          'dsh_leak=0',
+          'for dsh_pid in "$PPID" $(ps -o pid= --ppid "$PPID"); do',
+          '  [[ "$dsh_pid" == "$$" ]] && continue',
+          '  if tr "\\0" "\\n" < "/proc/$dsh_pid/environ" 2>/dev/null | grep -Fqx "NPM_TOKEN=sentinel-secret"; then dsh_leak=1; fi',
+          'done',
+          'printf "DIRECT=<%s> LEAK=<%s>\\n" "${NPM_TOKEN-}" "$dsh_leak"',
+        ].join('\n')],
+        cwd: '/home/user',
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 1_024 }, stderr: { maxBytes: 1_024 } },
+        graceMs: 500,
+        env: {},
+      })
+      await expect(environmentProbe.done).resolves.toEqual({ exitCode: 0, signal: null })
+      expect(environmentProbe.collected.stdout?.readFrom(0).text).toBe('DIRECT=<> LEAK=<0>\n')
       const ownerId = SessionId('e2b-pty-env-owner')
       const owner: Agent = {
         id: ownerId,
@@ -106,6 +122,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       bashRead: 'written-by-fs\n',
       fsRead: 'written-by-bash\n',
       explicitEnvironment: true,
+      splitUtf8Output: '你好',
       publicationRollback: true,
       spill: {
         liveBytes: 6,

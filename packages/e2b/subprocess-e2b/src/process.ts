@@ -8,6 +8,7 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
+import { SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessCollect,
   SubprocessHandle,
@@ -16,9 +17,21 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { E2BOutputReader } from './output.ts'
+import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
 
 const GROUP_POLL_MS = 20
+const OUTPUT_ENCODER_SOURCE = [
+  '(async () => {',
+  '  for await (const chunk of process.stdin) {',
+  "    if (!process.stdout.write(chunk.toString('base64') + '\\n')) {",
+  "      await new Promise(resolve => process.stdout.once('drain', resolve))",
+  '    }',
+  '  }',
+  `  if (!process.stdout.write(${JSON.stringify(E2B_OUTPUT_COMPLETE_FRAME)} + '\\n')) {`,
+  "    await new Promise(resolve => process.stdout.once('drain', resolve))",
+  '  }',
+  '})().catch(() => { process.exitCode = 1 })',
+].join('\n')
 
 function isCollect(mode: SubprocessOutputMode): mode is SubprocessCollect {
   return mode !== 'pipe' && mode !== 'inherit'
@@ -60,40 +73,65 @@ interface RemotePaths {
   stderr: string
 }
 
-function explicitEnvironment(env: Readonly<Record<string, string>> | undefined): string {
-  return Object.entries(env ?? {})
-    .map(([name, value]) => `${name}=${value}\0`)
-    .join('')
+function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
+  const environment = new Map<string, string>()
+  for (const entry of raw.split('\0')) {
+    if (entry.length === 0) continue
+    const separator = entry.indexOf('=')
+    if (separator <= 0) continue
+    const name = entry.slice(0, separator)
+    if (name.startsWith('DSH_') || SENSITIVE_ENV_PATTERN.test(name)) continue
+    environment.set(name, entry.slice(separator + 1))
+  }
+  for (const [name, value] of Object.entries(explicit ?? {})) environment.set(name, value)
+  return [...environment].map(([name, value]) => `${name}=${value}\0`).join('')
 }
 
 function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
+  const encoder = `"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e ${quoteE2BShellArg(OUTPUT_ENCODER_SOURCE)}`
   const stdoutRedirect = hasSpill(spec.stdio.stdout)
-    ? `> >(tee --output-error=warn-nopipe >(head -c ${spec.stdio.stdout.spill.maxBytes} > ${quoteE2BShellArg(paths.stdout)}))`
-    : ''
+    ? `> >("$dsh_e2b_tee" --output-error=warn-nopipe >("$dsh_e2b_head" -c ${spec.stdio.stdout.spill.maxBytes} > ${quoteE2BShellArg(paths.stdout)}) | ${encoder} 2>/dev/null)`
+    : `> >(${encoder} 2>/dev/null)`
   const stderrRedirect = hasSpill(spec.stdio.stderr)
-    ? `2> >(tee --output-error=warn-nopipe >(head -c ${spec.stdio.stderr.spill.maxBytes} > ${quoteE2BShellArg(paths.stderr)}) >&2)`
-    : ''
+    ? `2> >("$dsh_e2b_tee" --output-error=warn-nopipe >("$dsh_e2b_head" -c ${spec.stdio.stderr.spill.maxBytes} > ${quoteE2BShellArg(paths.stderr)}) | ${encoder} >&2 2>/dev/null)`
+    : `2> >(${encoder} >&2 2>/dev/null)`
   const inner = [
     'set +e',
     'umask 077',
-    'dsh_e2b_pgid="$(ps -o pgid= -p "$$" | tr -d " ")"',
+    'dsh_e2b_env_bin=$1',
+    'dsh_e2b_node=$2',
+    'dsh_e2b_ps=$3',
+    'dsh_e2b_tr=$4',
+    'dsh_e2b_tee=$5',
+    'dsh_e2b_head=$6',
+    'shift 6',
+    'dsh_e2b_pgid="$("$dsh_e2b_ps" -o pgid= -p "$$" | "$dsh_e2b_tr" -d " ")"',
     `printf '%s\\n' "$dsh_e2b_pgid" > ${quoteE2BShellArg(paths.pid)}`,
-    `mapfile -d '' -t dsh_e2b_explicit < ${quoteE2BShellArg(paths.environment)}`,
+    `mapfile -d '' -t dsh_e2b_env < ${quoteE2BShellArg(paths.environment)}`,
     `: > ${quoteE2BShellArg(paths.environment)}`,
-    'dsh_e2b_env=()',
-    "while IFS= read -r -d '' dsh_e2b_entry; do",
-    '  dsh_e2b_name="${dsh_e2b_entry%%=*}"',
-    '  case "${dsh_e2b_name^^}" in DSH_*|*KEY*|*SECRET*|*TOKEN*) continue ;; esac',
-    '  dsh_e2b_env+=("$dsh_e2b_entry")',
-    'done < <(env -0)',
-    `env -i "\${dsh_e2b_env[@]}" "\${dsh_e2b_explicit[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
+    `"$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
     'dsh_e2b_status=$?',
     'wait',
     `printf '%s\\n' "$dsh_e2b_status" > ${quoteE2BShellArg(paths.status)}`,
     'exit "$dsh_e2b_status"',
   ].join('\n')
   const argv = spec.argv.map(quoteE2BShellArg).join(' ')
-  return `exec setsid --wait -- bash -c ${quoteE2BShellArg(inner)} dsh-e2b ${argv}`
+  const bootstrap = [
+    `mapfile -d '' -t dsh_e2b_env < ${quoteE2BShellArg(paths.environment)}`,
+    'dsh_e2b_env_bin="$(command -v env)"',
+    'dsh_e2b_setsid="$(command -v setsid)"',
+    'dsh_e2b_bash="$(command -v bash)"',
+    'dsh_e2b_node="$(command -v node)"',
+    'dsh_e2b_ps="$(command -v ps)"',
+    'dsh_e2b_tr="$(command -v tr)"',
+    'dsh_e2b_tee="$(command -v tee)"',
+    'dsh_e2b_head="$(command -v head)"',
+    'for dsh_e2b_tool in "$dsh_e2b_env_bin" "$dsh_e2b_setsid" "$dsh_e2b_bash" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head"; do',
+    '  [[ "$dsh_e2b_tool" == /* && -x "$dsh_e2b_tool" ]] || exit 125',
+    'done',
+    `exec "$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c ${quoteE2BShellArg(inner)} dsh-e2b "$dsh_e2b_env_bin" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" ${argv}`,
+  ].join('\n')
+  return bootstrap
 }
 
 function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
@@ -128,10 +166,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   readonly done: Promise<SubprocessOutcome>
 
   private readonly readyState = Promise.withResolvers<CommandHandle>()
+  private readonly stdoutDecoder = new E2BBase64Decoder()
+  private readonly stderrDecoder = new E2BBase64Decoder()
   private readonly stdoutReader: E2BOutputReader | undefined
   private readonly stderrReader: E2BOutputReader | undefined
   private readonly paths: RemotePaths
   private remotePid = -1
+  private commandHandle: CommandHandle | undefined
+  private outputTransportError: Error | undefined
   private terminationRequested = false
   private terminationSignal: NodeJS.Signals | null = null
   private termination: Promise<void> | undefined
@@ -195,7 +237,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     try {
       handle = await this.readyForWait(signal)
     } catch {
-      return true
+      handle = this.commandHandle
+      if (handle === undefined) return true
     }
     if (handle === undefined) return false
     let sandbox: Sandbox
@@ -205,7 +248,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (isAborted(signal)) return false
       throw error
     }
-    while (await this.groupAlive(sandbox, this.remotePid, signal)) {
+    const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
+    while (await this.groupAlive(sandbox, processGroupId, signal)) {
       if (!await waitTick(signal)) return false
     }
     return !isAborted(signal)
@@ -248,6 +292,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (!Number.isSafeInteger(handle.pid) || handle.pid <= 0) {
         throw new Error(`subprocess-e2b: E2B returned invalid command pid ${handle.pid}`)
       }
+      this.commandHandle = handle
       const completion = handle.wait()
       void completion.catch(() => {})
       try {
@@ -266,6 +311,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       this.readyState.resolve(handle)
       await this.writeBatchStdin(handle)
       const outcome = await this.waitForCommand(completion)
+      if (this.outputTransportError !== undefined) throw this.outputTransportError
+      const requireCompleteOutput = this.terminationSignal === null
+      this.stdoutDecoder.finish(requireCompleteOutput)
+      this.stderrDecoder.finish(requireCompleteOutput)
       await this.finalizeSpills(sandbox)
       return outcome
     } catch (error: unknown) {
@@ -279,12 +328,13 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async prepareState(sandbox: Sandbox): Promise<void> {
+    const ambient = await sandbox.commands.run('env -0')
     await sandbox.files.makeDir(this.stateDir)
     await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`)
     const files = [
       { path: this.paths.pid, data: '' },
       { path: this.paths.status, data: '' },
-      { path: this.paths.environment, data: explicitEnvironment(this.spec.env) },
+      { path: this.paths.environment, data: remoteEnvironment(ambient.stdout, this.spec.env) },
       ...(hasSpill(this.spec.stdio.stdout) ? [{ path: this.paths.stdout, data: '' }] : []),
       ...(hasSpill(this.spec.stdio.stderr) ? [{ path: this.paths.stderr, data: '' }] : []),
     ]
@@ -303,25 +353,34 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async dispatchOutput(stream: 'stdout' | 'stderr', data: string): Promise<void> {
+    let bytes: Buffer
+    try {
+      bytes = stream === 'stdout' ? this.stdoutDecoder.push(data) : this.stderrDecoder.push(data)
+    } catch (error: unknown) {
+      this.outputTransportError ??= asError(error)
+      const target = stream === 'stdout' ? this.stdout : this.stderr
+      target?.destroy(this.outputTransportError)
+      return
+    }
     try {
       if (stream === 'stdout') {
-        this.stdoutReader?.push(data)
-        await this.writeOutput(this.stdout, this.spec.stdio.stdout === 'inherit' ? process.stdout : undefined, data)
+        this.stdoutReader?.push(bytes)
+        await this.writeOutput(this.stdout, this.spec.stdio.stdout === 'inherit' ? process.stdout : undefined, bytes)
         return
       }
-      this.stderrReader?.push(data)
-      await this.writeOutput(this.stderr, this.spec.stdio.stderr === 'inherit' ? process.stderr : undefined, data)
+      this.stderrReader?.push(bytes)
+      await this.writeOutput(this.stderr, this.spec.stdio.stderr === 'inherit' ? process.stderr : undefined, bytes)
     } catch (error: unknown) {
       const target = stream === 'stdout' ? this.stdout : this.stderr
       target?.destroy(asError(error))
     }
   }
 
-  private async writeOutput(pipe: PassThrough | undefined, inherited: NodeJS.WriteStream | undefined, data: string): Promise<void> {
+  private async writeOutput(pipe: PassThrough | undefined, inherited: NodeJS.WriteStream | undefined, data: Uint8Array): Promise<void> {
     const target = pipe ?? inherited
     if (target === undefined || data.length === 0) return
     if (target.destroyed) throw new Error('subprocess output stream is closed')
-    if (target.write(Buffer.from(data))) return
+    if (target.write(data)) return
     await new Promise<void>((resolve, reject) => {
       const onDrain = (): void => { cleanup(); resolve() }
       const onError = (error: Error): void => { cleanup(); reject(error) }
@@ -369,10 +428,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async rollbackUnpublishedGroup(sandbox: Sandbox, handle: CommandHandle): Promise<void> {
-    // The background command begins with `exec setsid`, so E2B's command PID is
-    // the provisional group id even before the private publication file can be
-    // trusted. Kill that group before the SDK-PID fallback, then prove no group
-    // member survived before rejecting startup.
+    // The bootstrap ends in an exec chain through the scrubbed environment and
+    // `setsid`, so E2B's command PID is the provisional group id even before the
+    // private publication file can be trusted. Kill that group before the SDK-PID
+    // fallback, then prove no group member survived before rejecting startup.
     try {
       await this.signalGroup(sandbox, handle.pid, 'KILL')
     } finally {
@@ -382,23 +441,25 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async terminateRemote(): Promise<void> {
-    let handle: CommandHandle
+    let handle: CommandHandle | undefined
     try {
       handle = await this.readyState.promise
     } catch {
-      return
+      handle = this.commandHandle
     }
+    if (handle === undefined) return
     const sandbox = await this.runtime.getSandbox()
+    const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
     this.terminationSignal = 'SIGTERM'
-    await this.signalGroup(sandbox, this.remotePid, 'TERM')
+    await this.signalGroup(sandbox, processGroupId, 'TERM')
     const deadline = Date.now() + this.spec.graceMs
-    while (Date.now() < deadline && await this.groupAlive(sandbox, this.remotePid)) {
+    while (Date.now() < deadline && await this.groupAlive(sandbox, processGroupId)) {
       await waitTick()
     }
-    if (!await this.groupAlive(sandbox, this.remotePid)) return
+    if (!await this.groupAlive(sandbox, processGroupId)) return
     this.terminationSignal = 'SIGKILL'
     try {
-      await this.signalGroup(sandbox, this.remotePid, 'KILL')
+      await this.signalGroup(sandbox, processGroupId, 'KILL')
     } finally {
       await handle.kill().catch(() => false)
     }
