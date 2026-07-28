@@ -132,11 +132,13 @@ export interface SessionSummary {
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
   /**
-   * Derived emptiness bit: true while the session log holds zero events (no
-   * user message yet). Clients hide blank sessions from lists and reuse them
-   * for New Session on the same workspace. Always false for cold sessions —
-   * lazy persistence keeps a never-appended session out of the store, so a
-   * listed cold session necessarily has events.
+   * Derived conversation-not-started bit: true while no turn has run (no
+   * prompt was accepted yet). Standalone plugin events — command lifecycle
+   * records, plan/mode, titles, goals — do not open a turn and therefore do
+   * not clear it. Clients hide blank sessions from lists and reuse them for
+   * New Session on the same workspace. Always false for cold sessions —
+   * lazy persistence keeps a never-appended session out of the store, and a
+   * listed cold session's log holds its turns.
    */
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
