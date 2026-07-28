@@ -126,14 +126,15 @@ describe('session.history projections block', () => {
 })
 
 describe('session.list projections column', () => {
-  it('serves attached rows from the live registry cut', async () => {
+  it('serves attached rows from the live registry cut, watermarked for client seeding', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 1)
     const response = await api(ctx).sessions.list(request({}))
     if (!response.result.ok) throw new Error('unreachable')
     const row = response.result.value.items.find(item => item.sessionId === session.id)
-    expect(row?.projections?.['test/last-user']).toEqual({ text: 'm0' })
+    expect(row?.projections?.values['test/last-user']).toEqual({ text: 'm0' })
+    expect(row?.projections?.asOfSeq).toBe(session.seq - 1)
   })
 
   it('omits the column entirely when no registry is mounted', async () => {
@@ -158,13 +159,17 @@ describe('session.list projections column', () => {
       readFrom: load,
     } as never)
     ctx.provide('sessionProjectionCache', {
-      cachedValues: (id: unknown) => (id === coldId ? { 'test/last-user': { text: 'cached' } } : {}),
+      // The carrier hands the listed header through as the identity witness.
+      cachedSnapshot: (meta: { id: unknown; createdAt: number }) =>
+        (meta.id === coldId && meta.createdAt === 5
+          ? { asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } }
+          : undefined),
     } as never)
     const response = await api(ctx).sessions.list(request({}))
     if (!response.result.ok) throw new Error('unreachable')
     const row = response.result.value.items.find(item => item.sessionId === coldId)
     expect(row?.running).toBe(false)
-    expect(row?.projections?.['test/last-user']).toEqual({ text: 'cached' })
+    expect(row?.projections).toEqual({ asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } })
   })
 
   it('cold rows without a cache plugin (or without a stored row) just lack the column', async () => {

@@ -7,7 +7,6 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
@@ -38,16 +37,7 @@ export const sessionEventSchema = z.object({
   surfaceOp: z.unknown().optional(),
 }) as unknown as z.ZodType<SessionEvent>
 
-/**
- * Projection-values passthrough (same posture as
- * {@link sessionProjectionsBlockSchema}): each value already passed its
- * unit's own schema on the host side; deep-validating here would import
- * every domain's schema into the carrier.
- */
-const projectionValuesSchema =
-  z.record(z.string(), z.unknown()) as unknown as z.ZodType<Partial<SessionProjectionMap>>
-
-/** SessionSummary row of session.list. */
+/** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
 export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
@@ -55,8 +45,8 @@ export const sessionSummarySchema = z.object({
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
   cwd: z.string().optional(),
-  projections: projectionValuesSchema.optional(),
-}) satisfies z.ZodType<Wire<SessionSummary>>
+  projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
+}) as unknown as z.ZodType<Wire<SessionSummary>>
 
 /** session.list request payload (cursor is a reserved seat, unimplemented in v1). */
 export const sessionListRequestSchema = z.object({
@@ -64,9 +54,9 @@ export const sessionListRequestSchema = z.object({
 }) satisfies z.ZodType<Wire<RequestPayload<'session.list'>>>
 
 /** session.list response value. */
-export const sessionListValueSchema = z.object({
+export const sessionListValueSchema: z.ZodType<Wire<ResponseValue<'session.list'>>> = z.object({
   items: z.array(sessionSummarySchema),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.list'>>>
+})
 
 /** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({
