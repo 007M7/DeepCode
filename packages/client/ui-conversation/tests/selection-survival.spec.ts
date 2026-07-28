@@ -11,6 +11,9 @@ import { createChatStore } from '../src/client/stores.ts'
 
 const sid = (s: string): SessionId => s as SessionId
 
+/** Identity-stable no-session bundle (uSES getSnapshot contract). */
+const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
+
 interface Bench {
   slots: SlotsService
   chat: ReturnType<typeof createChatStore>
@@ -23,7 +26,10 @@ function bench(): Bench {
       ids: [], byId: {}, current: undefined, phase: 'ready',
     }),
     provideInfo: () => undefined,
-    maybeProvideInfo: () => ({ hooks: {}, props: {} }),
+    currentProvideInfo: {
+      getSnapshot: () => ABSENT_INFO,
+      subscribe: () => () => {},
+    },
     provide: () => () => {},
   })
   ctx.provide('workspaces', {

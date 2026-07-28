@@ -56,7 +56,11 @@ function bench(over?: BenchOptions) {
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
-      ? { slash: (() => ({ lexicon: () => lex })) as unknown as NonNullable<ShellDeps['slash']> }
+      ? {
+        slash: (() => ({
+          lexicon: { getSnapshot: () => lex, subscribe: () => () => {} },
+        })) as unknown as NonNullable<ShellDeps['slash']>,
+      }
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
@@ -87,6 +91,8 @@ function bench(over?: BenchOptions) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    useNotices: bindSnapshotSelector(shell.notices),
+    useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
     renderSlot,
     variant: over?.variant ?? 'composer',

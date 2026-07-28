@@ -81,10 +81,10 @@ occurrence 表与 chip 三投影：
 skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
 
 - PickOutcome 增 `{text}` arm；新 scoped bail 事件 `slash/input-insert-text` `{text, span}`（与另三个同契约：draftRev CAS、返回 true ⟺ 实际改写）；facade.insertText 走 setDraft 拼接，机器零改动。
-- source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；controller 聚合为 `lexicon()` 公面。
+- source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；配对的可选 `subscribeLexicon?(session, listener)` 钩子是名录在 warm 之后仍会变化（目录 settle、子代生灭）时的失效通道。controller 把各名录聚合进自己的 `lexicon` snapshot store（每次 source 通知重拉）；scope 出生后才注册的 source 由 service 广播给活 controller，补 warm 并并入名录。
 - `decorations.scanTextRefs`：词边界扫描 draft（行首/空白后的 `/name`、`@name`，`x/name` 永不命中）对照名录，命中即 `.textRef` mark（backdrop 纯 range 高亮，同 hlToken）；编辑破坏匹配形状下次扫描自然消失。
 - 发送即原文（不再 `<skill>` 序列化）；气泡侧 MessageItem 双形状装饰（legacy `<skill>` 标签 + 纯文本 token）。
-- 旧 occurrence/paste/serialize 链全部保留在盘未删（additive；删除另成将来一刀）。已知局限维持现状：粘贴/冷启动时 lexicon 未热不装饰，输 `/` 开一次菜单后才亮。
+- 旧 occurrence/paste/serialize 链全部保留在盘未删（additive；删除另成将来一刀）。装饰响应性：InputBar 以 uSES 订阅 shell 的 lexicon source，scope 出生预热后才 settle 的名录会直接点亮已有 draft token，无需菜单交互或无关重渲染。
 
 ### per-session 供数贡献与键盘私面
 

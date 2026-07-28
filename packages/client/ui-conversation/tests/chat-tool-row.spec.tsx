@@ -64,6 +64,16 @@ describe('tool-call-model', () => {
     expect(toolRowModel('', running({ argsRaw: '' })).summary).toBe('c1')
   })
 
+  it('displays workspace-rooted paths relative to the session cwd', () => {
+    const cwd = '/Users/u/ws/'
+    expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"/Users/u/ws/src/x.ts"}' }), cwd).summary).toBe('src/x.ts')
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/Users/u/ws/a.md"}' }), cwd).summary).toBe('a.md')
+    // Paths outside the workspace (and non-path summaries) stay verbatim.
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/etc/hosts"}' }), cwd).summary).toBe('/etc/hosts')
+    expect(toolRowModel('bash', running({ argsRaw: '{"command":"pwd"}' }), cwd).summary).toBe('pwd')
+    expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/Users/u/ws/a.md"}' }), '').summary).toBe('/Users/u/ws/a.md')
+  })
+
   it('body pretty-prints JSON args, keeps raw non-JSON, null when empty', () => {
     expect(toolRowModel('bash', running({ argsRaw: '{"a":1}' })).body).toBe('{\n  "a": 1\n}')
     expect(toolRowModel('bash', running({ argsRaw: 'raw' })).body).toBe('raw')
@@ -125,12 +135,12 @@ describe('ToolRow', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
-  it('running and error states replace the icon with a StateDot', () => {
+  it('running keeps the icon (row sweep carries the signal); error swaps in a StateDot', () => {
     const runningView = render(<ToolRow {...rowProps} state="running" />)
-    expect(runningView.queryByTestId('tool-icon')).toBeNull()
+    expect(runningView.queryByTestId('tool-icon')).not.toBeNull()
     expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
     const errorView = render(<ToolRow {...rowProps} state="error" />)
-    expect(errorView.queryByTestId('tool-icon')).toBeNull()
+    expect(errorView.container.querySelector('[data-testid="tool-icon"]')).toBeNull()
   })
 
   it('non-expandable rows render a passive leading slot', () => {

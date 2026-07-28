@@ -90,7 +90,7 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows StateDot chrome for running/error/stopped (root session arm)', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],

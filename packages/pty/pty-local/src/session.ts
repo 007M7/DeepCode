@@ -79,14 +79,18 @@ class LocalSendOperation implements PtySendOperation {
   private readonly output: BoundedTextBuffer
   private readonly promise: PromiseWithResolvers<PtySendResult>
   private finished = false
+  private initialForegroundLeftWait: boolean
 
   constructor(
     maxBytes: number,
     readonly startedAt: number,
+    private readonly initialForegroundPgid: number | undefined,
+    initialForegroundWasWaiting: boolean,
     private readonly onCancel: () => void,
   ) {
     this.output = new BoundedTextBuffer(maxBytes)
     this.promise = Promise.withResolvers<PtySendResult>()
+    this.initialForegroundLeftWait = !initialForegroundWasWaiting
   }
 
   get done(): Promise<PtySendResult> {
@@ -117,6 +121,15 @@ class LocalSendOperation implements PtySendOperation {
 
   readOutput(): PtySendRead {
     return this.output.consume()
+  }
+
+  acceptsStdinWait(pgid: number, waiting: boolean): boolean {
+    // The same group may still expose the wait that existed before terminal.write.
+    // Observe every poll so a departure before the exact-settlement threshold
+    // still makes a later return to that wait post-write evidence.
+    if (pgid !== this.initialForegroundPgid) return waiting
+    if (!waiting) this.initialForegroundLeftWait = true
+    return waiting && this.initialForegroundLeftWait
   }
 
   cancel(): boolean {
@@ -200,9 +213,14 @@ export class LocalPtySession implements PtyBackendSession {
     if (this.active !== undefined) throw new Error('PTY session already has an active send')
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
+    const initialForegroundPgid = this.inspector.foregroundPgid(this.pid)
+    const initialForegroundWasWaiting = initialForegroundPgid !== undefined
+      && this.inspector.isStdinWaiting(initialForegroundPgid)
     const operation = new LocalSendOperation(
       this.config.maxReadBytes,
       Date.now(),
+      initialForegroundPgid,
+      initialForegroundWasWaiting,
       () => { this.interrupt(operation) },
     )
     this.active = operation
@@ -321,12 +339,15 @@ export class LocalPtySession implements PtyBackendSession {
     }
     const elapsed = Date.now() - operation.startedAt
     const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
-    if (startupHasOutput && elapsed >= this.config.exactProbeAfterMs) {
+    let acceptsStdinWait = false
+    if (startupHasOutput) {
       const pgid = this.inspector.foregroundPgid(this.pid)
-      if (pgid !== undefined && this.inspector.isStdinWaiting(pgid)) {
-        this.settleActive('stdin_read')
-        return
-      }
+      acceptsStdinWait = pgid !== undefined
+        && operation.acceptsStdinWait(pgid, this.inspector.isStdinWaiting(pgid))
+    }
+    if (elapsed >= this.config.exactProbeAfterMs && acceptsStdinWait) {
+      this.settleActive('stdin_read')
+      return
     }
     // A prompt candidate can race bash's foreground handoff, but an interactive
     // child also inherits PROMPT_COMMAND. Silence therefore remains the bound

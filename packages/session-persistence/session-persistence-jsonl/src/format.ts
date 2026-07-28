@@ -253,10 +253,10 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
   const headerLine = parsedHeader
 
   // Parse and decode every complete line first so the last valid `turn/end`
-  // determines whether an earlier hole is committed corruption or an
-  // uncommitted tail. One line yields one event, or a whole run for a packed
-  // chunk row; a row-tagged line that fails row validation is a hole, exactly
-  // like unparsable JSON.
+  // determines whether an earlier hole interrupts an otherwise closed
+  // execution or belongs to a tolerable final suffix. One line yields one
+  // event, or a whole run for a packed chunk row; a row-tagged line that fails
+  // row validation is a hole, exactly like unparsable JSON.
   interface Parsed { ok: boolean; events?: SessionEvent[]; endByte: number }
   const parsed: Parsed[] = eventEntries.map((entry) => {
     try {
@@ -266,9 +266,11 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
     }
   })
 
-  // The last index (into eventEntries) that ends in a valid `turn/end` — the
-  // last fully-committed boundary (the loop flushes only at turn/end). A packed
-  // row never stores a turn/end, so only single-event lines can match.
+  // The last index (into eventEntries) that ends in a valid `turn/end`. A hole
+  // before this boundary cannot be a torn final suffix because later execution
+  // already closed. Standalone events after it remain part of the preserved
+  // contiguous prefix. A packed row never stores a turn/end, so only
+  // single-event lines can match.
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     const p = parsed[i]
