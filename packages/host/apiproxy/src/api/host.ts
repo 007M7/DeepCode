@@ -62,10 +62,13 @@ export interface HostApi {
   /**
    * List one directory level for the in-app browser; an absent path lists the
    * host account's home directory. Only served under the `browse` capability;
-   * unreadable or missing targets fail with `directory-unreadable`.
+   * unreadable or missing targets fail with `directory-unreadable`. The
+   * carrier's request signal follows the caller, stopping the backend's scan
+   * on disconnect or timeout.
    */
   listDirectory(
     request: RpcRequest<{ path?: string }>,
+    signal: AbortSignal,
   ): Promise<RpcResponse<DirectoryListing>>
 
   /**

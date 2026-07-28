@@ -65,13 +65,16 @@ export interface DirectoryPickerBrowseCapability {
   /**
    * List one directory level.
    * @param path - absolute directory to list; absent lists the home directory.
+   * @param signal - caller lifetime; abort stops the scan (a stalled network
+   * directory must not outlive a disconnected caller) and rejects with the
+   * abort reason.
    * @returns the level's listing with ancestry; backends bound the complete
    * result, and a cut level reports `truncated`.
    * @throws {DirectoryPickerError} `directory-unreadable` when the target is not fully
    * qualified (a wire value must never resolve against the host cwd or, on
    * Windows, its current drive) or cannot be listed.
    */
-  list(path?: string): Promise<DirectoryListing>
+  list(path?: string, signal?: AbortSignal): Promise<DirectoryListing>
   /**
    * Create one child directory under an existing parent.
    * @param path - absolute existing parent directory.

@@ -74,9 +74,22 @@ export interface ListingCandidate {
  * @returns true when an eviction happened (the level has candidates beyond the window).
  */
 export function boundedInsert(window: ListingCandidate[], candidate: ListingCandidate, keep: number): boolean {
-  const at = window.findIndex(existing => candidate.name.localeCompare(existing.name) < 0)
-  if (at === -1) window.push(candidate)
-  else window.splice(at, 0, candidate)
+  // Full window, name at or beyond the tail: one comparison rejects, so an
+  // oversized level costs O(1) per candidate past the head instead of a
+  // window scan (100k children against a 1,001 window must not approach
+  // 10^8 comparisons).
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- a full window (length === keep >= 1) has a tail
+  if (window.length === keep && candidate.name.localeCompare(window[window.length - 1]!.name) >= 0) return true
+  // Binary insertion keeps a retained candidate at O(log keep) comparisons.
+  let lo = 0
+  let hi = window.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+    if (candidate.name.localeCompare(window[mid]!.name) < 0) hi = mid
+    else lo = mid + 1
+  }
+  window.splice(lo, 0, candidate)
   if (window.length <= keep) return false
   window.pop()
   return true
@@ -131,7 +144,7 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
 
   private readonly browseCapability: DirectoryPickerCapability = {
     kind: 'browse',
-    list: path => this.list(path),
+    list: (path, signal) => this.list(path, signal),
     createDirectory: (path, name) => this.createDirectory(path, name),
   }
 
@@ -147,7 +160,7 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     return this.browseCapability
   }
 
-  private async list(path?: string): Promise<DirectoryListing> {
+  private async list(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
     const home = homedir()
     // The seam contract takes fully qualified paths only; resolve() would
     // silently rebase a relative or empty wire value under the host process
@@ -169,6 +182,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     try {
       const level = await opendir(target)
       for await (const dirent of level) {
+        // A disconnected/timed-out caller stops the scan here; throwing out
+        // of the loop closes the directory handle via the iterator's return.
+        signal?.throwIfAborted()
         // Only rows a browser could enter contend for the window; dirent
         // says "directory" outright, a symlink needs the later stat probe.
         if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
@@ -176,6 +192,8 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
         if (boundedInsert(window, candidate, keep)) evicted = true
       }
     } catch (error: unknown) {
+      // An abort is the caller's own reason, not an unreadable directory.
+      signal?.throwIfAborted()
       throw new DirectoryPickerError('directory-unreadable', target, `cannot list ${target}: ${messageOf(error)}`)
     }
     const entries: DirectoryEntry[] = []

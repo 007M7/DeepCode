@@ -1076,7 +1076,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
-      async listDirectory(request) {
+      async listDirectory(request, signal) {
         const capability = ctx.directoryPicker.capability()
         if (capability.kind !== 'browse') {
           return err(request, {
@@ -1086,7 +1086,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         try {
-          return ok(request, await capability.list(request.payload.path))
+          // The carrier's signal follows the caller: a disconnect or timeout
+          // stops the backend's directory scan instead of outliving it.
+          return ok(request, await capability.list(request.payload.path, signal))
         } catch (error: unknown) {
           return err(request, directoryError(error))
         }

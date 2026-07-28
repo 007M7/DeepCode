@@ -172,9 +172,9 @@ const BROWSE_STUB: DirectoryPickerCapability = {
 describe('host.listDirectory / host.createDirectory', () => {
   it('serves listings and creation through the browse capability, defaulting to home', async () => {
     const { api } = await harness(undefined, BROWSE_STUB)
-    const home = await api.host.listDirectory(request({}))
+    const home = await api.host.listDirectory(request({}), new AbortController().signal)
     expect(home.result).toMatchObject({ ok: true, value: { path: '/home/user', home: '/home/user' } })
-    const listed = await api.host.listDirectory(request({ path: '/home/user/projects' }))
+    const listed = await api.host.listDirectory(request({ path: '/home/user/projects' }), new AbortController().signal)
     expect(listed.result).toMatchObject({ ok: true, value: { path: '/home/user/projects' } })
     const created = await api.host.createDirectory(request({ path: '/home/user', name: 'fresh' }))
     expect(created.result).toEqual({ ok: true, value: { path: '/home/user/fresh' } })
@@ -182,7 +182,7 @@ describe('host.listDirectory / host.createDirectory', () => {
 
   it('maps typed picker failures onto the wire error codes and folds unknown throws to internal', async () => {
     const { api } = await harness(undefined, BROWSE_STUB)
-    expect((await api.host.listDirectory(request({ path: '/denied' }))).result).toMatchObject({
+    expect((await api.host.listDirectory(request({ path: '/denied' }), new AbortController().signal)).result).toMatchObject({
       ok: false, error: { code: 'directory-unreadable', details: { path: '/denied' } },
     })
     expect((await api.host.createDirectory(request({ path: '/home/user', name: 'taken' }))).result).toMatchObject({
@@ -195,7 +195,7 @@ describe('host.listDirectory / host.createDirectory', () => {
 
   it('refuses the browse RPCs under a native composition', async () => {
     const { api } = await harness()
-    expect((await api.host.listDirectory(request({}))).result).toMatchObject({
+    expect((await api.host.listDirectory(request({}), new AbortController().signal)).result).toMatchObject({
       ok: false, error: { code: 'directory-picker-unavailable', details: { capability: 'native' } },
     })
     expect((await api.host.createDirectory(request({ path: '/x', name: 'y' }))).result).toMatchObject({
