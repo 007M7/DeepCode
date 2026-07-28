@@ -619,6 +619,49 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('publishes unknown metrics after AgentRegistry terminal disposal with mux active', async () => {
+    let agentsFiber: Fiber | undefined
+    const ctx = await hostContext(undefined, (fiber) => { agentsFiber = fiber })
+    if (agentsFiber === undefined) throw new Error('agent registry fiber missing')
+    const deferred = new DeferredCatalogAdapter()
+    ctx.llm.registerAdapter(['deferred'], deferred)
+    const lifecycle = attachLifecycleSession(ctx, SessionId('capacity-agent-registry-disposed'))
+    const detachAgent = attachLifecycleAgent(ctx, lifecycle.session)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const controller = new AbortController()
+    const iterator = api.events.mux(request({}), controller.signal)[Symbol.asyncIterator]()
+
+    expect((await nextMetrics(iterator)).contextWindow).toBeUndefined()
+    await vi.waitFor(() => { expect(deferred.pending).toHaveLength(1) })
+    deferred.resolve(0, 64_000)
+    await settleCapacityCompletion()
+    expect((await nextMetrics(iterator)).contextWindow).toBe(64_000)
+
+    await agentsFiber.dispose()
+    const refresh = nextMetrics(iterator).then(
+      metrics => ({ kind: 'metrics' as const, metrics }),
+      () => ({ kind: 'error' as const }),
+    )
+    const outcome = await Promise.race([
+      refresh,
+      new Promise<{ kind: 'idle' }>((resolve) => {
+        setImmediate(() => { resolve({ kind: 'idle' }) })
+      }),
+    ])
+
+    controller.abort()
+    await refresh
+    await iterator.return?.()
+    detachAgent()
+    lifecycle.detach()
+    await ctx.fiber.dispose()
+    expect(outcome.kind).toBe('metrics')
+    if (outcome.kind === 'metrics') {
+      expect(outcome.metrics.contextWindow).toBeUndefined()
+      expect(outcome.metrics.logRevision).toBe(1)
+    }
+  })
+
   it.each(['agents', 'sessions'] as const)(
     'drops capacity completion while %s is unavailable during unload',
     async (serviceName) => {

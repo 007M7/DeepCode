@@ -422,7 +422,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Pair a registry agent only with the exact Session lifecycle it owns. */
   function metricsAgentFor(session: Session): Agent | undefined {
-    const agent = ctx.agents.get(session.id)
+    const agent = ctx.get('agents')?.get(session.id)
     return agent?.session === session ? agent : undefined
   }
 
