@@ -195,17 +195,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       const seq = ++requestSeq.current
       setLoading(true)
       listDirectory(targetPath).then((level) => {
-        // Same seq fence as navigate/select; the nested dialog blocks
-        // superseding input during this relist.
-        /* v8 ignore next */
+        /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
         setParent(level)
         setLoading(false)
         select({ name, path: createdPath, hidden: false })
       }, (reason: unknown) => {
-        // Same seq fence as navigate/select; the nested dialog blocks
-        // superseding input during this relist.
-        /* v8 ignore next */
+        /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
         setLoading(false)
         setError(failureText(reason))
