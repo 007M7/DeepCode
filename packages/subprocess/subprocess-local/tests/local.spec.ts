@@ -105,6 +105,53 @@ describe('LocalSubprocessService', () => {
     expect(waitForExit).toHaveBeenCalledOnce()
   })
 
+  it('releases a terminal after top-level exit reaches quiescence', async () => {
+    let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
+    const inspector = {
+      foregroundPgid: () => undefined,
+      isStdinWaiting: () => false,
+      processTree: () => [],
+      isAlive: () => false,
+      signalGroup: () => {},
+      signalProcess: () => {},
+    }
+    const terminal = {
+      pid: 123,
+      onData: () => ({ dispose: () => {} }),
+      onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => {
+        exitListener = listener
+        return { dispose: () => {} }
+      },
+      write: () => {},
+      kill: () => {},
+    }
+    vi.resetModules()
+    vi.doMock('node-pty', () => ({ spawn: () => terminal }))
+    vi.doMock('../src/process-inspector.ts', async importOriginal => ({
+      ...await importOriginal<typeof import('../src/process-inspector.ts')>(),
+      createProcessInspector: () => inspector,
+    }))
+    try {
+      const { default: IsolatedLocalSubprocessService } = await import('../src/index.ts')
+      const ctx = new Context()
+      const fiber = await ctx.plugin(IsolatedLocalSubprocessService)
+      const service = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessService>
+      const handle = await ctx.subprocess.spawnTerminal({
+        argv: ['shell'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1,
+      })
+      expect((service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.size).toBe(1)
+      exitListener?.({ exitCode: 0 })
+      await handle.done
+      await new Promise(resolve => setImmediate(resolve))
+      expect((service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.size).toBe(0)
+      await fiber.dispose()
+    } finally {
+      vi.doUnmock('node-pty')
+      vi.doUnmock('../src/process-inspector.ts')
+      vi.resetModules()
+    }
+  })
+
   it('contains a terminal release failure after top-level exit', async () => {
     let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
     const terminal = {
