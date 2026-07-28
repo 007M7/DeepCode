@@ -36,6 +36,12 @@ export interface DeferredRegistration {
  * @param name - target slot name.
  * @param component - the component whose ledger presence marks "registered".
  * @param register - performs the actual registration; returns its disposer.
+ * @param onFailure - owns a registration failure that fires from a LATER
+ * ledger flush (a declaration landing after two providers deferred, say):
+ * the deferral first removes its own subscription, then hands the error
+ * over instead of throwing through the flush — the callback's chance to
+ * roll back sibling deferrals and surface the conflict on a loud channel.
+ * Absent, a late failure rethrows out of the flush.
  * @returns the deferral handle (dispose in the owning effect's disposer).
  * @throws the immediate registration's failure, after removing the
  * just-installed subscription — a throwing construction leaves nothing live.
@@ -45,6 +51,7 @@ export function deferRegistration(
   name: string,
   component: unknown,
   register: () => () => void,
+  onFailure?: (error: unknown) => void,
 ): DeferredRegistration {
   let dispose: (() => void) | undefined
   const tryRegister = (): void => {
@@ -52,7 +59,15 @@ export function deferRegistration(
     if (registry.entries(name).some(e => e.component === component)) return
     dispose = register()
   }
-  const unsubscribe = registry.subscribe(name, () => { tryRegister() })
+  const unsubscribe = registry.subscribe(name, () => {
+    try {
+      tryRegister()
+    } catch (error) {
+      unsubscribe()
+      if (onFailure === undefined) throw error
+      onFailure(error)
+    }
+  })
   try {
     tryRegister()
   } catch (error) {

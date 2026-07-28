@@ -29,13 +29,21 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     // Constructing the pair can throw halfway (a declared hole already
     // occupied registers synchronously): roll the earlier deferral back so
-    // no live subscription outlives the failed fiber.
+    // no live subscription outlives the failed fiber. A conflict surfacing
+    // from a LATER ledger flush (holes declared after two flow providers
+    // activated) rolls the whole pair back the same way and re-raises on
+    // the global channel the boot's fail-loud handler owns — never a throw
+    // through the slot flush, never partial occupancy from this package.
     const deferred: ReturnType<typeof deferRegistration>[] = []
+    const lateConflict = (error: unknown): void => {
+      for (const entry of deferred) entry.dispose()
+      queueMicrotask(() => { throw error instanceof Error ? error : new Error(String(error)) })
+    }
     try {
       deferred.push(deferRegistration(ctx.slots, 'conversation.hero.workspace.directoryFlow', NativeDirectoryFlow, () =>
-        ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, NativeDirectoryFlow)))
+        ctx.slots.register({ name: 'conversation.hero.workspace.directoryFlow', inject: injected }, NativeDirectoryFlow), lateConflict))
       deferred.push(deferRegistration(ctx.slots, 'sidebar.workspaces.directoryFlow', NativeDirectoryFlow, () =>
-        ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, NativeDirectoryFlow)))
+        ctx.slots.register({ name: 'sidebar.workspaces.directoryFlow', inject: injected }, NativeDirectoryFlow), lateConflict))
     } catch (error) {
       for (const entry of deferred) entry.dispose()
       throw error
