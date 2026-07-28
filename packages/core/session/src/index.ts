@@ -20,6 +20,7 @@ import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
+export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
@@ -165,7 +166,7 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   assertCurrentTurnEndShape(event, index)
 }
 
-/** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
+/** Reject obsolete request headers and pre-unification message shapes at the seed/load boundary. */
 function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
   const data = event['data']
   if (typeof data !== 'object' || data === null) return
@@ -180,8 +181,14 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
       throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
     }
   }
-  if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
-    throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  const type = event['type']
+  if (type !== 'user/message' && type !== 'assistant/message'
+    && type !== 'tool/result' && type !== 'steering/message') return
+  const message = type === 'user/message' ? record : record['message']
+  if (typeof message !== 'object' || message === null
+    || typeof (message as Record<string, unknown>)['id'] !== 'string'
+    || (message as Record<string, unknown>)['id'] === '') {
+    throw new Error(`seed ${type} at index ${index} lacks an identified message`)
   }
 }
 
@@ -518,7 +525,7 @@ export class Session {
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
-      if (msg) this.derived.push(deepFreeze(msg))
+      if (msg) this.derived.push(msg)
     }
     this.derivedNodes = nodes.length
     return [...this.derived]
@@ -531,10 +538,9 @@ export class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message wrapper is
-   * fresh; its content reuses the logged event's already deep-frozen durable
-   * data, so changing the wrapper cannot rewrite the log and changing content
-   * throws.
+   * built from (the reconstructability Agent Note). The returned message is
+   * the already frozen message nested in the event wrapper and shared by
+   * delivery, durable history, and model requests.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */
@@ -546,30 +552,28 @@ export class Session {
     switch (event.type) {
       // Ordinary prompts, injected context, and mid-turn steering project
       // identically in user role: the event's model-facing content stays
-      // verbatim. The message's `source` and steering's `turn` are log-only. Do NOT
+      // verbatim. Steering's `turn` is log-only. Do NOT
       // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
       // caller-owned — a producer bakes it into `content`, as workspace-context
       // does with `<system-reminder>` — or, if reintroduced, must be driven by
       // the event `meta` map and a dedicated renderer, keeping this projection a
       // verbatim pass-through. See the deferred design note in
       // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
-      case 'user/message':
+      case 'user/message': {
+        return event.data
+      }
       case 'steering/message': {
-        return { role: 'user', content: event.data.content }
+        return event.data.message
       }
       case 'assistant/message': {
         // Skip an empty-content assistant/message: it exists only to host a
         // max-tokens step's usage and must not inject a content-less assistant
         // turn into the provider transcript.
-        if (event.data.content.length === 0) return null
-        return { role: 'assistant', content: event.data.content, provenance: event.data.provenance }
+        if (event.data.message.content.length === 0) return null
+        return event.data.message
       }
       case 'tool/result': {
-        const { callId, content, isError } = event.data
-        return {
-          role: 'user',
-          content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
-        }
+        return event.data.message
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to

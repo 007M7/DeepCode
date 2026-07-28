@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, type StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -75,7 +75,7 @@ describe('plan mode through the agent loop', () => {
     // in-turn agent/step seam, before the first assembly.
     ctx.planMode.set(agent, true)
 
-    agent.followup({ content: [{ type: 'text', text: 'explore the repo' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'explore the repo' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -90,7 +90,7 @@ describe('plan mode through the agent loop', () => {
     // guidance alone (enforcement lives on the independent sandbox/approval
     // axes). The mode itself stays plan throughout.
     const result = findEvent(log, 'tool/result')
-    expect(result.data.isError).toBe(false)
+    expect(result.data.message.content[0].isError).toBe(false)
     expect(foldPlanMode(log)).toBe(true)
     expect(log.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
   })
@@ -103,14 +103,14 @@ describe('plan mode through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-flip'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(foldPlanMode(agent.session.events)).toBe(false)
     const first = findEvent(agent.session.events, 'request/header')
     expect(first.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
 
     ctx.planMode.set(agent, true)
-    agent.followup({ content: [{ type: 'text', text: 'now plan' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'now plan' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
@@ -145,7 +145,7 @@ describe('plan mode through the agent loop', () => {
     })
 
     const idle = waitForIdle(ctx, agent)
-    agent.followup({ content: [{ type: 'text', text: 'plan after the transient failure' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'plan after the transient failure' }], source: { kind: 'user' } }))
     await idle
 
     expect(adapter.requests).toHaveLength(2)

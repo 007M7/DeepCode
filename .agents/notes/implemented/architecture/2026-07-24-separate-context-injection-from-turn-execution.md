@@ -18,7 +18,7 @@ Idle `inject()` exposed a second mismatch. Injection did not request model execu
 
 `inject()` is the only caller-facing operation for supplementary model-facing input, and a turn means one execution of the model loop.
 
-`SendOptions` contains only `target` and `wakeup`. A caller that owns context delivers `UserMessageData` through `inject()` and submits the direct message independently with `send()` or `steer()`.
+`SendOptions` contains only `target` and `wakeup`. A caller that owns context delivers an identified, frozen `UserMessage` through `inject()` and submits the direct message independently with `send()` or `steer()`.
 
 Prompt and tool extension points still return `additionalContexts`. These values are outputs of the extension point, not attachments captured from a caller's inbox item. Prompt admission runs before `run()` opens a turn. An allowed prompt and its returned additional contexts enter the new turn as separate messages; a blocked prompt writes neither and opens no turn. Tool-produced additional contexts enter the outbox after the corresponding tool results.
 
@@ -59,7 +59,7 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 ## Verification
 
 - `SendOptions` and steering inbox records contain no attached contexts; `agent/inbox/enqueue` reports only the message plus its resolved queued-or-steering placement.
-- `UserMessageData` is the shared shape across prompt interception, tool execution, hook bridges, guards, and context producers.
+- `UserMessage` is the shared identified, frozen shape across prompt interception, tool execution, hook bridges, guards, and context producers.
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
 - Idle `inject()` appends one sourced `user/message` without a turn or model call.
 - Admission-time and active-turn injection drain at safe boundaries after complete tool-result batches and before the request that consumes them.

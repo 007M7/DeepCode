@@ -336,9 +336,10 @@ export class ToolCardComponent implements Component {
    * @param event - The `tool/result` event payload.
    */
   updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
+    const result = event.message.content[0]
     this.result = {
-      content: [...event.content],
-      isError: event.isError,
+      content: [...result.content],
+      isError: result.isError === true,
       ...event.meta !== undefined ? { meta: event.meta } : {},
     }
     if (this.parsed.valid && this.definition?.presentResult) {

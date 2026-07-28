@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import { markAgentLoopRequest, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, markAgentLoopRequest, type GenerateOptions  } from '@deepseek-ai/dsh-llm'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
@@ -26,7 +26,9 @@ async function requestSetup() {
   const ctx = await setup()
   const session = ctx.sessions.create(SessionId('req-check'))
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
   const boundary = session.deriveMessages()
   session.append('step/start', { turn: 1, step: 1 })
   session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
@@ -42,7 +44,9 @@ describe('request-reconstruction invariant', () => {
 
   it('uses the step boundary rather than content appended afterward', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    session.append('user/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' },
+    }), { surfaceOp: 'append' })
     const options = loopRequest({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
@@ -119,7 +123,9 @@ describe('request-reconstruction invariant', () => {
     await ctx.plugin(AgentLoopInvariant)
     const session = ctx.sessions.create(SessionId('prepend-check'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
     const divergent = loopRequest({

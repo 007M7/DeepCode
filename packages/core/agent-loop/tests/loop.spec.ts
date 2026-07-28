@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 describe('agent loop', () => {
@@ -271,7 +271,7 @@ describe('agent loop', () => {
       parameters: {},
       async execute() {
         // steer while the turn is running (during tool execution)
-        agent.steer({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } }))
         return [{ type: 'text', text: 'tool done' }]
       },
     }))
@@ -299,8 +299,8 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const idle = waitForIdle(ctx, agent)
-    agent.steer({ content: [{ type: 'text', text: 'first idle steer' }], source: { kind: 'user' } })
-    agent.steer({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } })
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'first idle steer' }], source: { kind: 'user' } }))
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } }))
     await idle
 
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
@@ -325,7 +325,7 @@ describe('agent loop', () => {
     ctx.on('agent/step', (subject) => {
       if (subject !== agent || !fail) return
       fail = false
-      subject.steer({ content: [{ type: 'text', text: 'pending steering' }], source: { kind: 'user' } })
+      subject.steer(createUserMessage({ content: [{ type: 'text', text: 'pending steering' }], source: { kind: 'user' } }))
       throw new Error('step failed')
     })
 
@@ -350,13 +350,17 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.inject({ content: [{ type: 'text', text: 'file changed: a.ts' }], source: { kind: 'plugin', plugin: 'watcher' } })
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: 'file changed: a.ts' }], source: { kind: 'plugin', plugin: 'watcher' } }))
     expect(agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(0)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'user/message',
-      data: { source: { kind: 'plugin', plugin: 'watcher' } },
+      data: {
+        role: 'user',
+        content: [{ type: 'text', text: 'file changed: a.ts' }],
+        source: { kind: 'plugin', plugin: 'watcher' },
+      },
     })
 
     send(agent, 'go')
@@ -372,7 +376,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('raw-context'), { provider: 'mock', model: 'mock' })
     const text = '<system-reminder>Additional instructions from: pkg/AGENTS.md</system-reminder>'
-    agent.inject({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'workspace-context' } })
+    agent.inject(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'workspace-context' } }))
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
@@ -399,9 +403,9 @@ describe('agent loop', () => {
       async execute() {
         await Promise.resolve()
         const first = { type: 'text' as const, text: 'mid-turn notice' }
-        agent.inject({ content: [first], source: { kind: 'plugin', plugin: 'x' } })
+        agent.inject(createUserMessage({ content: [first], source: { kind: 'plugin', plugin: 'x' } }))
         first.text = 'mutated after inject'
-        agent.inject({ content: [{ type: 'text', text: 'second notice' }], source: { kind: 'plugin', plugin: 'x' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'second notice' }], source: { kind: 'plugin', plugin: 'x' } }))
         visibleDuringTool = agent.session.events.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
         return [{ type: 'text', text: 'ok' }]
       },
@@ -454,7 +458,7 @@ describe('agent loop', () => {
       parameters: {},
       async execute() {
         expect(() => {
-          agent.inject({ content: [{ type: 'text', text: 'invalid' }], source: { kind: 'plugin', plugin: 'test', bigint: 1n } as never })
+          agent.inject(createUserMessage({ content: [{ type: 'text', text: 'invalid' }], source: { kind: 'plugin', plugin: 'test', bigint: 1n } as never }))
         }).toThrow('agent context must be losslessly JSON-serializable')
         return [{ type: 'text', text: 'rejected invalid context' }]
       },
@@ -479,7 +483,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     ctx.on('agent/turn-stopping', (subject) => {
       if (steps < 3) {
-        subject.steer({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'plugin', plugin: 'loop-test' } })
+        subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'plugin', plugin: 'loop-test' } }))
       }
     })
 
@@ -524,7 +528,7 @@ describe('agent loop', () => {
       parameters: {},
       async execute(_args, exec) {
         // Steering lands while the concluding tool is still executing.
-        agent.steer({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
         exec.concludeTurn()
         return [{ type: 'text', text: 'final' }]
       },
@@ -612,10 +616,10 @@ describe('agent loop', () => {
     ctx.on('agent/step', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        subject.session.append('user/message', {
+        subject.session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'INJECTED-IN-PRE-STEP' }],
           source: { kind: 'plugin', plugin: 'test' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
       }
     })
 
@@ -727,7 +731,7 @@ describe('agent loop', () => {
     // (step 2 is a plain stop with no tool calls → stops).
     ctx.on('agent/turn-stopping', (subject) => {
       if (steps < 2) {
-        subject.steer({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-tokens-test' } })
+        subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-tokens-test' } }))
       }
     })
 
@@ -953,9 +957,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const idle = waitForIdle(ctx, agent)
-    agent.followup({ content: [{ type: 'text', text: 'user message' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'user message' }], source: { kind: 'user' } }))
     await Promise.resolve()
-    agent.followup({ content: [{ type: 'text', text: 'plugin message' }], source: { kind: 'plugin', plugin: 'test' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'plugin message' }], source: { kind: 'plugin', plugin: 'test' } }))
     await idle
 
     const triggers = agent.session.events

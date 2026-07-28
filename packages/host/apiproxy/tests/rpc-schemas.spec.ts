@@ -119,9 +119,19 @@ describe('sessions domain schemas', () => {
     expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
     // blank is mandatory: a summary without it fails the parse.
     expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
-    const event = sessionEventSchema.parse({ type: 'user/message', seq: 0, time: 1, data: { any: true } })
+    const event = sessionEventSchema.parse({
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { any: true },
+    })
     expect(event).toMatchObject({ type: 'user/message' })
-    expect(() => sessionEventSchema.parse({ type: 'user/message', seq: -1, time: 1, data: {} })).toThrow()
+    expect(() => sessionEventSchema.parse({
+      type: 'user/message',
+      seq: -1,
+      time: 1,
+      data: {},
+    })).toThrow()
   })
 
   it('validates the per-method request/value pairs', () => {

@@ -1,6 +1,7 @@
+import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -45,7 +46,12 @@ describe('agent status invariants', () => {
 })
 
 describe('agent inbox invariants', () => {
-  const info = () => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const } })
+  const info = () => freezeMessage({
+    id: MessageId('m'),
+    role: 'user' as const,
+    content: [],
+    source: { kind: 'user' as const },
+  })
 
   it('accepts a dequeue and a discard covered by prior enqueues', async () => {
     const ctx = await setup()

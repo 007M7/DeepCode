@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -41,7 +41,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string): void {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 /** Adapter that holds both drivers at the same awaited continuation. */
@@ -164,7 +164,7 @@ describe('AgentLoop initiator scope', () => {
       if (context.agent === agent) capture(context.signal)
       return next()
     })
-    ctx.on('agent/prompt-submit', async (subject, _content, _source, signal, next) => {
+    ctx.on('agent/prompt-submit', async (subject, _message, signal, next) => {
       if (subject === agent) {
         expect(ctx.agents.requireInitiator()).toBe(agent)
         admissionSignals.push(signal)

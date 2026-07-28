@@ -15,6 +15,7 @@ import LlmService, {
   ReasoningEffortId,
   resolveRetryPolicy,
   StreamChunk,
+  createMessage,
 } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelContext,
@@ -173,6 +174,26 @@ describe('LlmService', () => {
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })) chunks.push(chunk)
     expect(chunks).toEqual(SCRIPT)
+  })
+
+  it('trusts the immutable message creation boundary for direct calls', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['test-provider'], adapter)
+    const message = createMessage({
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+      source: { kind: 'user' },
+    })
+
+    for await (const _chunk of ctx.llm.stream({
+      provider: 'test-provider',
+      model: 'test-model',
+      messages: [message],
+    })) { /* drain */ }
+
+    expect(adapter.lastOptions?.messages[0]).toBe(message)
   })
 
   it('captures provider-owned retry policy at registration and defaults omission', async () => {
@@ -1195,15 +1216,18 @@ describe('LlmService', () => {
     for await (const _chunk of ctx.llm.stream({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant',
         content: [{ type: 'text', text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState },
-      }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'historical', model: 'old-model', replayState },
+        },
+      })],
     })) { /* drain */ }
 
-    expect(adapter.lastOptions?.messages[0]?.provenance).toEqual({
-      provider: 'historical', model: 'old-model', replayState,
+    expect(adapter.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model', provider: 'historical', model: 'old-model', replayState,
     })
   })
 
@@ -1217,14 +1241,21 @@ describe('LlmService', () => {
     for await (const _chunk of ctx.llm.stream({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant',
         content: [{ type: 'text', text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
-      }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
+        },
+      })],
     })) { /* drain */ }
 
-    expect(target.lastOptions?.messages[0]?.provenance).toEqual({ provider: 'historical', model: 'old-model' })
+    expect(target.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model',
+      provider: 'historical',
+      model: 'old-model',
+    })
   })
 
   it('preserves immutability while stripping replay state from frozen requests', async () => {
@@ -1236,18 +1267,27 @@ describe('LlmService', () => {
     const options = Object.freeze({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant' as const,
         content: [{ type: 'text' as const, text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
-      }],
+        source: {
+          kind: 'model',
+          provider: 'historical',
+          model: 'old-model',
+          replayState: { private: 'state' },
+        },
+      })],
     })
 
     for await (const _chunk of ctx.llm.stream(options)) { /* drain */ }
 
     expect(target.lastOptions).not.toBe(options)
     expect(Object.isFrozen(target.lastOptions)).toBe(true)
-    expect(target.lastOptions?.messages[0]?.provenance).toEqual({ provider: 'historical', model: 'old-model' })
+    expect(target.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model',
+      provider: 'historical',
+      model: 'old-model',
+    })
   })
 
   it('creates LlmError with a code for programmatic handling', () => {

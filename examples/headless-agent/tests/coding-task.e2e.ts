@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -56,12 +57,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('coding task: fix a failing test 
     ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(SessionId('e2e-task'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{
-      type: 'text',
-      text: 'In the current directory, `node add.test.js` fails because add.js has a bug. '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'In the current directory, `node add.test.js` fails because add.js has a bug. '
         + 'Fix add.js so the test passes, run `node add.test.js` to verify, and report the result. '
         + 'Do not modify add.test.js.',
-    }], source: { kind: 'user' } })
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // The agent claims success…

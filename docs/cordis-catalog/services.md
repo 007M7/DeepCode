@@ -656,7 +656,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -787,7 +787,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -858,7 +858,7 @@ set(agent: Agent, active: boolean): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:142`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -1224,7 +1224,7 @@ async prepare( agent: Agent, content: ContentBlock[], references: SessionReferen
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [PreparedReferencedMessage](../core-data-structures/session-reference.md) · [SessionReferenceCandidate](../core-data-structures/session-reference.md) · [SessionReferenceInput](../core-data-structures/session-reference.md)
 
-Source: [`packages/context/session-reference/src/index.ts:69`](../../packages/context/session-reference/src/index.ts)
+Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -1373,7 +1373,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:618`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1851,7 +1851,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:39`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -1957,7 +1957,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:188`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:187`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

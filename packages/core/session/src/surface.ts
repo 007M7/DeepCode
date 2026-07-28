@@ -224,8 +224,8 @@ function assertToolResultRewrite(
     }
     const originalRest = { ...original.data } as Record<string, unknown>
     const replacementRest = { ...event.data } as Record<string, unknown>
-    delete originalRest['content']
-    delete replacementRest['content']
+    originalRest['message'] = { ...original.data.message, content: null }
+    replacementRest['message'] = { ...event.data.message, content: null }
     if (!isDeepEqualJson(originalRest, replacementRest)) {
       throw new Error('tool/result surface replacement may change only content')
     }

@@ -5,8 +5,9 @@
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, UserMessageData } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
@@ -79,15 +80,15 @@ export interface InstructionVersionUpdate {
 
 /** Rendered reconciliation plus cache transitions awaiting final policy. */
 export interface ReconciledInstructionContext {
-  context: UserMessageData
+  context: UserMessage
   versionUpdates: InstructionVersionUpdate[]
 }
 
-function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): UserMessageData {
-  return {
+function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): UserMessage {
+  return createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'workspace-instructions', changes },
-  }
+  })
 }
 
 /**
@@ -96,7 +97,10 @@ function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[
  * @returns a user-role prefix message.
  */
 export function workspaceContextMessage(text: string): Message {
-  return { role: 'user', content: [{ type: 'text', text }] }
+  return createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: name },
+  })
 }
 
 function filePathFromExecution(exec: ToolExecution): string | undefined {
@@ -327,7 +331,7 @@ export function observeInstructionSessionEvent(
  */
 export function commitPendingInstructionContexts(
   agent: Agent,
-  contexts: readonly UserMessageData[] | undefined,
+  contexts: readonly UserMessage[] | undefined,
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
 ): WorkspaceInstructionChange[] {
   const committed: WorkspaceInstructionChange[] = []

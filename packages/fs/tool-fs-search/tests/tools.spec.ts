@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { join } from 'node:path'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
@@ -526,7 +526,9 @@ describe('glob results', () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
     ctx.on('tools/post-execute', async () => ({
       kind: 'accept',
-      additionalContexts: [{ content: [{ type: 'text', text: 'glob context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [createUserMessage({
+        content: [{ type: 'text', text: 'glob context' }], source: { kind: 'plugin', plugin: 'test' },
+      })],
     }))
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
@@ -662,7 +664,9 @@ describe('grep results', () => {
     const { ctx, bash, spill } = await setup({ config: { grepMaxMatches: 2 }, spill: true })
     ctx.on('tools/post-execute', async () => ({
       kind: 'accept',
-      additionalContexts: [{ content: [{ type: 'text', text: 'grep context' }], source: { kind: 'plugin', plugin: 'test' } }],
+      additionalContexts: [createUserMessage({
+        content: [{ type: 'text', text: 'grep context' }], source: { kind: 'plugin', plugin: 'test' },
+      })],
     }))
     bash.handler = () => runResult([
       matchLine('a.ts', 1, 'one'),

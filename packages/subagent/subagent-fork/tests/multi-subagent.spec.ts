@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -64,7 +65,7 @@ describe('multi-subagent coexistence (spawn + fork on one context)', () => {
     ])
 
     // Parent does one real turn first, so the fork has a completed turn to seed.
-    parent.followup({ content: [{ type: 'text', text: 'parent q1' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent q1' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -93,10 +94,10 @@ describe('multi-subagent coexistence (spawn + fork on one context)', () => {
     await forkRun.dispose()
 
     // The parent is unaffected and keeps working after both delegations.
-    parent.followup({ content: [{ type: 'text', text: 'parent q2' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent q2' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const lastParentMessage = parent.session.events.findLast(e => e.type === 'assistant/message')
-    expect(lastParentMessage?.type === 'assistant/message' && text(lastParentMessage.data.content)).toBe('parent turn two')
+    expect(lastParentMessage?.type === 'assistant/message' && text(lastParentMessage.data.message.content)).toBe('parent turn two')
     // The parent's OWN log never recorded the children's internal steps — its
     // only subagent-related entries would be tool/call+tool/result IF it had
     // used the tool, but here we called the service directly, so the parent log

@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -146,7 +147,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('nocwd-sess') })).agent
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -174,7 +175,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent
     expect(sources1).toEqual(['startup'])
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -475,9 +476,9 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
-    a1.inject({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } })
+    a1.inject(createUserMessage({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } }))
     await a1.whenIdle()
     await ctx1.fiber.dispose()
 
@@ -503,7 +504,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent
-    a1.followup({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
     const seqs1 = events1.map(e => e.seq)
@@ -530,7 +531,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 
     // …and a new turn continues numbering (turn 2) with contiguous seqs.
-    a2.followup({ content: [{ type: 'text', text: 'second question' }], source: { kind: 'user' } })
+    a2.followup(createUserMessage({ content: [{ type: 'text', text: 'second question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx2, a2)
     const allSeqs = a2.session.events.map(e => e.seq)
     expect(allSeqs).toEqual(allSeqs.map((_, i) => i)) // 0..N contiguous, no duplicates

@@ -9,12 +9,12 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentMessage, AgentMessageId, AgentStatus,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus,
 } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
+import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent, SessionHeader, SessionId, TodoItem, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -207,9 +207,6 @@ export interface ApiProxyDefaults {
 
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
-/** The tool/result payload fields the presenter path reads. */
-interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
-
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
   rpcId: RpcId
@@ -256,10 +253,16 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
       return view === undefined ? undefined : { for: 'call', view }
     }
     if (event.type === 'tool/result') {
-      const { callId, content, isError, meta } = event.data as ToolResultData
+      const { message, meta } = event.data
+      const [result] = message.content
+      const callId = message.source.callId
       const call = argsFor(callId) as { name: string; args: unknown } | undefined
       if (call === undefined) return undefined
-      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta === undefined ? {} : { meta } })
+      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, {
+        content: result.content,
+        isError: result.isError === true,
+        ...meta === undefined ? {} : { meta },
+      })
       return view === undefined ? undefined : { for: 'result', view }
     }
   } catch (error: unknown) {
@@ -420,23 +423,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /**
    * Per-session inbox mirror serving the mux-open queue snapshot (the same
    * refresh-recovery baseline as pending questions). Keyed by the stable
-   * AgentMessageId: every enqueued id receives exactly one terminal
+   * MessageId: every enqueued id receives exactly one terminal
    * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
    * the mirror needs no consumption heuristics or sweeps beyond disposal.
    */
-  const queuedMirror = new Map<SessionId, Map<AgentMessageId, { message: AgentMessage; steering: boolean }>>()
+  const queuedMirror = new Map<SessionId, Map<MessageId, { message: UserMessage; steering: boolean }>>()
   ctx.effect(() => {
-    const retire = (agent: Agent, id: AgentMessageId): void => {
+    const retire = (agent: Agent, id: MessageId): void => {
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
       entries.delete(id)
       if (entries.size === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
-          entries = new Map<AgentMessageId, { message: AgentMessage; steering: boolean }>()
+          entries = new Map<MessageId, { message: UserMessage; steering: boolean }>()
           queuedMirror.set(agent.id, entries)
         }
         const steering = placement === 'steering'
@@ -444,15 +447,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         broadcast({
           type: 'session/queued',
           sessionId: agent.id,
-          content: message.content,
-          source: message.source,
+          message,
           steering,
         })
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
+      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage) => {
         retire(agent, message.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: AgentMessage[]) => {
+      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
         for (const message of messages) retire(agent, message.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
@@ -835,8 +837,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
-          if (mode === 'steer') agent.steer({ content, source })
-          else agent.followup({ content, source })
+          const message: UserMessage = createUserMessage({ content, source })
+          if (mode === 'steer') agent.steer(message)
+          else agent.followup(message)
         } catch (error: unknown) {
           // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
@@ -1120,8 +1123,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({
               type: 'session/queued',
               sessionId,
-              content: entry.message.content,
-              source: entry.message.source,
+              message: entry.message,
               steering: entry.steering,
             }))
           }

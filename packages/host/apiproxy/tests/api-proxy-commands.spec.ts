@@ -1,3 +1,4 @@
+import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Command/skill RPC handlers and the two new frames over createApiProxy:
  * command.list serves the addressed agent's effective catalog (missing
@@ -10,10 +11,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentMessage } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -238,9 +239,10 @@ describe('host/commands-changed frame', () => {
 })
 
 /** Build one frozen inbox message for the live `agent/inbox/*` events. */
-function inboxMessage(id: string, text: string, rpcId?: string): AgentMessage {
-  return Object.freeze({
-    id: AgentMessageId(id),
+function inboxMessage(id: string, text: string, rpcId?: string): UserMessage {
+  return freezeMessage({
+    id: MessageId(id),
+    role: 'user',
     content: [{ type: 'text' as const, text }],
     source: rpcId === undefined ? { kind: 'user' as const } : { kind: 'user' as const, rpcId: RpcId(rpcId) },
   })

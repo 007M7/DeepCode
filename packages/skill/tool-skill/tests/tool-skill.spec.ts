@@ -3,8 +3,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
-import { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
+import {} from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -46,12 +46,11 @@ function agentForCwd(cwd: string): Agent {
     session,
     status: 'idle',
     acceptsNextStep: false,
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
-      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle: () => Promise.resolve(),
@@ -144,7 +143,7 @@ describe('dsh-tool-skill', () => {
       content: 'A body.',
     })
     ctx.on('agent/step', (agent) => {
-      agent.inject({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } })
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } }))
     })
 
     const prefix = await composePrefix(ctx, '/workspace')

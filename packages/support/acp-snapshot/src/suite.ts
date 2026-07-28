@@ -439,9 +439,12 @@ export function unknownToolCallIds(rawLog: string): string[] {
     if (record.type !== 'tool/result') return []
     const data = record.data
     if (data === null || typeof data !== 'object') return []
-    const { callId, error } = data as { callId?: unknown; error?: unknown }
+    const { source, error } = data as { source?: unknown; error?: unknown }
     if (error === null || typeof error !== 'object') return []
     if ((error as { code?: unknown }).code !== 'UNKNOWN_TOOL') return []
+    const callId = typeof source === 'object' && source !== null
+      ? (source as { callId?: unknown }).callId
+      : undefined
     return [typeof callId === 'string' ? callId : '<missing callId>']
   })
 }
