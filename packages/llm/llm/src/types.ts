@@ -6,6 +6,19 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
+import type { Message } from './message.ts'
+
+export type {
+  AssistantMessage,
+  AssistantProvenance,
+  Message,
+  MessageSource,
+  MessageSourceMap,
+  ModelMessageSource,
+  ToolMessageSource,
+  ToolResultMessage,
+  UserMessage,
+} from './message.ts'
 
 /** Serializable provider-boundary facts; policy decides whether they are retryable. */
 export interface LlmFailure {
@@ -66,43 +79,6 @@ export interface ContentBlockMap {
 export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
-
-/** Provider ownership and adapter-private replay data for an assistant message. */
-export interface AssistantProvenance {
-  /** Provider route that produced the message. */
-  provider: string
-  /** Provider model id that produced the message. */
-  model: string
-  /**
-   * Lossless-JSON adapter state needed to replay the provider response.
-   * `LlmService` exposes it to a target adapter only when that adapter instance
-   * currently owns both this historical provider and the target provider.
-   */
-  replayState?: unknown
-}
-
-/**
- * A single message in a conversation history. Loop-derived assistant messages
- * always carry provenance; callers may omit it on hand-built foreign history.
- */
-export interface Message {
-  role: 'system' | 'user' | 'assistant'
-  content: ContentBlock[]
-  /** Present only on assistant messages produced by a routed adapter. */
-  provenance?: AssistantProvenance
-}
-
-/**
- * Where a message (or injected content) came from.
- * Merge-extensible sum type — plugins add their own `kind`s.
- */
-export interface MessageSourceMap {
-  user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
-}
-
-/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
-export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
 
 /**
  * Why a model response stopped.

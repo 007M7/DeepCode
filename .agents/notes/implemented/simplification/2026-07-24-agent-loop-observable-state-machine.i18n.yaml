@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-24-agent-loop-observable-state-machine.md
-2026-07-24-agent-loop-observable-state-machine.md: 54730de8aa73342b609d423dc478edb076d7844b
-2026-07-24-agent-loop-observable-state-machine.zh.md: 206ac701472f14823300df0c812f2cc818f852f5
+2026-07-24-agent-loop-observable-state-machine.md: a25657c6a41e2c0989db620046f44ea3254be151
+2026-07-24-agent-loop-observable-state-machine.zh.md: 058d89d3cb9e3d30963f95fda1510ef3c5bf281e

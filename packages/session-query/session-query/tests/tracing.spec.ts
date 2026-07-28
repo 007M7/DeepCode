@@ -1,3 +1,4 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -22,7 +23,9 @@ function appendEvent(seq: number, sources?: number[]): SessionEvent {
     type: 'user/message',
     seq,
     time: seq + 1,
-    data: { content: [{ type: 'text', text: `event ${seq}` }], source: { kind: 'user' } },
+    data: createUserMessage({
+      content: [{ type: 'text', text: `event ${seq}` }], source: { kind: 'user' },
+    }),
     surfaceOp: 'append',
     ...sources === undefined ? {} : { sourceEventSeqs: sources },
   }
@@ -107,24 +110,48 @@ function appendTraceEvents(session: Session): void {
   })
   session.append(
     'user/message',
-    { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } },
+    createUserMessage({
+      content: [{ type: 'text', text: 'original' }], source: { kind: 'user' },
+    }),
     { surfaceOp: 'append', sourceEventSeqs: [2] },
   )
   session.append(
     'assistant/message',
-    { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary one' }] },
+    {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'summary one' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    },
     { surfaceOp: { op: 'replace', start: 3, end: 3 }, sourceEventSeqs: [3, 2] },
   )
   session.append(
     'user/message',
-    { content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } },
+    createUserMessage({
+      content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' },
+    }),
     { surfaceOp: 'append' },
   )
   session.append('step/end', { turn: 1, step: 1 })
   session.append('step/start', { turn: 1, step: 2 })
   session.append(
     'assistant/message',
-    { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [{ type: 'text', text: 'summary two' }] },
+    {
+      turn: 1, step: 2,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'summary two' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    },
     { surfaceOp: { op: 'replace', start: 4, end: 4 }, sourceEventSeqs: [2, 4] },
   )
 }
@@ -319,7 +346,9 @@ describe('session event tracing', () => {
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'user/message',
-      { content: [{ type: 'text', text: 'live' }], source: { kind: 'plugin', plugin: 'test' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'live' }], source: { kind: 'plugin', plugin: 'test' },
+      }),
       { surfaceOp: 'append' },
     )
     TracePersistence.listFailure = new Error('list unavailable')
@@ -352,7 +381,17 @@ describe('session event tracing', () => {
       type: 'assistant/message',
       seq: 1,
       time: 2,
-      data: { turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' } },
+      data: {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      },
       surfaceOp: { op: 'replace', start: 9, end: 9 },
       sourceEventSeqs: [],
     }]

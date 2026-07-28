@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
@@ -68,10 +69,10 @@ describe('startInProcessRun', () => {
         turn,
         trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
       })
-      session.append('user/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'late metadata' }],
         source: { kind: 'plugin', plugin: 'late-metadata' },
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
       session.append('turn/end', { turn, reason: { kind: 'completed' } })
     })
 
@@ -88,7 +89,7 @@ describe('startInProcessRun', () => {
 
   it('seeds a forked child but reads only the child-owned output', async () => {
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.followup({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const seed = parent.session.events.slice()
     const run = await startInProcessRun(request(parent), { seed })

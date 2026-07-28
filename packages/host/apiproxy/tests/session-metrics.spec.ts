@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { affectsSessionMetrics, SessionMetricsProjector } from '../src/session-metrics.ts'
 
@@ -22,8 +23,10 @@ function assistant(
   session.append('assistant/message', {
     turn,
     step,
-    content: [{ type: 'text', text: `answer-${turn}-${step}` }],
-    provenance: { provider: 'test', model: 'alpha' },
+    message: createAssistantMessage({
+      content: [{ type: 'text', text: `answer-${turn}-${step}` }],
+      source: { provider: 'test', model: 'alpha' },
+    }),
     usage,
   }, { surfaceOp: 'append' })
 }
@@ -45,10 +48,10 @@ describe('SessionMetricsProjector', () => {
       header: { config: { provider: 'test', model: 'alpha' } },
       reason: 'initial',
     })
-    const surface = session.append('user/message', {
+    const surface = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'question' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     const plain = session.append('step/start', { turn: 1, step: 1 })
 
     expect(affectsSessionMetrics(text)).toBe(false)
@@ -66,10 +69,10 @@ describe('SessionMetricsProjector', () => {
       },
     })
     const session = new Session(SessionId('metrics-fold'))
-    const first = session.append('user/message', {
+    const first = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'large old surface' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     assistant(session, 1, 1, {
       inputTokens: 11,
       outputTokens: 3,
@@ -88,10 +91,10 @@ describe('SessionMetricsProjector', () => {
 
     const assistantSeq = session.surface.nodes.at(-1)
     if (assistantSeq === undefined) throw new Error('assistant surface missing')
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compact summary' }],
       source: { kind: 'plugin', plugin: 'test' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start: first.seq, end: assistantSeq },
       sourceEventSeqs: [first.seq, assistantSeq],
     })

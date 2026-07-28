@@ -173,7 +173,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
       partial.push(event.data.chunk.text)
     } else if (event.type === 'assistant/message') {
-      lastMessage = event.data.content
+      lastMessage = event.data.message.content
     }
   }
   const collectOutput = (): ContentBlock[] => {

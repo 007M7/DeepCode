@@ -24,22 +24,21 @@ import {
   assembleContextFor,
   installAgentLlmTarget,
   type Agent,
-  type AgentMessageId,
   type AgentLlmTargetRef,
   type AgentStatus,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
-import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import { renderUnknownXml } from './components/xml-tool-output.ts'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   SessionId,
   type SessionEvent,
-  type UserMessageData,
+  type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import { foldGoal } from '@deepseek-ai/dsh-goal'
 import {
@@ -280,7 +279,7 @@ export function createTuiChat(
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
-  const pendingSteering = new Set<AgentMessageId>()
+  const pendingSteering = new Set<MessageId>()
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   // Optional: skills mount conditionally, so read the global service store
@@ -655,7 +654,7 @@ export function createTuiChat(
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(event.data.message.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
@@ -671,7 +670,7 @@ export function createTuiChat(
       case 'assistant/message':
         completedStreaming = undefined
         if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
-        streaming?.settle(event.data.content)
+        streaming?.settle(event.data.message.content)
         break
       case 'llm/retry': {
         retractFailedStreaming()
@@ -688,7 +687,8 @@ export function createTuiChat(
         trailStreamingTiming()
         break
       case 'tool/result': {
-        let card = toolCards.get(event.data.callId)
+        const callId = event.data.message.source.callId
+        let card = toolCards.get(callId)
         if (card === undefined) {
           card = new ToolCardComponent('tool', { value: {}, valid: true }, undefined, resolved.maxToolOutputLines, palette, mdTheme)
           chat.addChild(new Spacer(1))
@@ -696,7 +696,7 @@ export function createTuiChat(
           allToolCards.add(card)
         }
         card.updateResult(event.data)
-        toolCards.delete(event.data.callId)
+        toolCards.delete(callId)
         trailStreamingTiming()
         break
       }
@@ -1120,7 +1120,7 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessageData): void => {
+  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessage): void => {
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
       return
@@ -1129,43 +1129,37 @@ export function createTuiChat(
       // Steering is never subject to prompt admission; an attached snapshot
       // drains beside it at the same step boundary through the outbox.
       if (attachedContext !== undefined) {
-        agent.inject({ content: attachedContext.content, source: attachedContext.source })
+        agent.inject(attachedContext)
       }
-      pendingSteering.add(agent.steer({ content, source: { kind: 'user' } }))
+      const message = createUserMessage({ content, source: { kind: 'user' } })
+      agent.steer(message)
+      pendingSteering.add(message.id)
       refreshStatus()
       return
     }
     if (attachedContext === undefined) {
-      agent.followup({ content, source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
       return
     }
     // Idle: the snapshot rides the prompt's admission transaction so a
     // blocking hook discards both together.
     let cleanedUp = false
-    let acceptedId: AgentMessageId | undefined
-    let acceptedContent: ContentBlock[] | undefined
-    const enqueued = new Map<AgentMessageId, ContentBlock[]>()
-    const discarded = new Set<AgentMessageId>()
+    const message: UserMessage = createUserMessage({ content, source: { kind: 'user' } })
+    const acceptedId = message.id
+    const discarded = new Set<MessageId>()
     const cleanup = (): void => {
-      // Every completion path detaches all three listeners. Keep this
+      // Every completion path detaches both listeners. Keep this
       // idempotent so later cleanup paths cannot double-release them.
       /* v8 ignore next -- unreachable idempotence guard, see above */
       if (cleanedUp) return
       cleanedUp = true
-      detachEnqueue()
       detachSubmit()
       detachDiscard()
     }
-    // send() snapshots input before publishing it, and publishes enqueue
-    // before returning its id. Capture that snapshot by id so admission can
-    // use exact reference identity without depending on caller-owned input.
-    const detachEnqueue = ctx.on('agent/inbox/enqueue', (subject, message) => {
-      if (subject === agent) enqueued.set(message.id, message.content)
-    })
-    // Prepended so this wrapper is outermost: it observes the admission
-    // whether a downstream hook allows or blocks, and detaches either way.
-    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _source, _signal, next) => {
-      if (subject !== agent || submitted !== acceptedContent) return next()
+    // Prepended so this wrapper is outermost: it observes the exact accepted
+    // message identity whether a downstream hook allows or blocks, then detaches.
+    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _signal, next) => {
+      if (subject !== agent || submitted.id !== message.id) return next()
       cleanup()
       const decision = await next()
       if (decision.kind !== 'allow') return decision
@@ -1176,15 +1170,13 @@ export function createTuiChat(
     const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
       if (subject !== agent) return
       for (const message of messages) discarded.add(message.id)
-      if (acceptedId !== undefined && discarded.has(acceptedId)) cleanup()
+      if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
     try {
-      acceptedId = agent.followup({ content, source: { kind: 'user' } })
-      acceptedContent = enqueued.get(acceptedId) ?? content
-      detachEnqueue()
+      agent.followup(message)
       if (discarded.has(acceptedId)) cleanup()
     } catch (error: unknown) {
       cleanup()
@@ -1388,7 +1380,7 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const settlePendingSteering = (id: AgentMessageId): void => {
+  const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
   const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {

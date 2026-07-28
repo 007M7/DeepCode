@@ -38,9 +38,11 @@
 - 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方持有的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量或推理元数据。
 - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。发出 chunk 后重试的包装层没有持久尝试边界；因此已发布 agent 重试策略改用 `agent/request-error`。
 
-### 内容块词汇（`types.ts`）
+### 消息（`message.ts`）与内容块（`types.ts`）
 
-消息是类型化内容块数组：`text`、`reasoning`、`tool-call`、`tool-result`。联合从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加块类型。loop 产生的 assistant 消息还会携带提供方／模型溯源与可选适配器私有回放状态。dispatch 前，`LlmService` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型／提供方间恢复或转换该状态。核心块集只包含每条已发布路径都支持的块。多模态内容（图像、音频等）没有核心块类型；需要它的功能会通过 map 添加，并一并添加支持它的适配器／UI／压缩实现。
+`Message` 是投递、持久历史和模型请求共享的不可变值。每条消息从创建起都必须具有 `MessageId`、角色、内容和带类型的来源。`createMessage(input)` 生成标识，并返回与输入分离且深度冻结的值；`createUserMessage({ content, source })` 固定 user 角色；`createAssistantMessage({ content, source })` 固定 assistant 角色与模型来源类别；`createToolResultMessage({ callId, content, isError })` 固定 user 角色，并将工具来源与其结果块耦合；`freezeMessage(message)` 导入已有标识，绝不将其替换。改写消息时会保留标识，并产生另一个冻结值。浏览器端代码会从依赖最少的 `@deepseek-ai/dsh-llm/message` 入口导入这些值构造函数，而不是从包含服务的包根入口导入。
+
+消息内容是类型化内容块数组：`text`、`reasoning`、`tool-call`、`tool-result`。联合从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加块类型。assistant 消息使用模型来源，其中携带提供方／模型溯源与可选适配器私有回放状态。dispatch 前，`LlmService` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型／提供方间恢复或转换该状态。核心块集只包含每条已发布路径都支持的块。多模态内容（图像、音频等）没有核心块类型；需要它的功能会通过 map 添加，并一并添加支持它的适配器／UI／压缩实现。
 
 流式输出是原始 chunk 协议（`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`）。`BlockAssembler` 是将 chunk 组装为块／消息的唯一共享实现。
 
@@ -55,7 +57,7 @@
 ### 类
 
 - `LlmAdapter`：提供方适配器的抽象基类。唯一必需方法是 `stream()`。
-- `BlockAssembler`：将原始 chunk 逐步组装为完整内容块与 assistant 消息。agent loop 向它提供原始 chunk（同时记录以供回放），并读取已组装块／消息以构建历史。
+- `BlockAssembler`：将原始 chunk 逐步组装为完整内容块，并能据此创建带标识且冻结的 assistant 消息。agent loop 向它提供原始 chunk（同时记录以供回放），并读取已组装块以构建历史。
 - `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都导入的叶子包中，因此可以共享单一基类，无需新的依赖边。每包错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都会扩展它。`isHarnessError(value)` 在 seam 处收窄类型。
 - `LlmError`：扩展 `HarnessError`；其稳定 `code` 字符串（`NO_ADAPTER`、`DUPLICATE_ADAPTER` 与 `AUTH`／`RATE_LIMIT` 等适配器 code）与冻结可序列化 `failure.code` 匹配。Payload 还可以保留已验证状态、`Retry-After` 和品牌化提供方请求 id 事实；策略位于错误之外。
 - `errorChain(value)`：渲染抛出值的完整 `cause` 链与 AggregateError 成员，供诊断表层使用，包括 UI 通知、logger 行和持久 `turn/end` 消息。因此 undici 的 `TypeError: fetch failed` 等传输包装层会显示底层 `ECONNREFUSED`／DNS／TLS 详细信息，而不是将其遮蔽。该函数只负责渲染：请按 `code` 路由，绝不解析结果。

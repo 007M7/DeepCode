@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { cordisHarness, waitForIdle } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
@@ -42,11 +42,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{
-      type: 'text',
-      text: 'Use cordis_mount to create a temporary Plugin that listens to the \'agent/status\' '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Use cordis_mount to create a temporary Plugin that listens to the \'agent/status\' '
         + 'Cordis event and logs every change with console.log. Reply "running" once done.',
-    }], source: { kind: 'user' } })
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // The WORLD check: the turn's own running→idle transition must have driven
@@ -58,7 +59,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     })
     expect(resultText(mid)).toContain('dyn-')
 
-    agent.followup({ content: [{ type: 'text', text: 'Now unmount the temporary Plugin you just mounted.' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Now unmount the temporary Plugin you just mounted.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
@@ -72,14 +73,15 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{
-      type: 'text',
-      text: 'Give yourself a new tool: use cordis_mount to create a temporary Plugin with '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Give yourself a new tool: use cordis_mount to create a temporary Plugin with '
         + 'inject ["tools"] that calls harness.registerTool(ctx, harness.defineTool({...})) '
         + 'to register a tool named reverse_text with one required string parameter '
         + '"text", returning the text reversed. Then CALL reverse_text with the '
         + 'exact text "harness" and report its exact output.',
-    }], source: { kind: 'user' } })
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // World checks: the tool exists in the registry, was invoked as a real tool call, and its
@@ -93,8 +95,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(reverseCalls.length).toBeGreaterThan(0)
     const reverseResults = events
       .filter(event => event.type === 'tool/result')
-      .filter(event => reverseCalls.some(call => call.data.callId === event.data.callId))
-      .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
+      .filter(event => reverseCalls.some(call => call.data.callId === event.data.message.source.callId))
+      .flatMap(event => event.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text))
     // On failure, surface what the model actually mounted and what the tool
     // returned — an e2e failing at a distance is undebuggable without it.
     const mountCode = calls
@@ -104,7 +106,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     const trace = events.map((event) => {
       switch (event.type) {
         case 'tool/call': return `tool/call:${event.data.name}`
-        case 'tool/result': return `tool/result:${event.data.isError ? 'ERR:' + JSON.stringify(event.data.content).slice(0, 200) : 'ok'}`
+        case 'tool/result': return `tool/result:${event.data.message.content[0].isError ? 'ERR:' + JSON.stringify(event.data.message.content[0].content).slice(0, 200) : 'ok'}`
         case 'turn/end': return `turn/end:${JSON.stringify(event.data.reason)}`
         default: return event.type
       }
@@ -119,15 +121,16 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     ctx = await cordisHarness()
     const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{
-      type: 'text',
-      text: 'Mount TWO separate temporary Plugins with cordis_mount. First a provider: apply calls '
+    agent.followup(createUserMessage({
+      content: [{
+        type: 'text',
+        text: 'Mount TWO separate temporary Plugins with cordis_mount. First a provider: apply calls '
         + 'ctx.provide(\'shouter\', { shout: (s) => s.toUpperCase() }). Second a consumer with '
         + 'inject ["shouter", "tools"] that registers (via harness.registerTool + harness.defineTool) '
         + 'a tool named shout_text with one required string parameter "text" whose execute returns '
         + 'ctx.shouter.shout(args.text) as a text content block. Then CALL shout_text with "quiet" '
         + 'and report the exact output.',
-    }], source: { kind: 'user' } })
+      }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // World checks: the service is really in the store, the tool really ran.
@@ -140,11 +143,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(shoutCalls.length).toBeGreaterThan(0)
     const shoutResults = events
       .filter(event => event.type === 'tool/result')
-      .filter(event => shoutCalls.some(call => call.data.callId === event.data.callId))
-      .flatMap(event => event.data.content.filter(block => block.type === 'text').map(block => block.text))
+      .filter(event => shoutCalls.some(call => call.data.callId === event.data.message.source.callId))
+      .flatMap(event => event.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text))
     expect(shoutResults.some(text => text.includes('QUIET'))).toBe(true)
 
-    agent.followup({ content: [{ type: 'text', text: 'Now unmount ONLY the provider temporary Plugin (the one that provided shouter).' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Now unmount ONLY the provider temporary Plugin (the one that provided shouter).' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // The consumer must have been parked by cordis itself: service gone,

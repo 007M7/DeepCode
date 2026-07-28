@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type ContentBlock , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
 import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
@@ -169,9 +169,11 @@ function appendToolResult(
   session.append('tool/result', {
     turn: 1,
     step: 1,
-    callId: CallId(id),
-    content,
-    isError: options.isError ?? false,
+    message: createToolResultMessage({
+      callId: CallId(id),
+      content,
+      isError: options.isError ?? false,
+    }),
     ...options.meta === undefined ? {} : { meta: options.meta },
   }, { surfaceOp: 'append' })
 }
@@ -325,8 +327,14 @@ describe('TUI terminal-state snapshots', () => {
     harness.session.append('assistant/message', {
       turn: 1,
       step: 2,
-      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-      content: [{ type: 'text', text: 'Recovered on the next bounded attempt.' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Recovered on the next bounded attempt.' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await checkpoint('retry-recovered', harness.terminal, { includeScrollback: true })
@@ -542,10 +550,10 @@ describe('TUI terminal-state snapshots', () => {
         session.append('todo/write', {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
           source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
           turn: 1,
@@ -656,23 +664,31 @@ describe('TUI terminal-state snapshots', () => {
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
       beforeMount(session) {
-        const user = session.append('user/message', {
+        const user = session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'Old prompt with a long line that exercises wrapping before compaction.' }],
           source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         const assistant = session.append('assistant/message', {
           turn: 1,
           step: 1,
-          provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-          content: [{ type: 'tool-call', id: CallId('old-tool'), name: 'bash', arguments: '{}' }],
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'tool-call', id: CallId('old-tool'), name: 'bash', arguments: '{}' }],
+            source: {
+              kind: 'model',
+              ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+            },
+          }),
         }, { surfaceOp: 'append' })
         session.append('tool/call', { turn: 1, step: 1, callId: CallId('old-tool'), name: 'bash', arguments: '{}' })
         const result = session.append('tool/result', {
           turn: 1,
           step: 1,
-          callId: CallId('old-tool'),
-          content: [{ type: 'text', text: 'obsolete output that must disappear' }],
-          isError: false,
+          message: createToolResultMessage({
+            callId: CallId('old-tool'),
+            content: [{ type: 'text', text: 'obsolete output that must disappear' }],
+            isError: false,
+          }),
         }, { surfaceOp: 'append' })
         replacementStart = user.seq
         replacementEnd = result.seq
@@ -682,13 +698,13 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('surface-before-compaction', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => {
-      harness.session.append('user/message', {
+      harness.session.append('user/message', createUserMessage({
         content: [{
           type: 'text',
           text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender workspace context XML clearly.\n</system-reminder>',
         }],
         source: { kind: 'plugin', plugin: 'workspace-context' },
-      }, {
+      }), {
         surfaceOp: { op: 'replace', start: replacementStart, end: replacementEnd },
         sourceEventSeqs: replacementSources,
       })
@@ -775,10 +791,22 @@ describe('TUI terminal-state snapshots', () => {
           meta: earlier,
           events: [
             { type: 'turn/start', seq: 0, time: Date.parse('2024-01-01T00:00:01Z'), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-            { type: 'user/message', seq: 1, time: Date.parse('2024-01-01T00:00:02Z'), data: { content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+            { type: 'user/message', seq: 1, time: Date.parse('2024-01-01T00:00:02Z'), data: createUserMessage({
+              content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' },
+            }), surfaceOp: 'append' },
             { type: 'step/start', seq: 2, time: Date.parse('2024-01-01T00:00:03Z'), data: { turn: 1, step: 1 } },
             { type: 'request/header', seq: 3, time: Date.parse('2024-01-01T00:00:04Z'), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
-            { type: 'assistant/message', seq: 4, time: Date.parse('2024-01-01T00:00:05Z'), data: { turn: 1, step: 1, content: [{ type: 'text', text: 'ready' }], provenance: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, surfaceOp: 'append' },
+            { type: 'assistant/message', seq: 4, time: Date.parse('2024-01-01T00:00:05Z'), data: {
+              turn: 1, step: 1,
+              message: createMessage({
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ready' }],
+                source: {
+                  kind: 'model',
+                  ...{ provider: 'deepseek', model: 'deepseek-v4-pro' },
+                },
+              }),
+            }, surfaceOp: 'append' },
             { type: 'step/end', seq: 5, time: Date.parse('2024-01-01T00:00:06Z'), data: { turn: 1, step: 1 } },
             { type: 'turn/end', seq: 6, time: Date.parse('2024-01-01T00:00:07Z'), data: { turn: 1, reason: { kind: 'completed' } } },
             { type: 'session/title', seq: 7, time: Date.parse('2024-01-01T00:00:08Z'), data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },

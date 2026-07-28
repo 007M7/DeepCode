@@ -55,7 +55,11 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 const user = (seq: number, text: string): UserMessageNode => ({
-  kind: 'user', seq, time: seq * 1_000, content: [{ type: 'text', text }] as never, source: null,
+  kind: 'user',
+  seq,
+  time: seq * 1000,
+  content: [{ type: 'text', text }] as never,
+  source: null,
 })
 const assistant = (seq: number, text: string): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: 1, blocks: [{ kind: 'text', text }],

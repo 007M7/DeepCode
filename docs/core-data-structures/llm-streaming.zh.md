@@ -153,9 +153,10 @@ declare class BlockAssembler {
   get replayState(): unknown;
   /**
    * The assembled assistant message.
-   * @returns an assistant-role message over `blocks()` (same open-block assembly rules).
+   * @param source - producer attribution for the assembled message.
+   * @returns a frozen assistant-role message over `blocks()` (same open-block assembly rules).
    */
-  message(): Message;
+  message(source: MessageSource = { kind: 'plugin', plugin: 'dsh-llm/assembler' }): Message;
 }
 ```
 

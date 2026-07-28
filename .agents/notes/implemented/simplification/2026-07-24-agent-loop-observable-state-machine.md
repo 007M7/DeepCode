@@ -18,7 +18,7 @@ The public contract exposes four orthogonal state dimensions:
 
 - Registration lifetime is the `agent/created` to `agent/disposed` interval. Disposal is the terminal registry edge, not an `AgentStatus`.
 - Whole-agent activity is `AgentStatus = 'idle' | 'running'`. Consecutive turns may share one `running` interval.
-- A FIFO-backed message progresses from `agent/inbox/enqueue` to exactly one `agent/inbox/dequeue` or `agent/inbox/discard`, correlated by `AgentMessageId`. The inbox events describe acceptance, claim, and removal rather than turn completion.
+- A FIFO-backed message progresses from `agent/inbox/enqueue` to exactly one `agent/inbox/dequeue` or `agent/inbox/discard`. Enqueue and dequeue correlate an occurrence by `MessageId` plus its queued-or-steering placement; same-placement repeats retire in FIFO order. The inbox events describe acceptance, claim, and removal rather than turn completion.
 - A claimed turn passes through prompt admission and zero or more request steps. An automatic retry closes the failed turn and immediately opens another; `agent/settled` reports only the terminal turn in that chain and remains distinct from the whole-agent transition to `status === 'idle'`.
 
 The loop keeps five machine extension events. `agent/prompt-submit` admits, rewrites, or blocks a claimed prompt. `agent/step` is the single awaited between-steps checkpoint and runs before every request is derived. `agent/request` is the waterfall for the frozen call configuration; the configuration comes only from `await next()`, not from a duplicate positional argument. `agent/request-error` serializes ownership of awaited model-request recovery. `agent/turn-stopping` runs when the turn otherwise has no work left; a listener that needs another step records real steering with `agent.steer()`, and the loop decides from that data after all listeners settle.
@@ -47,7 +47,7 @@ Plugins no longer rewrite every phase of the loop. There is no request-only mess
 
 Continuation plugins publish durable steering rather than returning an unlogged reason. Recovery plugins act after the failed step and return an explicit retry action. This makes every attempt a complete turn while keeping asynchronous repair and policy ownership at one narrow waterfall boundary.
 
-The inbox lifecycle complements, rather than replaces, the durable session log. `AgentMessageId` correlates acceptance with claim or discard; turn and step numbers, messages, tool activity, and terminal reasons remain session facts.
+The inbox lifecycle complements, rather than replaces, the durable session log. `MessageId` correlates acceptance with claim or discard; turn and step numbers, messages, tool activity, and terminal reasons remain session facts.
 
 ## Related
 

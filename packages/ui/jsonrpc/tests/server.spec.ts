@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -5,9 +6,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -155,7 +156,7 @@ describe('HarnessSdkServer', () => {
         meta: { cwd: storageDir },
         agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
-      orphanHandle.agent.followup({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } })
+      orphanHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } }))
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -173,13 +174,13 @@ describe('HarnessSdkServer', () => {
     const mainWhenIdle = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(firstMainIdle)
       .mockResolvedValue(undefined)
-    const mainFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('main-followup'))
+    const mainFollowup = vi.fn<Agent['followup']>()
     const mainAgent = ({
       id: SessionId('main'),
       followup: mainFollowup,
       whenIdle: mainWhenIdle,
     } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
-    const otherFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('other-followup'))
+    const otherFollowup = vi.fn<Agent['followup']>()
     const otherAgent = ({
       id: SessionId('other'),
       followup: otherFollowup,
@@ -222,7 +223,7 @@ describe('HarnessSdkServer', () => {
   })
 
   it('rejects a prompt for a session whose agent was disposed outside the server', async () => {
-    const followup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('stub'))
+    const followup = vi.fn<Agent['followup']>()
     const agent = ({
       id: SessionId('zombie'),
       followup,
@@ -268,7 +269,7 @@ describe('HarnessSdkServer', () => {
     const agent = ({
       id: SessionId('message-outcome'),
       session,
-      followup(input: { content: { type: 'text'; text: string }[]; source: { kind: 'user' } }) {
+      followup(input: UserMessage) {
         session.append('turn/start', {
           turn: 1,
           trigger: { kind: 'message', source: input.source },
@@ -279,12 +280,12 @@ describe('HarnessSdkServer', () => {
           turn: 2,
           trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
         })
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'late metadata' }],
           source: { kind: 'plugin', plugin: 'late-metadata' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-        return AgentMessageId('message-outcome')
+        return input.id
       },
       whenIdle: () => Promise.resolve(),
     } satisfies Pick<Agent, 'id' | 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
