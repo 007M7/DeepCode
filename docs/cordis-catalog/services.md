@@ -1112,24 +1112,18 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
 
 ```ts cordis-catalog
 /**
- * The stored checkpoint rows for one session, or an empty checkpoint when
- * none is stored. Synchronous from the domain's in-memory state.
- * @param id - the session whose cached rows are read.
- * @returns the persisted `key → row` checkpoint (possibly empty).
- */
-checkpointOf(id: SessionId): ProjectionCheckpoint
-
-/**
  * The zero-I/O listing read: whole values viewed straight from the stored
- * rows (version-matching keys only), as stale as the last durable
- * checkpoint but never wrong. Synchronous — a listing over every stored
- * session touches no log. Fresher paths (the history tail baseline,
- * {@link coldSnapshot}) supersede these values whenever a session is
- * actually opened.
- * @param id - the session whose cached values are viewed.
- * @returns whole values per key with a usable row; empty when none stored.
+ * rows (version-matching keys only), each cut carried with its watermark
+ * so a client value store can seed under its higher-seq-wins rule — as
+ * stale as the last durable checkpoint but never wrong, and never from an
+ * unrelated log (the caller's header is the identity witness). Fresher
+ * paths (the history tail baseline, {@link coldSnapshot}) supersede these
+ * values whenever a session is actually opened.
+ * @param meta - the listed session's header (identity witness; no log read).
+ * @returns the cut (`asOfSeq` = lowest served-row watermark), or
+ *   `undefined` when no usable row exists for this lifecycle.
  */
-cachedValues(id: SessionId): Partial<SessionProjectionMap>
+cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined
 
 /**
  * Durably checkpoint one live session NOW (both mandatory points call
@@ -1156,7 +1150,7 @@ async write(session: Session): Promise<void>
 async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>
 ```
 
-Types: [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+Types: [Session](../core-data-structures/session.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
 Source: [`packages/session-projection/session-projection-cache/src/index.ts:71`](../../packages/session-projection/session-projection-cache/src/index.ts)
 

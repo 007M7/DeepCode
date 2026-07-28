@@ -543,12 +543,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The persisted projection cache service.',
     methods: [
       {
-        signature: 'checkpointOf(id: SessionId): ProjectionCheckpoint',
-        jsDoc: '/**\n * The stored checkpoint rows for one session, or an empty checkpoint when\n * none is stored. Synchronous from the domain\'s in-memory state.\n * @param id - the session whose cached rows are read.\n * @returns the persisted `key → row` checkpoint (possibly empty).\n */',
-      },
-      {
-        signature: 'cachedValues(id: SessionId): Partial<SessionProjectionMap>',
-        jsDoc: '/**\n * The zero-I/O listing read: whole values viewed straight from the stored\n * rows (version-matching keys only), as stale as the last durable\n * checkpoint but never wrong. Synchronous — a listing over every stored\n * session touches no log. Fresher paths (the history tail baseline,\n * {@link coldSnapshot}) supersede these values whenever a session is\n * actually opened.\n * @param id - the session whose cached values are viewed.\n * @returns whole values per key with a usable row; empty when none stored.\n */',
+        signature: 'cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined',
+        jsDoc: '/**\n * The zero-I/O listing read: whole values viewed straight from the stored\n * rows (version-matching keys only), each cut carried with its watermark\n * so a client value store can seed under its higher-seq-wins rule — as\n * stale as the last durable checkpoint but never wrong, and never from an\n * unrelated log (the caller\'s header is the identity witness). Fresher\n * paths (the history tail baseline, {@link coldSnapshot}) supersede these\n * values whenever a session is actually opened.\n * @param meta - the listed session\'s header (identity witness; no log read).\n * @returns the cut (`asOfSeq` = lowest served-row watermark), or\n *   `undefined` when no usable row exists for this lifecycle.\n */',
       },
       {
         signature: 'async write(session: Session): Promise<void>',
