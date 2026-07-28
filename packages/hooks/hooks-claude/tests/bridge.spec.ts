@@ -90,13 +90,14 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 
 describe('hooks-claude bridge — UserPromptSubmit', () => {
   it('a UserPromptSubmit hook that exits 2 rejects admission without a turn', async () => {
-    // The UserPromptSubmit hook exits 2 (blocking) with a reason on stderr.
+    // UserPromptSubmit ignores its malformed matcher field, then exit 2 blocks
+    // with the reason on stderr.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
     const block = join(dir, 'block.sh')
     writeFileSync(block, '#!/usr/bin/env bash\necho "prompt denied by policy" >&2\nexit 2\n')
     chmodSync(block, 0o755)
-    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: block }] }] } }))
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ matcher: '[', hooks: [{ type: 'command', command: block }] }] } }))
 
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(dir, adapter)

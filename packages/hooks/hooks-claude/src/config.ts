@@ -65,8 +65,9 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
  * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
  * ignored rather than failing boot; unsupported events are ignored before their groups are parsed,
  * non-command hooks are returned in `skipped`, and substitutions are applied to every surviving
- * command. A supported runnable group with an invalid regex matcher throws a `SyntaxError`, allowing
- * the bridge to reject the complete config before listener registration.
+ * command. Matcher fields on UserPromptSubmit and Stop are discarded because those events have no
+ * matcher subject. A matcher-bearing supported runnable group with an invalid regex throws a
+ * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.
@@ -105,7 +106,9 @@ export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): Pa
         })
       }
       if (commands.length === 0) continue
-      const matcher = typeof group.matcher === 'string' ? group.matcher : undefined
+      const matcher = event === 'UserPromptSubmit' || event === 'Stop'
+        ? undefined
+        : typeof group.matcher === 'string' ? group.matcher : undefined
       const diagnostic = matcherDiagnostic(matcher, 'claude')
       if (diagnostic !== undefined) throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
       groups.push({

@@ -33,9 +33,10 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 
 /**
  * Parse a wrapped or bare Codex event map. Unknown events and malformed entries are ignored rather
- * than failing boot; unsupported or asynchronous hooks are returned in `skipped`. A runnable group
- * with an invalid regex matcher throws a `SyntaxError`, allowing the bridge to reject the complete
- * config before listener registration.
+ * than failing boot; unsupported or asynchronous hooks are returned in `skipped`. Matcher fields on
+ * UserPromptSubmit and Stop are discarded because those events have no matcher subject. A
+ * matcher-bearing runnable group with an invalid regex throws a `SyntaxError`, allowing the bridge
+ * to reject the complete config before listener registration.
  * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
  * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */
@@ -71,7 +72,9 @@ export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
         commands.push({ command: hook.command, ...timeout !== undefined ? { timeoutSec: timeout } : {} })
       }
       if (commands.length === 0) continue
-      const matcher = typeof group.matcher === 'string' ? group.matcher : undefined
+      const matcher = event === 'UserPromptSubmit' || event === 'Stop'
+        ? undefined
+        : typeof group.matcher === 'string' ? group.matcher : undefined
       const diagnostic = matcherDiagnostic(matcher, 'codex')
       if (diagnostic !== undefined) throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
       groups.push({ ...matcher !== undefined ? { matcher } : {}, hooks: commands })

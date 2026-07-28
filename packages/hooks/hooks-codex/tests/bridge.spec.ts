@@ -89,11 +89,11 @@ describe('hooks-codex bridge', () => {
 
   it('a Stop hook (exit 2) forces the turn to continue with the reason as steering', async () => {
     const dir = configDir()
-    // Block once with a marker; until the loop guard lands, an always-blocking
-    // hook would never let this test finish.
+    // Stop ignores its malformed matcher field. Block once with a marker;
+    // until the loop guard lands, an always-blocking hook would never finish.
     const marker = join(dir, 'fired')
     const cont = script(dir, 'cont.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\necho "keep going: address the goal" >&2\nexit 2\n`)
-    writeHooks(dir, { Stop: [{ hooks: [{ type: 'command', command: cont }] }] })
+    writeHooks(dir, { Stop: [{ matcher: '[', hooks: [{ type: 'command', command: cont }] }] })
 
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer after goal')])
     const ctx = await harness(dir, adapter)
@@ -156,7 +156,7 @@ describe('hooks-codex bridge', () => {
     const dir = configDir()
     writeHooks(dir, {
       UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
-      Stop: [{ matcher: '[', hooks: [{ type: 'command', command: 'exit 2' }] }],
+      PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 'exit 2' }] }],
     })
     const adapter = new MockAdapter([textResponse('ok')])
     const warn = vi.fn()
@@ -168,7 +168,7 @@ describe('hooks-codex bridge', () => {
     expect(events(agent).some(event => event.type === 'hook/invoked')).toBe(false)
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(
-      'invalid codex regex matcher "[" on event "Stop"',
+      'invalid codex regex matcher "[" on event "PreToolUse"',
     ))
   })
 

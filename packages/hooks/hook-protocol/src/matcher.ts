@@ -21,7 +21,9 @@ const CLAUDE_LITERAL = /^[A-Za-z0-9_|]+$/
 function compileRegex(pattern: string): RegExp | undefined {
   try {
     return new RegExp(pattern)
-  } catch {
+  } catch (_syntaxError) {
+    // RegExp construction is the try's only operation, so malformed pattern
+    // syntax is the only expected failure.
     return undefined
   }
 }

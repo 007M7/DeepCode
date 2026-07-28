@@ -70,6 +70,18 @@ describe('parseClaudeConfig', () => {
     })).toThrow('invalid claude regex matcher "(" on event "PreToolUse"')
   })
 
+  it('discards matcher fields on events without matcher subjects before validation', () => {
+    const { config } = parseClaudeConfig({
+      UserPromptSubmit: [{ matcher: '[', hooks: [{ type: 'command', command: 'prompt.sh' }] }],
+      Stop: [{ matcher: '(', hooks: [{ type: 'command', command: 'stop.sh' }] }],
+    })
+
+    expect(config).toEqual({
+      UserPromptSubmit: [{ hooks: [{ command: 'prompt.sh' }] }],
+      Stop: [{ hooks: [{ command: 'stop.sh' }] }],
+    })
+  })
+
   it('ignores invalid matchers on unsupported events without dropping supported hooks', () => {
     const { config } = parseClaudeConfig({
       Setup: [{ matcher: '(', hooks: [{ type: 'command', command: 'ignored.sh' }] }],
