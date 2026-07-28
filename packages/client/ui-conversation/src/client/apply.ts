@@ -5,7 +5,8 @@ import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'

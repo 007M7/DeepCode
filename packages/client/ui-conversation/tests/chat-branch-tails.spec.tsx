@@ -116,7 +116,7 @@ describe('MessageItem arms', () => {
 describe('small branch tails', () => {
   it('PendingCard renders the question count', () => {
     const view = render(
-      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{ id: 'q1', question: '选择' }] } as PendingWait<'question'>['payload'], vi.fn())} />,
+      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{ id: 'q1', question: '选择' }] }, vi.fn())} />,
     )
     expect(view.getByText(/等待回答（1 题）/)).toBeTruthy()
   })

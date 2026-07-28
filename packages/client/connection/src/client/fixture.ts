@@ -310,7 +310,9 @@ const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; de
 }
 
 /** Host permissions-unit parallel: fold the three knob events, derive the select over the fixture defaults. */
-function permissionSelectOf(log: readonly SessionEvent[]): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
+function permissionSelectOf(
+  log: readonly SessionEvent[],
+): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
   let preset: string | null = null
   let sandbox = 'workspace-write'
   let approval = 'ask'

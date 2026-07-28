@@ -89,7 +89,7 @@ function bench(over?: BenchOptions) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
-    useProjection: ((key: string) => (key === 'permissions' ? over?.permissions : undefined)) as InputBarProps['useProjection'],
+    useProjection: ((key: string) => (key === 'permissions' ? over?.permissions : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,

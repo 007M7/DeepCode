@@ -398,7 +398,7 @@ describe('ChatView', () => {
         new PendingWait('approval', RpcId('r1'), SID,
           { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn()),
         new PendingWait('question', RpcId('r2'), SID,
-          { questions: [{ id: 'q1', question: '选择' }] } as PendingWait<'question'>['payload'], vi.fn()),
+          { questions: [{ id: 'q1', question: '选择' }] }, vi.fn()),
       ],
     })
     const view = render(<h.ChatView {...h.props} />)
