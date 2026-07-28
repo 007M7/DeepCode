@@ -8,13 +8,15 @@ function request(headers: Record<string, string | undefined>): { headers: Record
 }
 
 describe('isTrustedApiRequest', () => {
-  it('accepts every request without browser markers — curl, tests, native clients, on any Host', () => {
-    // No Origin and no sec-fetch-site → the sender is the principal itself
-    // (it forges Host freely anyway); this is the LAN-serving shape a Host
-    // fence must not break.
-    for (const host of ['127.0.0.1:3080', '192.168.1.5:3080', 'harness.example', undefined]) {
-      expect(isTrustedApiRequest(request(host === undefined ? {} : { host }), [])).toBe(true)
-    }
+  it('holds markerless requests to the same Host fence — a plain-HTTP browser read carries no markers', () => {
+    // Over plain HTTP a browser attaches neither Origin nor Fetch-Metadata to
+    // reads (EventSource, images, navigations), so a rebound-origin GET is
+    // markerless and its response readable: no marker shortcut may exist.
+    expect(isTrustedApiRequest(request({ host: '127.0.0.1:3080' }), [])).toBe(true)
+    expect(isTrustedApiRequest(request({ host: '192.168.1.5:3080' }), ['192.168.1.5'])).toBe(true)
+    expect(isTrustedApiRequest(request({ host: '192.168.1.5:3080' }), [])).toBe(false)
+    expect(isTrustedApiRequest(request({ host: 'harness.example' }), [])).toBe(false)
+    expect(isTrustedApiRequest(request({}), [])).toBe(false)
   })
 
   it('accepts loopback Hosts in every spelling, with and without ports, for browser requests', () => {
@@ -77,6 +79,12 @@ describe('isTrustedApiRequest', () => {
     }
     // WHATWG trimming would silently strip these; the entry must fail instead.
     for (const entry of ['harness.internal:3080 ', ' harness.internal', 'harness.internal:30\t80']) {
+      expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
+    }
+    // WHATWG parsing would silently rewrite these — a dangling colon or
+    // zero-padded port would broaden an intended exact-port grant to every
+    // port, and non-canonical host spellings would not read back as written.
+    for (const entry of ['harness.internal:', '[::1]:', 'harness.internal:0080', '0x7f.0.0.1', '[0:0:0:0:0:0:0:1]']) {
       expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
     }
   })

@@ -11,8 +11,11 @@ import type { RpcRequest, RpcResponse } from './rpc.ts'
  * the host display (`host.pickDirectory`); `browse` = in-app listing/creation
  * primitives (`host.listDirectory`/`host.createDirectory`). Calling a method
  * outside the advertised kind fails with `directory-picker-unavailable`.
+ * The wire preserves kinds beyond the two with methods here (a merge-added
+ * capability advertises before its RPCs exist); the client's documented
+ * default for a kind it does not recognize is to hide the picking affordance.
  */
-export type DirectoryPickerKind = 'dialog' | 'browse'
+export type DirectoryPickerKind = 'dialog' | 'browse' | (string & {})
 
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
 export interface DirectoryEntry {

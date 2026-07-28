@@ -831,7 +831,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         if (children === undefined) {
           return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
         }
-        const target = `${parent}/${request.payload.name}`
+        // Same root special case as listDirectory's entry paths: a plain join
+        // under '/' would mint '//name' and fork the tree's identity.
+        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
         if (children.includes(request.payload.name)) {
           return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
         }

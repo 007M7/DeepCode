@@ -481,7 +481,7 @@ Abstract directory-picking service. Subclass, implement `capability()`, and load
 abstract capability(): DirectoryPickerCapability
 ```
 
-Source: [`packages/host/directory-picker/src/index.ts:108`](../../packages/host/directory-picker/src/index.ts)
+Source: [`packages/host/directory-picker/src/index.ts:118`](../../packages/host/directory-picker/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 

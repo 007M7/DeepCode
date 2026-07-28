@@ -211,7 +211,9 @@ describe('host domain schemas', () => {
     const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, directoryPicker: 'dialog' })
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'browse' }).provider).toBeUndefined()
-    expect(() => hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'other' })).toThrow()
+    // A kind beyond the two with methods survives the wire (merge-added
+    // capabilities advertise; the client hides the affordance).
+    expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0, directoryPicker: 'other' }).directoryPicker).toBe('other')
   })
 
   it('validates the browse listing/creation payloads', () => {
