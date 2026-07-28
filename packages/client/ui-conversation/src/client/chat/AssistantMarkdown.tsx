@@ -43,9 +43,9 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
   // a node that is only those heads (or empty) would paint an empty root
   // between tool groups — skip the shell unless something visible remains.
-  const hasVisible = streaming === true
+  const hasVisible = streaming
     || interrupted === true
-    || blocks.some((block) => block.kind !== 'tool-call')
+    || blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
