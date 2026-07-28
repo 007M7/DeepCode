@@ -118,6 +118,30 @@ describe('directory-picker-native client half', () => {
     expect(first.onPicked).not.toHaveBeenCalled()
   })
 
+  it('discards a settlement that lands after the flow unmounted', async () => {
+    let resolve!: (path: string | null) => void
+    const pick = vi.fn(() => new Promise<string | null>((settle) => { resolve = settle }))
+    const props = owner()
+    const view = render(<NativeDirectoryFlow {...props} pick={pick} />)
+    expect(pick).toHaveBeenCalledOnce()
+    view.unmount()
+    // The dead instance must neither adopt nor error; the owner's callbacks
+    // stay untouched by the orphaned chooser's answer.
+    await act(async () => { resolve('/tmp/late') })
+    expect(props.onPicked).not.toHaveBeenCalled()
+    expect(props.onCancel).not.toHaveBeenCalled()
+    expect(props.onError).not.toHaveBeenCalled()
+
+    // The failure arm is discarded the same way.
+    let reject!: (reason: unknown) => void
+    const failing = vi.fn(() => new Promise<string | null>((_settle, rejectPick) => { reject = rejectPick }))
+    const late = owner()
+    const failingView = render(<NativeDirectoryFlow {...late} pick={failing} />)
+    failingView.unmount()
+    await act(async () => { reject(new Error('too late')) })
+    expect(late.onError).not.toHaveBeenCalled()
+  })
+
   it('reports null as cancellation and re-arms after the owner withdraws open', async () => {
     const pick = vi.fn(async () => null as string | null)
     const props = owner()

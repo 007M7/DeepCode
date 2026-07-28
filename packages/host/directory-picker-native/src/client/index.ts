@@ -35,6 +35,15 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowI
   // latest handlers, not the ones captured when the chooser opened.
   const outcome = useRef(props)
   outcome.current = props
+  // Unmount (HMR replacing the occupant) discards settlements wholesale: the
+  // dead instance must neither adopt a path nor drive the owner's error
+  // surface. The wire carries no per-request abort, so the host-side chooser
+  // survives until answered — its answer just lands nowhere; the replacement
+  // instance re-arms under the owner's still-open request. An injected-face
+  // identity change alone (re-registration) keeps the pending settlement:
+  // the chooser on the host display is still the same dialog.
+  const alive = useRef(true)
+  useEffect(() => () => { alive.current = false }, [])
   useEffect(() => {
     if (!open) {
       armed.current = false
@@ -43,8 +52,14 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowI
     if (armed.current) return
     armed.current = true
     pick().then(
-      (path) => { if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path) },
-      (reason: unknown) => { outcome.current.onError(reason instanceof Error ? reason.message : String(reason)) },
+      (path) => {
+        if (!alive.current) return
+        if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
+      },
+      (reason: unknown) => {
+        if (!alive.current) return
+        outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
+      },
     )
   }, [open, pick])
   return null
