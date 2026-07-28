@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md
 2026-07-28-remove-synthetic-log-only-turns.md: af4da00f4fe1d7aebff845cd55053bb5b807c979
-2026-07-28-remove-synthetic-log-only-turns.zh.md: bc9fc0e1637be79d75e18b678d1a7ca8b0543085
+2026-07-28-remove-synthetic-log-only-turns.zh.md: 9d72781d6b7cf396a830790d108f4ff25adc816a
