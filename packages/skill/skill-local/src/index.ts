@@ -26,6 +26,7 @@ import {
   type SkillDefinition,
   type SkillLookupOptions,
   type SkillProvider,
+  type SkillProviderControl,
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
@@ -119,8 +120,11 @@ interface ResolvedWatchConfig {
 
 /** Register the local filesystem skill provider on `ctx.skills`. */
 export function apply(ctx: Context, config: Config = {}): void {
-  const provider = new LocalSkillProvider(ctx, config)
-  ctx.skills.registerProvider(provider)
+  let provider!: LocalSkillProvider
+  ctx.skills.registerProvider((control) => {
+    provider = new LocalSkillProvider(ctx, control, config)
+    return provider
+  })
   ctx.effect(function* () {
     yield async () => { await provider.dispose() }
   }, 'skill-local watcher')
@@ -138,12 +142,18 @@ export class LocalSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
+  private disposal: Promise<void> | undefined
 
-  constructor(private readonly ctx: Context, config: Config = {}) {
+  constructor(
+    private readonly ctx: Context,
+    control: SkillProviderControl,
+    config: Config = {},
+  ) {
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
-    this.watchManager = new SkillWatchManager(ctx, this, resolveWatchConfig(config))
+    this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
+    control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     const bundledSkillDir = config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
@@ -197,9 +207,13 @@ export class LocalSkillProvider implements SkillProvider {
     this.watchManager.observeHostMutation(path)
   }
 
-  /** Close every host watcher and contain late filesystem callbacks. */
-  async dispose(): Promise<void> {
-    await this.watchManager.dispose()
+  /**
+   * Close every host watcher and contain late filesystem callbacks.
+   * @returns a shared promise that settles when every watcher reaches quiescence.
+   */
+  dispose(): Promise<void> {
+    this.disposal ??= this.watchManager.dispose()
+    return this.disposal
   }
 
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
@@ -250,7 +264,7 @@ class SkillWatchManager {
 
   constructor(
     private readonly ctx: Context,
-    private readonly provider: SkillProvider,
+    private readonly invalidate: () => void,
     private readonly config: ResolvedWatchConfig,
   ) {}
 
@@ -286,18 +300,17 @@ class SkillWatchManager {
       evictedProject = true
     }
     await Promise.all(pending)
-    if (evictedProject) this.ctx.skills.invalidateProvider(this.provider)
+    if (evictedProject) this.invalidate()
   }
 
   observeHostMutation(path: string): void {
     if (this.closing) return
     const normalized = resolve(path)
     if (![...this.roots.values()].some(state => isPotentialSkillPath(state.root, normalized))) return
-    this.ctx.skills.invalidateProvider(this.provider)
+    this.invalidate()
   }
 
   async dispose(): Promise<void> {
-    if (this.closing) return
     this.closing = true
     const states = [...this.roots.values()]
     this.roots.clear()
@@ -376,6 +389,8 @@ class SkillWatchManager {
     }
   }
 
+  // FIXME(file-watch-service): Extract Chokidar and missing-root observation below into a Cordis
+  // service; keep skill filtering and invalidation here.
   private async openStableWatcher(state: RootWatchState): Promise<WatchHandle | undefined> {
     while (!this.closing && state.owners.size > 0) {
       const mode = await resolveRootWatchMode(state.root.path)
@@ -489,7 +504,7 @@ class SkillWatchManager {
     queueMicrotask(() => {
       this.invalidationQueued = false
       if (this.closing) return
-      this.ctx.skills.invalidateProvider(this.provider)
+      this.invalidate()
     })
   }
 

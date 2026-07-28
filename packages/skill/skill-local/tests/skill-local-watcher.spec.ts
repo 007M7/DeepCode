@@ -123,12 +123,8 @@ describe('skill-local watcher failures', () => {
       watchStabilityThresholdMs: 20,
     })
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['watched-skill'])
-    const invalidateProvider = ctx.skills.invalidateProvider.bind(ctx.skills)
     let invalidations = 0
-    ctx.skills.invalidateProvider = (provider) => {
-      invalidations += 1
-      invalidateProvider(provider)
-    }
+    ctx.on('skills/change', () => { invalidations += 1 })
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected a root watcher')
 
@@ -169,14 +165,17 @@ describe('skill-local watcher failures', () => {
     watcherHarness.deferredReady = 1
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    const provider = new SkillLocal.LocalSkillProvider(ctx, {
-      dshHome: join(home, '.dsh'),
-      agentsHome: join(home, '.agents'),
-      watch: true,
-      watchPollIntervalMs: 10,
-      watchStabilityThresholdMs: 20,
+    let provider!: InstanceType<typeof SkillLocal.LocalSkillProvider>
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillLocal.LocalSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        watch: true,
+        watchPollIntervalMs: 10,
+        watchStabilityThresholdMs: 20,
+      })
+      return provider
     })
-    ctx.skills.registerProvider(provider)
 
     const discovery = provider.list({})
     await settle()
@@ -187,6 +186,7 @@ describe('skill-local watcher failures', () => {
     first.emitter.emit('ready')
 
     await Promise.all([discovery, disposal])
+    disposeProvider()
     await settle()
     expect(first.closeCalls).toBeGreaterThan(0)
   })
@@ -198,14 +198,17 @@ describe('skill-local watcher failures', () => {
     watcherHarness.deferredReady = 1
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    const provider = new SkillLocal.LocalSkillProvider(ctx, {
-      dshHome: join(home, '.dsh'),
-      agentsHome: join(home, '.agents'),
-      watch: true,
-      watchPollIntervalMs: 10,
-      watchStabilityThresholdMs: 20,
+    let provider!: InstanceType<typeof SkillLocal.LocalSkillProvider>
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillLocal.LocalSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        watch: true,
+        watchPollIntervalMs: 10,
+        watchStabilityThresholdMs: 20,
+      })
+      return provider
     })
-    ctx.skills.registerProvider(provider)
 
     const discovery = provider.list({})
     await settle()
@@ -216,5 +219,6 @@ describe('skill-local watcher failures', () => {
 
     await expect(discovery).rejects.toThrow('opening failed during disposal')
     await disposal
+    disposeProvider()
   })
 })

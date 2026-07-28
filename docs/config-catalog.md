@@ -1187,7 +1187,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:121`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:129`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -1219,7 +1219,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill-local/src/index.ts:46`](../packages/skill/skill-local/src/index.ts)
+Source: [`packages/skill/skill-local/src/index.ts:47`](../packages/skill/skill-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-spill-local`
 

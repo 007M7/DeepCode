@@ -1397,19 +1397,11 @@ Registry of skill providers. It merges provider catalogs with stable first-wins 
  * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
  * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
  * the provider and invalidates catalog caches.
- * @param provider - the provider to register by `provider.name`.
+ * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
  * @returns the exact Cordis effect disposer that unregisters this provider;
  *   composite effects may yield it directly to preserve teardown ordering.
  */
-registerProvider(provider: SkillProvider): () => void
-
-/**
- * Invalidate catalogs contributed by one currently registered provider. Exact object identity
- * prevents a late callback from an old provider instance from invalidating its replacement.
- * Calls for an already-unregistered provider are harmless.
- * @param provider - exact provider instance whose external source changed.
- */
-invalidateProvider(provider: SkillProvider): void
+registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void
 
 /**
  * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
@@ -1449,9 +1441,9 @@ async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
+Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:160`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:168`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 

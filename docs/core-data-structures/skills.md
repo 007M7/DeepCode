@@ -10,7 +10,7 @@ Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/ind
 
 `ctx.skills` combines local, embedded, remote, or other providers. Registration is synchronous; remote initialization and discovery belong in awaited `list()`. Provider objects, options, and candidates are borrowed readonly, while semantic fields are validated.
 
-Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and omitted from an incomplete observation without caching it, while malformed candidates fail fast. `invalidateProvider()` clears completed catalogs only for the exact live provider object, and an in-flight discovery retries when its provider generation changes. Provider and runtime membership mutations emit the unfiltered `skills/change` invalidation event; it carries no diff, so consumers refetch `snapshot()` with their own lookup options.
+Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and omitted from an incomplete observation without caching it, while malformed candidates fail fast. Each provider factory receives a registration-scoped control whose `invalidate()` clears completed catalogs only while that exact registration remains active and whose signal aborts on failed registration or disposal. An in-flight discovery retries when its provider generation changes. Provider and runtime mutations emit the unfiltered `skills/change` invalidation event; it carries no diff, so consumers refetch `snapshot()` with their own lookup options.
 
 ```ts type-equiv
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -33,6 +33,16 @@ interface SkillProvider {
    * @returns the full skill body, or `undefined` if it is no longer loadable.
    */
   readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
+}
+```
+
+```ts type-equiv
+/** Registration-scoped lifecycle and invalidation capability borrowed by one provider. */
+interface SkillProviderControl {
+  /** Aborts if registration fails or when the exact provider registration is disposed. */
+  readonly signal: AbortSignal
+  /** Invalidate completed catalogs and notify consumers only while the exact registration remains active. */
+  readonly invalidate: () => void
 }
 ```
 

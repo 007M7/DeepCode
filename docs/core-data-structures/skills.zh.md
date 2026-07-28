@@ -10,7 +10,7 @@
 
 `ctx.skills` 组合本地、内嵌、远程或其他提供方。注册是同步的；远程初始化与发现属于 `list()` 的 await 阶段。提供方对象、选项与候选项以只读方式借用，语义字段会被校验。
 
-重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略，且该观测不会缓存；格式错误的候选项快速失败。`invalidateProvider()` 只针对传入的活动提供方对象清除已完成目录；若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时的成员关系变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
+重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略，且该观测不会缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
 
 ```ts type-equiv
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -33,6 +33,16 @@ interface SkillProvider {
    * @returns the full skill body, or `undefined` if it is no longer loadable.
    */
   readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
+}
+```
+
+```ts type-equiv
+/** Registration-scoped lifecycle and invalidation capability borrowed by one provider. */
+interface SkillProviderControl {
+  /** Aborts if registration fails or when the exact provider registration is disposed. */
+  readonly signal: AbortSignal
+  /** Invalidate completed catalogs and notify consumers only while the exact registration remains active. */
+  readonly invalidate: () => void
 }
 ```
 
