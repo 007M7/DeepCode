@@ -24,7 +24,7 @@ All keys are optional; the defaults are the shipped search caps.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `globMaxResults` | `100` | Max paths one `glob` call retains inline (matches Claude Code's `GlobTool` limit); later paths go to the formatted spill artifact. |
+| `globMaxResults` | `100` | Max paths one `glob` call shows inline (matches Claude Code's `GlobTool` limit). Within it the result is shown whole in modification-time order; beyond it the inline page is sampled across top-level entries and the complete sorted list goes to the formatted spill artifact. |
 | `grepMaxMatches` | `250` | Max flat matches one `grep` call retains inline (matches Claude Code's `GrepTool` `head_limit`); later matches go to the formatted spill artifact. |
 | `grepMaxLineBytes` | `2000` | Byte cap per matched-line preview; the cut preserves UTF-8 boundaries and is marked `(line truncated)`. |
 | `rawOutputMaxBytes` | `20000000` | Max complete raw `rg` stdout a search will parse (matches Claude Code's ripgrep raw buffer); larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. |
@@ -34,7 +34,7 @@ All keys are optional; the defaults are the shipped search caps.
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `glob` | `pattern`, `path?` | `rg --files --glob <pattern> --sort=modified --no-ignore --hidden` plus VCS metadata excludes (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`). `path` is an optional **directory** search root; omitted means the resolved bash workdir. Returns one path per line, modification-time ordered. |
+| `glob` | `pattern`, `path?` | `rg --files --glob <pattern> --sort=modified --no-ignore --hidden` plus VCS metadata excludes (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`). `path` is an optional **directory** search root; omitted means the resolved bash workdir. Returns one FILE path per line, modification-time ordered — `rg --files` never emits a directory, so no pattern makes `glob` describe a directory's contents; that is [`dsh-tool-fs`](../tool-fs/)'s `list`. The pattern keeps ripgrep semantics: without a `/` it matches the basename at any depth, so `*` matches the whole tree. |
 | `grep` | `pattern`, `path?`, `include?` | Line-oriented `rg --json` parse (no colon-splitting ambiguity). `pattern` is a ripgrep regex; `path` is an optional **file or directory** target; `include` is ONE positive glob filter — a comma-separated list or a negated (`!…`) value is rejected up front (brace alternation like `*.{ts,tsx}` is fine). Returns matches grouped by file as `Line N: <preview>`. |
 
 Routine budgets stay out of the model-facing schema (no `head_limit`/`offset`/`case_insensitive`/output modes): a model that needs surrounding context reads the matched file with `read`; one that needs later results follows the returned spill locator's retrieval hint.
@@ -58,7 +58,7 @@ After the load-time `rg` probe succeeds, every request in this plugin's registra
 ##### Glob guidance
 
 ```markdown
-Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.
+Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level directories, so it spans the tree instead of one subtree. Use the list tool to see what a directory contains.
 ```
 
 ##### Grep guidance
@@ -93,7 +93,7 @@ Prefix-stable while tool visibility and definitions are unchanged. Registration 
 
 #### What the model sees
 
-`glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved.
+`glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved. An over-cap `glob` result does not show the head of the sorted list: its inline page takes paths round-robin across the complete result's top-level entries, so one recently-written subtree cannot own every slot, and the footer says the page was sampled rather than taken in modification-time order, together with how many top-level entries it reached. When it could not reach them all, the footer also points at `list`. A result that fits inline is untouched, and a flat result — every path its own top-level entry — keeps the plain footer, because there the sample IS the recency-ordered head. The spill artifact always holds the complete list in modification-time order.
 
 #### Token effect
 
@@ -122,3 +122,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Search and file access have no shared-workspace proof** — returned paths are follow-up-readable only when the bash workdir and filesystem root denote the same workspace; the package performs no runtime cross-service validation.
 - **Ripgrep is a deployment dependency** — a missing `rg` executable makes the package register no tools or guidance; an incompatible executable or one that disappears after registration fails calls with `SEARCH_FAILED`. Remote or virtual filesystems need a co-located executor or another search consumer.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.
+- **Sampling groups by first path segment only** — an over-cap `glob` page balances across top-level entries, so a result concentrated deeper (one busy directory inside an otherwise even tree) is still shown unevenly below that level; recursive balancing is deferred.

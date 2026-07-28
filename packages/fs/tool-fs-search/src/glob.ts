@@ -3,8 +3,14 @@
  * pattern, sorted by modification time. Execution goes through the bash seam
  * (`ctx.bash`) with a fixed `rg --files` command — this module owns the
  * model-facing schema, argument validation, shell-safe command construction,
- * result parsing, retention, and formatting; process concerns (defaulting,
+ * result parsing, inline sampling, and formatting; process concerns (defaulting,
  * scrubbing, kill, backend substitution) stay behind `ctx.bash`.
+ *
+ * A complete result keeps ripgrep's modification-time order. A result too large
+ * to show inline does NOT: its inline page is sampled across the complete
+ * result's top-level entries ({@link sampleAcrossTopLevel}), because the sorted
+ * head of a broad match is routinely one subtree's worth of files and reads as
+ * if the workspace held nothing else.
  *
  * @module @deepseek-ai/dsh-tool-fs-search/glob
  */
@@ -12,8 +18,6 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import { ItemRetainer } from '@deepseek-ai/dsh-retention'
-import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -99,30 +103,116 @@ export function buildGlobCommand(input: GlobInput): string {
 }
 
 /**
- * Format the model-facing `glob` result: the retained paths, then — when the
- * result was capped — a footer carrying either the formatted-spill recovery
- * locator or the could-not-save explanation. The omitted count is a budget fact:
- * the search itself completed.
+ * The inline page of a capped `glob` result, plus how much of the complete
+ * result's top level it reaches.
+ */
+export interface GlobSample {
+  /** Paths to show inline: grouped by top-level entry, recency-ordered within each group. */
+  items: string[]
+  /** Distinct top-level entries the shown paths reach. */
+  shown: number
+  /** Distinct top-level entries across the complete result. */
+  total: number
+}
+
+/**
+ * The leading path segment of one display path — the top-level entry, relative
+ * to the search root, that the path sits under. A path with no separator is its
+ * own top-level entry. Leading separators are stripped first so an absolute path
+ * (one outside the workdir, which {@link toWorkdirRelative} leaves untouched)
+ * groups by its first real name instead of collapsing every such path into one
+ * empty group.
+ */
+function topLevelSegment(path: string): string {
+  const trimmed = path.replace(/^[\\/]+/, '')
+  const cut = trimmed.search(/[\\/]/)
+  return cut === -1 ? trimmed : trimmed.slice(0, cut)
+}
+
+/**
+ * Choose the inline page of an over-cap result by round-robin across the
+ * complete result's top-level entries, instead of taking its head.
  *
- * @param retained - the retention outcome over every discovered path.
+ * `--sort=modified` (oldest first) is the right order for a complete result and
+ * the wrong basis for a sample of one: a broad pattern in a workspace holding one
+ * unpacked archive — whose restored timestamps predate everything the user
+ * wrote — gives a head that is entirely that subtree, and the model reads the
+ * page as the workspace. Round-robin gives every top-level entry a slot before
+ * any entry gets a second, so the page spans the tree; an entry that runs out of
+ * paths drops out and its remaining slots go to the rest.
+ *
+ * Modification-time order survives where it still means something: groups are
+ * visited in the order ripgrep first emits them, and each group's own paths keep
+ * their relative order. With one path per group — a flat result — this
+ * reproduces the sorted head exactly, so nothing changes for a result that has
+ * no subtree to hide.
+ *
+ * @param paths - the complete result, in ripgrep's modification-time order.
+ * @param maxItems - how many paths the page may hold; the caller has already established it is smaller than `paths`.
+ * @returns the page grouped by top-level entry, with the shown/total top-level spread.
+ */
+export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number): GlobSample {
+  const groups = new Map<string, string[]>()
+  for (const path of paths) {
+    const group = groups.get(topLevelSegment(path))
+    if (group === undefined) groups.set(topLevelSegment(path), [path])
+    else group.push(path)
+  }
+  // Bounding the rounds by the largest group makes termination structural: the
+  // page can only fill or the groups run out, never spin on empty rounds.
+  const rounds = Math.max(0, ...[...groups.values()].map(group => group.length))
+  const taken = new Map<string, string[]>()
+  let count = 0
+  for (let round = 0; round < rounds && count < maxItems; round += 1) {
+    for (const [key, group] of groups) {
+      if (count >= maxItems) break
+      const path = group[round]
+      if (path === undefined) continue
+      count += 1
+      const bucket = taken.get(key)
+      if (bucket === undefined) taken.set(key, [path])
+      else bucket.push(path)
+    }
+  }
+  return { items: [...taken.values()].flat(), shown: taken.size, total: groups.size }
+}
+
+/**
+ * Format a CAPPED `glob` result: the inline page, then a footer stating that
+ * the page is a cross-directory sample rather than the most recent paths, how
+ * much of the top level it reaches, and either the formatted-spill recovery
+ * locator or the could-not-save explanation. The omitted count is a budget
+ * fact: the search itself completed. A result that fits inline never reaches
+ * here — it is emitted verbatim, in ripgrep's order.
+ *
+ * A result whose every path is its own top-level entry keeps the plain footer:
+ * the sample is the recency-ordered head, and naming a spread would only
+ * restate the path counts already there.
+ *
+ * @param sample - the inline page and its top-level spread.
+ * @param seen - how many paths the complete result holds; always more than the page.
  * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
  * @returns the model-facing text.
  */
-export function formatGlobOutput(retained: RetainedItems<string>, spillRef: SpillRef | undefined): string {
-  const body = retained.items.join('\n')
-  if (!retained.truncated) return body
+export function formatGlobOutput(sample: GlobSample, seen: number, spillRef: SpillRef | undefined): string {
+  const body = sample.items.join('\n')
   const recovery = spillRef !== undefined
     ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
     : 'The complete result could not be saved; narrow pattern or path to see more.'
-  return `${body}\n\n(Showing ${retained.kept} of ${retained.seen} paths. ${recovery})`
+  const basis = sample.total === seen
+    ? '.'
+    : `, sampled across ${sample.shown} of the ${sample.total} top-level entries this pattern matched instead of taken in modification-time order.`
+      + (sample.shown < sample.total ? ' Use the list tool to see what a directory contains.' : '')
+  return `${body}\n\n(Showing ${sample.items.length} of ${seen} paths${basis} ${recovery})`
 }
 
-/** Retain and format one canonical path list for the Native surface. */
+/** Bound and format one canonical path list for the Native surface. */
 function renderGlobPaths(paths: string[], maxResults: number, spillRef?: SpillRef): string {
   if (paths.length === 0) return 'No files found'
-  const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: maxResults })
-  for (const path of paths) retainer.push(path)
-  return formatGlobOutput(retainer.finish(), spillRef)
+  // A result that fits is shown whole, untouched: modification-time order is the
+  // tool's contract, and over a complete result it is what answers age questions.
+  if (paths.length <= maxResults) return paths.join('\n')
+  return formatGlobOutput(sampleAcrossTopLevel(paths, maxResults), paths.length, spillRef)
 }
 
 /**
@@ -147,16 +237,24 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:glob',
     order: 103,
-    text: 'Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.',
+    text: 'Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. '
+      + 'Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level directories, '
+      + 'so it spans the tree instead of one subtree. Use the list tool to see what a directory contains.',
   })
 
   const tool = defineTool({
     name: 'glob',
-    description: 'Find files whose paths match a glob pattern. Returns matching paths sorted by modification time, '
+    description: 'Find files whose paths match a glob pattern. Returns matching file paths — never directories — '
       + 'including hidden and ignored files (VCS metadata directories are excluded). '
-      + `Returns the first ${caps.maxResults} paths inline; a capped result reports where the complete list was saved.`,
+      + `Up to ${caps.maxResults} paths come back in modification-time order; a larger result instead returns ${caps.maxResults} paths sampled across top-level directories, `
+      + 'says so, and reports where the complete sorted list was saved. To see what a directory contains, use the list tool instead.',
     parameters: {
-      pattern: { type: 'string', required: true, description: 'Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/*.test.js").' },
+      pattern: {
+        type: 'string',
+        required: true,
+        description: 'Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/*.test.js"). '
+          + 'A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.',
+      },
       path: { type: 'string', description: 'Directory to search in. Defaults to the session workspace; a relative path resolves against it.' },
     },
     timeoutMs: caps.timeoutMs,

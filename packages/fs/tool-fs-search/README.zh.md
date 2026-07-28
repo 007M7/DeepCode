@@ -24,7 +24,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `globMaxResults` | `100` | 一次 `glob` 调用内联保留的最大路径数（与 Claude Code 的 `GlobTool` 上限相同）；后续路径写入格式化 spill 产物。 |
+| `globMaxResults` | `100` | 一次 `glob` 调用内联展示的最大路径数（与 Claude Code 的 `GlobTool` 上限相同）。未超过时结果整体按修改时间展示；超过时内联页面改为跨顶层条目取样，完整的排序列表写入格式化 spill 产物。 |
 | `grepMaxMatches` | `250` | 一次 `grep` 调用内联保留的最大平铺匹配数（与 Claude Code 的 `GrepTool` `head_limit` 相同）；后续匹配写入格式化 spill 产物。 |
 | `grepMaxLineBytes` | `2000` | 每条匹配行预览的字节上限；截断会保留 UTF-8 边界，并标记为 `(line truncated)`。 |
 | `rawOutputMaxBytes` | `20000000` | 搜索将解析的完整原始 `rg` stdout 上限（与 Claude Code 的 ripgrep 原始 buffer 相同）；更大的原始输出以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败。 |
@@ -34,7 +34,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录** 搜索根；省略时使用解析后的 bash 工作目录。每行返回一个路径，按修改时间排序。 |
+| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录** 搜索根；省略时使用解析后的 bash 工作目录。每行返回一个**文件** 路径；`rg --files` 从不输出目录条目，因此任何 pattern 都无法让 `glob` 描述一个目录的内容，那是 [`dsh-tool-fs`](../tool-fs/) 的 `list`。pattern 保留 ripgrep 语义：不含 `/` 时匹配任意深度的基名，因此 `*` 匹配整棵树。未超过 `globMaxResults` 的结果按修改时间排序；超过时内联页面改为跨顶层条目取样（见下）。 |
 | `grep` | `pattern`、`path?`、`include?` | 按行解析 `rg --json`，避免按冒号拆分的歧义。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录** 目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
 
 常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件；需要后续结果时，遵循返回的 spill locator 检索提示。
@@ -58,7 +58,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 ##### Glob 指导
 
 ```markdown
-Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.
+Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level directories, so it spans the tree instead of one subtree. Use the list tool to see what a directory contains.
 ```
 
 ##### Grep 指导
@@ -93,7 +93,7 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 #### 模型看到的内容
 
-`glob` 每行返回一个路径；`grep` 在每个路径下对 `Line <line>: <preview>` 匹配分组。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果末尾会附加省略数量、spill locator 和后端检索提示，或说明完整结果无法保存。
+`glob` 每行返回一个路径；`grep` 在每个路径下对 `Line <line>: <preview>` 匹配分组。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果末尾会附加省略数量、spill locator 和后端检索提示，或说明完整结果无法保存。超过上限的 `glob` 结果不再展示排序列表的头部：其内联页面按轮转方式跨完整结果的顶层条目取样，因此单个新近写入的子树无法占满所有位置；footer 会说明该页面是取样得到而非按修改时间取用，并给出它触达了多少个顶层条目。未能触达全部时，footer 还会指向 `list`。未超过上限的结果原样不动；扁平结果（每个路径各自构成一个顶层条目）保留朴素 footer，因为此时取样结果就等于按新近度排序的头部。spill 产物始终保存按修改时间排序的完整列表。
 
 #### Token 影响
 
@@ -122,3 +122,4 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 - **搜索和文件访问没有共享工作区证明**：只有 bash 工作目录和文件系统根目录表示同一工作区时，返回路径才能继续读取；本包不执行运行时跨服务校验。
 - **Ripgrep 是部署依赖**：缺失 `rg` 可执行文件时，本包不注册工具或指导；可执行文件不兼容或注册后消失时，调用以 `SEARCH_FAILED` 失败。远程或虚拟文件系统需要共置执行器或其他搜索消费方。
 - **schema 只公开一个有界页面**：offset 分页、大小写模式开关、其他输出模式和提供方支持的发现均不在本包内；达到上限的完整输出需要 spill 后端。
+- **取样只按路径首段分组**：超过上限的 `glob` 页面在顶层条目之间做均衡，因此集中在更深层的结果（一棵总体均匀的树里某个特别庞大的子目录）在该层级以下仍然分布不均；递归均衡已延期。

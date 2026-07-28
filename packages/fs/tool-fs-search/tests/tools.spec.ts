@@ -29,6 +29,7 @@ import {
   presentGlobCall,
   presentGrepCall,
   previewLine,
+  sampleAcrossTopLevel,
   toWorkdirRelative,
 } from '@deepseek-ai/dsh-tool-fs-search'
 
@@ -498,6 +499,38 @@ describe('raw output acquisition', () => {
   })
 })
 
+describe('cross-directory sampling', () => {
+  it('gives every top-level entry a slot before any entry gets a second', () => {
+    const paths = ['v/a', 'v/b', 'v/c', 'v/d', 'src/e', 'guide/f']
+    // The head of 3 would be all `v/`; the sample reaches all three entries.
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['v/a', 'src/e', 'guide/f'], shown: 3, total: 3 })
+    // Extra slots go round again — to the only entry with paths left — and the
+    // page stays grouped by entry rather than interleaved.
+    expect(sampleAcrossTopLevel(paths, 5)).toEqual({ items: ['v/a', 'v/b', 'v/c', 'src/e', 'guide/f'], shown: 3, total: 3 })
+  })
+
+  it('hands an exhausted entry the remaining slots go to entries that still have paths', () => {
+    const paths = ['solo/a', 'many/b', 'many/c', 'many/d']
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['solo/a', 'many/b', 'many/c'], shown: 2, total: 2 })
+  })
+
+  it('reports the entries it could not reach when the page is smaller than the top level', () => {
+    const paths = ['a/1', 'b/1', 'c/1', 'd/1']
+    expect(sampleAcrossTopLevel(paths, 2)).toEqual({ items: ['a/1', 'b/1'], shown: 2, total: 4 })
+  })
+
+  it('groups an absolute path by its first real name, not by its empty root segment', () => {
+    // Paths outside the workdir stay absolute; without stripping the leading
+    // separator every one of them would collapse into a single empty group.
+    expect(sampleAcrossTopLevel(['/out/a', '/out/b', '/away/c', '/away/d'], 2))
+      .toEqual({ items: ['/out/a', '/away/c'], shown: 2, total: 2 })
+  })
+
+  it('reproduces the recency-ordered head for a flat result', () => {
+    expect(sampleAcrossTopLevel(['a.ts', 'b.ts', 'c.ts'], 2)).toEqual({ items: ['a.ts', 'b.ts'], shown: 2, total: 3 })
+  })
+})
+
 describe('glob results', () => {
   it('lists workdir-relative paths (absolute output under the workdir is relativized)', async () => {
     const { ctx, bash } = await setup()
@@ -543,6 +576,43 @@ describe('glob results', () => {
     })
     expect(spill?.saves[0]?.source.callId).toBeDefined()
     expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'glob context' }])
+  })
+
+  it('samples an over-cap result across top-level entries instead of taking its head', async () => {
+    // The shipped failure: `*` matches the whole tree, mtime order puts one
+    // freshly-unpacked subtree first, and a head-of-3 reads like the entire
+    // workspace. The sample reaches every top-level entry instead.
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
+    expect(text(result)).toBe('vendor/a.ts\nsrc/d.ts\nguide/e.md\n\n'
+      + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
+      + 'instead of taken in modification-time order. Use the list tool to see what a directory contains. '
+      + 'The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('drops the list hint when the sample does reach every top-level entry', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].join('\n'))
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nsrc/d.ts\n\n'
+        + '(Showing 3 of 4 paths, sampled across 2 of the 2 top-level entries this pattern matched '
+        + 'instead of taken in modification-time order. '
+        + 'The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('keeps modification-time order untouched when the whole result fits', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 4 } })
+    bash.handler = () => runResult('vendor/a.ts\nvendor/b.ts\nsrc/c.ts\n')
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nsrc/c.ts')
+  })
+
+  it('keeps the plain footer for a flat result, where the sample IS the recency head', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 2 } })
+    bash.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('a.ts\nb.ts\n\n(Showing 2 of 3 paths. The complete result could not be saved; narrow pattern or path to see more.)')
   })
 
   it('does not create a spill file when the result fits inline', async () => {

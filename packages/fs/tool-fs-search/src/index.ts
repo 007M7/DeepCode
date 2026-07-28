@@ -33,8 +33,8 @@ import { GLOB_MAX_RESULTS, applyGlobTool } from './glob.ts'
 import { GREP_MAX_LINE_BYTES, GREP_MAX_MATCHES, applyGrepTool } from './grep.ts'
 import { RAW_OUTPUT_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
 
-export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall } from './glob.ts'
-export type { GlobInput, GlobToolCaps } from './glob.ts'
+export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall, sampleAcrossTopLevel } from './glob.ts'
+export type { GlobInput, GlobSample, GlobToolCaps } from './glob.ts'
 export {
   GREP_MAX_LINE_BYTES,
   GREP_MAX_MATCHES,
