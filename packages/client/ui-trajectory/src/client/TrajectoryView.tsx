@@ -14,7 +14,11 @@ import {
   type TrajectoryUsage,
 } from './TrajectoryTable.tsx'
 import { TrajectoryToolbar } from './TrajectoryToolbar.tsx'
+import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import { deriveTrajectoryLayout } from './layout.ts'
+import {
+  filterTrajectoryTimelineRange, type TrajectoryTimeRange,
+} from './timeline.ts'
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
@@ -73,6 +77,10 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<number>>(EMPTY_IDS)
+  const [timelineSelection, setTimelineSelection] = useState<{
+    branchId: number
+    range: TrajectoryTimeRange
+  } | null>(null)
   const nodes = useSession(s => s.nodes)
   const inspection = useSession(s => s.inspection)
   const hasMore = useSession(s => s.hasMore)
@@ -249,8 +257,15 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
       selectedNodes, partial, runningCalls, selectedRequests, callSchemas, codeDispatches,
     ],
   )
+  const timelineRange = timelineSelection?.branchId === currentBranch.id
+    ? timelineSelection.range
+    : null
+  const focusedTurns = useMemo(
+    () => filterTrajectoryTimelineRange(turns, timelineRange),
+    [timelineRange, turns],
+  )
   const collapsibleTurnIds = useMemo(
-    () => turns
+    () => focusedTurns
       .filter(turn =>
         turn.groups.reduce(
           (count, group) =>
@@ -259,13 +274,13 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
           0,
         ) > 1)
       .map(turn => turn.turn),
-    [turns],
+    [focusedTurns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every(turn => collapsedTurns.has(turn))
   const collapsibleAssistantIds = useMemo(() => {
     const ids: number[] = []
-    for (const turn of turns) {
+    for (const turn of focusedTurns) {
       const cells = turn.groups.flatMap(group => group.cells)
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i]
@@ -275,7 +290,7 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
       }
     }
     return ids
-  }, [turns])
+  }, [focusedTurns])
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
 
@@ -331,11 +346,18 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
         allAssistantsCollapsed={allAssistantsCollapsed}
         onToggleAllAssistants={toggleAllAssistants}
       />
+      <TrajectoryTimeline
+        turns={turns}
+        range={timelineRange}
+        onRangeChange={(range) => {
+          setTimelineSelection(range === null ? null : { branchId: currentBranch.id, range })
+        }}
+      />
       <div className={css.ledger}>
         <TrajectoryTable
-          key={currentBranch.id}
+          key={`${currentBranch.id}:${timelineRange?.start ?? 'all'}:${timelineRange?.end ?? 'all'}`}
           requestNumbers={requestNumbers}
-          turns={turns}
+          turns={focusedTurns}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}

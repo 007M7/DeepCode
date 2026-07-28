@@ -1,6 +1,6 @@
 /**
- * Browser trajectory plugin contributing two entries to the conversation
- * view slot without defining a service.
+ * Browser trajectory plugin contributing one entry to the conversation view
+ * slot without defining a service.
  */
 import type { Context } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -8,7 +8,6 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // owning package) must be in the program for the register calls to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.tsx'
-import { WaterfallView } from './WaterfallView.tsx'
 
 /**
  * Required services (cordis fiber inject). 'conversation' is an ordering
@@ -20,9 +19,8 @@ import { WaterfallView } from './WaterfallView.tsx'
 export const inject = ['slots', 'conversation', 'sessions']
 
 /**
- * Client plugin body: register the trajectory and waterfall view tabs. The
- * registrations ride the slot service's effect wrapper (plugin unload
- * removes both tabs).
+ * Client plugin body: register the trajectory view tab. The registration
+ * rides the slot service's effect wrapper, so plugin unload removes the tab.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
@@ -39,6 +37,4 @@ export function apply(ctx: Context): void {
       return { loadAllHistory: () => session.loadAllHistory() }
     },
   }, TrajectoryView)
-  ctx.slots.register(
-    { name: 'conversation.view', id: 'waterfall', order: 20, label: 'Waterfall' }, WaterfallView)
 }

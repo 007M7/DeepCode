@@ -438,12 +438,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '04-round-complete')
   }, 150_000)
 
-  it('4 view tabs: Chat / Trajectory / Waterfall all switch', async () => {
+  it('view tabs: Chat and Trajectory switch', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tabs'))
     await page.locator('button', { hasText: /Trajectory/i }).first().click()
     await screen(page, '05-trajectory-tab')
-    await page.locator('button', { hasText: /Waterfall/i }).first().click()
-    await screen(page, '06-waterfall-tab')
+    await page.getByLabel('Trajectory timeline').waitFor()
+    await expect.poll(() => page.getByRole('tab', { name: 'Waterfall' }).count()).toBe(0)
     await page.locator('button', { hasText: /^Chat$/i }).first().click()
     await screen(page, '07-back-to-chat')
   })

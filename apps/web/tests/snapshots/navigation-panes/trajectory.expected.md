@@ -2,6 +2,7 @@
   - text: Trajectory
   - button "Collapse calls"
   - button "Collapse turns"
+- region "Trajectory timeline": Overview 9 timed events
 - table:
   - rowgroup:
     - row "SYSTEM, Initial System Prompt":

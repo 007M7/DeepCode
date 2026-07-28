@@ -5,7 +5,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: Reply with a one-sentence description of event sourcing, then stop.
 - paragraph: partial
 - text: 已停止 0 tokens · 1 turns · 1 steps

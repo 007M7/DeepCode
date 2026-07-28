@@ -6,7 +6,7 @@
 // three always-visible nested sub-rows (bash through the sample registration,
 // read through GenericToolCard, the failing read wearing the error state),
 // the expanded program body, details-panel resolution of a sub-callId, and
-// the trajectory/waterfall tabs' sub-call cells and timing lanes.
+// the Trajectory tab's sub-call cells and timing overview.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -195,7 +195,7 @@ it('expands the code row into the program body and resolves a sub-row through th
   `)
 })
 
-it('trajectory and waterfall surface the run_code sub-calls with real timing', async () => {
+it('trajectory surfaces run_code sub-calls in the ledger and timing overview', async () => {
   boot()
   await openFixtureSession()
 
@@ -219,37 +219,17 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
     }
   `)
 
-  // Waterfall: each sub-call draws a measured lane scaled into the parent
-  // turn's dispatch window.
-  fireEvent.click(screen.getByRole('tab', { name: 'Waterfall' }))
-  await waitFor(() => {
-    expect(document.querySelector('[data-subspan]')).not.toBeNull()
-  }, { timeout: 10_000 })
-  const lanes = [...document.querySelectorAll('[data-subspan]')]
+  const timelineSubCalls = [...document.querySelectorAll('[data-timeline-span="subtool"]')]
   expect({
-    lanes: lanes.map(lane => ({
-      label: visibleText(lane.querySelector('[class*="subTag"]') ?? lane),
-      title: lane.querySelector('[data-timing]')?.getAttribute('title'),
-      timing: lane.querySelector('[data-timing]')?.getAttribute('data-timing'),
-    })),
+    count: timelineSubCalls.length,
+    measured: timelineSubCalls.map(span => span.getAttribute('title')?.endsWith(' · 800 ms')),
   }).toMatchInlineSnapshot(`
     {
-      "lanes": [
-        {
-          "label": "bash",
-          "timing": "measured",
-          "title": "bash · 0.80 s",
-        },
-        {
-          "label": "read",
-          "timing": "measured",
-          "title": "read · 0.80 s",
-        },
-        {
-          "label": "read",
-          "timing": "measured",
-          "title": "read · 0.80 s",
-        },
+      "count": 3,
+      "measured": [
+        true,
+        true,
+        true,
       ],
     }
   `)
