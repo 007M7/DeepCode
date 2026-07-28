@@ -6,7 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { foldGoal, GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -254,7 +254,7 @@ describe('same-session goal driving', () => {
 
   it('maps a downstream prompt veto to blocked without admitting the round', async () => {
     const test = await harness([])
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => message.source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'deployment policy' })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
@@ -269,11 +269,11 @@ describe('same-session goal driving', () => {
 
   it('does not reserve again when a stopped-goal observer queues ordinary work', async () => {
     const test = await harness([textResponse('human follow-up')])
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => message.source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
-      if (change.operation === 'block') agent.followup({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } })
+      if (change.operation === 'block') agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } }))
     })
     test.ctx.goals.create(test.agent, { objective: 'stop and inspect' })
 
@@ -324,7 +324,7 @@ describe('same-session goal driving', () => {
   it('lets already-queued human work finish before reserving the next round', async () => {
     const test = await harness([textResponse('human answer'), textResponse('goal answer')])
     test.ctx.goals.create(test.agent, { objective: 'continue after the human', maxGoalRounds: 1 })
-    test.agent.followup({ content: [{ type: 'text', text: 'human goes first' }], source: { kind: 'user' } })
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human goes first' }], source: { kind: 'user' } }))
 
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
@@ -365,7 +365,7 @@ describe('same-session goal driving', () => {
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
       if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
       inserted = true
-      agent.followup({ content: [{ type: 'text', text: 'human joined the pending batch' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human joined the pending batch' }], source: { kind: 'user' } }))
     })
     test.ctx.goals.create(test.agent, { objective: 'yield to nested human input', maxGoalRounds: 1 })
 
@@ -402,8 +402,8 @@ describe('same-session goal driving', () => {
   it('rechecks revision after downstream prompt hooks before admitting', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !edited) {
+    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !edited) {
         edited = true
         const current = test.ctx.goals.get(agent)
         if (current === undefined) throw new Error('missing goal during prompt edit')
@@ -509,8 +509,8 @@ describe('same-session goal driving', () => {
     // attempt through cancel-requested) and THEN throws: the catch finds no
     // matching reservation and must not reschedule a paused goal.
     let fired = false
-    test.ctx.on('agent/prompt-submit', async (agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !fired) {
+    test.ctx.on('agent/prompt-submit', async (agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !fired) {
         fired = true
         agent.cancel({ kind: 'user' })
         throw new Error('hook cancelled then exploded')
@@ -533,8 +533,8 @@ describe('same-session goal driving', () => {
     // Registered after goal-session's own listener: the throw propagates back
     // through goal-session's next() await, dropping the whole admission.
     let threw = false
-    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !threw) {
+    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !threw) {
         threw = true
         throw new Error('downstream admission hook exploded')
       }
@@ -567,7 +567,7 @@ describe('same-session goal driving', () => {
     // is not yet reserved: the retry trigger must not adopt or clear
     // anything (the attempt is absent), and the goal proceeds normally.
     test.ctx.goals.create(test.agent, { objective: 'ignore foreign retries', maxGoalRounds: 1 })
-    test.agent.followup({ content: [{ type: 'text', text: 'human work' }], source: { kind: 'user' } })
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human work' }], source: { kind: 'user' } }))
 
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
     expect(goal?.blockedReason?.code).toBe('round-limit')
@@ -583,7 +583,7 @@ describe('same-session goal driving', () => {
       if (input.source.kind === 'goal') {
         throw new Error('queue rejected')
       }
-      return realFollowup(input)
+      realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'handle queue failure' })
 
@@ -605,7 +605,7 @@ describe('same-session goal driving', () => {
         test.ctx.goals.disarm(test.agent)
         throw new Error('queue rejected after disarm')
       }
-      return realFollowup(input)
+      realFollowup(input)
     })
     test.ctx.goals.create(test.agent, { objective: 'preserve the newer activation state' })
 
@@ -680,8 +680,8 @@ describe('same-session goal driving', () => {
   it('fails a post-hook read closed before the prompt can enter history', async () => {
     const test = await harness([])
     let armed = true
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && armed) {
+    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && armed) {
         armed = false
         vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
           throw new Error('post-hook projection failed')
@@ -699,7 +699,7 @@ describe('same-session goal driving', () => {
 
   it('blocks forged goal attribution without touching an absent reservation', async () => {
     const test = await harness([])
-    test.agent.followup({ content: [{ type: 'text', text: 'forged automatic work' }], source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 } })
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'forged automatic work' }], source: { kind: 'goal', goalId: GoalId('forged-goal'), revision: 1, round: 1 } }))
     await test.agent.whenIdle()
 
     expect(test.adapter.requests).toHaveLength(0)
@@ -708,7 +708,7 @@ describe('same-session goal driving', () => {
 
   it('does not invent goal state when ordinary queued work is cancelled', async () => {
     const test = await harness([])
-    test.agent.followup({ content: [{ type: 'text', text: 'cancel ordinary work' }], source: { kind: 'user' } })
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'cancel ordinary work' }], source: { kind: 'user' } }))
     test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
@@ -718,7 +718,7 @@ describe('same-session goal driving', () => {
 
   it('disarms without durably pausing when cancellation belongs to unrelated human work', async () => {
     const test = await harness(['hang'])
-    test.agent.followup({ content: [{ type: 'text', text: 'inspect something first' }], source: { kind: 'user' } })
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect something first' }], source: { kind: 'user' } }))
     await waitForRequests(test.adapter, 1)
     const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
 
@@ -755,8 +755,8 @@ describe('same-session goal driving', () => {
   it('blocks admission when downstream cancellation clears the reservation', async () => {
     const test = await harness([])
     let cancelled = false
-    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !cancelled) {
+    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
       }
@@ -824,8 +824,8 @@ describe('same-session goal driving', () => {
   it('leaves a queued reservation pending when the driver runs before its turn settles', async () => {
     const test = await harness([textResponse('settled later')])
     let woken = false
-    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !woken) {
+    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !woken) {
         woken = true
         // A concurrent driver pass must observe the still-unsettled attempt
         // and yield rather than double-book or clear the reservation.
@@ -890,7 +890,7 @@ describe('same-session goal driving', () => {
       sessionId: SessionId('goal-session-retired'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    handle.agent.followup({ content: [{ type: 'text', text: 'one ordinary turn' }], source: { kind: 'user' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'one ordinary turn' }], source: { kind: 'user' } }))
     await handle.agent.whenIdle()
     const closed = handle.agent.session.events.findLast(event => event.type === 'turn/end')
     if (closed?.type !== 'turn/end') throw new Error('expected a closed turn')
@@ -911,7 +911,7 @@ describe('same-session goal driving', () => {
       if (event.type === 'turn/start' && event.data.trigger.kind === 'message'
         && event.data.trigger.source.kind === 'goal') {
         queued = true
-        test.agent.followup({ content: [{ type: 'text', text: 'human interleaved' }], source: { kind: 'user' } })
+        test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human interleaved' }], source: { kind: 'user' } }))
       }
     })
     test.ctx.goals.create(test.agent, { objective: 'survive a stale failure', maxGoalRounds: 1 })
@@ -929,7 +929,7 @@ describe('same-session goal driving', () => {
     const test = await harness(['hang', textResponse('inspection answer')])
     test.ctx.on('goal/changed', (agent, change) => {
       if (agent === test.agent && change.operation === 'pause') {
-        agent.followup({ content: [{ type: 'text', text: 'inspect the pause' }], source: { kind: 'user' } })
+        agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the pause' }], source: { kind: 'user' } }))
       }
     })
     test.ctx.goals.create(test.agent, { objective: 'pause then inspect' })
@@ -950,8 +950,8 @@ describe('same-session goal driving', () => {
   it('does not re-block a goal the downstream veto already saw cancelled', async () => {
     const test = await harness([])
     let vetoed = false
-    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && !vetoed) {
+    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && !vetoed) {
         vetoed = true
         agent.cancel({ kind: 'user' })
         return Promise.resolve<PromptDecision>({ kind: 'block', reason: 'cancelled by policy' })
@@ -973,8 +973,8 @@ describe('same-session goal driving', () => {
   it('awaits an unadmitted reservation stuck in admission during teardown without cancelling', async () => {
     const test = await harness([])
     let release: (() => void) | undefined
-    test.ctx.on('agent/prompt-submit', async (_agent, _content, source, _signal, next) => {
-      if (source.kind === 'goal' && release === undefined) {
+    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
+      if (message.source.kind === 'goal' && release === undefined) {
         await new Promise<void>((resolve) => { release = resolve })
       }
       return next()

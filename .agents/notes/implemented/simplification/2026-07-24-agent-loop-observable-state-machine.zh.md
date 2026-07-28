@@ -18,10 +18,10 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 
 - 注册生命周期是从 `agent/created` 到 `agent/disposed` 的区间。dispose（资源释放）是注册表的终止边界，而不是一种 `AgentStatus`。
 - agent 整体活动状态为 `AgentStatus = 'idle' | 'running'`。连续多个轮次可以共用同一个 `running` 区间。
-- 由 FIFO 支撑的消息从 `agent/inbox/enqueue` 开始，最终必然进入 `agent/inbox/dequeue` 或 `agent/inbox/discard` 二者之一，并通过 `AgentMessageId` 关联。收件箱事件描述接受、领取和移除，而不是轮次完成。
+- 由 FIFO 支撑的消息从 `agent/inbox/enqueue` 开始，最终必然进入 `agent/inbox/dequeue` 或 `agent/inbox/discard` 二者之一。enqueue 与 dequeue 通过 `MessageId` 加 queued 或 steering（中途引导）放置方式关联一次消息出现；放置方式相同的重复项按 FIFO 顺序结算。收件箱事件描述接受、领取和移除，而不是轮次完成。
 - 已领取的轮次经过提示词准入和零个或多个请求步骤。自动重试会关闭失败轮次并立即开启另一个轮次；`agent/settled` 只报告该重试链的终态轮次，且仍不同于 agent 整体转换到 `status === 'idle'`。
 
-循环保留五个状态机扩展事件。`agent/prompt-submit` 对已领取的提示词执行准入、改写或阻断。`agent/step` 是步骤之间唯一需要等待的检查点，在每次派生请求前运行。`agent/request` 是冻结调用配置所用的 waterfall；配置只能来自 `await next()`，不再通过重复的位置参数提供。`agent/request-error` 串行确定需要等待的模型请求恢复由谁负责。当轮次原本已经没有剩余工作时，`agent/turn-stopping` 运行；需要再执行一个步骤的监听器使用 `agent.steer()` 记录真实的 steering（中途引导），循环在所有监听器完成后根据这份数据作出决定。
+循环保留五个状态机扩展事件。`agent/prompt-submit` 对已领取的提示词执行准入、改写或阻断。`agent/step` 是步骤之间唯一需要等待的检查点，在每次派生请求前运行。`agent/request` 是冻结调用配置所用的 waterfall；配置只能来自 `await next()`，不再通过重复的位置参数提供。`agent/request-error` 串行确定需要等待的模型请求恢复由谁负责。当轮次原本已经没有剩余工作时，`agent/turn-stopping` 运行；需要再执行一个步骤的监听器使用 `agent.steer()` 记录真实的 steering，循环在所有监听器完成后根据这份数据作出决定。
 
 是否继续和终止执行由数据表达，不再由返回的控制枚举表达。工具调用和已接受的 steering 要求再执行一个步骤。携带 `concludesTurn` 的工具结果会在其所属步骤终止工具循环。循环不再暴露通用的 `ContinuationDecision` 或终止停止返回通道。
 
@@ -47,7 +47,7 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 
 负责继续执行的插件发布可持久化的 steering，而不是返回未记录到日志中的原因。恢复插件在失败步骤结束后处理错误，并返回显式重试动作。这样，每次尝试都会成为完整轮次，同时异步修复和策略归属集中在一个狭窄的 waterfall 边界。
 
-收件箱生命周期用于补充持久会话日志，而非取代它。`AgentMessageId` 将接受操作与领取或丢弃操作关联起来；轮次编号与步骤编号、消息、工具活动和终止原因仍属于会话事实。
+收件箱生命周期用于补充持久会话日志，而非取代它。`MessageId` 将接受操作与领取或丢弃操作关联起来；轮次编号与步骤编号、消息、工具活动和终止原因仍属于会话事实。
 
 ## 相关内容
 

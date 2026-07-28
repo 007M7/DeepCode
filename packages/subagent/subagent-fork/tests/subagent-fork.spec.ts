@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
@@ -89,9 +90,9 @@ describe('dsh-subagent-fork', () => {
 
   it('seeds every completed parent turn through the last turn/end', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second'), textResponse('child')])
-    parent.followup({ content: [{ type: 'text', text: 'q1' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'q1' }], source: { kind: 'user' } }))
     await parent.whenIdle()
-    parent.followup({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -108,7 +109,7 @@ describe('dsh-subagent-fork', () => {
     // Parent runs one turn, then we fork. The child's seeded log should contain
     // the parent's first turn, and the child should run its own new turn on top.
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.followup({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const parentPrefixLen = parent.session.events.length
 
@@ -137,10 +138,10 @@ describe('dsh-subagent-fork', () => {
     // open (a hanging model call), and fork while it's in flight. The seed must stop after the
     // balanced first turn; including the open turn would fail invariant replay during start.
     const { ctx, parent } = await setup([textResponse('done'), 'hang', textResponse('child')])
-    parent.followup({ content: [{ type: 'text', text: 'q1' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'q1' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     // Start a second turn that hangs (open turn/start + open step, never ends).
-    parent.followup({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } }))
     await new Promise(r => setTimeout(r, 20)) // let the hanging turn open
 
     // Forking now must NOT throw (the open second turn is excluded from the seed).
@@ -164,7 +165,7 @@ describe('dsh-subagent-fork', () => {
       textResponse('parent turn'),
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
     ])
-    parent.followup({ content: [{ type: 'text', text: 'warm up' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'warm up' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const run = await start(ctx, 'fork', {
       prompt: [{ type: 'text', text: 'report structured' }],
@@ -183,7 +184,7 @@ describe('dsh-subagent-fork', () => {
     // `readResult` must scan only child-owned events after the seed. The child emits no assistant
     // message, so scanning the whole log would incorrectly return the parent's distinctive text.
     const { ctx, parent } = await setup([textResponse('parent stale'), emptyStop])
-    parent.followup({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const run = await start(ctx, 'fork', { prompt: [{ type: 'text', text: 'child question' }], parent })

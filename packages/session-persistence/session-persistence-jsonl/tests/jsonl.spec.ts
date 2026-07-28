@@ -1,3 +1,4 @@
+import { MessageId, createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
@@ -59,10 +60,10 @@ afterEach(async () => {
 
 function appendClosedTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
 
@@ -211,7 +212,17 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
+      { type: 'assistant/message', seq: 4, time: 5, data: {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hello' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -587,8 +598,12 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     const b = ctx.sessions.create(SessionId('sb'))
     a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    a.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'A' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    b.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'B' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(a)
@@ -748,7 +763,17 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       ...deltas,
-      { type: 'assistant/message', seq: 7, time: 8, data: { turn: 1, step: 1, content: [{ type: 'text', text: 't0t1t2t3t4' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3, 4, 5, 6] },
+      { type: 'assistant/message', seq: 7, time: 8, data: {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 't0t1t2t3t4' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      }, surfaceOp: 'append', sourceEventSeqs: [2, 3, 4, 5, 6] },
       { type: 'step/end', seq: 8, time: 9, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -1104,9 +1129,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // A seed that keeps every seq/type/time but mutates a payload must NOT be
     // accepted as "the same session" — otherwise drain filters those seqs as
     // already persisted and the divergent payload is silently lost.
-    const tampered = oneTurnLog()
+    const tampered = structuredClone(oneTurnLog())
     const userMsg = tampered[1]
-    if (userMsg?.type === 'user/message') userMsg.data.content = [{ type: 'text', text: 'DIFFERENT' }]
+    if (userMsg?.type === 'user/message') {
+      (userMsg.data as { content: unknown[] }).content = [{ type: 'text', text: 'DIFFERENT' }]
+    }
     let bad!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
       bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
@@ -1244,7 +1271,9 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
@@ -1262,7 +1291,18 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('rejects non-JSON event data: BigInt, function, circular, Map, undefined property', async () => {
     const m = meta('serial')
     await ctx.sessionPersistence.create(m)
-    const bad = (extra: unknown) => [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } }] as unknown as SessionEvent[]
+    const bad = (extra: unknown) => [{
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: {
+        id: MessageId('invalid-json'),
+        role: 'user',
+        content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'user' },
+        extra,
+      },
+    }] as unknown as SessionEvent[]
     await expect(ctx.sessionPersistence.append(m.id, bad(1n))).rejects.toThrow(/non-JSON-serializable/)
     await expect(ctx.sessionPersistence.append(m.id, bad(() => 0))).rejects.toThrow(/non-JSON-serializable/)
     await expect(ctx.sessionPersistence.append(m.id, bad(Symbol('s')))).rejects.toThrow(/non-JSON-serializable/)
@@ -1280,7 +1320,9 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('accepts well-formed JSON values (null, booleans, nested arrays/objects)', async () => {
     const m = meta('json-ok')
     await ctx.sessionPersistence.create(m)
-    const ev = [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: { a: null, b: true, c: [1, 2, { d: 'nested' }] } } }] as unknown as SessionEvent[]
+    const ev = [{ type: 'user/message', seq: 0, time: 1, data: createUserMessage({
+      content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: { a: null, b: true, c: [1, 2, { d: 'nested' }] },
+    }) }] as unknown as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, ev)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })

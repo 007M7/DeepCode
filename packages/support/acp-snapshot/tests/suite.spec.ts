@@ -432,8 +432,8 @@ describe('tool-schema snapshots', () => {
 describe('unknownToolCallIds', () => {
   it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
     const log = [
-      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
-      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"missing"}},"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"failed"}},"error":{"code":"EXECUTION_FAILED"}}}',
       '{"type":"tool/result","data":null}',
       '{"type":"tool/result","data":"invalid"}',
       '{"type":"tool/result","data":{"error":null}}',
@@ -446,7 +446,7 @@ describe('unknownToolCallIds', () => {
   })
 
   it('returns no failures for ordinary tool results', () => {
-    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"ok"}}}}\n')).toEqual([])
   })
 })
 

@@ -52,7 +52,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实和信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
-`PromptDecision.additionalContexts` 是数组，因此每个上下文都保留自己的来源。获准的提示词内容与每个附加上下文都会在轮次运行前成为各自独立、面向模型的 `user/message` 事件。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；返回的允许决策是权威来源。
+`PromptDecision.additionalContexts` 是由带标识且冻结的 `UserMessage` 值组成的数组，因此每个上下文都保留自己的标识和来源。获准的提示词与每个附加上下文都会在轮次运行前成为各自独立、面向模型的 `user/message` 事件。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；替换获准内容时仍会保留提示词的标识。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话 feed 读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 
@@ -60,7 +60,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 每个插件面向的 handle：
 
-- `agent.send(input, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`input` 是既有的 `UserMessageData { content, source }`，而 `SendOptions` 只要求路由策略 `target` 与 `wakeup`。agent 会在发布或入队前为 `input` 创建快照并将其冻结，因此调用方或观察方后续的修改无法改变已接受的消息。它返回被接受消息的不透明 `AgentMessageId`，由该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件携带，调用方可据此把排队项与其生命周期关联；入队事件还会携带解析出的 `queued | steering` 路由归类，使监听器无需从后续状态重建接收时的路由。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.send(message, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`message` 是已有标识且已冻结的 `UserMessage`；调用方通常会在开始路由前使用 `createUserMessage()` 创建它。`SendOptions` 只持有 `target` 与 `wakeup` 策略。agent 会原样发布或排队完整值，不会生成或替换其标识。该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件会携带完整消息，调用方可据此把排队项与其生命周期关联；入队与出队事件还会携带解析出的 `queued | steering` 路由归类，使重复出现的消息标识能在正确的 FIFO 中完成结算。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
 - `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。
 - `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。提示词接纳期间或轮次打开时，注入会在 outbox 中等待下一个安全边界。该接收窗口之外，它会立即追加而不开启轮次；如果接纳结束却未开启轮次，仅含上下文的接纳批次会采用这一回退，而与 steering 一同暂存的上下文则会随其继续待处理。持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。
@@ -114,5 +114,5 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 - **委派以外的 agent 间通道**：共享状态、流式子输出和后台／轮询语义仍在当前同步 `ctx.subagents` seam 之外。
 - **`agent/session-start` 不能为启动设置门禁**：它仍是同步且不可 veto 的通知；必须在发布前完成的异步组合属于工厂的 `setup(agentCtx)` 事务。
 - **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[停止表层 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md)）。
-- **每条附加 `UserMessageData` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入一个来源；无法表示混合来源。
+- **每条附加 `UserMessage` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入一个来源；无法表示混合来源。
 - **`SessionStartSource` 预留 `'clear'`/`'compact'`，但还没有发出方**：在驱动子系统落地前，只会出现 `'startup'`/`'resume'`（`TODO(compaction)`）。

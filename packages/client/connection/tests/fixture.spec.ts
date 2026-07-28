@@ -69,7 +69,10 @@ describe('createFixtureApi', () => {
     // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false, projections: { asOfSeq: -1, values: {} } })
+    // Fixture composes the todos unit (host parallel when tool-todo is mounted): null before any write.
+    expect(empty.result.value).toEqual({
+      events: [], hasMore: false, projections: { asOfSeq: -1, values: { todos: null } },
+    })
   })
 
   it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {

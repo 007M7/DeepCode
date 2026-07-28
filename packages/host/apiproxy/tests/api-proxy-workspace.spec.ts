@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -45,10 +45,10 @@ function stubAgent(session: Session): Agent {
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
-    inject: () => AgentMessageId('stub'),
-    send: () => AgentMessageId('stub'),
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

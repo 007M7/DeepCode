@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,11 +29,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
     ctx = await codingHarness(workdir, { persona: TODO_SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(SessionId('e2e-todo'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{ type: 'text', text:
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text:
       'Use the todo_write tool to record a plan of exactly three steps for work '
       + 'running in parallel: "inspect the failing test" (in_progress), '
       + '"watch the background build" (in_progress), then "apply the fix" (pending). '
-      + 'Send all three in one todo_write call, then reply with the single word DONE.' }], source: { kind: 'user' } })
+      + 'Send all three in one todo_write call, then reply with the single word DONE.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]

@@ -20,11 +20,11 @@
 
 ## 渲染
 
-规范结果为 `{ todos, counts: { pending, inProgress, completed } }`；其 Native 渲染器返回精简的更新确认。工具还会写入完整 `todo/write` 会话事件。UI 订阅事件流，并自行渲染该持久列表：[TUI 应用](../../examples/tui-demo)将其显示为持久计划，[web 客户端](../../client/ui-conversation)则基于 `ConversationSnapshot.todos` 渲染计划横条与专属工具行（[Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)）。
+规范结果为 `{ todos, counts: { pending, inProgress, completed } }`；其 Native 渲染器返回精简的更新确认。工具还会写入完整 `todo/write` 会话事件。UI 订阅事件流，并自行渲染该持久列表：[TUI 应用](../../examples/tui-demo)与 [web 客户端](../../client/ui-conversation)基于站立计划（其后没有更晚 `turn/start` 的最近一次 `todo/write`）显示计划条（web 另有专属工具行）（[展示](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)、[生命周期](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md)）。
 
 ## 会话投影
 
-当组合挂载了 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)）时，本包在一个注入式子插件下注册 `todos` 投影单元：`init` = `null`（尚无写入）、`apply` = 从每个 `todo/write` 取整表（last-wins；其余事件都返回同一个状态引用）、`view` = 恒等、`stateVersion` = 1。key 在本包合并进 `SessionProjectionMap`（经接口包的 `/types` 出口）；框架驱动该单元，载体在历史尾页与 `session/projection` 推送帧上供给该值。未装注册表的组合不受影响。
+当组合挂载了 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)）时，本包在一个注入式子插件下注册 `todos` 投影单元：`init` = `null`（尚无写入）、`apply` = 从每个 `todo/write` 取整表，并在每个 `turn/start` 清为 `null`（站立计划；`turn/end` 保留刚完成的清单；其余事件都返回同一个状态引用）、`view` = 恒等、`stateVersion` = 2。key 在本包合并进 `SessionProjectionMap`（经接口包的 `/types` 出口）；框架驱动该单元，载体在历史尾页与 `session/projection` 推送帧上供给该值。未装注册表的组合不受影响。生命周期理由见 [下一轮清空 todo 计划条](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md)。
 
 ## 导出形状
 

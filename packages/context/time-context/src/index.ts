@@ -8,6 +8,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
@@ -173,6 +174,6 @@ export function apply(ctx: Context, config: Config): void {
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
-    agent.inject({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } })
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } }))
   }, { prepend: true })
 }

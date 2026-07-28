@@ -1,9 +1,9 @@
-// TodoPanel: persistent plan strip above the composer (the web counterpart
-// of the TUI plan panel). Renders the latest todo/write whole-list snapshot —
-// no data of its own, hidden while the list is empty. Mounted through the
-// 'conversation.input.dock' slot (QueueDock posture): the dock adapter does
-// the selecting, so the panel takes the plain list and stays framework-free.
-// Visual: figma 772:51905 (states) / 772:52972 (collapsed) / 772:53419 (expanded).
+// TodoPanel: plan strip above the composer (the web counterpart of the TUI
+// plan panel). Renders the standing todo/write whole-list snapshot (cleared on
+// the next turn/start) — no data of its own, hidden while the list is empty.
+// Mounted through the 'conversation.input.dock' slot (QueueDock posture): the
+// dock adapter does the selecting, so the panel takes the plain list and stays
+// framework-free. Visual: figma 772:51905 / 772:52972 / 772:53419.
 
 import { useId, useState } from 'react'
 import type { Context } from 'cordis'

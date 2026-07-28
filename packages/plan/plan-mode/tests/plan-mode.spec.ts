@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -59,7 +59,15 @@ async function setup(config: PlanModeConfig = PLAN_CONFIG): Promise<Context> {
 async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
   const events = agentEvents(ctx, agent)
   if (type === 'turn/start') {
-    await events.waterfall('agent/prompt-submit', [{ type: 'text', text: 'boundary probe' }], { kind: 'user' }, new AbortController().signal, () => Promise.resolve({ kind: 'allow' }))
+    await events.waterfall(
+      'agent/prompt-submit',
+      createUserMessage({
+        content: [{ type: 'text', text: 'boundary probe' }],
+        source: { kind: 'user' },
+      }),
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' }),
+    )
     return
   }
   await events.serial('agent/step', 1, 2, new AbortController().signal)
@@ -521,6 +529,8 @@ describe('/plan', () => {
     })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
     expect(messageSteer).toHaveBeenCalledExactlyOnceWith({
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'draft the migration' }],
       source: { kind: 'user' },
     })

@@ -11,18 +11,9 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
 
 ```ts type-equiv
-/**
- * Shared payload for user, injected-context, and steering messages. A
- * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
- * steering all project into the model transcript as verbatim user-role content;
- * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type.
- */
-interface UserMessageData {
-  /** Exact model-facing blocks. */
-  content: ContentBlock[]
-  /** Producer provenance. */
-  source: MessageSource
+/** A user-role specialization of the one shared message representation. */
+interface UserMessage extends Message {
+  readonly role: 'user'
 }
 ```
 
@@ -57,7 +48,7 @@ interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart. An idle
    * injection may append this event between turns without running the model.
    */
-  'user/message': UserMessageData
+  'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -66,7 +57,7 @@ interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -87,14 +78,12 @@ interface SessionEventMap {
   'tool/result': {
     turn: number
     step: number
-    callId: CallId
-    content: ContentBlock[]
-    isError: boolean
+    message: ToolResultMessage
     error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': UserMessageData & { turn: number }
+  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -105,7 +94,7 @@ interface SessionEventMap {
 }
 ```
 
-`UserMessageData` is the durable `content` and `source` base shared by ordinary prompts, injected context, and steering. Live inbox events extend the same shape with an `AgentMessageId`; the loop adds only driver-owned routing state while an item remains pending.
+`UserMessage` is the identified, frozen user-role value shared by ordinary prompts, injected context, steering, and live inbox events. Event wrappers add only event-local position or outcome facts; the loop adds only driver-owned routing state while an item remains pending.
 
 ### `TodoItem` — one todo-list entry
 
@@ -424,10 +413,9 @@ declare class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message wrapper is
-   * fresh; its content reuses the logged event's already deep-frozen durable
-   * data, so changing the wrapper cannot rewrite the log and changing content
-   * throws.
+   * built from (the reconstructability Agent Note). The returned message is
+   * the already frozen message nested in the event wrapper and shared by
+   * delivery, durable history, and model requests.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */

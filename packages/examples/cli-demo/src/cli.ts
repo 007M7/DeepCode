@@ -7,7 +7,7 @@
 import { parseArgs } from 'node:util'
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { boot, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 
@@ -176,7 +176,7 @@ function addUsage(total: TokenUsage | undefined, step: TokenUsage): TokenUsage {
 }
 
 function assistantText(event: Extract<SessionEvent, { type: 'assistant/message' }>): string | undefined {
-  const blocks = event.data.content.filter(block => block.type === 'text')
+  const blocks = event.data.message.content.filter(block => block.type === 'text')
   return blocks.length === 0 ? undefined : blocks.map(block => block.text).join('')
 }
 
@@ -302,7 +302,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   try {
     /* v8 ignore next -- skips send only when cancellation wins the listener-registration race above */
     if (!firstTurnEnded) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
-      agent.followup({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } }))
     }
     await turnEnded
   } finally {

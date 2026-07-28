@@ -11,18 +11,9 @@
 仅追加的事件类型。可通过声明合并扩展：插件通过 declaration merging 声明额外的事件类型。例如[压缩（compaction） seam](compaction.md) 添加了 `compact/start` / `compact/summary` / `compact/end`，`@deepseek-ai/dsh-hook-protocol` 添加了仅记录日志的 `hook/invoked` / `hook/result` 溯源事件，用于钩子桥接。与 `compact/*` 一样，这些都不是 `SurfaceEventType`（没有 `surfaceOp`）。生成的[持久化日志事件目录](../persistence-catalog.md)列举了所有成员（核心与合并扩展的），包含其 payload、surface 标记与声明位置。
 
 ```ts type-equiv
-/**
- * Shared payload for user, injected-context, and steering messages. A
- * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
- * steering all project into the model transcript as verbatim user-role content;
- * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type.
- */
-interface UserMessageData {
-  /** Exact model-facing blocks. */
-  content: ContentBlock[]
-  /** Producer provenance. */
-  source: MessageSource
+/** A user-role specialization of the one shared message representation. */
+interface UserMessage extends Message {
+  readonly role: 'user'
 }
 ```
 
@@ -57,7 +48,7 @@ interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart. An idle
    * injection may append this event between turns without running the model.
    */
-  'user/message': UserMessageData
+  'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -66,7 +57,7 @@ interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -87,14 +78,12 @@ interface SessionEventMap {
   'tool/result': {
     turn: number
     step: number
-    callId: CallId
-    content: ContentBlock[]
-    isError: boolean
+    message: ToolResultMessage
     error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': UserMessageData & { turn: number }
+  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -105,7 +94,7 @@ interface SessionEventMap {
 }
 ```
 
-`UserMessageData` 是普通提示词、注入上下文与 steering（中途引导）共享的持久 `content` + `source` 基础形状。实时收件箱事件在同一形状上扩展一个 `AgentMessageId`；条目待处理期间，loop 只额外附加驱动器自有的路由状态。
+`UserMessage` 是普通提示词、注入上下文、steering（中途引导）与实时收件箱事件共享的带标识且冻结的 user-role 值。事件包装层只会增加事件本地的位置或结果事实；条目待处理期间，loop 只额外附加驱动器自有的路由状态。
 
 ### `TodoItem`：一条待办项
 
@@ -426,10 +415,9 @@ declare class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message wrapper is
-   * fresh; its content reuses the logged event's already deep-frozen durable
-   * data, so changing the wrapper cannot rewrite the log and changing content
-   * throws.
+   * built from (the reconstructability Agent Note). The returned message is
+   * the already frozen message nested in the event wrapper and shared by
+   * delivery, durable history, and model requests.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */

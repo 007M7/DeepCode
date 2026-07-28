@@ -23,6 +23,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -201,7 +202,7 @@ export class PlanModeService extends Service {
             return { kind: 'success', text: 'Plan mode is already inactive.' }
           }
           this.set(agent, true)
-          if (message !== '') agent.steer({ content: [{ type: 'text', text: message }], source: { kind: 'user' } })
+          if (message !== '') agent.steer(createUserMessage({ content: [{ type: 'text', text: message }], source: { kind: 'user' } }))
           return {
             kind: 'success',
             text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
@@ -331,10 +332,10 @@ export class PlanModeService extends Service {
     const text = target
       ? 'The user switched this session to plan mode.'
       : 'The user switched this session back to the default mode.'
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'plan-mode' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
   }
 }
 

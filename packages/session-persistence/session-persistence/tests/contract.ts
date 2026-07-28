@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION, Session, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, MessageId, createMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
 /** A backend under test plus its teardown. */
@@ -34,9 +34,24 @@ export function meta(id: string, cwd?: string): SessionHeader {
 export function oneTurnLog(): SessionEvent[] {
   return [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: 2, data: freezeMessage({
+      id: MessageId('one-turn-user'),
+      role: 'user',
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
-    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 3, time: 4, data: {
+      turn: 1, step: 1,
+      message: freezeMessage({
+        id: MessageId('one-turn-assistant'),
+        role: 'assistant',
+        content: [{ type: 'text', text: 'hello' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
+    }, surfaceOp: 'append' },
     { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
@@ -164,9 +179,19 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await persistence.append(m.id, [
           { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
           { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
-          { type: 'assistant/message', seq: 8, time: 9, data: { turn: 2, step: 1, content: [
-            { type: 'tool-call', id: CallId('call-x'), name: 'bash', arguments: '{}' },
-          ], provenance: { provider: 'mock', model: 'mock' } } },
+          { type: 'assistant/message', seq: 8, time: 9, data: {
+            turn: 2, step: 1,
+            message: createMessage({
+              role: 'assistant',
+              content: [
+                { type: 'tool-call', id: CallId('call-x'), name: 'bash', arguments: '{}' },
+              ],
+              source: {
+                kind: 'model',
+                ...{ provider: 'mock', model: 'mock' },
+              },
+            }),
+          } },
         ])
 
         const loaded = await persistence.load(m.id)
@@ -179,13 +204,17 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         ])
         const synthetic = loaded.events.find(e => e.type === 'tool/result')
         expect(synthetic?.type === 'tool/result' && synthetic.data).toMatchObject({
-          callId: CallId('call-x'), isError: true, error: { code: TOOL_NOT_STARTED },
+          message: {
+            source: { kind: 'tool', callId: CallId('call-x') },
+            content: [{ type: 'tool-result', toolCallId: CallId('call-x'), isError: true }],
+          },
+          error: { code: TOOL_NOT_STARTED },
         })
         // The synthetic result carries the SAME callId as the orphaned tool-call,
         // so deriveMessages() pairs them — no provider-invalid dangling call.
         const call = loaded.events.findLast(e => e.type === 'assistant/message')
         const callId = call?.type === 'assistant/message'
-          && call.data.content.find(b => b.type === 'tool-call')
+          && call.data.message.content.find(b => b.type === 'tool-call')
         expect(callId && callId.type === 'tool-call' && callId.id).toBe(CallId('call-x'))
       } finally {
         await dispose()
@@ -200,9 +229,19 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await persistence.append(m.id, [
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
           { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
-          { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, content: [
-            { type: 'tool-call', id: CallId('call-risk'), name: 'write', arguments: '{}' },
-          ], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
+          { type: 'assistant/message', seq: 2, time: 3, data: {
+            turn: 1, step: 1,
+            message: createMessage({
+              role: 'assistant',
+              content: [
+                { type: 'tool-call', id: CallId('call-risk'), name: 'write', arguments: '{}' },
+              ],
+              source: {
+                kind: 'model',
+                ...{ provider: 'mock', model: 'mock' },
+              },
+            }),
+          }, surfaceOp: 'append' },
           { type: 'tool/call', seq: 3, time: 4, data: { turn: 1, step: 1, callId: CallId('call-risk'), name: 'write', arguments: '{}' } },
         ])
 
@@ -211,11 +250,11 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect(synthetic?.type === 'tool/result' && synthetic.data.error).toEqual({
           name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN,
         })
-        if (synthetic?.type !== 'tool/result' || synthetic.data.content[0]?.type !== 'text') {
+        if (synthetic?.type !== 'tool/result' || synthetic.data.message.content[0].content[0]?.type !== 'text') {
           throw new Error('expected a text tool result')
         }
-        expect(synthetic.data.content[0].text).toContain('retry only if the operation is read-only or idempotent')
-        expect(synthetic.data.content[0].text).toContain('if it may have side effects, first verify external state or ask the user')
+        expect(synthetic.data.message.content[0].content[0].text).toContain('retry only if the operation is read-only or idempotent')
+        expect(synthetic.data.message.content[0].content[0].text).toContain('if it may have side effects, first verify external state or ask the user')
         const resumed = new Session(m.id, loaded.events, loaded.meta)
         const resumedResult = resumed.deriveMessages().find(message => message.content.some(block => block.type === 'tool-result'))
         expect(resumedResult?.content[0]).toMatchObject({
@@ -333,7 +372,18 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           const mi = meta(`s5-${i}`)
           await persistence.create(mi)
           const events = [
-            { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: bad } },
+            {
+              type: 'user/message',
+              seq: 0,
+              time: 1,
+              data: {
+                id: MessageId(`invalid-json-${i}`),
+                role: 'user',
+                content: [{ type: 'text', text: 'x' }],
+                source: { kind: 'user' },
+                extra: bad,
+              },
+            },
           ] as unknown as SessionEvent[]
           await expect(persistence.append(mi.id, events)).rejects.toThrow(/losslessly JSON-serializable/)
         }
