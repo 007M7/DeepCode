@@ -20,7 +20,7 @@ import type {
   PtyWaitReason,
 } from '@deepseek-ai/dsh-pty'
 import type { ResolvedConfig } from './config.ts'
-import { TerminalSanitizer } from './sanitize.ts'
+import { CONTROLLED_PROMPT, TerminalSanitizer } from './sanitize.ts'
 
 function utf8Tail(text: string, maxBytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(text) <= maxBytes) return { text, truncated: false }
@@ -77,6 +77,7 @@ class LocalSendOperation implements PtySendOperation {
   private readonly output: BoundedTextBuffer
   private readonly promise: PromiseWithResolvers<PtySendResult>
   private finished = false
+  private cancellationRequested = false
   private initialForegroundLeftWait: boolean
   private initialForegroundPgid: number | undefined
 
@@ -96,6 +97,10 @@ class LocalSendOperation implements PtySendOperation {
 
   get settled(): boolean {
     return this.finished
+  }
+
+  get cancelRequested(): boolean {
+    return this.cancellationRequested
   }
 
   append(text: string): void {
@@ -140,6 +145,7 @@ class LocalSendOperation implements PtySendOperation {
 
   cancel(): boolean {
     if (this.finished) return false
+    this.cancellationRequested = true
     this.onCancel()
     return true
   }
@@ -164,6 +170,7 @@ export class LocalPtySession implements PtyBackendSession {
   private polling = false
   private promptSeen = false
   private promptTextSeen = false
+  private promptTail = ''
   private shellPgid: number | undefined
   private initializing = false
   private lastOutputAt = Date.now()
@@ -223,6 +230,7 @@ export class LocalPtySession implements PtyBackendSession {
     this.lastOutputAt = Date.now()
     this.promptSeen = false
     this.promptTextSeen = false
+    this.promptTail = ''
 
     if (request.signal !== undefined) {
       const onAbort = (): void => { operation.cancel() }
@@ -242,7 +250,7 @@ export class LocalPtySession implements PtyBackendSession {
       if (this.active !== operation || this.closing) return
       operation.setInitialForeground(foreground)
       const input = `${request.text}${request.submit ? '\r' : ''}`
-      if (input.length > 0) {
+      if (input.length > 0 && !operation.cancelRequested) {
         this.writing = operation
         try {
           await this.terminal.write(Buffer.from(input, 'utf8'))
@@ -347,10 +355,14 @@ export class LocalPtySession implements PtyBackendSession {
       // to the foreground process group. Retain the marker; polling below is
       // the authority that accepts it only after bash owns the foreground.
       this.promptSeen = true
-      this.promptTextSeen = sanitized.promptText === true
+      this.promptTail = ''
       this.lastOutputAt = Date.now()
-    } else if (this.promptSeen && sanitized.promptText === true) {
-      this.promptTextSeen = true
+    }
+    if (this.promptSeen && sanitized.promptTail !== undefined) {
+      const remaining = Math.max(0, CONTROLLED_PROMPT.length + 1 - this.promptTail.length)
+      this.promptTail += sanitized.promptTail.slice(0, remaining)
+      if (sanitized.promptTail.length > remaining) this.promptTail = `${CONTROLLED_PROMPT}\0`
+      this.promptTextSeen = this.promptTail === CONTROLLED_PROMPT
     }
   }
 

@@ -268,6 +268,29 @@ describe('LocalPtySession readiness and output', () => {
     failedInternal.fail(new Error('ignored'))
   })
 
+  it('does not write a send canceled during asynchronous foreground inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const controller = new AbortController()
+    const operation = session.startSend({ text: 'must not execute', submit: true, signal: controller.signal })
+    controller.abort()
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(terminal.writes).toEqual([])
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+  })
+
   it('retains send ownership after timeout until an asynchronous provider write settles', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
@@ -416,6 +439,27 @@ describe('LocalPtySession readiness and output', () => {
     await vi.advanceTimersByTimeAsync(10)
     await initializing
     expect(session.motd).toBe('dsh> ')
+  })
+
+  it('does not attribute a delayed prior prompt to the current send', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 100, timeoutMs: 200 }))
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: "printf 'PID=%s\\n' \"$!\"", submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> printf \'PID=%s\\n\' "$!"\r\n')
+    await vi.advanceTimersByTimeAsync(20)
+    expect(settled).toBe(false)
+
+    terminal.emitData('PID=123\r\n\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
   })
 
   it('retains a prompt marker until the startup shell regains the foreground group', async () => {

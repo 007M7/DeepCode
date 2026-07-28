@@ -14,6 +14,7 @@ import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
 import { LocalPtySession } from './session.ts'
+import { CONTROLLED_PROMPT } from './sanitize.ts'
 
 export { Config } from './config.ts'
 export type { Config as PtyLocalConfig } from './config.ts'
@@ -58,7 +59,7 @@ function childEnvironment(spec: PtyBackendSpawnSpec): Record<string, string> {
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
-    PS1: 'dsh> ',
+    PS1: CONTROLLED_PROMPT,
     PROMPT_COMMAND: 'printf "\\033]133;D;%s\\007" "$?"',
     BASH_SILENCE_DEPRECATION_WARNING: '1',
     DSH_SHELL: '1',
