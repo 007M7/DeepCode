@@ -328,6 +328,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     event.stopPropagation()
                     setPathDraft(null)
                     setError(null)
+                    // Editing may have superseded the selection's preview
+                    // request; a selection with no preview and nothing in
+                    // flight would render a half-empty two-pane view, so
+                    // cancel falls back to the single-pane level.
+                    if (child === null && !loading) setSelected(null)
                   }
                 }}
               />

@@ -355,6 +355,23 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByText('harness')).toBeNull()
   })
 
+  it('falls back to the single-pane level when a path edit superseded the preview and was cancelled', async () => {
+    const pending: ((listing: DirectoryListing) => void)[] = []
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // Selection starts a preview that never lands (superseded below).
+    b.listDirectory.mockImplementation(() =>
+      new Promise<DirectoryListing>((settle) => { pending.push(settle) }))
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/x` } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    // No half-empty two-pane residue: back to the single wide level.
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
+  })
+
   it('ignores dismissal while adoption is busy', async () => {
     const b = mount({ busy: true })
     await waitFor(() => { expect(screen.getByRole('dialog')).toBeTruthy() })
