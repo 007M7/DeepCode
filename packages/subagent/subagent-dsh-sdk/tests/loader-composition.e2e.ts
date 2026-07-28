@@ -91,7 +91,7 @@ describe('SDK subagent cwd inheritance through a real cordis.yml', () => {
     // process's launch directory.
     const results = events.filter(event => event.type === 'tool/result')
     expect(results).toHaveLength(1)
-    const resultText = results[0]!.data.content
+    const resultText = results[0]!.data.message.content[0].content
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('')

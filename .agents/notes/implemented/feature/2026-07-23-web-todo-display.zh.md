@@ -14,7 +14,7 @@ Status: implemented
 
 ### 副作用通道，与窗口回放收敛
 
-`applyEventSideEffects` 新增一个 `todo/write` 分支（整份列表，后写覆盖先写）。与 partial/openCalls 不同，`rebuildDerivedFromWindow` 刻意不重置它：该值是会话级的——取自尾页 history 携带的全量 log 投影——而任意窗口未必包含最近一次写入，因此往前翻页保留它，只有窗口内或实时的写入才会覆盖。`installWindow` 的每个调用方都是尾页请求（`doOpen`、其补洞重拉、`repairGap`；`loadOlder` 只往前拼接、不走它），而 host 对尾页请求要么带上投影、要么仅在全量 log 没有任何 `todo/write` 时省略——因此字段缺失就是权威的空列表，直接照此赋值。这个区分在回滚场景上要紧：实时写入若在 host 持久化前崩溃，log 里就是空的，此时保留旧值会让已回滚的计划永远留在屏幕上。`ConversationSnapshot.todos` 是读取面。这遵循事件自身的契约（「仅日志 UI 状态，绝非派生历史」）：把每次写入作为对话节点呈现，会让已被取代的列表看起来仍然有效。
+`applyEventSideEffects` 新增一个 `todo/write` 分支（整份列表，后写覆盖先写），并在 `turn/start` 清空（[按 turn 界定的计划生命周期](2026-07-28-todo-plan-clears-on-next-turn.md)）。`rebuildDerivedFromWindow` 从空计划扫过窗口，仅当窗口从未判定计划（无 `todo/write` 且无 `turn/start`）时恢复尾页种子；否则以窗口内写入／`turn/start` 折叠为准。`installWindow` 的每个调用方都是尾页请求（`doOpen`、其补洞重拉、`repairGap`；`loadOlder` 只往前拼接、不再播种），而 host 对尾页请求要么带上投影、要么在无站立计划时省略——因此字段缺失就是权威的空列表，直接照此赋值。这个区分在回滚场景上要紧：实时写入若在 host 持久化前崩溃，log 里就是空的，此时保留旧值会让已回滚的计划永远留在屏幕上。`ConversationSnapshot.todos` 是读取面。这遵循事件自身的契约（「仅日志 UI 状态，绝非派生历史」）：把每次写入作为对话节点呈现，会让已被取代的列表看起来仍然有效。
 
 ### TodoPanel：长驻列表作为一条常驻横条
 
@@ -33,4 +33,4 @@ Status: implemented
 
 ## Consequences
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板未受改动（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。冷加载重建正是靠这个字段由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，而尾页响应不带投影时复位为空。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 65 轮的 fixture（测试前置数据）加 assembled keyless snapshot（`apps/web/tests/todo-display.snapshot.ts`）在构建产物客户端全图上钉住整条链（行摘要与状态、dock 面板内容、折叠往返）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。TUI 面板共用同一按 turn 界定的生命周期（自动化专用的 ACP 桥接刻意不做 todo 呈现）；Web 各面渲染同一个事件，只新增一个协议字段，不新增事件类型。冷加载重建正是靠这个字段由 host 兜底：history 尾页附带 `todos`——全量 log 上的站立计划（其后没有更晚 `turn/start` 的最近一次 `todo/write`），独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时若计划仍站立且最后一次写入落在窗口之前，计划也照常恢复；该值跨往前翻页保留，之后的任何写入照常覆盖，更晚的 `turn/start` 会清空，而尾页响应不带投影时复位为空。

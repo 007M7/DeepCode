@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -21,10 +22,40 @@ async function harness(adapter: MockAdapter): Promise<Context> {
 }
 
 function send(agent: Agent, text: string): void {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 describe('Agent', () => {
+  it('does not echo caller-owned message identities from delivery methods', async () => {
+    const adapter = new MockAdapter([
+      textResponse('one'),
+      textResponse('two'),
+      textResponse('three'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const message = (text: string) => createUserMessage({
+      content: [{ type: 'text' as const, text }],
+      source: { kind: 'user' as const },
+    })
+    const call = (method: 'send' | 'inject' | 'followup' | 'steer', args: unknown[]): unknown => {
+      const implementation: unknown = Reflect.get(agent, method)
+      if (typeof implementation !== 'function') throw new Error(`missing Agent.${method}`)
+      return Reflect.apply(implementation, agent, args)
+    }
+
+    expect(call('send', [message('quiet'), {
+      target: 'next-turn',
+      wakeup: false,
+    }])).toBeUndefined()
+    expect(call('inject', [message('context')])).toBeUndefined()
+    expect(call('followup', [message('followup')])).toBeUndefined()
+    expect(call('steer', [message('steering')])).toBeUndefined()
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(3)
+  })
+
   it('idle inject() appends context without opening a turn or requesting a flush', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
@@ -32,7 +63,7 @@ describe('Agent', () => {
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
 
-    agent.inject({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'p' } })
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'p' } }))
 
     expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
     expect(agent.status).toBe('idle')
@@ -45,7 +76,7 @@ describe('Agent', () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.inject({ content: [{ type: 'text', text: 'empty plugin source' }], source: { kind: 'plugin', plugin: '' } })
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: 'empty plugin source' }], source: { kind: 'plugin', plugin: '' } }))
 
     const injected = agent.session.events.at(-1)
     expect(injected?.type === 'user/message' && injected.data.source)
@@ -57,7 +88,7 @@ describe('Agent', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     expect(() => {
-      agent.inject({ content: [{ type: 'text', text: 'x', bad: 1n } as never], source: { kind: 'plugin', plugin: 'p' } })
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'x', bad: 1n } as never], source: { kind: 'plugin', plugin: 'p' } }))
     }).toThrow(/non-JSON-serializable/)
     expect(agent.session.events).toHaveLength(0)
   })
@@ -67,7 +98,7 @@ describe('Agent', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.steer({ content: [{ type: 'text', text: 'steer idle' }], source: { kind: 'plugin', plugin: 'test' } })
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'steer idle' }], source: { kind: 'plugin', plugin: 'test' } }))
     await agent.whenIdle()
 
     expect(agent.session.events.some(event => event.type === 'user/message')).toBe(true)

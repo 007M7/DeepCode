@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"ea339828-7885-42e1-9083-4355e6f1708d","createdAt":1783352120855,"cwd":"/tmp/acp-snap-cwd-rbeWyt","parentSession":"5138ed0d-e86e-4a7d-b75b-803307e92b17","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1783352120856,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":1783352120856,"data":{"content":[{"type":"text","text":"Reply with exactly the word CHILD_OK and nothing else."}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":1783352120856,"data":{"content":[{"type":"text","text":"Reply with exactly the word CHILD_OK and nothing else."}],"source":{"kind":"user"},"role":"user","id":"f3a2e52a-cfc3-4f9a-b25a-cb48f61e598e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783352120856,"data":{"title":"Reply with exactly the word","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":1783352120856,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":1783352120856,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
@@ -12,6 +12,6 @@
 {"type":"assistant/chunk","seq":28,"time":1783352121777,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"CHILD_OK"}}}}
 {"type":"assistant/chunk","seq":29,"time":1783352121777,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":48,"outputTokens":21,"cacheReadTokens":2816,"reasoningTokens":17}}}}
 {"type":"assistant/chunk","seq":30,"time":1783352121777,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":31,"time":1783352121777,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word CHILD_OK and nothing else."},{"type":"text","text":"CHILD_OK"}],"provenance":{"provider":"deepseek","model":"deepseek-v4-flash"},"usage":{"inputTokens":48,"outputTokens":21,"cacheReadTokens":2816,"reasoningTokens":17}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],"surfaceOp":"append"}
+{"type":"assistant/message","seq":31,"time":1783352121777,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word CHILD_OK and nothing else."},{"type":"text","text":"CHILD_OK"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-flash"},"id":"473c2431-f846-4cac-aa6e-eb757275bfad"},"usage":{"inputTokens":48,"outputTokens":21,"cacheReadTokens":2816,"reasoningTokens":17}},"sourceEventSeqs":[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],"surfaceOp":"append"}
 {"type":"step/end","seq":32,"time":1783352121778,"data":{"turn":1,"step":1}}
 {"type":"turn/end","seq":33,"time":1783352121778,"data":{"turn":1,"reason":{"kind":"completed"}}}
