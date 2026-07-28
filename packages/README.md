@@ -16,6 +16,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle | Product — stable surface |
 | [`feedback/`](feedback/README.md) | Human feedback | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
+| [`e2b/`](e2b/README.md) | E2B remote filesystem/process providers | POC |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
 | [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |

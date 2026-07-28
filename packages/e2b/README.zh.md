@@ -1,0 +1,13 @@
+# e2b/ — E2B 远程运行时家族
+
+[English](README.md) | 中文
+
+这是一个实验性提供方组合 POC，把文件系统和受管子进程环境放进同一个 E2B Linux 沙箱。共享所有者与功能适配器彼此分离，使每个远程提供方都等待同一个沙箱身份和生命周期。
+
+| 包（package） | ctx 键 | 职责 |
+|---|---|---|
+| [`e2b`](e2b/README.md)（`@deepseek-ai/dsh-e2b`） | `ctx.e2b` | 创建或重新连接一个沙箱，创建其工作目录与运行时目录，公开共享 SDK 句柄，并应用配置的 kill/pause/leave 处置方式 |
+| [`fs-e2b`](../fs/fs-e2b/README.md)（`@deepseek-ai/dsh-fs-e2b`） | `ctx.fs` | 通过 E2B Filesystem API 实现文件系统 seam |
+| [`subprocess-e2b`](../subprocess/subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | `ctx.subprocess` | 通过 E2B Commands 实现受管进程组、stdio 投影与远程 spill 文件 |
+
+现有的 [`dsh-bash-local`](../bash/bash-local/README.md) 无需 E2B 专用 fork：它已经把进程机制委托给 `ctx.subprocess`，因此替换该提供方即可让 Bash 与 `ctx.fs` 进入同一个远程环境。该边界不会迁移 harness 进程、Cordis 对象、模型调用、agent（智能体）／会话状态、会话持久化、skill（技能）或 E2B SDK 缓冲。[决策记录](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md)负责说明 POC 边界及未采纳的扩展方案。

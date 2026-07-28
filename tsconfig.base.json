@@ -188,6 +188,7 @@
         "./packages/bash/*/src",
         "./packages/pty/*/src",
         "./packages/subprocess/*/src",
+        "./packages/e2b/*/src",
         "./packages/code-runtime/*/src",
         "./packages/fs/*/src",
         "./packages/lsp/*/src",
