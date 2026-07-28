@@ -57,7 +57,10 @@ function stubAgent(session: Session): Agent {
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>,
+  extras: {
+    pickDirectory?: (signal: AbortSignal) => Promise<string | null>
+    openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -97,28 +100,55 @@ async function harness(
     model: 'test-model',
     cwd: workspaceRoot,
     workspaceRoot,
-    ...pickDirectory === undefined ? {} : { pickDirectory },
+    ...extras.pickDirectory === undefined ? {} : { pickDirectory: extras.pickDirectory },
+    ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
   })
   return { api, ctx, storageDomain, workspaceRoot }
 }
 
 describe('host.pickDirectory', () => {
   it('returns a selected path or explicit cancellation from the injected native boundary', async () => {
-    const selected = await harness(undefined, async () => '/tmp/project')
+    const selected = await harness(undefined, { pickDirectory: async () => '/tmp/project' })
     expect((await selected.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: '/tmp/project' } })
 
-    const cancelled = await harness(undefined, async () => null)
+    const cancelled = await harness(undefined, { pickDirectory: async () => null })
     expect((await cancelled.api.host.pickDirectory(request({}), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { path: null } })
   })
 
   it('propagates abort into the native boundary as a cancelled RPC error', async () => {
-    const { api } = await harness(undefined, signal => new Promise((_resolve, reject) => {
-      signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
-    }))
+    const { api } = await harness(undefined, {
+      pickDirectory: signal => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }),
+    })
     const abort = new AbortController()
     const pending = api.host.pickDirectory(request({}), abort.signal)
+    abort.abort()
+    expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+})
+
+describe('host.openPath', () => {
+  it('opens through the injected native boundary', async () => {
+    const opened: string[] = []
+    const { api } = await harness(undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect(opened).toEqual(['/tmp/a.txt'])
+  })
+
+  it('propagates abort into the native boundary as a cancelled RPC error', async () => {
+    const { api } = await harness(undefined, {
+      openPath: (_path, signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+      }),
+    })
+    const abort = new AbortController()
+    const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
     abort.abort()
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })

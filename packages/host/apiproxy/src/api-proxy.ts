@@ -42,6 +42,7 @@ import type {
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { pickNativeDirectory } from './native-directory-picker.ts'
 import { affectsSessionMetrics, SessionMetricsProjector } from './session-metrics.ts'
+import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -205,6 +206,8 @@ export interface ApiProxyDefaults {
   workspaceRoot: string
   /** Native single-directory picker; injectable for carrier tests. */
   pickDirectory?: (signal: AbortSignal) => Promise<string | null>
+  /** Native open-with-default-application; injectable for carrier tests. */
+  openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -1113,6 +1116,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, {
             code: 'internal',
             message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async openPath(request, signal) {
+        try {
+          const open = defaults.openPath
+            ?? ((path: string, openSignal: AbortSignal) => openNativePath(path, openSignal))
+          await open(request.payload.path, signal)
+          return ok(request, { opened: true as const })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'path open was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
             details: {},
           })
         }

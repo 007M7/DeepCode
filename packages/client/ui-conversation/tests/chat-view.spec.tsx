@@ -88,6 +88,7 @@ function emptyWorkspaces() {
 function makeHarness(init?: Partial<ConversationSnapshot>) {
   const { set, source } = makeSource(init)
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
+  const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
@@ -112,10 +113,11 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     renderSlot,
     SessionProvider: SessionProviderStub,
     openDetails,
+    openFile,
     loadOlder,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, loadOlder, setSelection }
+  return { set, ChatView, props, openDetails, openFile, loadOlder, setSelection }
 }
 
 describe('chat-flow derivation', () => {
@@ -281,14 +283,29 @@ describe('ChatView', () => {
     expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
   })
 
-  it('clicking a tool row opens details with callId and toolName; selection marks data-selected', () => {
+  it('clicking a bash summary does not open details; selection still marks data-selected', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     fireEvent.click(view.getByText('run a'))
-    expect(h.openDetails).toHaveBeenCalledWith({ turnSeq: 3, callId: 'a', toolName: 'bash' })
+    expect(h.openDetails).not.toHaveBeenCalled()
+    expect(h.openFile).not.toHaveBeenCalled()
     expect(view.container.querySelector('[data-selected]')).toBeNull()
     act(() => { h.setSelection({ turnSeq: 3, callId: 'a', toolName: 'bash' }) })
     expect(view.container.querySelector('[data-selected]')).not.toBeNull()
+  })
+
+  it('clicking a file-tool path summary opens the host file, not details', () => {
+    const h = makeHarness({
+      nodes: [{
+        kind: 'tool-result', seq: 3, time: 3_000, callId: 'r1',
+        call: { name: 'read', argsRaw: '{"path":"src/a.ts"}' },
+        callTime: 2_500, content: [], isError: false, callView: null, resultView: null,
+      }],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByText('src/a.ts'))
+    expect(h.openFile).toHaveBeenCalledWith('src/a.ts')
+    expect(h.openDetails).not.toHaveBeenCalled()
   })
 
   it('running calls render as a live tool group with the running state', () => {
