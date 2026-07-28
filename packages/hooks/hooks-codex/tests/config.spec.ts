@@ -65,4 +65,10 @@ describe('parseCodexConfig', () => {
     const { config } = parseCodexConfig({ PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
     expect(config.PreToolUse![0]!.matcher).toBe('^Bash$')
   })
+
+  it('rejects an invalid regex matcher with its event name', () => {
+    expect(() => parseCodexConfig({
+      Stop: [{ matcher: '[', hooks: [{ type: 'command', command: 's.sh' }] }],
+    })).toThrow('invalid codex regex matcher "[" on event "Stop"')
+  })
 })

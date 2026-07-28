@@ -63,4 +63,10 @@ describe('parseClaudeConfig', () => {
     const { config } = parseClaudeConfig({ Stop: [{ hooks: [{ type: 'command', command: 's.sh' }] }] })
     expect('matcher' in config.Stop![0]!).toBe(false)
   })
+
+  it('rejects an invalid regex matcher with its event name', () => {
+    expect(() => parseClaudeConfig({
+      PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'x.sh' }] }],
+    })).toThrow('invalid claude regex matcher "(" on event "PreToolUse"')
+  })
 })

@@ -15,7 +15,7 @@ Status: implemented
 在 `packages/hooks/` 分组下新建 `hook-protocol` 作为纯库。它拥有四个原语族和 `hook/*` 会话事件；每个桥接插件（`dsh-hooks-claude`、`dsh-hooks-codex`）拥有真正不同的部分。
 
 **共享（本库）：**
-- **Matcher** — `matchesMatcher(pattern, query, mode)`。两种方言唯一不同的轴被收敛为 `mode` 参数：`claude` 将纯 `[A-Za-z0-9_|]+` 模式视为字面量（管道符 = 精确匹配的多选），其余视为正则；`codex` 始终是无锚定正则。缺省/`''`/`'*'` 匹配一切；无效正则匹配空集（绝不向 agent loop（智能体循环）抛异常）。
+- **Matcher** — `matcherDiagnostic(pattern, mode)` 与 `matchesMatcher(pattern, query, mode)`。两种方言唯一不同的轴被收敛为 `mode` 参数：`claude` 将纯 `[A-Za-z0-9_|]+` 模式视为字面量（管道符 = 精确匹配的多选），其余视为正则；`codex` 始终是无锚定正则。缺省/`''`/`'*'` 匹配一切。每个桥接插件在解析时校验可运行的 matcher group，将无效正则视为整份配置加载失败，输出稳定的方言/模式/事件诊断，且不注册任何钩子监听器。运行时匹配仍将无效正则收敛为不匹配，因此直接调用本库时绝不向 agent loop（智能体循环）抛异常。
 - **执行** — `runHook(bash, hook, options)`。通过 `ctx.bash` seam 而非自建 `spawn` 运行命令钩子：执行器已提供清洗但可覆盖的 env、进程组 kill 和超时，正是协议所需的能力；`dsh-bash` 的 `stdin`/`env` 字段（正是为此添加的）是进程内桥接插件被允许使用的受信插件接口。它将桥接插件构建的 payload 序列化到 stdin（CC 时追加尾部换行），遵守钩子的 `timeoutSec`（否则使用 `DEFAULT_HOOK_TIMEOUT_MS`，即两种方言共享的 10 分钟参考默认值），且从不抛异常（执行器拒绝变为 non-blocking-error 的 `HookOutput`）。
 - **解码** — `parseHookOutput(exit, stdout, stderr)`，exit-code + structured-stdout 编解码器，产出方言无关的 `HookOutput`。Exit `0` → 宽松 JSON 解析 stdout；exit `2` → blocking error，`stderr` 为原因（以 `decision: 'block'` 呈现，调用方无需单独处理 exit-code 分支）；其他 → non-blocking error。解析 CC structured-stdout 中在某条路径上有消费方的字段（`continue`/`stopReason`/`decision`/`hookSpecificOutput.{permissionDecision,additionalContext,updatedInput}`/`systemMessage`）；桥接插件只采纳对其方言有意义的子集。在任何路径上都没有消费方的字段不予解析（CC 的 `suppressOutput`——钩子 stdout 在此处从不进入 transcript（文本记录），因此无需抑制；见 [收紧钩子协议契约 Agent Note](../simplification/2026-07-04-tighten-hook-protocol-contract.md)）。
 - **合并** — `mergeHookOutputs(outputs)`，将多个匹配钩子的输出折叠为一个最严格的 `MergedHookOutcome`：权限优先级 **deny > ask > allow**，halt 在首个 `continue:false` 时粘滞，阻止原因以 `\n\n` 拼接，context/system-messages 按序累积。
@@ -29,4 +29,4 @@ Status: implemented
 
 ## 后果
 
-每个桥接插件解析配置、构建方言 payload、调用共享的 runner 与合并逻辑、映射 decision、追加 `hook/*`。协议测试覆盖每种 matcher 模式、exit-code 与编解码器字段、runner 管道、合并优先级和审计辅助函数，逐文件 100% 覆盖率；桥接插件测试验证库的真实加载路径。`updatedInput` 已解析但仅记录日志并发出警告，直到 [input-rewrite 提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)落地。
+每个桥接插件以原子方式解析配置、构建方言 payload、调用共享的 runner 与合并逻辑、映射 decision、追加 `hook/*`。协议测试覆盖每种 matcher 模式与诊断、exit-code 与编解码器字段、runner 管道、合并优先级和审计辅助函数，逐文件 100% 覆盖率；桥接插件测试验证库的真实加载路径，并锁定无效配置的隔离行为。`updatedInput` 已解析但仅记录日志并发出警告，直到 [input-rewrite 提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)落地。

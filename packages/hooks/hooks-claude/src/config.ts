@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 
-import type { MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
 /** A parsed CC config: event name → its matcher groups (command hooks only). */
 export type ClaudeHookConfig = Record<string, MatcherGroup[]>
@@ -54,7 +54,8 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 /**
  * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
  * ignored rather than failing boot; non-command hooks are returned in `skipped`, and substitutions
- * are applied to every surviving command.
+ * are applied to every surviving command. A runnable group with an invalid regex matcher throws a
+ * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.
@@ -92,8 +93,11 @@ export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): Pa
         })
       }
       if (commands.length === 0) continue
+      const matcher = typeof group.matcher === 'string' ? group.matcher : undefined
+      const diagnostic = matcherDiagnostic(matcher, 'claude')
+      if (diagnostic !== undefined) throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
       groups.push({
-        ...typeof group.matcher === 'string' ? { matcher: group.matcher } : {},
+        ...matcher !== undefined ? { matcher } : {},
         hooks: commands,
       })
     }

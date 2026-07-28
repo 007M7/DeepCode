@@ -44,17 +44,22 @@ function writeConfig(hooks: unknown, scripts: Record<string, string> = {}): stri
   return dir
 }
 
-async function harness(configDir: string, adapter: MockAdapter): Promise<Context> {
-  return (await harnessWithFiber(configDir, adapter)).ctx
+async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
+  return (await harnessWithFiber(configDir, adapter, beforeHooks)).ctx
 }
 
 /** {@link harness}, also exposing the bridge's fiber for tests that dispose it. */
-async function harnessWithFiber(configDir: string, adapter: MockAdapter): Promise<{ ctx: Context; hooks: Fiber }> {
+async function harnessWithFiber(
+  configDir: string,
+  adapter: MockAdapter,
+  beforeHooks?: (ctx: Context) => void,
+): Promise<{ ctx: Context; hooks: Fiber }> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+  beforeHooks?.(ctx)
   const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
@@ -358,6 +363,25 @@ describe('hooks-claude bridge — load resilience', () => {
     await waitForIdle(ctx, agent)
     // The turn ran normally — no hooks, no crash.
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('an invalid regex matcher is reported and registers no hooks', async () => {
+    const dir = writeConfig({
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+      PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'exit 2' }] }],
+    })
+    const adapter = new MockAdapter([textResponse('fine')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = ctx.agentLoop.create(SessionId('invalid-claude-matcher'), { provider: 'mock', model: 'mock' })
+    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).some(event => event.type === 'hook/invoked')).toBe(false)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(
+      'invalid claude regex matcher "(" on event "PreToolUse"',
+    ))
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
