@@ -260,6 +260,7 @@ interface WatchHandle {
 class SkillWatchManager {
   private readonly roots = new Map<string, RootWatchState>()
   private readonly projects = new Map<string, Set<string>>()
+  private readonly lifecycle = new AbortController()
   private closing = false
   private invalidationQueued = false
 
@@ -313,6 +314,7 @@ class SkillWatchManager {
 
   async dispose(): Promise<void> {
     this.closing = true
+    this.lifecycle.abort(new Error('skill-local watcher disposed'))
     const states = [...this.roots.values()]
     this.roots.clear()
     this.projects.clear()
@@ -348,6 +350,7 @@ class SkillWatchManager {
   }
 
   private ensureWatcher(state: RootWatchState): Promise<void> {
+    /* v8 ignore next -- A scheduled rewatch can reach this guard only when teardown wins its await. */
     if (this.closing || !this.config.enabled) return Promise.resolve()
     if (state.opening !== undefined) return state.opening
     const opening = this.ensureCurrentWatcher(state)
@@ -395,8 +398,11 @@ class SkillWatchManager {
       state.watcher = watcher
       state.unhealthy = false
     } catch (error) {
-      state.unhealthy = true
-      this.ctx.logger.warn(`skill-local: failed to watch ${state.root.path}: ${errorMessage(error)}`)
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- teardown can race awaited watcher startup
+      if (!this.closing) {
+        state.unhealthy = true
+        this.ctx.logger.warn(`skill-local: failed to watch ${state.root.path}: ${errorMessage(error)}`)
+      }
       throw error
     }
   }
@@ -474,6 +480,9 @@ class SkillWatchManager {
     }
     let ready = false
     const readiness = Promise.withResolvers<undefined>()
+    const signal = this.lifecycle.signal
+    const onAbort = (): void => { readiness.reject(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
     const onError = (error: unknown): void => {
       if (!ready) {
         readiness.reject(error)
@@ -494,6 +503,8 @@ class SkillWatchManager {
     } catch (error) {
       await this.closeWatcher(handle)
       throw error
+    } finally {
+      signal.removeEventListener('abort', onAbort)
     }
     return handle
   }
@@ -539,6 +550,7 @@ class SkillWatchManager {
     this.invalidationQueued = true
     queueMicrotask(() => {
       this.invalidationQueued = false
+      /* v8 ignore next -- Effect teardown can win this queued microtask before provider disposal emits. */
       if (this.closing) return
       this.invalidate()
     })

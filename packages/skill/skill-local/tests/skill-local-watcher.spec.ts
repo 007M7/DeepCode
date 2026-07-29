@@ -262,11 +262,10 @@ describe('skill-local watcher failures', () => {
     await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected an opening root watcher')
-    first.emitter.emit('unlinkDir', root)
     const disposal = provider.dispose()
-    first.emitter.emit('ready')
 
-    await Promise.all([discovery, disposal])
+    await expect(discovery).rejects.toThrow('skill-local watcher disposed')
+    await disposal
     disposeProvider()
     await settle()
     expect(first.closeCalls).toBeGreaterThan(0)
@@ -295,8 +294,8 @@ describe('skill-local watcher failures', () => {
     await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected an opening root watcher')
-    const disposal = provider.dispose()
     first.emitter.emit('error', new Error('opening failed during disposal'))
+    const disposal = provider.dispose()
 
     await expect(discovery).rejects.toThrow('opening failed during disposal')
     await disposal
