@@ -105,7 +105,7 @@ export function InputBar({
     // IME guard so a composition-closing Shift+Enter still breaks the line.
     if (e.key === 'Enter' && e.shiftKey) return
     // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // oxlint-disable-next-line typescript/no-deprecated
     const composing = composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       if (keyboard.arbitrate(e.key === 'ArrowUp' ? 'up' : 'down', composing) === 'consumed') e.preventDefault()
@@ -165,8 +165,8 @@ export function InputBar({
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
-    // selectionStart is number|null in lib.dom; the eslint program narrows it.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // selectionStart is number|null in lib.dom; the type-aware lint program narrows it.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     keyboard.track(next, e.target.selectionStart ?? next.length)
   }
 
@@ -178,13 +178,13 @@ export function InputBar({
   // too (one char = one step). Mouse selection of a chip is handled in the
   // backdrop click handler below. Undo/redo must NOT reach the browser: the
   // machine owns the transaction log.
-  // selectionStart/End are number|null in lib.dom; the eslint program narrows them.
-  /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+  // selectionStart/End are number|null in lib.dom; the type-aware lint program narrows them.
+  /* oxlint-disable typescript/no-unnecessary-condition */
   const selectionOf = (el: HTMLTextAreaElement) => ({
     start: el.selectionStart ?? 0,
     end: el.selectionEnd ?? el.selectionStart ?? 0,
   })
-  /* eslint-enable @typescript-eslint/no-unnecessary-condition */
+  /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
     const el = e.currentTarget

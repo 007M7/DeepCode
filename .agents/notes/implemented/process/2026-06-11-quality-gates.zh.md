@@ -15,11 +15,11 @@ Status: implemented
 每条可机械检查的 AGENTS.md 承诺都有一个以非零状态退出的命令。CI 执行完整集合，而 Git 钩子将延迟预算留给可低成本发现的本地缺陷：
 
 - 最严格的 TypeScript 配置（`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes` 等）；示例、测试和脚本通过根目录的 no-emit `tsconfig.json` 在 CI 中进行类型检查，而包（package）/vendor 代码保持在各自 project-reference 边界之后。
-- ESLint strict-type-checked + @stylistic（作为强制执行的统一代码风格），包括文件内重复逻辑检查；vendor 代码排除在外。
+- [Oxlint](2026-07-29-oxlint-linter.md) 配合类型感知的 TypeScript 规则以及 @stylistic 和 SonarJS 兼容插件，强制执行统一代码风格和文件内重复逻辑检查；vendor 代码排除在外。
 - jscpd 检测包的生产 TypeScript 代码与仓库脚本中的跨文件克隆；窄范围的源码区间例外用于记录有意为之的并行实现。
 - `packages/*/*/src` 下按文件 100% 覆盖率（v8）；不可达的防御性守卫使用 `/* v8 ignore */ ` 并注明理由，而非删除。
 - knip（死代码/依赖）、publint（包的正确性）、workspace 约束（workspace 规则：private、cordis peer+dev、统一版本、ESM），以及对构建出的包声明文件进行 NodeNext 消费方类型检查。
-- lefthook pre-commit 修复已暂存文件的 lint 问题、拒绝已暂存的空白问题并检查 vendor manifest；pre-push 运行增量类型检查。CI 在 Node 22.19/24/26 上运行完整矩阵，并对 Headless、TUI、ACP（Agent Client Protocol）、JSON-RPC、工作流和代码运行时入口路径执行已构建应用的冒烟测试。
+- lefthook pre-commit 先应用仅用于格式化的 ESLint 修复，再执行 Oxlint 验证和原生修复，拒绝已暂存的空白问题并检查 vendor manifest；pre-push 运行增量类型检查。CI 在 Node 22.19/24/26 上运行完整矩阵，并对 Headless、TUI、ACP（Agent Client Protocol）、JSON-RPC、工作流和代码运行时入口路径执行已构建应用的冒烟测试。
 
 ## 后果
 

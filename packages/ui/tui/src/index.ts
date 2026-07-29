@@ -366,7 +366,7 @@ export function createTuiChat(
   // the controller needs `appendNotice`/`overlayManager`, defined after that
   // closure. Declare here, assign once after those exist, and defer the first
   // `updatePromptValues()` call until after the assignment so no read precedes it.
-  // eslint-disable-next-line prefer-const -- single assignment is a forward-reference, not a const.
+  // oxlint-disable-next-line prefer-const -- single assignment is a forward-reference, not a const.
   let modelController!: ModelController
   const now = (): number => runtime.now?.() ?? Date.now()
   const agentStatus = (): AgentStatus => agent.status

@@ -262,7 +262,7 @@ export class ReactLoopAgent implements Agent {
     if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
     // The some() guard above proves the queue is non-empty; the non-null
     // assertion expresses that invariant.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const { item } = this.queued.shift()!
     const { message } = item
     const inheritedOutboxLength = this.outbox.length
@@ -410,7 +410,7 @@ export class ReactLoopAgent implements Agent {
                   outcome.failure, requestFailureHistory, outcome.retryPolicy, signal,
                   () => Promise.resolve<RequestErrorAction>(undefined),
                 )
-                // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- signal can abort while recovery is awaited.
+                // oxlint-disable-next-line typescript/no-unnecessary-condition -- signal can abort while recovery is awaited.
                 if (action?.kind === 'retry' && !signal.aborted) {
                   retryFailures = Object.freeze([...requestFailureHistory, outcome.failure])
                 }
@@ -626,7 +626,7 @@ export class ReactLoopAgent implements Agent {
     const maxTokens = this.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the instance logged the header it now folds
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
         ? persistedConfig!
         : {
           ...route,
