@@ -40,13 +40,13 @@ A patch replaces its target row's whole `config` rather than merging, which shap
 
 An overlay or `--config` tree that named `@deepseek-ai/dsh-tui-demo`, or patched the `tui-agent` row, no longer resolves. Overlays now patch the row that owns each key: the model route on `agent-loop`, the persona on `system-prompt`, presentation on `tui`.
 
-A patch whose `id` matches no row stays a Loader warning rather than an error. That is deliberate: one personal overlay is shared across surfaces, and `insert` rows match nothing by design, so a row that exists only under `web` must not fail the TUI's boot.
+A patch whose `id` matches no row stays a no-op rather than an error. That is deliberate: one personal overlay is shared across surfaces, and `insert` rows match nothing by design, so a row that exists only under `web` must not fail the TUI's boot.
 
-`dsh web` gains `--config`, threaded into `AppCLIEntry` as an extra overlay. `AppCLIEntry` reads both the base and its surface overlay when recovering row defaults for its own patch merge, since a flag override must preserve the overlay's other fields on the same row.
+`dsh web` gains `--config`, threaded into `AppCLIEntry` as an extra overlay. Web keeps sandboxed Bash and filesystem providers plus approval, permission presets, directory picking, and browser permission UI; the overlay disables the shared local providers because patches can disable rows but cannot delete them. The TUI query index uses a unique process-local temporary database because the SQLite backend requires one writer owner. It is a disposable derived index rebuilt by each process; `/resume` lists the underlying corpus directly and does not depend on index reuse. `AppCLIEntry` reads both the base and its surface overlay when recovering row defaults for its own patch merge, since a flag override must preserve the overlay's other fields on the same row.
 
 ## Verification
 
-Composition is checked by booting each tree through the real Loader and inspecting settled entries, not by reading YAML: the TUI settles 55 entries and web 75, both with zero unloaded or unsettled rows, and web's `httpServer` up. The three-layer case (`base` + `tui` + `code-mode`) confirms `tools.mode` reaching `code` over the TUI overlay's `native`.
+Composition is checked by booting each tree through the real Loader and inspecting settled entries, not by reading YAML; both surfaces settle with zero unloaded rows, and Web starts its `httpServer` with sandboxed Bash and filesystem providers. The three-layer case (`base` + `tui` + `code-mode`) confirms `tools.mode` reaching `code` over the TUI overlay's `native`.
 
 All eight terminal snapshot scenarios replay byte-identically after moving, and the 14-case PTY smoke passes, including two cases that assert a personal overlay reaches an **inserted** row — the behavior the vendored `plugin-include` fix enables ([`vendor/README.md`](../../../../vendor/README.md) local modification 8, covered by `packages/ui/app-boot/tests/config-reload.spec.ts`).
 

@@ -42,11 +42,11 @@ patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆�
 
 若某个 patch 的 `id` 不匹配任何配置项，Loader 仍只告警而不报错。这是有意为之：同一份个人 overlay 会跨 surface 共用，而 `insert` 配置项按设计本就不匹配任何目标，因此仅在 `web` 下存在的配置项不能让 TUI 启动失败。
 
-`dsh web` 新增 `--config`，作为一份额外 overlay 传入 `AppCLIEntry`。`AppCLIEntry` 在为自身 patch 合并恢复配置项默认值时会同时读取 base 与其 surface overlay，因为 flag 覆盖必须保留同一配置项上 overlay 的其他字段。
+`dsh web` 新增 `--config`，作为一份额外 overlay 传入 `AppCLIEntry`。Web 保留沙箱化 Bash 与文件系统提供方，以及审批、权限预设、目录选择和浏览器权限界面；覆盖层会禁用共享的本地提供方，因为补丁可以禁用条目但不能删除条目。TUI 查询索引使用进程唯一的临时数据库，因为 SQLite 后端要求单写入者所有权。该索引是每个进程重新构建的可丢弃派生数据；`/resume` 直接列出底层语料，不依赖索引复用。`AppCLIEntry` 在为自身 patch 合并恢复配置项默认值时会同时读取 base 与其 surface overlay，因为 flag 覆盖必须保留同一配置项上 overlay 的其他字段。
 
 ## 验证
 
-组合的正确性通过用真实 Loader 启动每棵树并检查已就绪的条目来核对，而不是靠阅读 YAML：TUI 就绪 55 个条目、web 就绪 75 个，两者都没有未加载或未就绪的配置项，且 web 的 `httpServer` 已启动。三层叠加的情形（`base` + `tui` + `code-mode`）确认 `tools.mode` 越过 TUI overlay 的 `native` 达到了 `code`。
+组合的正确性通过用真实 Loader 启动每棵树并检查已就绪的条目来核对，而不是靠阅读 YAML：两个界面都能稳定完成且没有未加载项；Web 会以沙箱化 Bash 与文件系统提供方启动 `httpServer`。三层叠加的情形（`base` + `tui` + `code-mode`）确认 `tools.mode` 越过 TUI overlay 的 `native` 达到了 `code`。
 
 全部八个终端快照场景在迁移后逐字节重放一致，14 个用例的 PTY 冒烟测试全部通过，其中两个用例断言个人 overlay 能触达一个 **insert 进来的**配置项——这正是 vendored `plugin-include` 修复所启用的行为（[`vendor/README.md`](../../../../vendor/README.md) 本地修改第 8 条，由 `packages/ui/app-boot/tests/config-reload.spec.ts` 覆盖）。
 
