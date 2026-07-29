@@ -70,13 +70,13 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
   const effortLabel = reasoning === undefined
     ? undefined
     : effectiveEffort === undefined
-      ? 'Provider default'
+      ? 'Default'
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
   const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
     ? []
     : [
       ...reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined, label: 'Provider default' }]
+        ? [{ key: 'provider-default', effort: undefined, label: 'Default' }]
         : [],
       ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
         key: `effort:${effort.id}`,
