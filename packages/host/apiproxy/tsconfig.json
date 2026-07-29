@@ -57,7 +57,13 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../directory-picker"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/native-command"
     }
   ]
 }

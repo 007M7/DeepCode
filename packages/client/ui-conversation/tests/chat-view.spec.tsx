@@ -392,13 +392,18 @@ describe('ChatView', () => {
     expect(lv.getByText('载入历史…')).toBeTruthy()
   })
 
-  it('pending interactions render placeholder cards', () => {
+  it('pending waits leave the flow entirely — questions and approvals both take over the composer', () => {
     const h = makeHarness({
-      pending: [new PendingWait('approval', RpcId('r1'), SID,
-        { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())],
+      pending: [
+        new PendingWait('approval', RpcId('r1'), SID,
+          { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn()),
+        new PendingWait('question', RpcId('r2'), SID,
+          { questions: [{ id: 'q1', question: '选择' }] }, vi.fn()),
+      ],
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByText(/等待审批/)).toBeTruthy()
+    expect(view.queryByText(/等待回答/)).toBeNull()
+    expect(view.queryByText(/等待审批/)).toBeNull()
   })
 
   it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {

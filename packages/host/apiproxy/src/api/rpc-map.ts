@@ -27,6 +27,8 @@ export interface RpcMethodMap {
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']
+  'host.listDirectory': HostApi['listDirectory']
+  'host.createDirectory': HostApi['createDirectory']
   'host.openPath': HostApi['openPath']
   'workspace.list': WorkspaceApi['list']
   'workspace.create': WorkspaceApi['create']
