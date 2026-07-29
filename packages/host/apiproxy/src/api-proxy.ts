@@ -38,6 +38,12 @@ import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
+// Side-effect type import: resolves the `approval/request` waterfall and
+// `ctx.get('approval')` without a value dependency on the seam (optional composition).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -128,9 +134,9 @@ class FrameQueue<F> {
 }
 
 /**
- * Server-side frame mint: pure pushes get a fresh rpcId per frame (stable ids
- * for answerable frames belong to the approval/question registry, absent in
- * this minimal version).
+ * Server-side frame mint: pure pushes get a fresh rpcId per frame (answerable
+ * frames — approval/question requested — mint their stable id in their
+ * pending registries instead).
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
@@ -217,6 +223,36 @@ export interface ApiProxyDefaults {
 
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
+/**
+ * One outstanding approval question: the stable server-request id, the frame
+ * material replayed to late mux subscribers, and the resolver that settles the
+ * answerer's promise back into `ctx.approval`.
+ */
+interface PendingApproval {
+  rpcId: RpcId
+  sessionId: SessionId
+  approvalId: ApprovalRequestId
+  toolName: string
+  callId?: CallId
+  reason?: string
+  resolve(outcome: ApprovalOutcome): void
+}
+
+/** Project a pending entry into its answerable mux frame (initial push and mux-open replay share it). */
+function requestedFrame(pending: PendingApproval): RpcRequest<MuxFrame> {
+  return {
+    rpcId: pending.rpcId,
+    payload: {
+      type: 'approval/requested',
+      sessionId: pending.sessionId,
+      approvalId: pending.approvalId,
+      toolName: pending.toolName,
+      ...pending.callId === undefined ? {} : { callId: pending.callId },
+      ...pending.reason === undefined ? {} : { reason: pending.reason },
+    },
+  }
+}
+
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
   rpcId: RpcId
@@ -416,6 +452,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Serializes path ownership checks with record creation across spellings. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
+  const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /**
@@ -563,6 +600,90 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         'web user-interaction provider was disposed', 'ASK_ABORTED'))
     }
   }, 'api-proxy: user-interaction provider')
+
+  // --- Approval pending registry ------------------------------------------
+  // The proxy is the approval channel for every agent this host owns: an ask
+  // through `ctx.approval` becomes an answerable server-request on the mux
+  // stream (stable rpcId), settled by POST /api/respond. The entry survives
+  // client disconnects — mux-open replays still-pending requested frames with
+  // the same rpcId (the refresh-recovery baseline) — and withdraws on the
+  // ask's own abort signal (turn cancel), pushing `cancelled` to subscribers.
+  if (ctx.get('approval') !== undefined) {
+    // Teardown parity with the question provider above: a gateway disposed
+    // while approvals are pending settles every entry as 'cancelled' (the
+    // service's fail-closed vocabulary), so no ask promise dangles past the
+    // proxy's lifetime and subscribers see the withdrawal.
+    ctx.effect(() => () => {
+      for (const pending of [...pendingApprovals.values()]) pending.resolve('cancelled')
+    }, 'api-proxy: approval registry teardown')
+    ctx.on('approval/request', (req, next) => {
+      // Dispatch rides a microtask behind the service's own signal check: an
+      // abort landing in that window would register the abort listener AFTER
+      // the signal fired — never invoked, entry pending forever, zombie frame
+      // on every mux replay. Settle synchronously instead of publishing.
+      if (req.signal?.aborted === true) return Promise.resolve<ApprovalOutcome>('cancelled')
+      // The audit pair `approval/asked` is already appended by the service
+      // before dispatch, but dispatch rides a microtask: parallel tool calls
+      // can append several asked events before any answerer runs. THIS
+      // request's event is therefore the newest asked event that is still
+      // undecided, unclaimed by another pending entry, and — when the ask
+      // names a call — carries the same callId.
+      const events = req.agent.session.events
+      const claimed = new Set<ApprovalRequestId>()
+      for (const entry of pendingApprovals.values()) claimed.add(entry.approvalId)
+      const decided = new Set<ApprovalRequestId>()
+      let approvalId: ApprovalRequestId | undefined
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i] as SessionEvent
+        if (event.type === 'approval/decided') {
+          decided.add(event.data.id)
+        } else if (event.type === 'approval/asked') {
+          if (decided.has(event.data.id) || claimed.has(event.data.id)) continue
+          // Symmetric pairing: a callId-bearing ask only takes its own call's
+          // record, and a callId-less ask only takes a callId-less record —
+          // so neither shape can steal the other's audit id under parallel
+          // asks. (Today every producer — the tool executor — passes callId;
+          // the callId-less arm guards any future non-tool asker.)
+          if ((req.callId ?? null) !== (event.data.callId ?? null)) continue
+          approvalId = event.data.id
+          break
+        }
+      }
+      // No asked event means the request bypassed the service's audit path —
+      // not this channel's question; delegate to the fail-closed default.
+      if (approvalId === undefined) return next()
+      const id = approvalId
+      return new Promise<ApprovalOutcome>((resolve) => {
+        const settle = (outcome: ApprovalOutcome): void => {
+          /* v8 ignore next 3 -- defensive double-settle guard: respond() routes
+             through the pending table (a settled id is not-pending before it can
+             re-settle) and the first settle removes the abort listener, so no
+             reachable path settles twice; kept against future settle callers. */
+          if (!pendingApprovals.delete(pending.rpcId)) return
+          req.signal?.removeEventListener('abort', onAbort)
+          broadcast({ type: 'approval/resolved', sessionId: pending.sessionId, approvalId: id, outcome })
+          // A cancelled ask was already settled by the service's own signal
+          // race, which discards this late resolution; resolving is a no-op
+          // there and keeps this promise from dangling forever.
+          resolve(outcome)
+        }
+        const onAbort = (): void => { settle('cancelled') }
+        const pending: PendingApproval = {
+          rpcId: RpcId(randomUUID()),
+          sessionId: req.agent.session.id,
+          approvalId: id,
+          toolName: req.toolName,
+          ...req.callId === undefined ? {} : { callId: req.callId },
+          ...req.reason === undefined ? {} : { reason: req.reason },
+          resolve: settle,
+        }
+        pendingApprovals.set(pending.rpcId, pending)
+        req.signal?.addEventListener('abort', onAbort, { once: true })
+        const envelope = requestedFrame(pending)
+        for (const queue of muxQueues) queue.push(envelope)
+      })
+    })
+  }
 
   /**
    * Gate the cold path on the store: an id absent from it, or naming a legacy
@@ -1334,6 +1455,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
           })
         }
+        // Refresh recovery: still-pending approval questions replay with their
+        // stable rpcId so a reconnecting client can still answer them.
+        for (const pending of pendingApprovals.values()) queue.push(requestedFrame(pending))
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
@@ -1451,6 +1575,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Route by the echoed rpcId (the wire correlation): approvals first,
+      // then questions — the two registries share one id space of UUIDs.
+      const approval = pendingApprovals.get(message.rpcId)
+      if (approval !== undefined) {
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const parsed = approvalResponsePayloadSchema.safeParse(message.result.value)
+        // The payload's audit correlation must match the entry the rpcId routed
+        // to — a mismatched answer is malformed, not merely late.
+        if (!parsed.success || parsed.data.approvalId !== approval.approvalId || parsed.data.sessionId !== approval.sessionId) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approval.resolve(parsed.data.outcome)
+        return Promise.resolve({ accepted: true })
+      }
       const pending = pendingQuestions.get(message.rpcId)
       if (pending === undefined) return Promise.resolve({ accepted: false, reason: 'not-pending' })
       if (!message.result.ok) {
