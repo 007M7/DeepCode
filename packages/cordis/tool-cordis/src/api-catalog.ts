@@ -2252,10 +2252,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
   },
   {
-  },
-  {
-  },
-  {
     name: 'SessionResultFilter',
     declaration: 'export type SessionResultFilter = {\n    kind: \'id\';\n    values: readonly SessionId[];\n} | {\n    kind: \'cwd\';\n    values: readonly (string | null)[];\n} | ({\n    kind: \'created-at\';\n} & SessionResultRange) | {\n    kind: \'parent\';\n    values: readonly (SessionId | null)[];\n} | {\n    kind: \'availability\';\n    values: readonly SessionAvailability[];\n};',
   },
