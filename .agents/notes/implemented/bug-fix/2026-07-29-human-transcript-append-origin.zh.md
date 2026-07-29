@@ -14,11 +14,11 @@ Status: implemented
 
 模型投影与人类投影是分开的，而事件属于哪一种由事件自身的标记决定。`dsh-session` 在浏览器安全的 `surface` 模块中导出按两种 `SurfaceOp` 变体划分的谓词 `isAppendSurfaceEvent(event)` 与 `isReplacementSurfaceEvent(event)`。追加来源的事件是记录的持久来源，替换副本仅供模型使用。凡是必须准确发送模型所见内容的部分——`deriveMessages`、token 记账、压缩后端、工具配对、注入上下文的存活判断、跨会话引用投影——都继续读取 `session.surface`。
 
-终端从追加来源的 surface 事件回放记录，并通过 `transcriptToolCallIds` 让被遮蔽步骤的工具卡片保持配对：该函数读取追加来源的 `assistant/message`，而不是 surface 成员关系。已落地的压缩会在其自身日志位置贡献一行暗色 `… earlier context was compacted …`：这行标记报告模型从何处起不再看到那段历史，而不是把它抹掉。带框的检查点载荷从不渲染，且回放路径与实时路径共用同一条规则，因此实时到达的压缩与恢复后回放同一份日志会产生相同的记录。
+终端从追加来源的 surface 事件回放记录，并通过 `transcriptToolCallIds` 让被遮蔽步骤的工具卡片保持配对：该函数读取追加来源的 `assistant/message`，而不是 surface 成员关系。已落地的压缩会在其自身日志位置贡献一行暗色 `… earlier context was compacted …`：这行标记报告模型从何处起不再看到那段历史，而不是把它抹掉。带框的检查点载荷从不渲染，且两条路径都按同一个标记对 surface 事件分类，因此实时到达的压缩与恢复后回放同一份日志会产生相同的记录。只有回放会重新推导 `tool/call` 的配对关系：调用事件自身不携带标记，其归属继承自公布它的 `assistant/message`，而实时监听器必然刚刚渲染过后者。
 
 检查点通过压缩接缝自身的契约来识别——`isCompactCheckpointSource`，即 `CompactService` 要求替换用户消息携带的、与后端无关的标记——因此终端依赖的是已声明的词汇，而不是替换的形态。`dsh-session-reference` 已经在用该谓词投影另一个会话的日志；这里只是另一个读者提出同样的问题。其他替换保持静默：被裁剪的 `tool/result` 与重新生成的 `assistant/message` 只是为模型重写一个节点，并不在对话中标出边界。
 
-`session.history` 只把追加来源的人类消息计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compact/summary` 溯源信息会与引用它的替换留在同一页。
+`session.history` 只把追加来源的消息计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compact/summary` 溯源信息会与引用它的替换留在同一页。
 
 持久事件、RPC 信封、压缩事务与模型可见的 surface 都没有变化，也不需要迁移。
 

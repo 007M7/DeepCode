@@ -63,7 +63,7 @@ export function isAppendSurfaceEvent(
  */
 export function isReplacementSurfaceEvent(
   event: SessionEvent,
-): event is SurfaceEvent & { surfaceOp: { op: 'replace'; start: number; end: number } } {
+): event is SurfaceEvent & { surfaceOp: Extract<SurfaceOp, { op: 'replace' }> } {
   return isSurfaceEvent(event) && event.surfaceOp !== 'append'
 }
 

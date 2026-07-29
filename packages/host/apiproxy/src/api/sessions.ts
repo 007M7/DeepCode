@@ -176,7 +176,7 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
-   * Reads a window of history events; page boundaries align to append-origin human-message
+   * Reads a window of history events; page boundaries align to append-origin message
    * boundaries: one page = all raw events owned by a whole number of such messages (including
    * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
    * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail

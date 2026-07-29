@@ -836,6 +836,12 @@ export function createTuiChat(
    * surface shadows compacted ranges, so it is not the source here: every
    * append-origin message stays rendered, and a replacement contributes at most
    * the compaction marker at its own log position.
+   *
+   * The `tool/call` pairing check has no live counterpart, because only replay
+   * can meet an orphan: `tool/call` carries no `surfaceOp` of its own, so it
+   * inherits transcript membership from the `assistant/message` that advertised
+   * it, which the live listener has necessarily just rendered. A loaded log is a
+   * replay boundary, so the pairing is re-derived here instead of assumed.
    */
   const rebuildTranscript = (populateHistory: boolean): void => {
     chat.clear()

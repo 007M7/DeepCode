@@ -58,17 +58,18 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/** Human message event types (the pagination counting unit). */
+/** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
 /**
- * Message-boundary pagination: count maxMessages append-origin human messages
- * backwards from the window tail. Replacement copies are model-only, so they
- * consume no quota; the page stays one contiguous raw range, which keeps a
- * compaction's log-only provenance on the same page as its replacement. The cut
- * is the starting seq of the oldest message group (chunks group via
- * sourceEventSeqs — never cut mid-message). The tail page naturally includes the
- * in-progress partial.
+ * Message-boundary pagination: count maxMessages append-origin messages
+ * backwards from the window tail. Replacement copies never entered the
+ * conversation a reader sees — they restate a shadowed range for the model
+ * alone — so they consume no quota; the page stays one contiguous raw range,
+ * which keeps a compaction's log-only provenance on the same page as its
+ * replacement. The cut is the starting seq of the oldest message group (chunks
+ * group via sourceEventSeqs — never cut mid-message). The tail page naturally
+ * includes the in-progress partial.
  */
 function paginate(
   events: readonly SessionEvent[],

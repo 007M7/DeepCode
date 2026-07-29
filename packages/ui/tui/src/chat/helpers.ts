@@ -109,6 +109,10 @@ export function transcriptToolCallIds(session: Session): Set<string> {
  * rather than the shape of the replacement. Other replacements (a pruned
  * `tool/result`, a regenerated `assistant/message`) rewrite one node for the
  * model and mark no boundary in the conversation.
+ *
+ * The replacement check is redundant at both current call sites, which already
+ * reached a replacement: it keeps the exported predicate true to its name for a
+ * third caller, rather than making that caller repeat the check.
  * @param event - event to test.
  * @returns true when the event compacted a surface range.
  */

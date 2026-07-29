@@ -4449,9 +4449,9 @@ describe('tool cards and surface replay', () => {
     expect(liveRender).not.toContain('generic replacement copy')
     expect(liveRender).not.toContain('foreign plugin replacement copy')
 
-    // Ctrl+R rebuilds the transcript from the log; the replayed projection
-    // matches what the live appends produced, including the shadowed assistant
-    // message's tool card.
+    // Ctrl+R toggles reasoning, which rebuilds the transcript from the log; the
+    // replayed projection matches what the live appends produced, including the
+    // shadowed assistant message's tool card.
     result.terminal.send('\x12')
     await tick()
     result.terminal.resize(90)
