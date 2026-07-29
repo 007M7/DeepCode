@@ -2,12 +2,21 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const eslintCli = fileURLToPath(new URL('../node_modules/eslint/bin/eslint.js', import.meta.url))
 const oxlintCli = fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url))
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value)
+}
 
 function runStagedFormatter(paths: readonly string[]) {
   return spawnSync(process.execPath, [eslintCli, '--config', 'eslint.format.config.mjs', '--fix', '--no-warn-ignored', ...paths], {
@@ -140,6 +149,39 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
       ])
     }
   }, 20_000)
+
+  it('keeps formatter rules aligned with Oxlint validation', async () => {
+    const oxlintPath = join(repositoryRoot, '.oxlintrc.json')
+    const result = parseConfigFileTextToJson(oxlintPath, await readFile(oxlintPath, 'utf8'))
+    if (result.error !== undefined) {
+      throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
+    }
+    const parsed = result.config as unknown
+    if (!isRecord(parsed) || !isUnknownArray(parsed.overrides)) {
+      throw new Error('.oxlintrc.json must contain an overrides array')
+    }
+    const stylisticOverride = parsed.overrides.find((value: unknown) =>
+      isRecord(value) && isRecord(value.rules) && '@stylistic/max-len' in value.rules)
+    if (!isRecord(stylisticOverride) || !isRecord(stylisticOverride.rules)) {
+      throw new Error('.oxlintrc.json must contain the @stylistic validator override')
+    }
+    const validatorRules = { ...stylisticOverride.rules }
+    const maxLen = validatorRules['@stylistic/max-len']
+    delete validatorRules['@stylistic/max-len']
+
+    const formatterUrl = pathToFileURL(join(repositoryRoot, 'eslint.format.config.mjs')).href
+    const formatterModule = await import(formatterUrl) as unknown
+    if (!isRecord(formatterModule) || !isUnknownArray(formatterModule.default)) {
+      throw new Error('eslint.format.config.mjs must default-export a config array')
+    }
+    const formatterOverride = formatterModule.default.find((value: unknown) => isRecord(value) && isRecord(value.rules))
+    if (!isRecord(formatterOverride) || !isRecord(formatterOverride.rules)) {
+      throw new Error('eslint.format.config.mjs must contain a rules object')
+    }
+
+    expect(validatorRules).toStrictEqual(formatterOverride.rules)
+    expect(maxLen).toStrictEqual(['error', { code: 140, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true }])
+  })
 
   it('applies staged stylistic fixes before Oxlint validation', async () => {
     const suffix = randomUUID()

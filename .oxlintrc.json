@@ -282,6 +282,7 @@
             }
           }
         ],
+        // Validation-only: line length has no safe formatter fix.
         "@stylistic/max-len": [
           "error",
           {
