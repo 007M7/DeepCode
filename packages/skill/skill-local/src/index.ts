@@ -421,7 +421,7 @@ class SkillWatchManager {
 
   private openAncestorWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'ancestor' }>): WatchHandle {
     const listener = (_current: Stats, _previous: Stats): void => {
-      this.handleWatchEvent(state, mode, 'change', mode.nextPath)
+      void this.handleAncestorWatchEvent(state, mode)
     }
     watchFile(mode.nextPath, {
       persistent: false,
@@ -433,6 +433,25 @@ class SkillWatchManager {
         unwatchFile(mode.nextPath, listener)
       },
     }
+  }
+
+  private async handleAncestorWatchEvent(
+    state: RootWatchState,
+    mode: Extract<RootWatchMode, { kind: 'ancestor' }>,
+  ): Promise<void> {
+    let current: RootWatchMode
+    try {
+      current = await resolveRootWatchMode(state.root.path)
+    } catch (error) {
+      /* v8 ignore start -- Non-absence stat failures need a platform permission or I/O fault. */
+      if (!this.closing && state.owners.size > 0) this.handleWatcherError(state, error)
+      return
+      /* v8 ignore stop */
+    }
+    if (this.closing || state.owners.size === 0 || sameWatchMode(mode, current)) return
+    this.queueInvalidation()
+    state.unhealthy = true
+    this.scheduleRewatch(state)
   }
 
   private async openRootWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'root' }>): Promise<WatchHandle> {
@@ -481,13 +500,13 @@ class SkillWatchManager {
 
   private handleWatchEvent(
     state: RootWatchState,
-    mode: RootWatchMode,
+    mode: Extract<RootWatchMode, { kind: 'root' }>,
     event: SkillWatchEvent,
     path: string,
   ): void {
     if (this.closing || !isRelevantWatchEvent(state.root, mode, event, resolve(path))) return
     this.queueInvalidation()
-    if (mode.kind === 'ancestor' || (resolve(path) === state.root.path && event === 'unlinkDir')) {
+    if (resolve(path) === state.root.path && event === 'unlinkDir') {
       state.unhealthy = true
       this.scheduleRewatch(state)
     }
@@ -591,13 +610,10 @@ function sameWatchMode(left: RootWatchMode, right: RootWatchMode): boolean {
 
 function isRelevantWatchEvent(
   root: SkillRoot,
-  mode: RootWatchMode,
+  mode: Extract<RootWatchMode, { kind: 'root' }>,
   event: SkillWatchEvent,
   path: string,
 ): boolean {
-  if (mode.kind === 'ancestor') {
-    return path === mode.nextPath
-  }
   const segments = containedSegments(root.path, path)
   if (segments === undefined) return false
   if (segments.length === 0) return event === 'addDir' || event === 'unlinkDir'

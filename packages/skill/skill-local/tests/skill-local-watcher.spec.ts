@@ -92,6 +92,31 @@ beforeEach(() => {
 })
 
 describe('skill-local watcher failures', () => {
+  it('ignores missing-path probes until the observed path actually changes', async () => {
+    const home = await tempDir('skill-watch-missing-stable')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+    })
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
+    expect(watcherHarness.watchFiles).toHaveLength(2)
+    let invalidations = 0
+    ctx.on('skills/change', () => { invalidations += 1 })
+
+    for (const control of watcherHarness.watchFiles) {
+      control.listener({} as Stats, {} as Stats)
+    }
+    await settle()
+
+    expect(invalidations).toBe(0)
+    expect(watcherHarness.watchFiles).toHaveLength(2)
+    await fiber.dispose()
+  })
+
   it('marks a startup failure incomplete and retries discovery without caching it', async () => {
     const home = await tempDir('skill-watch-start-error')
     const root = join(home, '.dsh/skills')
