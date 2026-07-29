@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-工作流 seam（扩展点）：由模型编写 JavaScript 编排脚本，大规模扇出 subagent（分阶段、每个 agent（智能体）的结构化结果、并发上限），其设计参考 Claude Code 动态工作流。这是 bash 形态的能力 seam（见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：每个上下文只有一个引擎实现注册为 `ctx.workflows`；面向模型的工具使用它。
+工作流 seam：由模型编写 JavaScript 编排脚本，大规模扇出 subagent（分阶段、每个 agent（智能体）的结构化结果、并发上限），其设计参考 Claude Code 动态工作流。这是 bash 形态的能力 seam（见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：每个上下文只有一个引擎实现注册为 `ctx.workflows`；面向模型的工具使用它。
 
 | 包（package） | 角色 | ctx 键 |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-通过 JSON-RPC stdio 提供的面向自动化的 [Agent Client Protocol（ACP）](https://agentclientprotocol.com) 服务器。它面向parent agent（父智能体）、subagent 提供方和其他程序化客户端，而非产品 UI。
+通过 JSON-RPC stdio 提供的面向自动化的 [Agent Client Protocol（ACP）](https://agentclientprotocol.com) 服务器。它面向 parent agent（父智能体）、subagent 提供方和其他程序化客户端，而非产品 UI。
 
 ```sh
 pnpm run demo:acp             # needs DEEPSEEK_API_KEY (repo-root .env or env)
