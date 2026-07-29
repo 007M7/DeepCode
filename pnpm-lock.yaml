@@ -1194,18 +1194,27 @@ importers:
 
   packages/client/ui-models:
     devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../locale
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../runtime
+      '@deepseek-ai/dsh-client-schema-form':
+        specifier: workspace:^
+        version: link:../schema-form
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:^
         version: link:../ui-settings
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
+      '@deepseek-ai/dsh-client-web-react':
+        specifier: workspace:^
+        version: link:../web-react
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants

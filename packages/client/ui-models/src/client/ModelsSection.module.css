@@ -1,0 +1,188 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-tertiary, #888);
+}
+
+.notice {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-warning, #a15c00);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowCard {
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface, #fff);
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badges {
+  display: inline-flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.badgeOk {
+  color: var(--text-success, #0a7d33);
+  font-size: 12px;
+}
+
+.badgeMuted {
+  color: var(--text-tertiary, #999);
+  font-size: 12px;
+}
+
+.badgeWarn {
+  color: var(--text-warning, #a15c00);
+  font-size: 12px;
+}
+
+.rowActions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.primaryButton {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  background: var(--accent-strong, #111);
+  color: var(--text-inverse, #fff);
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dangerButton {
+  border: none;
+  background: none;
+  color: var(--text-danger, #c0392b);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.editor {
+  border-top: 1px solid var(--border, #eee);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+}
+
+.editorTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.addBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.addSelect {
+  align-self: flex-start;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  background: var(--surface, #fff);
+}
+
+.credential {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credentialRefRow,
+.credentialKeyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credentialRefRow > input,
+.credentialKeyRow > input {
+  flex: 1;
+}
+
+.input {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-danger, #c0392b);
+}

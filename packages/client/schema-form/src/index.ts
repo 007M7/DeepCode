@@ -11,6 +11,6 @@ export type {
   SchemaFieldContext, SchemaFormLabels, SchemaFormProps, SchemaFormSecret,
 } from './SchemaForm.tsx'
 export {
-  deletePath, getPath, hasPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
+  deletePath, getPath, hasPath, nodeAtPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
 } from './model.ts'
 export type { NodeKind, SchemaNode } from './model.ts'

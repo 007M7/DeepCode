@@ -18,6 +18,15 @@
       "path": "../runtime"
     },
     {
+      "path": "../connection"
+    },
+    {
+      "path": "../schema-form"
+    },
+    {
+      "path": "../web-react"
+    },
+    {
       "path": "../ui-settings"
     },
     {

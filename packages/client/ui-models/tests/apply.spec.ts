@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-models/client'
+import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 
 async function bench() {
@@ -11,6 +11,9 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
+  // The apply path only captures the wire face; no call leaves this fake
+  // until a section actually loads.
+  ctx.provide('connection', { api: {} } as never)
   return { ctx, slots: ctx.get('slots') as SlotsService, locale }
 }
 
@@ -23,7 +26,7 @@ function declare(slots: SlotsService): () => void {
 
 describe('ui-models apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
   })
 
   it('registers the models nav entry for declarations before or after apply', async () => {
@@ -32,7 +35,12 @@ describe('ui-models apply', () => {
     await before.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = before.slots.entries('settings.section')[0]!
     expect(entry.component).toBe(ModelsSection)
-    expect(entry.options).toEqual({ id: 'models', order: 10, label: '模型' })
+    expect(entry.options).toMatchObject({ id: 'models', order: 10, label: '模型' })
+    const injected = (entry.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
+    expect(injected.t('nav')).toBe('模型')
+    expect(typeof injected.controller.load).toBe('function')
+    expect(typeof injected.useSnapshot).toBe('function')
+    expect(injected.api).toBeDefined()
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -91,5 +99,34 @@ describe('ui-models apply', () => {
     // The (ns, locale) seats are free again — the dictionary disposers ran.
     expect(() => b.locale.register('settings.models', 'zh', {})).not.toThrow()
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
+  })
+})
+
+describe('pushed invalidations', () => {
+  it('ignores invalidations before the page ever loaded', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    // The fake wire face has no methods: a fetch attempt would throw.
+    b.ctx.emit('settings/changed', 'llm-pi-ai')
+    b.ctx.emit('credentials/changed', 'OPENAI_API_KEY')
+    b.ctx.emit('models/changed')
+    b.ctx.emit('connection/reset')
+  })
+
+  it('refreshes a loaded page and skips an idle one', () => {
+    const loads: number[] = []
+    const controller = {
+      store: { getSnapshot: () => ({ status: 'ready' }) },
+      load: () => { loads.push(1); return Promise.resolve() },
+    }
+    refreshIfLoaded(controller as unknown as import('../src/client/store.ts').ModelsSettingsStore)
+    expect(loads).toHaveLength(1)
+    const idle = {
+      store: { getSnapshot: () => ({ status: 'idle' }) },
+      load: () => { loads.push(2); return Promise.resolve() },
+    }
+    refreshIfLoaded(idle as unknown as import('../src/client/store.ts').ModelsSettingsStore)
+    expect(loads).toHaveLength(1)
   })
 })

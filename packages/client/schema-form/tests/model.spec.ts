@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import Schema from 'schemastery'
 import {
-  deletePath, getPath, hasPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
+  deletePath, getPath, hasPath, nodeAtPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
 } from '../src/model.ts'
 
 const Wire = (schema: Schema): unknown => JSON.parse(JSON.stringify(schema.toJSON()))
@@ -99,5 +99,29 @@ describe('path helpers', () => {
     const next = deletePath(draft, ['models', '0', 'contextWindow'])
     expect(next).toEqual({ models: [{ id: 'a' }] })
     expect(draft.models[0]).toEqual({ id: 'a', contextWindow: 1 })
+  })
+})
+
+describe('nodeAtPath', () => {
+  const Root = Schema.object({
+    providers: Schema.dict(Schema.object({ baseURL: Schema.string() })),
+    models: Schema.array(Schema.object({ id: Schema.string() })),
+    leaf: Schema.string(),
+  })
+
+  it('resolves object, dict, and array positions', () => {
+    const root = rehydrateSchema(Wire(Root))
+    expect(nodeAtPath(root, [])).toBe(root)
+    expect(nodeAtPath(root, ['providers', 'openai'])?.type).toBe('object')
+    expect(nodeAtPath(root, ['providers', 'openai', 'baseURL'])?.type).toBe('string')
+    expect(nodeAtPath(root, ['models', '0', 'id'])?.type).toBe('string')
+    expect(nodeAtPath(root, ['missing'])).toBeUndefined()
+    expect(nodeAtPath(root, ['missing', 'deeper'])).toBeUndefined()
+    expect(nodeAtPath(root, ['leaf', 'below'])).toBeUndefined()
+  })
+
+  it('tolerates structural nodes missing their relation maps', () => {
+    expect(nodeAtPath({ type: 'object' } as never, ['x'])).toBeUndefined()
+    expect(nodeAtPath({ type: 'dict' } as never, ['x'])).toBeUndefined()
   })
 })

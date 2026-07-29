@@ -79,6 +79,26 @@ export function unionChoices(node: SchemaNode): unknown[] {
 }
 
 /**
+ * Resolve the schema node at a settings path (the configurable-provider
+ * directory's `settingsPath` vocabulary): object properties by name, dict
+ * entries through `inner`. An unresolvable segment returns `undefined` so
+ * the caller falls back instead of rendering a wrong subtree.
+ * @param root - rehydrated section root node.
+ * @param path - key path from the section root.
+ * @returns the node describing that position, or `undefined`.
+ */
+export function nodeAtPath(root: SchemaNode, path: readonly string[]): SchemaNode | undefined {
+  let node: SchemaNode | undefined = root
+  for (const key of path) {
+    if (node === undefined) return undefined
+    if (node.type === 'object') node = (node.dict as Record<string, SchemaNode> | undefined)?.[key]
+    else if (node.type === 'dict' || node.type === 'array') node = node.inner as SchemaNode | undefined
+    else return undefined
+  }
+  return node
+}
+
+/**
  * Read a nested value by path.
  * @param value - root value (draft or fallback layer).
  * @param path - key path from the root; array indexes as strings.
