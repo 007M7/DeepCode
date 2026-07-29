@@ -206,7 +206,9 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
-    expect(input.value).toBe(HOME)
+    // The editor seeds with a trailing separator so typing continues into
+    // child names.
+    expect(input.value).toBe(`${HOME}/`)
     fireEvent.change(input, { target: { value: DOCS } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
@@ -218,6 +220,49 @@ describe('DirectoryBrowser', () => {
     expect(b.listDirectory).toHaveBeenCalledTimes(2)
     fireEvent.keyDown(again, { key: 'Escape' })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+  })
+
+  it('prefix-filters the listed level from the draft tail, dot revealing hidden matches', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The seeded empty segment leaves the level as-is: hidden stays hidden.
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // Case-insensitive prefix narrows the rows.
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // A dot-led prefix names hidden entries, so it reveals the match.
+    fireEvent.change(input, { target: { value: `${HOME}/.co` } })
+    expect(screen.getByRole('listitem').textContent).toBe('.config')
+    // A prefix matching nothing empties the level (no stale rows linger).
+    fireEvent.change(input, { target: { value: `${HOME}/zzz` } })
+    expect(screen.queryByRole('listitem')).toBeNull()
+    // A draft naming some other directory (or none) leaves the level whole.
+    fireEvent.change(input, { target: { value: 'no-separator' } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+  })
+
+  it('seeds and filters with backslashes on a Windows-rooted listing', async () => {
+    const ROOT = 'C:\\'
+    const windowsListing: DirectoryListing = {
+      path: ROOT,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }],
+      entries: [
+        { name: 'Program Files', path: `${ROOT}Program Files`, hidden: false },
+        { name: 'Users', path: `${ROOT}Users`, hidden: false },
+      ],
+      truncated: false,
+    }
+    mount({ listDirectory: vi.fn(async () => windowsListing) })
+    await waitFor(() => { expect(screen.getAllByRole('listitem')).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The root already ends in its separator: no doubled backslash.
+    expect(input.value).toBe(ROOT)
+    fireEvent.change(input, { target: { value: `${ROOT}u` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Users')
   })
 
   it('clicking away from the path editor cancels it back to the crumb view', async () => {

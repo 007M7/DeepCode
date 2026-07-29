@@ -12,7 +12,10 @@
  * owning flow decides what "Open" means and owns the workspace-creation
  * error surface. Hidden entries are host-flagged and hidden by default; the
  * footer's fixed-label "Show hidden files" toggle (aria-pressed, check when
- * on) reveals them (client-side only).
+ * on) reveals them (client-side only). The path editor opens seeded with a
+ * trailing separator, and while the draft's directory part names a listed
+ * level, its final segment prefix-filters that level's rows (a dot-led
+ * prefix also reveals the hidden entries it names).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -60,18 +63,45 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
 }
 
+/** The separator a Host path's own platform uses (Windows listings carry backslashes). */
+function separatorOf(path: string): string {
+  return path.includes('\\') ? '\\' : '/'
+}
+
+/**
+ * The path draft's final segment, when its directory part is exactly the
+ * level `listing` lists — the segment the level prefix-filters on while the
+ * user types. Any other draft (no separator yet, or naming some other
+ * directory) leaves the level unfiltered.
+ */
+function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
+  if (draft === null) return null
+  const sep = separatorOf(draft)
+  const cut = draft.lastIndexOf(sep)
+  if (cut === -1) return null
+  const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
+  return draft.slice(0, cut + 1) === level ? draft.slice(cut + 1) : null
+}
+
 /** One column of folder rows (the Miller view renders one or two of these). */
-function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden }: {
+function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden, filterPrefix }: {
   entries: readonly DirectoryEntry[]
   selectedPath: string | null
   busy: boolean
   onPick: (entry: DirectoryEntry) => void
   wide: boolean
   showHidden: boolean
+  filterPrefix: string | null
 }) {
+  const visible = entries.filter((entry) => {
+    if (filterPrefix !== null && !entry.name.toLowerCase().startsWith(filterPrefix.toLowerCase())) return false
+    // A dot-led prefix names hidden entries explicitly, so matching ones
+    // surface even while the toggle keeps the rest hidden.
+    return showHidden || !entry.hidden || filterPrefix?.startsWith('.') === true
+  })
   return (
     <div className={clsx(css.column, wide && css.columnWide)} role="list">
-      {entries.filter(entry => showHidden || !entry.hidden).map((entry) => {
+      {visible.map((entry) => {
         const selected = entry.path === selectedPath
         return (
           // The wrapper carries the list semantics; the row keeps its NATIVE
@@ -370,7 +400,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     // otherwise close the editor via navigate's draft reset.
                     supersede()
                     setLoading(false)
-                    setPathDraft(selected?.path ?? parent?.path ?? '')
+                    // Seed with a trailing separator so typing immediately
+                    // continues into child names (and prefix-filters below).
+                    const base = selected?.path ?? parent?.path ?? ''
+                    const sep = separatorOf(base)
+                    setPathDraft(base === '' || base.endsWith(sep) ? base : `${base}${sep}`)
                   }}
                 />
               </>
@@ -423,6 +457,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               onPick={select}
               wide={!twoPane}
               showHidden={showHidden}
+              filterPrefix={draftPrefixFor(parent, pathDraft)}
             />
           )}
           {twoPane && <span className={css.divider} />}
@@ -434,6 +469,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               onPick={advance}
               wide={false}
               showHidden={showHidden}
+              filterPrefix={draftPrefixFor(child, pathDraft)}
             />
           )}
         </div>
