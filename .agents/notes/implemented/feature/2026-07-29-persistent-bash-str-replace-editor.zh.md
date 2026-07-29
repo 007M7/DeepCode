@@ -16,7 +16,7 @@
 
 `dsh-system-prompt` 接受 `includeHarnessIdentity: false`；`dsh-agent-spine-demo` 会转发该设置，并接受 `toolBash: false`。因此部署可以拥有精确 persona，并替换 spine 的原生 Bash，而不会重复注册提示词或工具。既有默认值不变。
 
-两个插件都进入 Python runtime 闭包。持久 Bash 的闭包还包含 PTY 服务／本地后端，以及该后端要求的沙箱服务。由于 `node-pty` 在 macOS 上会执行原生 `spawn-helper`，每个打包后的 macOS 运行时可执行文件都会携带一个架构匹配的 `-spawn-helper` 伴随文件；Linux 直接使用 `forkpty`。固定版本的 `node-pty` 补丁只在该伴随文件存在时解析它，普通 Node 运行仍保留上游查找方式。显式的 `DSH_NODE_PTY_SPAWN_HELPER` 覆盖仍予保留，供当前提供非伴随 helper 的外部消费方使用。macOS 可执行文件与运行时 wheel 包的构建器会检查 thin Mach-O 文件头；若 helper 缺失、架构不匹配或不可执行，构建会在发布前失败。
+两个插件都进入 Python runtime 闭包。持久 Bash 的闭包还包含 PTY 服务／本地后端，以及该后端要求的沙箱服务。由于 `node-pty` 在 macOS 上会执行原生 `spawn-helper`，每个打包后的 macOS 运行时可执行文件都会携带一个架构匹配的 `-spawn-helper` 伴随文件；Linux 直接使用 `forkpty`。固定版本的 `node-pty` 补丁会先检查 `DSH_NODE_PTY_SPAWN_HELPER`，因此对当前提供非伴随 helper 的外部消费方而言，该变量仍是真正的覆盖项。未设置该覆盖时，补丁会在打包可执行文件的伴随文件存在时解析它，否则在普通 Node 运行中保留上游查找方式。macOS 可执行文件与运行时 wheel 包的构建器会检查 thin Mach-O 文件头；若 helper 缺失、架构不匹配或不可执行，构建会在发布前失败。
 
 ## 考虑过的替代方案
 
