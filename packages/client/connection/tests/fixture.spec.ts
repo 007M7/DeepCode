@@ -319,6 +319,22 @@ describe('createFixtureApi', () => {
     expect(empty.result).toMatchObject({ ok: true, value: { attachedSessions: 0 } })
   })
 
+  it('createDirectory under the root mints /name whose listing and crumbs share the identity', async () => {
+    const api = createFixtureApi()
+    const created = await api.host.createDirectory(req({ path: '/', name: 'srv' }))
+    if (!created.result.ok) throw new Error('create failed')
+    expect(created.result.value.path).toBe('/srv')
+    const listed = await api.host.listDirectory(req({ path: '/srv' }), new AbortController().signal)
+    if (!listed.result.ok) throw new Error('list failed')
+    expect(listed.result.value.crumbs).toEqual([
+      { name: '/', path: '/', hidden: false },
+      { name: 'srv', path: '/srv', hidden: false },
+    ])
+    const root = await api.host.listDirectory(req({ path: '/' }), new AbortController().signal)
+    if (!root.result.ok) throw new Error('root list failed')
+    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
+  })
+
   it('workspace.list serves the resident account and create reuses on path collision', async () => {
     const api = createFixtureApi()
     const listed = await api.workspace.list(req({}))
