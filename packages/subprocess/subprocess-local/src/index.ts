@@ -59,9 +59,10 @@ export class LocalSubprocessService extends SubprocessService {
         pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
       }
       for (const terminal of this.terminals) {
-        pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
+        pending.push(terminal.terminate())
       }
       this.live.clear()
+      this.terminals.clear()
       const outcomes = [
         ...await Promise.allSettled(pending),
         ...await Promise.allSettled([rm(this.runtimeRoot, { recursive: true, force: true })]),

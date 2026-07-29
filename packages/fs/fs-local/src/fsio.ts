@@ -370,14 +370,6 @@ export async function readWholeText(target: LocalTarget, signal?: AbortSignal): 
 }
 
 /**
- * Read one regular UTF-8 file through a single no-follow handle, retaining at
- * most `maxBytes + 1` bytes so a concurrent grow cannot bypass the bound.
- * @param target - the resolved file to read.
- * @param maxBytes - positive safe-integer byte ceiling.
- * @param signal - aborts between handle operations.
- * @returns the complete decoded text when it fits.
- */
-/**
  * Stream a whole regular UTF-8 text file as decoded text chunks. Same text
  * semantics as {@link readWholeText} (regular-file check, binary/NUL rejection,
  * cross-chunk UTF-8 decoding), but never holds the whole file in memory.

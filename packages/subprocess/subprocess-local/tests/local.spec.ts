@@ -113,7 +113,7 @@ describe('LocalSubprocessService', () => {
     expect(terminals.size).toBe(0)
   })
 
-  it('waits for every terminal cleanup, removes runtime state, and retains rejections', async () => {
+  it('waits for every terminal cleanup and clears single-shot teardown ownership', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
@@ -154,7 +154,7 @@ describe('LocalSubprocessService', () => {
     expect(disposed).toBe(false)
     finishCleanup()
     await disposing
-    expect(terminals).toEqual(new Set([failedTerminal, secondFailedTerminal]))
+    expect(terminals.size).toBe(0)
     await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(disposalErrors).toHaveLength(1)
     expect(disposalErrors[0]).toMatchObject({

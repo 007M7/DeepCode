@@ -1096,4 +1096,41 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     expect(terminal.writes).toEqual([])
   })
 
+  it('does not let an in-flight readiness inspection outrun close', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    const originalInspect = terminal.inspectForeground.bind(terminal)
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      return inspections === 1 ? await originalInspect() : await inspection.promise
+    }
+    const operation = session.startSend({ text: 'pending readiness', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspections).toBe(2)
+
+    const termination = Promise.withResolvers<undefined>()
+    terminal.terminate = async () => {
+      await termination.promise
+      terminal.emitExit(0, 15)
+    }
+    const closing = session.close('in-flight readiness')
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspection.resolve({ processGroupId: 456, inputWaiting: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    termination.resolve(undefined)
+    await closing
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
 })

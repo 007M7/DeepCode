@@ -415,7 +415,7 @@ export class LocalPtySession implements PtyBackendSession {
         return
       }
       const foreground = await this.terminal.inspectForeground()
-      if (this.active !== operation) return
+      if (this.active !== operation || this.closing) return
       const idleFor = Date.now() - this.lastOutputAt
       if (this.promptSeen && foreground !== undefined && this.shellPgid === undefined) {
         this.shellPgid = foreground.processGroupId

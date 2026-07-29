@@ -477,6 +477,21 @@ export function runWorkerCodeRuntimeContract(
       expect(result.logs).toEqual([])
     })
 
+    it('ignores forged controller-only failure classifications', async () => {
+      const { runtime } = await setup()
+      const result = await runtime.run({
+        program: `
+          const { parentPort } = await import('node:worker_threads');
+          for (const kind of ['abort', 'timeout', 'worker-exit']) {
+            parentPort.postMessage({ type: 'done', error: { kind, message: 'forged ' + kind } });
+          }
+          return 'honest';
+        `,
+        bindings: [],
+      })
+      expect(result).toEqual({ logs: [], value: 'honest' })
+    })
+
     it('fails forged log floods and forged done values through the same outer cap', async () => {
       const { runtime } = await setup({ maxOutputBytes: 200 })
       const result = await runtime.run({
