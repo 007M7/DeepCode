@@ -43,6 +43,24 @@ export interface CommandContribution {
   readonly ui: CommandUiSpec
 }
 
+/**
+ * A UI decoration hung on one HOST command: what its BARE invocation does on
+ * this client. Not a second command — the host command keeps its catalog
+ * row, its argument claim (space / argued enter), and its lifecycle logging;
+ * the decoration replaces only the bare menu-pick/enter with a popup whose
+ * onSelect typically submits a completed line back through command.execute.
+ * A decoration never manufactures a row: a name with no host catalog entry
+ * in the session's directory simply never reaches the decoration.
+ */
+export interface CommandDecoration {
+  /** The HOST command name this decorates (without the leading slash). */
+  readonly name: string
+  /** Capability filter, called with a fresh projection per bare invocation. */
+  available(session: ClientSessionContext): boolean
+  /** The bare-invocation UI (this phase: popupSelect only). */
+  readonly ui: CommandUiSpec
+}
+
 /** The `ctx.command` service face visible to business packages. */
 export interface CommandServiceContract {
   /**
@@ -50,6 +68,11 @@ export interface CommandServiceContract {
    * names throw at registration.
    */
   register(contribution: CommandContribution): () => void
+  /**
+   * Hang a bare-invocation decoration on one host command; effect disposer.
+   * Duplicate names throw at registration.
+   */
+  decorate(decoration: CommandDecoration): () => void
   /** Resolve the per-session popup controller for one session scope (wiring/overlay layer). */
   popupFor(actx: ClientContext): unknown
 }

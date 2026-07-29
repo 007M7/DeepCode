@@ -42,7 +42,7 @@ The typecheck plane split is structural: the host scaffold, its support module, 
 
 ### Coverage contract
 
-The lane covers three behavior families. Live-turn scenarios pin ordinary tool execution, cancellation, non-retryable failure, transient retry, resident questions, and mid-turn steering; synchronization uses durable events, `whenIdle()`, or an explicit replay marker rather than delays. Cold-history scenarios seed through the real persistence API and cover history rendering, sidebar search, trajectory and waterfall views, and tool details without model calls. Browser-lifecycle scenarios cover first-send workspace materialization, reload recovery, layout persistence, theme and locale preferences, and workspace create/rename/view operations. Each family asserts the browser surface and the authoritative host state; a stray model call or under-consumed fixture fails teardown.
+The lane covers three behavior families. Live-turn scenarios pin ordinary tool execution, cancellation, non-retryable failure, transient retry, resident questions, and mid-turn steering; synchronization uses durable events, `whenIdle()`, or an explicit replay marker rather than delays. Cold-history scenarios seed through the real persistence API and cover history rendering, sidebar search, trajectory and waterfall views, and tool details without model calls. Browser-lifecycle scenarios cover first-send workspace materialization, reload recovery, layout reset, theme and locale preferences, and workspace create/rename/view operations. Each family asserts the browser surface and the authoritative host state; a stray model call or under-consumed fixture fails teardown.
 
 ### CI stance
 
