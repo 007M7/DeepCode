@@ -28,18 +28,18 @@ const STATUSES = ['pending', 'in_progress', 'completed'] as const
 /** Model-facing todo tool configuration. */
 export interface Config {
   /**
-   * Whether several todos may be `in_progress` at once (default true). True suits a deployment
-   * whose agents run work concurrently — subagents, background commands, workflow fan-out — and
-   * the description then instructs the model to mark every actively worked task. False restores
-   * the single-active discipline: the description asks for exactly one, and a call marking more
-   * is rejected.
+   * Required deployment choice for whether several todos may be `in_progress` at once. True suits
+   * agents that run work concurrently — subagents, background commands, workflow fan-out — and the
+   * description then instructs the model to mark every actively worked task. False restores the
+   * single-active discipline: the description asks for exactly one, and a call marking more is
+   * rejected.
    */
-  allowParallelInProgress?: boolean
+  allowParallelInProgress: boolean
 }
 
 /** Schemastery configuration for the todo tool consumer. */
 export const Config: z<Config> = z.object({
-  allowParallelInProgress: z.boolean().default(true),
+  allowParallelInProgress: z.boolean().required(),
 })
 
 const DESCRIPTION_HEAD =
@@ -123,10 +123,10 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  * Register the `todo_write` tool on `ctx.tools` and, when the session-projection seam is composed,
  * the `todos` unit.
  * @param ctx - registrant context carrying the tool registry.
- * @param config - deployment's todo policy; defaults to allowing parallel active items.
+ * @param config - deployment's explicit todo policy.
  */
-export function apply(ctx: Context, config: Config = {}): void {
-  const allowParallel = config.allowParallelInProgress ?? true
+export function apply(ctx: Context, config: Config): void {
+  const allowParallel = config.allowParallelInProgress
   // The unit child activates only when a projection registry is composed
   // (headless assemblies without the seam stay unaffected). Standing-plan fold:
   // latest whole todo/write list, cleared by the next turn/start (turn/end keeps

@@ -26,11 +26,11 @@ function agentWithSession(id = 'parent-1'): Agent & { session: Session } {
   return { id: SessionId(id), session } as unknown as Agent & { session: Session }
 }
 
-async function setup(config: tool.Config = {}): Promise<Context> {
+async function setup(allowParallelInProgress: boolean): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  await ctx.plugin(tool, config)
+  await ctx.plugin(tool, { allowParallelInProgress })
   return ctx
 }
 
@@ -52,7 +52,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 
 describe('dsh-tool-todo', () => {
   it('registers a `todo_write` tool whose schema is an array of {content,status}', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const schema = ctx.tools.schemas().find(s => s.name === 'todo_write')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
@@ -65,7 +65,7 @@ describe('dsh-tool-todo', () => {
   })
 
   it('appends a todo/write event carrying the whole list to the calling session', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const agent = agentWithSession('writer')
     const todos: TodoItem[] = [
       { content: 'plan', status: 'in_progress' },
@@ -85,7 +85,7 @@ describe('dsh-tool-todo', () => {
   })
 
   it('stores the trimmed content (the dedupe/length key), not the raw input', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const agent = agentWithSession('trim')
     const result = await callTodo(ctx, { todos: [{ content: '  plan the work  ', status: 'pending' }] }, { agent })
     expect(result.isError).toBe(false)
@@ -95,7 +95,7 @@ describe('dsh-tool-todo', () => {
   })
 
   it('replaces the list on a second call (last-write-wins on the log)', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const agent = agentWithSession('writer-2')
     await callTodo(ctx, { todos: [{ content: 'a', status: 'pending' }] }, { agent })
     await callTodo(ctx, { todos: [
@@ -111,19 +111,19 @@ describe('dsh-tool-todo', () => {
   })
 
   it('rejects a malformed status before execute runs (registry arg-validation)', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const result = await callTodo(ctx, { todos: [{ content: 'x', status: 'doing' }] })
     expect(result.isError).toBe(true)
   })
 
   it('rejects a non-array todos argument', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const result = await callTodo(ctx, { todos: 'nope' })
     expect(result.isError).toBe(true)
   })
 
   it('accepts several in_progress items at once (parallel work)', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const agent = agentWithSession('parallel')
     const todos: TodoItem[] = [
       { content: 'run subagent a', status: 'in_progress' },
@@ -147,7 +147,7 @@ describe('dsh-tool-todo', () => {
     ]
 
     it('rejects a call marking several items in_progress', async () => {
-      const ctx = await setup({ allowParallelInProgress: false })
+      const ctx = await setup(false)
       const agent = agentWithSession('single-active')
       const result = await callTodo(ctx, { todos: parallel }, { agent })
       expect(result.isError).toBe(true)
@@ -157,7 +157,7 @@ describe('dsh-tool-todo', () => {
     })
 
     it('still accepts one active item', async () => {
-      const ctx = await setup({ allowParallelInProgress: false })
+      const ctx = await setup(false)
       const todos: TodoItem[] = [
         { content: 'run subagent a', status: 'in_progress' },
         { content: 'run subagent b', status: 'pending' },
@@ -166,31 +166,19 @@ describe('dsh-tool-todo', () => {
       expect(result.isError).toBe(false)
     })
 
-    it('an explicit true accepts a parallel write, like the omitted default', async () => {
-      const ctx = await setup({ allowParallelInProgress: true })
+    it('an explicit true accepts a parallel write', async () => {
+      const ctx = await setup(true)
       const result = await callTodo(ctx, { todos: parallel })
       expect(result.isError).toBe(false)
     })
 
-    it('defaults to parallel for a direct apply, which bypasses the schema default', async () => {
-      // Composing through ctx.plugin lets schemastery fill the field; a caller
-      // invoking apply() itself hands over a config object with it absent, so
-      // the policy default has to hold on that path too.
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      tool.apply(ctx, {})
-      const result = await callTodo(ctx, { todos: parallel })
-      expect(result.isError).toBe(false)
-    })
-
-    it('instructs the model to keep at most one active, and the default instructs parallel', async () => {
-      const single = await setup({ allowParallelInProgress: false })
+    it('instructs the model to keep at most one active, while true instructs parallel', async () => {
+      const single = await setup(false)
       const singleDesc = single.tools.schemas().find(s => s.name === 'todo_write')!.description
       expect(singleDesc).toContain('Keep AT MOST ONE todo `in_progress`')
       expect(singleDesc).not.toContain('several at once')
 
-      const parallelDesc = (await setup()).tools.schemas().find(s => s.name === 'todo_write')!.description
+      const parallelDesc = (await setup(true)).tools.schemas().find(s => s.name === 'todo_write')!.description
       expect(parallelDesc).toContain('several at once when work genuinely runs in parallel')
       expect(parallelDesc).not.toContain('AT MOST ONE')
     })
@@ -201,21 +189,21 @@ describe('dsh-tool-todo', () => {
     { label: 'duplicate content', todos: [{ content: 'dup', status: 'pending' }, { content: 'dup', status: 'completed' }], fragment: 'duplicate' },
     { label: 'unknown item keys', todos: [{ content: 'a', status: 'pending', children: [] }], fragment: 'not a declared property' },
   ])('rejects $label as an isError result', async ({ todos, fragment }) => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const result = await callTodo(ctx, { todos })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(fragment)
   })
 
   it('rejects a non-agent caller (the list has no owning session)', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const result = await callTodo(ctx, { todos: [{ content: 'a', status: 'pending' }] }, { agent: undefined })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('owning agent session')
   })
 
   it('presents the call with a stable title and the list as raw input', async () => {
-    const ctx = await setup()
+    const ctx = await setup(true)
     const def = ctx.tools.get('todo_write')!
     const todos = [{ content: 'a', status: 'pending' }]
     expect(def.presentCall?.({ todos })).toEqual({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: todos })
@@ -225,7 +213,7 @@ describe('dsh-tool-todo', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    const fiber = await ctx.plugin(tool)
+    const fiber = await ctx.plugin(tool, { allowParallelInProgress: true })
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(true)
     await fiber.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(false)

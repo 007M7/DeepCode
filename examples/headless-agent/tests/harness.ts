@@ -64,7 +64,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
-  await ctx.plugin(ToolTodo)
+  await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   // Compaction is opt-in: only the compaction e2e loads the reusable meter and backend.
   if (options.compact !== undefined) {
     await ctx.plugin(TokenMeterService)

@@ -125,7 +125,12 @@ config:
         id: 'default',
         label: 'todo_write tool',
         default: true,
-        resources: [{ kind: 'npm-cordis-config-entry', id: 'tool-todo', package: '@deepseek-ai/dsh-tool-todo' }],
+        resources: [{
+          kind: 'npm-cordis-config-entry',
+          id: 'tool-todo',
+          package: '@deepseek-ai/dsh-tool-todo',
+          config: { allowParallelInProgress: true },
+        }],
       }],
     },
     {

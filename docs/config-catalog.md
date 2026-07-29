@@ -1804,13 +1804,13 @@ Requires: `tools`
 /** Model-facing todo tool configuration. */
 export interface Config {
   /**
-   * Whether several todos may be `in_progress` at once (default true). True suits a deployment
-   * whose agents run work concurrently — subagents, background commands, workflow fan-out — and
-   * the description then instructs the model to mark every actively worked task. False restores
-   * the single-active discipline: the description asks for exactly one, and a call marking more
-   * is rejected.
+   * Required deployment choice for whether several todos may be `in_progress` at once. True suits
+   * agents that run work concurrently — subagents, background commands, workflow fan-out — and the
+   * description then instructs the model to mark every actively worked task. False restores the
+   * single-active discipline: the description asks for exactly one, and a call marking more is
+   * rejected.
    */
-  allowParallelInProgress?: boolean
+  allowParallelInProgress: boolean
 }
 ```
 

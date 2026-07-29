@@ -38,6 +38,8 @@ _CORDIS_YML = """\
     cwd: '.'
 - id: todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 """
 
 

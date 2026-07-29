@@ -138,6 +138,8 @@
 
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 - id: tool-tasks
   name: '@deepseek-ai/dsh-tool-tasks'

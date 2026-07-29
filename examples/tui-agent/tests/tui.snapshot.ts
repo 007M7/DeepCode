@@ -230,7 +230,7 @@ async function mountScenarioContext(
   await ctx.plugin(TuiPromptService)
   // todo_write is opt-in: only the todo-plan scenario mounts it, matching the shipped
   // config that omits it. The other scenarios prove the default todo-free composition.
-  if (scenario.enableTodo === true) await ctx.plugin(ToolTodo)
+  if (scenario.enableTodo === true) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })

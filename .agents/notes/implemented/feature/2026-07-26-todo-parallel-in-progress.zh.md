@@ -10,9 +10,9 @@ Status: implemented
 
 ## 决策
 
-把单一 `in_progress` 上限从固定规则改为部署策略，默认允许多个：
+把单一 `in_progress` 上限从固定规则改为部署策略，并要求每个组合都作出选择：
 
-- `packages/todo/tool-todo/src/index.ts` 新增 `Config.allowParallelInProgress`（默认 `true`）。为 `true` 时，`execute` 接受任意数量的活跃条目，描述指示模型把每个正在处理的任务标记为 `in_progress`（并行工作时可以有多个，顺序工作时只有一个），并在仍有工作未完成时至少保留一个；为 `false` 时，描述要求恰好一个，`execute` 拒绝标记更多的调用。
+- `packages/todo/tool-todo/src/index.ts` 新增必填的 `Config.allowParallelInProgress` 字段。为 `true` 时，`execute` 接受任意数量的活跃条目，描述指示模型把每个正在处理的任务标记为 `in_progress`（并行工作时可以有多个，顺序工作时只有一个），并在仍有工作未完成时至少保留一个；为 `false` 时，描述要求恰好一个，`execute` 拒绝标记更多的调用。
 - `packages/todo/tool-todo/src/invariant.ts` 中的持久日志不变式不再拒绝含多个活跃条目的快照，且不跟随该配置，因此此前持久化的日志不受影响，并行快照在任一策略下都能干净回放。
 
 其余编码的不变式保持不变：`content` 去除首尾空白后非空且唯一、status 为合法枚举值。本决定取代[原始设计的校验决策](2026-06-29-todo-write-tool.md)中「至多一个活跃」的条款；该 Agent Note 的其余部分（整列表替换、日志支撑的状态、单一所有者）依然成立。
@@ -23,7 +23,7 @@ Status: implemented
 
 ## 该策略是部署层的选择
 
-并发的活跃任务是否合理，取决于工具无法观测的运行时并发情况——但一个部署的 agent 是否会并发展开工作，在组装期就是可知的。因此该策略是 `Config` 字段而非常量：`allowParallelInProgress`（默认 `true`）从 cordis.yml 设置，agent 从不并行展开的部署可以恢复单活跃项纪律。
+并发的活跃任务是否合理，取决于工具无法观测的运行时并发情况——但一个部署的 agent 是否会并发展开工作，在组装期就是可知的。因此该策略是必填的 `Config` 字段，而非常量或默认值：每个 cordis.yml 组合都会有意设置 `allowParallelInProgress`，为可能并行展开工作的 agent 选择 `true`，或为单活跃项纪律选择 `false`。
 
 该开关会同时改变面向模型的指令与接受的输入。把两者拆开才是 bug：描述要求只保留一个活跃任务、而 `execute` 却接受多个，等于教给模型一条工具并不遵守的规则；反过来则会拒绝描述所邀请的调用。描述中只有活跃状态那一句会变化，因为这是该策略唯一改变的指令。
 
@@ -47,4 +47,4 @@ Status: implemented
 
 ## 后果
 
-现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。在默认策略下，工具不再拒绝一种此前无效的快照形状，因此该改动兼容此前所有合法的调用；设置了 `allowParallelInProgress: false` 的部署仍保留旧的拒绝行为，而持久日志不变式两者都接受。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个带有 todo schema 的 `tool-schemas.expected.json` sidecar（树中八个里有七个）。组合出相同 header 的场景通过 `toolSchemasSource` 共用同一份 sidecar，而非各自保留副本，因此这个数量对应的是不同的 header 组合，而不是场景数；改动工具描述的分支仍须刷新它分叉之后落地的那些 sidecar —— `pnpm run test:snapshot:refresh` 可以无 key 完成。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此组装后的 web transcript 回放的是一个并行计划；若任一展示面退回单活跃项推导，它会再次失败。
+现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。设置 `allowParallelInProgress: true` 的组合不再拒绝一种此前无效的快照形状；设置为 `false` 的组合仍保留旧的拒绝行为，而持久日志不变式两者都接受。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个带有 todo schema 的 `tool-schemas.expected.json` sidecar（树中八个里有七个）。组合出相同 header 的场景通过 `toolSchemasSource` 共用同一份 sidecar，而非各自保留副本，因此这个数量对应的是不同的 header 组合，而不是场景数；改动工具描述的分支仍须刷新它分叉之后落地的那些 sidecar —— `pnpm run test:snapshot:refresh` 可以无 key 完成。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此组装后的 web transcript 回放的是一个并行计划；若任一展示面退回单活跃项推导，它会再次失败。

@@ -16,13 +16,13 @@ The list belongs to the ONE agent session that called the tool. There is no suba
 
 ## Configuration
 
-`allowParallelInProgress` (default `true`) decides whether several todos may be `in_progress` at once. It is a deployment choice, not a fixed rule: whether concurrent active tasks are legitimate depends on runtime concurrency the tool cannot observe, so a deployment whose agents never fan out can restore the single-active discipline from cordis.yml.
+`allowParallelInProgress` is required: every composition must choose whether several todos may be `in_progress` at once. It is a deployment choice, not a fixed rule: whether concurrent active tasks are legitimate depends on runtime concurrency the tool cannot observe. Use `true` for agents that may fan out work and `false` to enforce the single-active discipline.
 
 The flag moves the model-facing instruction and the accepted input together — `true` asks the model to mark every actively worked task and accepts any number, `false` asks for exactly one and rejects a call marking more with `Error: invalid todos: at most one task may be in_progress (got <n>)`. The durable-log invariant does NOT follow it: a log written while parallel work was allowed must still replay after a deployment tightens the policy, so the invariant stays silent on the active count.
 
 ## Validation
 
-Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`, and any item key beyond `content`/`status` — an extended item shape (ids, nesting) fails loud instead of silently flattening, keeping the logged snapshot equal to what the model believes it wrote. How many tasks may be `in_progress` at once is the deployment's call (§ Configuration): the default allows several, because parallel work (concurrent subagents, background commands) legitimately runs several tasks simultaneously. Ordering and the discipline of keeping the list current are left to the model via the tool description.
+Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`, and any item key beyond `content`/`status` — an extended item shape (ids, nesting) fails loud instead of silently flattening, keeping the logged snapshot equal to what the model believes it wrote. How many tasks may be `in_progress` at once is the deployment's call (§ Configuration): a composition that chooses `true` permits parallel work (concurrent subagents, background commands) to mark several tasks simultaneously. Ordering and the discipline of keeping the list current are left to the model via the tool description.
 
 ## Rendering
 

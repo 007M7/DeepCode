@@ -370,7 +370,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'owning Agent session'],
     writes: ['tool/call', 'todo/write', 'tool/result'],
     async mount(ctx) {
-      await ctx.plugin(ToolTodo)
+      await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist.',

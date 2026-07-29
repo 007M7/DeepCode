@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context, FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -60,6 +60,7 @@ async function boot(configLines: readonly string[]): Promise<Context> {
   ].join('\n'))
 
   const ctx = new Context()
+  context = ctx
   ctx.baseUrl = pathToFileURL(root).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
@@ -78,7 +79,6 @@ async function boot(configLines: readonly string[]): Promise<Context> {
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
-  context = ctx
   return ctx
 }
 
@@ -107,20 +107,39 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     expect(owner.session.events.some(e => e.type === 'todo/write')).toBe(false)
   }, 30_000)
 
-  it('the omitted default keeps the parallel policy end to end', async () => {
-    const ctx = await boot([])
+  it('allowParallelInProgress: true permits a parallel write end to end', async () => {
+    const ctx = await boot(['    allowParallelInProgress: true'])
     const description = ctx.tools.schemas().find(s => s.name === 'todo_write')?.description ?? ''
     expect(description).toContain('several at once when work genuinely runs in parallel')
 
     const owner = agent(ctx)
     const result = await ctx.tools.execute({
       signal: new AbortController().signal,
-      callId: CallId('parallel-default'),
+      callId: CallId('parallel-enabled'),
       name: 'todo_write',
       arguments: { todos: PARALLEL_TODOS },
       agent: owner,
     })
     expect(result.isError).toBe(false)
     expect(owner.session.events.findLast(e => e.type === 'todo/write')?.data.todos).toEqual(PARALLEL_TODOS)
+  }, 30_000)
+
+  it('fails loading when allowParallelInProgress is omitted', async () => {
+    // loader.await() is all-settled; configuration failure leaves a FAILED
+    // entry and escapes as a late rejection for the host boot to report.
+    const rejections: unknown[] = []
+    const onUnhandled = (err: unknown): void => { rejections.push(err) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const ctx = await boot([])
+      const entry = [...ctx.loader.entries()].find(e => e.options.name === '@deepseek-ai/dsh-tool-todo')
+      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
+      for (let i = 0; i < 100 && rejections.length === 0; i++) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(rejections.map(String).join('\n')).toContain('$.allowParallelInProgress missing required value')
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   }, 30_000)
 })
