@@ -24,7 +24,9 @@ No persisted event, RPC envelope, compaction transaction, or model-visible surfa
 
 ## Deferred
 
-The browser client still builds its conversation from the model surface through `FoldAdapter`, so compaction still collapses web history to a single context row. The same predicate is the fix there, together with an append-order transcript projection and a marker component; that work is a separate change against `packages/client/runtime` and `packages/client/ui-conversation`. Rendering compaction *progress* — a terminal indicator while a compaction runs — needs the bracket-first ordering that the queued manual `/compact` work introduces, and is likewise out of scope here.
+The browser client still builds its conversation from the model surface through `FoldAdapter`, so compaction still collapses web history to a single context row. The same predicate is the fix there, together with an append-order transcript projection and a marker component; that work is a separate change against `packages/client/runtime` and `packages/client/ui-conversation`.
+
+That work must handle a page whose checkpoint cites a `surfaceOp.start` outside the window: pagination no longer spends quota on the checkpoint, so it never cuts on the checkpoint's provenance group, and `FoldAdapter` pads absent events with a non-surface sentinel — so `SurfaceManager` rejects the range and `nodes()` falls back to `degradedSeqs()` with a logged error. The hole predates this change (counting could already run past a checkpoint into the range it shadows), but the old rule accidentally covered the case where the checkpoint was the oldest counted message and pulled the whole shadowed range onto its page. `degradedSeqs()` — every surface-eligible event in append order — is already close to the transcript projection A2 needs, which is the shape to build deliberately rather than reach as a degradation. Rendering compaction *progress* — a terminal indicator while a compaction runs — needs the bracket-first ordering that the queued manual `/compact` work introduces, and is likewise out of scope here.
 
 ## Alternatives considered
 
@@ -42,6 +44,10 @@ The browser client still builds its conversation from the model surface through 
 
 Compaction no longer erases terminal history; a session compacted several times shows one marker per landed compaction, in log order. Pagination pages can carry more raw events than before, because quota is spent only on messages a human or model actually produced.
 
+`rebuildTranscript` now materializes a component per append-origin event in the whole log, and it runs on mount, on a terminal color-scheme change, and on every reasoning toggle. Compaction used to bound that work for exactly the long sessions compaction serves, so the cost now grows with session length instead of with the surface. That is the trade the fix exists to make — preserved history is the point — but a windowing or reuse strategy belongs to whoever first measures a slow rebuild, not to a later profiler wondering why the work grew.
+
 `dsh-tui` gains a dependency on the `dsh-compact` seam for one pure predicate, mirroring `dsh-session-reference`'s existing use. The terminal still needs no compaction backend at runtime.
 
 Two behaviors changed with their tests. The surface-replacement terminal test previously pinned erasure ("hides shadowed tool calls") and now pins preservation plus exactly one marker, including a pruned result copy, a regenerated assistant message, and a foreign plugin's replacement all rendering nothing. The compaction snapshot scenario wrote a `workspace-context` source while claiming to pin compaction; it now writes a real checkpoint source, and its three fixtures are re-recorded to show the preserved prompt, the full tool card, and the marker.
+
+The live/replay equivalence above is fixture-pinned, not only asserted here: `surface-replayed-compaction` mounts with the replacement already stored and records byte-identical to the live path's `surface-after-compaction-wide`. Changing either path breaks that equality, which is the point — the resume projection is what regressed for users, and the two fixtures must move together.

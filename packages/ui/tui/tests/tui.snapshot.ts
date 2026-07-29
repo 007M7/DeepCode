@@ -749,8 +749,8 @@ describe('TUI terminal-state snapshots', () => {
     // real-clock millisecond tick between the fixture appends and the render
     // would flip `Tools 0.0s` in and out of the pinned header.
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(COMPACTION_FIXTURE_TIME)
-    // beforeMount runs synchronously inside setupSnapshot, so the range the
-    // checkpoint replaces is assigned before the first await below.
+    // The awaited setup always invokes beforeMount, so the range the checkpoint
+    // replaces is assigned by the time the appends below need it.
     let compacted!: CompactionRange
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
