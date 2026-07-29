@@ -137,8 +137,9 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
 /**
  * The listing's platform separator, read from the host-resolved root crumb
  * (`/`, `C:\`, `\\server\share\`) — exact for every root form the backend
- * emits, immune both to a home delivered in the other slash flavor
- * (`USERPROFILE=C:/Users/Alice`) and to backslashes inside POSIX names.
+ * emits, and immune to backslashes inside POSIX names (which the home text
+ * may legally carry; the wire contract already excludes non-canonical
+ * shapes elsewhere).
  * TODO: replace with a host-stamped `separator` field on the wire
  * DirectoryListing so the platform fact travels verbatim (the trade-off is
  * recorded in the directory-picker capability seam Agent Note).

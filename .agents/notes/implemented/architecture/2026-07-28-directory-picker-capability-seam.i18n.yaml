@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-28-directory-picker-capability-seam.md
-2026-07-28-directory-picker-capability-seam.md: 6cba49f9a5817d05e4933e397918a0b9a17ce845
-2026-07-28-directory-picker-capability-seam.zh.md: bfa9f80db32b1e73a198442826c7aea9972c7412
+2026-07-28-directory-picker-capability-seam.md: ebd40b9dbc89630c5cbbfacdcfb8be2b6a65fd49
+2026-07-28-directory-picker-capability-seam.zh.md: 6ba8eb347bf906f05ac6192cf941e76d3bc4f44a

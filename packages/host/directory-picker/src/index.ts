@@ -34,11 +34,18 @@ export interface DirectoryEntry {
   hidden: boolean
 }
 
-/** One directory level plus its ancestry, as a browse backend reports it. */
+/**
+ * One directory level plus its ancestry, as a browse backend reports it.
+ * Every path in one listing — `path`, `crumbs[].path`, `entries[].path`,
+ * and `home` — is host-resolved canonical form: no `.`/`..` segments, no
+ * repeated or trailing separators (bare roots `/`, `C:\`, `\\server\share\`
+ * excepted), one platform separator. Clients compare paths on this promise
+ * without re-normalizing; every backend must resolve before stamping.
+ */
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
   path: string
-  /** The host account's home directory (breadcrumb "Home" rooting), in the same resolved shape as `path` and `crumbs[].path`. */
+  /** The host account's home directory (breadcrumb "Home" rooting), in the interface's canonical shape like every other path here. */
   home: string
   /**
    * Ancestor chain from the filesystem root to the listed directory
