@@ -385,4 +385,56 @@ describe('dsh-tool-skill', () => {
     if (unknownBlock?.type !== 'text') throw new Error('expected text tool result')
     expect(unknownBlock.text).toContain('skill "missing" is unknown or no longer available')
   })
+
+  it('checks model policy before provider loading and rechecks the loaded definition', async () => {
+    const home = await tempDir('tool-policy-before-load')
+    const ctx = await setup(home)
+    const getCalls: string[] = []
+    ctx.skills.registerProvider({
+      name: 'policy-probe',
+      async list() {
+        return [
+          {
+            name: 'denied-skill',
+            description: 'Denied skill',
+            invocation: { modelInvocable: false, userInvocable: true },
+            provider: 'policy-probe',
+            source: 'test',
+            rank: 1,
+            locator: 'denied-skill',
+          },
+          {
+            name: 'policy-race-skill',
+            description: 'Policy race skill',
+            invocation: { modelInvocable: true, userInvocable: true },
+            provider: 'policy-probe',
+            source: 'test',
+            rank: 1,
+            locator: 'policy-race-skill',
+          },
+        ]
+      },
+      async get(candidate) {
+        getCalls.push(candidate.name)
+        return {
+          ...candidate,
+          invocation: { modelInvocable: false, userInvocable: true },
+          content: 'Instructions must not be disclosed.',
+        }
+      },
+    })
+
+    const denied = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c6'), name: 'skill', arguments: { name: 'denied-skill' } })
+    const raced = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c7'), name: 'skill', arguments: { name: 'policy-race-skill' } })
+
+    expect(denied.isError).toBe(true)
+    expect(raced.isError).toBe(true)
+    expect(getCalls).toEqual(['policy-race-skill'])
+    for (const result of [denied, raced]) {
+      const block = result.content[0]
+      if (block?.type !== 'text') throw new Error('expected text tool result')
+      expect(block.text).toContain('is not available for model invocation')
+      expect(block.text).not.toContain('Instructions must not be disclosed.')
+    }
+  })
 })

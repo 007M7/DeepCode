@@ -3890,17 +3890,51 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
-  it('rejects exact invocation of skills disabled for users', async () => {
-    const result = await setup({ configureContext: withSkills })
+  it('checks user policy before loading and rechecks the loaded definition', async () => {
+    const get = vi.fn((name: string) => Promise.resolve<SkillDefinition | undefined>({
+      name,
+      description: 'Policy race skill',
+      invocation: { modelInvocable: true, userInvocable: false },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'Instructions must not be delivered.',
+    }))
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          list: () => Promise.resolve<SkillSummary[]>([
+            {
+              name: 'model-only-skill',
+              description: 'Model-only skill',
+              invocation: { modelInvocable: true, userInvocable: false },
+              source: 'runtime',
+              provider: 'runtime',
+            },
+            {
+              name: 'policy-race-skill',
+              description: 'Policy race skill',
+              invocation: { modelInvocable: true, userInvocable: true },
+              source: 'runtime',
+              provider: 'runtime',
+            },
+          ]),
+          get,
+        } as never)
+      },
+    })
     result.terminal.send('/skill:model-only-skill')
     result.terminal.send('\r')
     await tick()
-    result.terminal.send('/skill:trusted-only-skill')
+    result.terminal.send('/skill:policy-race-skill')
     result.terminal.send('\r')
     await tick()
     expect(result.agent.sent).toEqual([])
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('policy-race-skill', expect.objectContaining({ cwd: '/workspace' }))
     expect(result.terminal.output).toContain('Skill "model-only-skill" is not available for user invocation.')
-    expect(result.terminal.output).toContain('Skill "trusted-only-skill" is not available for user invocation.')
+    expect(result.terminal.output).toContain('Skill "policy-race-skill" is not available for user invocation.')
+    expect(result.terminal.output).not.toContain('Instructions must not be delivered.')
     await dispose(result)
   })
 
@@ -3964,22 +3998,31 @@ describe('skill slash command', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('failed to load')
-    expect(result.terminal.output).toContain('get boom')
+    expect(result.terminal.output).toContain('list boom')
     await dispose(result)
   })
 
   it('drops skill list and lookup results that settle after disposal', async () => {
-    const pendingList: Array<(value: SkillSummary[]) => void> = []
+    let listCalls = 0
+    let resolvePendingList: ((value: SkillSummary[]) => void) | undefined
     const pendingGet: Array<{ resolve: (value: SkillDefinition | undefined) => void; reject: (error: unknown) => void }> = []
     const result = await setup({
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
-          list: () => new Promise<SkillSummary[]>((resolve) => { pendingList.push(resolve) }),
+          list: () => {
+            listCalls += 1
+            if (listCalls === 1) return Promise.resolve<SkillSummary[]>([])
+            if (listCalls === 2) {
+              return Promise.resolve<SkillSummary[]>([{ name: 'demo-skill', description: 'demo', source: 'runtime', provider: 'runtime' }])
+            }
+            return new Promise<SkillSummary[]>((resolve) => { resolvePendingList = resolve })
+          },
           get: () => new Promise<SkillDefinition | undefined>((resolve, reject) => { pendingGet.push({ resolve, reject }) }),
         } as never)
       },
     })
+    await tick()
     result.terminal.send('/skill:demo-skill')
     result.terminal.send('\r')
     await tick()
@@ -3988,12 +4031,10 @@ describe('skill slash command', () => {
     await tick()
     await dispose(result)
 
-    for (const resolve of pendingList) resolve([{ name: 'late', description: 'late', source: 'runtime', provider: 'runtime' }])
+    resolvePendingList?.([{ name: 'other-skill', description: 'late', source: 'runtime', provider: 'runtime' }])
     pendingGet[0]?.resolve({ name: 'demo-skill', description: 'late', source: 'runtime', provider: 'runtime', content: 'late body' })
-    pendingGet[1]?.reject(new Error('late failure'))
     await tick()
     expect(result.agent.sent).toEqual([])
-    expect(result.terminal.output).not.toContain('late failure')
     expect(result.terminal.output).not.toContain('late body')
   })
 })

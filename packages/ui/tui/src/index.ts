@@ -1264,23 +1264,40 @@ export function createTuiChat(
       appendNotice('Skills are not available in this session.', 'warning')
       return
     }
-    skills.get(name, { cwd, signal: skillAbort.signal }).then(
-      (skill) => {
+    const lookup = { cwd, signal: skillAbort.signal }
+    const reportFailure = (error: unknown): void => {
+      if (disposed) return
+      appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+    }
+    skills.list(lookup).then(
+      (summaries) => {
         if (disposed) return
-        if (skill === undefined) {
+        const summary = summaries.find(skill => skill.name === name)
+        if (summary === undefined) {
           appendNotice(`Unknown skill: ${name}`, 'warning')
           return
         }
-        if (!isSkillUserInvocable(skill)) {
+        if (!isSkillUserInvocable(summary)) {
           appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
           return
         }
-        deliver(renderSkillInvocation(skill, instructions))
+        skills.get(name, lookup).then(
+          (skill) => {
+            if (disposed) return
+            if (skill === undefined) {
+              appendNotice(`Unknown skill: ${name}`, 'warning')
+              return
+            }
+            if (!isSkillUserInvocable(skill)) {
+              appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+              return
+            }
+            deliver(renderSkillInvocation(skill, instructions))
+          },
+          reportFailure,
+        )
       },
-      (error: unknown) => {
-        if (disposed) return
-        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
-      },
+      reportFailure,
     )
   }
 

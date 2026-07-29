@@ -93,7 +93,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isSkillName(args.name)) {
         throw new Error(`invalid skill name "${args.name}"`)
       }
-      const skill = await ctx.skills.get(args.name, { cwd: exec.agent?.session.header.cwd, signal: exec.signal })
+      const lookup = { cwd: exec.agent?.session.header.cwd, signal: exec.signal }
+      const summary = (await ctx.skills.list(lookup)).find(skill => skill.name === args.name)
+      if (!summary) {
+        throw new Error(`skill "${args.name}" is unknown or no longer available`)
+      }
+      if (!isModelInvocable(summary)) {
+        throw new Error(`skill "${args.name}" is not available for model invocation`)
+      }
+      const skill = await ctx.skills.get(args.name, lookup)
       if (!skill) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
