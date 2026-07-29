@@ -642,6 +642,25 @@ Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-stru
 
 Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
 
+## `skills/*`
+
+### `skills/change` — emit
+
+A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * A skill provider, runtime contribution, or provider-backed catalog may
+ * have changed. This is an unfiltered invalidation notification; consumers
+ * refetch the catalog for their own lookup options. Listener failures are
+ * contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'skills/change'(): void
+```
+
+Source: [`packages/skill/skill/src/index.ts:157`](../../packages/skill/skill/src/index.ts)
+
 ## `slash/*`
 
 ### `slash/input-begin-command` — bail

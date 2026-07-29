@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-tool-skill
  */
 
+import { createHash } from 'node:crypto'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -13,9 +14,12 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
-export const inject = ['tools', 'skills']
+export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
+const CATALOG_ENTRIES_START = '<available_skills>\n'
+const CATALOG_ENTRIES_END = '</available_skills>'
+const PLUGIN_SOURCE = { kind: 'plugin', plugin: 'dsh-tool-skill' } as const
 
 /** Model-facing skill catalog configuration. */
 export interface Config {
@@ -117,19 +121,21 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
-  const catalogLoaded = new WeakSet<object>()
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
-    if (catalogLoaded.has(agent.session)) return
-    if (ctx.tools.get(skillTool.name, agent) !== registeredSkillTool) {
-      catalogLoaded.add(agent.session)
-      return
-    }
-    const skills = await ctx.skills.list({ cwd: agent.session.header.cwd, signal })
-    if (skills.length > 0) {
-      const catalog = renderCatalogMessage(skills, catalogDescriptionMaxLength)
-      agent.inject(catalog)
-    }
-    catalogLoaded.add(agent.session)
+    const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
+    const snapshot = toolVisible
+      ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
+      : { skills: [], complete: true }
+    signal.throwIfAborted()
+    if (!snapshot.complete) return
+    const digest = catalogDigest(snapshot.skills, catalogDescriptionMaxLength)
+    const history = catalogHistory(agent)
+    if (history.visibleDigest === digest) return
+    if (!history.published && snapshot.skills.length === 0) return
+    const catalog = history.published
+      ? renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength)
+      : renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength)
+    agent.inject(catalog)
   })
 }
 
@@ -180,7 +186,7 @@ function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceB
 }
 
 function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
-  const entries = skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
+  const entries = renderCatalogEntries(skills, descriptionMaxLength)
   return createUserMessage({
     content: [{
       type: 'text',
@@ -196,8 +202,82 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
         '</system-reminder>',
       ].join('\n'),
     }],
-    source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    source: PLUGIN_SOURCE,
   })
+}
+
+function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
+  const entries = renderCatalogEntries(skills, descriptionMaxLength)
+  const availability = skills.length === 0
+    ? [
+      'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
+    ]
+    : [
+      'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
+    ]
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: [
+        '<system-reminder>',
+        'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
+        '',
+        '<available_skills>',
+        ...entries,
+        '</available_skills>',
+        '',
+        ...availability,
+        '</system-reminder>',
+      ].join('\n'),
+    }],
+    source: PLUGIN_SOURCE,
+  })
+}
+
+function renderCatalogEntries(skills: SkillSummary[], descriptionMaxLength: number): string[] {
+  return skills.map(skill => `- \`${skill.name}\`: ${catalogDescription(skill.description, descriptionMaxLength)}`)
+}
+
+function catalogDigest(skills: SkillSummary[], descriptionMaxLength: number): string {
+  return digestCatalogEntries(renderCatalogEntries(skills, descriptionMaxLength).join('\n'))
+}
+
+function digestCatalogEntries(entries: string): string {
+  return createHash('sha256')
+    .update(entries)
+    .digest('hex')
+}
+
+function catalogHistory(agent: Agent): { visibleDigest?: string; published: boolean } {
+  const visible = new Set(agent.session.surface.nodes)
+  const events = agent.session.events
+  let published = false
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    // The loop bounds prove the read-only event view contains this index.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const event = events[index]!
+    if (event.type !== 'user/message'
+      || event.data.source.kind !== 'plugin'
+      || event.data.source.plugin !== PLUGIN_SOURCE.plugin) continue
+    const digest = catalogContentDigest(event.data.content)
+    if (digest === undefined) continue
+    published = true
+    if (visible.has(event.seq)) return { visibleDigest: digest, published }
+  }
+  return { published }
+}
+
+function catalogContentDigest(content: UserMessage['content']): string | undefined {
+  if (content.length !== 1 || content[0]?.type !== 'text') return undefined
+  const text = content[0].text
+  const start = text.indexOf(CATALOG_ENTRIES_START)
+  if (start === -1) return undefined
+  const entriesStart = start + CATALOG_ENTRIES_START.length
+  const end = text.indexOf(CATALOG_ENTRIES_END, entriesStart)
+  if (end === -1) return undefined
+  const renderedEntries = text.slice(entriesStart, end)
+  const entries = renderedEntries.endsWith('\n') ? renderedEntries.slice(0, -1) : renderedEntries
+  return digestCatalogEntries(entries)
 }
 
 function catalogDescription(value: string, maxLength: number): string {

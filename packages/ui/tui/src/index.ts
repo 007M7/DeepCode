@@ -1044,10 +1044,12 @@ export function createTuiChat(
   }
 
   // Skill listing is async while `createTuiChat` is synchronous, so the
-  // completions rebuild once the catalog resolves. Disabled-for-model skills
-  // are absent from `list()`, so they never appear as completions; a user can
+  // TUI retains the last complete catalog for synchronous editor completion
+  // and refreshes it after registry invalidation. Disabled-for-model skills are
+  // absent from snapshots, so they never appear as completions; a user can
   // still invoke one by typing its exact name.
   let skillCommands: SlashCommand[] = []
+  let skillCommandScan = 0
   const refreshCommandAutocomplete = (): void => {
     const base = new CombinedAutocompleteProvider(
       [
@@ -1068,24 +1070,36 @@ export function createTuiChat(
       agent,
     ))
   }
+  const refreshVisibleSlashAutocomplete = (): void => {
+    const cursor = editor.getCursor()
+    const textBeforeCursor = editor.getLines().slice(cursor.line, cursor.line + 1).join('').slice(0, cursor.col)
+    if (cursor.line === 0 && textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ')) {
+      // pi-tui's provider setter closes an existing menu but does not query
+      // the replacement for the current draft. Tab in a slash-name context
+      // only requests suggestions, so it refreshes without editing the text.
+      editor.handleInput('\t')
+    }
+  }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
 
-  const loadSkillCommands = (service: SkillService): void => {
-    service.list({ cwd, signal: skillAbort.signal }).then(
-      (summaries) => {
-        if (disposed || summaries.length === 0) return
+  const refreshSkillCommands = (service: SkillService): void => {
+    const scan = ++skillCommandScan
+    service.snapshot({ cwd, signal: skillAbort.signal }).then(
+      (snapshot) => {
+        if (disposed || scan !== skillCommandScan || !snapshot.complete) return
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
         // instructions placeholder. `SkillSource` is open-ended; every
         // non-project source (user, custom, bundled, runtime, …) collapses
         // to `(user)`.
-        skillCommands = summaries.map(skill => ({
+        skillCommands = snapshot.skills.map(skill => ({
           name: `skill:${skill.name}`,
           description: skill.description,
           argumentHint: skill.source.startsWith('project-') ? '(project)' : '(user)',
         }))
         refreshCommandAutocomplete()
+        refreshVisibleSlashAutocomplete()
         requestRender()
       },
       () => {
@@ -1094,7 +1108,10 @@ export function createTuiChat(
       },
     )
   }
-  if (skills !== undefined) loadSkillCommands(skills)
+  const disposeSkillChanges = skills === undefined
+    ? () => {}
+    : ctx.on('skills/change', () => { refreshSkillCommands(skills) })
+  if (skills !== undefined) refreshSkillCommands(skills)
 
   // The agent scope is minted by agent-loop and intentionally inherits only
   // that core plugin's dependencies. A child command producer declares its own
@@ -1488,6 +1505,7 @@ export function createTuiChat(
     fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
+    disposeSkillChanges()
     disposePromptChanges()
     for (const value of promptValues) value.dispose()
     stopBannerReveal()
