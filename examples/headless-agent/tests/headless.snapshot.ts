@@ -25,6 +25,8 @@ const advancedScenarioDir = join(snapshotsDir, 'advanced-toolchain')
 const advancedSessionFixture = join(advancedScenarioDir, 'session.jsonl')
 const advancedStreamExpected = join(advancedScenarioDir, 'stream-json.expected.jsonl')
 const advancedConfigPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
+const e2bScenarioDir = join(snapshotsDir, 'e2b-overlay')
+const e2bConfigPath = fileURLToPath(new URL('../e2b.cordis.snapshot.yml', import.meta.url))
 const ptyScenarioDir = join(snapshotsDir, 'pty-tools')
 const ptySessionFixture = join(ptyScenarioDir, 'session.jsonl')
 const ptyStreamExpected = join(ptyScenarioDir, 'stream-json.expected.jsonl')
@@ -606,6 +608,60 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(advancedStreamExpected, normalized)
     expect(normalized).toBe(await readFile(advancedStreamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('pins the E2B overlay provider-neutral tool surface', async () => {
+    const prompt = await scenarioPrompt(e2bScenarioDir, 'e2b-overlay')
+    const streamExpected = join(e2bScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'E2B overlay headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-e2b-overlay-',
+      binScript,
+      configPath: e2bConfigPath,
+      binArgs: ['--config', e2bConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: join(e2bScenarioDir, 'session.jsonl'),
+        DSH_SNAPSHOT_OVERRIDE: join(e2bScenarioDir, 'replay.override.json'),
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const headers = parseJsonl(logs[0]?.content ?? '').filter(record => record.type === 'request/header')
+        expect(headers).toHaveLength(1)
+        const data = headers[0]?.data as JsonObject | undefined
+        const header = data?.header as JsonObject | undefined
+        if (!Array.isArray(header?.tools)) throw new Error('E2B overlay snapshot request has no tool schemas')
+        const toolNames = header.tools.map((tool, index) => {
+          if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) {
+            throw new Error(`E2B overlay snapshot tool schema ${index} is not an object`)
+          }
+          const name = (tool as JsonObject).name
+          if (typeof name !== 'string') throw new Error(`E2B overlay snapshot tool schema ${index} has no name`)
+          return name
+        })
+        expect(toolNames.filter(name => name === 'lsp' || name === 'run_code' || name.startsWith('terminal_')).sort())
+          .toEqual([
+            'lsp',
+            'run_code',
+            'terminal_close',
+            'terminal_list',
+            'terminal_open',
+            'terminal_read',
+            'terminal_send',
+            'terminal_signal',
+          ])
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('replays persisted goal tools through the one-shot app', async () => {

@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "Report the assembled E2B overlay tool surface."
+    }
+  ]
+}
