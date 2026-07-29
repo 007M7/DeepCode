@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
+import { DEFAULT_SCHEMA, load, Type } from 'js-yaml'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
 import {
   collectPackageGraph,
@@ -566,29 +567,28 @@ function renderCapabilitySeams(pkgs: Pkg[]): string {
   return lines.join('\n')
 }
 
-function parseExampleCordis(rel: string): ExamplePlugin[] {
-  const text = readFileSync(resolve(root, rel), 'utf8')
-  const plugins: ExamplePlugin[] = []
-  let current: { id: string; name?: string } | null = null
-  const flush = (): void => {
-    if (current?.name) plugins.push({ id: current.id, name: current.name })
-  }
-  for (const line of text.split('\n')) {
-    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
-    if (id?.[1] !== undefined) {
-      flush()
-      current = { id: stripYamlScalar(id[1]) }
-      continue
-    }
-    const name = /^\s+name:\s+(.+?)\s*$/.exec(line)
-    if (name?.[1] !== undefined && current) current.name = stripYamlScalar(name[1])
-  }
-  flush()
-  return plugins
-}
+const jsExpressionType = new Type('tag:yaml.org,2002:js', {
+  kind: 'scalar',
+  construct: (value: string | null): string => value ?? '',
+})
+const cordisSchema = DEFAULT_SCHEMA.extend([jsExpressionType])
 
-function stripYamlScalar(value: string): string {
-  return value.trim().replace(/^['"]|['"]$/g, '')
+function parseExampleCordis(rel: string): ExamplePlugin[] {
+  const document = load(readFileSync(resolve(root, rel), 'utf8'), { schema: cordisSchema })
+  if (!Array.isArray(document)) throw new Error(`${rel}: expected a top-level config array`)
+  const plugins: ExamplePlugin[] = []
+  const visit = (entries: unknown[]): void => {
+    for (const value of entries) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+      const entry = value as { id?: unknown; name?: unknown; insert?: unknown }
+      if (typeof entry.id === 'string' && typeof entry.name === 'string') {
+        plugins.push({ id: entry.id, name: entry.name })
+      }
+      if (Array.isArray(entry.insert)) visit(entry.insert)
+    }
+  }
+  visit(document)
+  return plugins
 }
 
 const APP_EXAMPLES = [

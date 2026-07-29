@@ -96,8 +96,36 @@ flowchart LR
   cfg --> plugin_tui_fs_local
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
-  plugin_tui_tools["tools<br/>@deepseek-ai/dsh-tool-ask-user"]
-  cfg --> plugin_tui_tools
+  plugin_tui_hmr["hmr<br/>@cordisjs/plugin-hmr"]
+  cfg --> plugin_tui_hmr
+  plugin_tui_invariants["invariants<br/>@deepseek-ai/dsh-invariants"]
+  cfg --> plugin_tui_invariants
+  plugin_tui_session_invariant["session-invariant<br/>@deepseek-ai/dsh-session/invariant"]
+  cfg --> plugin_tui_session_invariant
+  plugin_tui_agent_invariant["agent-invariant<br/>@deepseek-ai/dsh-agent/invariant"]
+  cfg --> plugin_tui_agent_invariant
+  plugin_tui_scope_invariant["scope-invariant<br/>@deepseek-ai/dsh-scope/invariant"]
+  cfg --> plugin_tui_scope_invariant
+  plugin_tui_agent_loop_invariant["agent-loop-invariant<br/>@deepseek-ai/dsh-agent-loop/invariant"]
+  cfg --> plugin_tui_agent_loop_invariant
+  plugin_tui_session_checkpoint_policy["session-checkpoint-policy<br/>@deepseek-ai/dsh-session-checkpoint-policy"]
+  cfg --> plugin_tui_session_checkpoint_policy
+  plugin_tui_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
+  cfg --> plugin_tui_session_query_sqlite
+  plugin_tui_session_reference["session-reference<br/>@deepseek-ai/dsh-session-reference"]
+  cfg --> plugin_tui_session_reference
+  plugin_tui_tool_result_prune["tool-result-prune<br/>@deepseek-ai/dsh-compact-tool-result-prune"]
+  cfg --> plugin_tui_tool_result_prune
+  plugin_tui_tool_goal["tool-goal<br/>@deepseek-ai/dsh-tool-goal"]
+  cfg --> plugin_tui_tool_goal
+  plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
+  cfg --> plugin_tui_tool_ralph
+  plugin_tui_tui_prompt["tui-prompt<br/>@deepseek-ai/dsh-tui/prompt"]
+  cfg --> plugin_tui_tui_prompt
+  plugin_tui_tui["tui<br/>@deepseek-ai/dsh-tui"]
+  cfg --> plugin_tui_tui
+  plugin_tui_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
+  cfg --> plugin_tui_tool_ask_user
 ```
 
 | Plugin id | Package / module |
@@ -146,7 +174,21 @@ flowchart LR
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
-| `tools` | `@deepseek-ai/dsh-tool-ask-user` |
+| `hmr` | `@cordisjs/plugin-hmr` |
+| `invariants` | `@deepseek-ai/dsh-invariants` |
+| `session-invariant` | `@deepseek-ai/dsh-session/invariant` |
+| `agent-invariant` | `@deepseek-ai/dsh-agent/invariant` |
+| `scope-invariant` | `@deepseek-ai/dsh-scope/invariant` |
+| `agent-loop-invariant` | `@deepseek-ai/dsh-agent-loop/invariant` |
+| `session-checkpoint-policy` | `@deepseek-ai/dsh-session-checkpoint-policy` |
+| `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
+| `session-reference` | `@deepseek-ai/dsh-session-reference` |
+| `tool-result-prune` | `@deepseek-ai/dsh-compact-tool-result-prune` |
+| `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
+| `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
+| `tui-prompt` | `@deepseek-ai/dsh-tui/prompt` |
+| `tui` | `@deepseek-ai/dsh-tui` |
+| `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 
 Source configs: [`apps/cli/base.cordis.yml`](base.cordis.yml), [`apps/cli/tui.cordis.yml`](tui.cordis.yml).
 
