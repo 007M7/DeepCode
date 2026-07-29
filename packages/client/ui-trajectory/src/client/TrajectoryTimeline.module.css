@@ -1,0 +1,228 @@
+.root {
+  flex: none;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  user-select: none;
+}
+
+.plot {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  height: 50px;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.labels {
+  position: relative;
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xs-13);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.labels span {
+  position: absolute;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 8px;
+  text-align: right;
+}
+
+.labels span:nth-child(1) {
+  top: 7px;
+}
+
+.labels span:nth-child(2) {
+  top: 21px;
+}
+
+.labels span:nth-child(3) {
+  top: 35px;
+}
+
+.track {
+  position: relative;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xs-13);
+}
+
+.track:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.lanes {
+  position: absolute;
+  z-index: 2;
+  inset: 7px 0;
+}
+
+.turnBoundaries {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+}
+
+.turnBoundary {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--trajectory-turn-left);
+  width: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.span {
+  position: absolute;
+  top: calc(var(--trajectory-span-lane) * 14px);
+  left: calc(var(--trajectory-span-left) + 1px);
+  width: max(2px, calc(var(--trajectory-span-width) - 2px));
+  height: 8px;
+  min-width: 2px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-secondary);
+  opacity: 0.78;
+}
+
+.span[data-timeline-span='user'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.span[data-timeline-span='context'] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 68%,
+    var(--dsw-alias-label-secondary)
+  );
+}
+
+.span[data-timeline-span='message'] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
+    var(--dsw-alias-state-error-secondary)
+  );
+}
+
+.span[data-timeline-span='tool'] {
+  background: var(--dsw-alias-state-warn-label);
+}
+
+.span[data-timeline-span='subtool'] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-label) 62%,
+    var(--dsw-alias-label-tertiary)
+  );
+}
+
+.span[data-equal-duration='true'] {
+  width: 8px;
+  min-width: 8px;
+}
+
+.span[data-selected='false'] {
+  opacity: 0.2;
+}
+
+.span[data-current='true'] {
+  z-index: 1;
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px var(--dsw-alias-bg-layer-2),
+    0 0 0 2px var(--dsw-alias-state-business-primary);
+}
+
+.span[data-search-match='false'] {
+  opacity: 0.14;
+}
+
+.selection {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: var(--trajectory-selection-left);
+  width: var(--trajectory-selection-width);
+  min-width: 1px;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 12%,
+    transparent
+  );
+  box-shadow:
+    -100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent),
+    100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent);
+  pointer-events: none;
+}
+
+.selectionEdges {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  left: var(--trajectory-selection-left);
+  width: var(--trajectory-selection-width);
+  min-width: 1px;
+  pointer-events: none;
+}
+
+.hoverLine {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  left: clamp(
+    0px,
+    calc(var(--trajectory-hover-left) - 1px),
+    calc(100% - 2px)
+  );
+  width: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  pointer-events: none;
+}
+
+.selectionEdges::before,
+.selectionEdges::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--dsw-alias-state-business-primary);
+  content: '';
+}
+
+.selectionEdges::before {
+  left: 0;
+}
+
+.selectionEdges::after {
+  right: 0;
+}
+
+.selectionEdges[data-dragging='true']::before,
+.selectionEdges[data-dragging='true']::after {
+  width: 2px;
+}
+
+.selection[data-dragging='true'] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 18%,
+    transparent
+  );
+}
