@@ -210,6 +210,17 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     }
   })
 
+  it('accepts an ignored-only staged selection', () => {
+    const result = runOxlint([
+      '--fix',
+      '--no-error-on-unmatched-pattern',
+      'scripts/install-lefthook.mjs',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(result.status, normalizedOutput(result)).toBe(0)
+  })
+
   it('applies staged stylistic fixes before Oxlint validation', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)

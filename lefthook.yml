@@ -15,7 +15,7 @@ pre-commit:
       glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:
         - 'vendor/*/src/**'
-      run: node_modules/.bin/oxlint --fix {staged_files}
+      run: node_modules/.bin/oxlint --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
     - name: whitespace (staged)
