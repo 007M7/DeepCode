@@ -97,9 +97,6 @@
     # Refuses write/edit inside the dsh checkout this launcher runs from, on that
     # checkout's own branch, until the session loads dsh-customize. Inert
     # everywhere else, so an ordinary project sees no change.
-    - id: source-guard
-      name: '@deepseek-ai/dsh-source-guard'
-
     - id: tool-result-prune
       name: '@deepseek-ai/dsh-compact-tool-result-prune'
 

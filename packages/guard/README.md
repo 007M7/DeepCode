@@ -7,6 +7,5 @@ Behavioral guard plugins that watch the agent loop and correct it — some by nu
 | Package | Role | ctx key |
 |---|---|---|
 | `repeat-tool-guard/` | Advisory reminders when an agent loops on identical tool calls | (listens on `ctx.tools`' waterfalls) |
-| `source-guard/` | Denies file edits inside a dsh staging worktree until the required skill is loaded | (listens on `ctx.tools`' waterfalls) |
 
 An advisory guard's reminders travel as `additionalContexts` on the `tools/post-execute` decision; the agent loop appends them as logged plugin-sourced `user/message` events after the step's tool results (see [the tools package](../core/tools)), so everything such a guard says to the model is reconstructable from the session log. An enforcing guard instead decides on `tools/pre-execute`, where a `deny` becomes the call's error result and the operation never dispatches.
