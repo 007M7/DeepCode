@@ -22,6 +22,7 @@ import {
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
   sessionSelectModelRequestSchema,
+  sessionUpdateQueueRequestSchema,
 } from '../api/sessions.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostDescribeRequestSchema,
@@ -69,6 +70,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
+  'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },

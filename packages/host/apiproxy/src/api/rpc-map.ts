@@ -24,6 +24,7 @@ export interface RpcMethodMap {
   'session.models': SessionsApi['models']
   'session.selectModel': SessionsApi['selectModel']
   'session.prompt': SessionsApi['prompt']
+  'session.updateQueue': SessionsApi['updateQueue']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']

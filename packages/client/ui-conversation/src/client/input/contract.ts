@@ -6,6 +6,7 @@
  * (machine.ts) is package-private and never exported.
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InboxItemId } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
@@ -99,11 +100,12 @@ export interface ComposerKeyboard {
   dismissPopup(): void
 }
 
-/** One queued-message row projected from the session/queued frames (T9 supplies the store). */
+/** One independently addressable row projected from the transient queue snapshot. */
 export interface QueuedMessage {
-  /** Stable row key: the enqueueing prompt's rpcId. */
-  readonly key: string
+  readonly id: InboxItemId
   readonly preview: string
+  readonly text: string | null
+  readonly placement: 'queued' | 'steering'
 }
 
 /** Guard union of the scoped consume-token event, checked by the machine. */

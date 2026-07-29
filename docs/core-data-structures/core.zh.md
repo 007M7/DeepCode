@@ -438,6 +438,33 @@ type SendTarget = 'next-turn' | 'next-step'
 type InboxPlacement = 'queued' | 'steering'
 ```
 
+`InboxItemId` 是为每次获准进入 FIFO 的项铸造的进程本地品牌字符串。它有意区别于 `MessageId`：同一条不可变消息发送两次，会创建两个可独立寻址的待处理项。
+
+```ts type-equiv
+/** One independently addressable accepted occurrence in an agent inbox. */
+interface InboxItem {
+  /** Agent-loop-minted occurrence identity. */
+  readonly id: InboxItemId
+  /** Identified message delivered by the caller. */
+  readonly message: UserMessage
+  /** Acceptance-time FIFO classification. */
+  readonly placement: InboxPlacement
+}
+```
+
+```ts type-equiv
+/** A user-requested mutation of one still-pending inbox item. */
+type InboxAction =
+  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
+  | { readonly kind: 'remove' }
+  | { readonly kind: 'promote' }
+```
+
+```ts type-equiv
+/** Result of applying an inbox action at the synchronous ownership boundary. */
+type InboxActionResult = 'applied' | 'not-found'
+```
+
 ```ts type-equiv
 /**
  * Options for the unified {@link Agent.send} primitive over the
@@ -461,7 +488,7 @@ interface SendOptions {
 }
 ```
 
-固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。投递方法不会返回其 `MessageId`，但该 id 在这条消息的各个 `agent/inbox/*` 事件中保持稳定。注入绕过两个 FIFO，从不出现在这些事件中。
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换消息内容时，其 `MessageId` 保持稳定；外层 `InboxItemId` 则在 `agent/inbox/enqueue`、`agent/inbox/update` 及终态 dequeue 或 discard 之间标识同一次入队。注入绕过两个 FIFO，从不出现在这些事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -525,6 +552,18 @@ interface Agent {
    * @param options - target queue and wakeup decision.
    */
   send(message: UserMessage, options: SendOptions): void
+
+  /**
+   * Mutate one still-pending inbox occurrence synchronously. Editing preserves
+   * the message identity and queue position; removal publishes its terminal
+   * discard; promotion moves it to the front of its current FIFO and makes a
+   * queued item waking. A driver-claimed item is no longer pending and returns
+   * `not-found`.
+   * @param id - independently addressable inbox occurrence.
+   * @param action - edit, remove, or promote operation.
+   * @returns whether the pending occurrence was found and updated.
+   */
+  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

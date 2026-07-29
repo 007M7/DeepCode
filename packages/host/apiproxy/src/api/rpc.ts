@@ -9,6 +9,7 @@ import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 /**
  * Message correlation id: the initiator mints it on a request; a response
@@ -44,6 +45,7 @@ export interface RpcErrorDetailsMap {
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
+  'queue-item-not-found': { itemId: InboxItemId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */

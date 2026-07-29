@@ -5,6 +5,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -124,6 +125,12 @@ export interface SessionModels {
   failures: ModelCatalogFailure[]
 }
 
+/** A client-requested mutation of one still-pending queue item. */
+export type QueueAction =
+  | { kind: 'edit'; content: ContentBlock[] }
+  | { kind: 'remove' }
+  | { kind: 'promote' }
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
@@ -218,6 +225,14 @@ export interface SessionsApi {
    */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+
+  /**
+   * Edits, removes, or promotes one pending inbox occurrence. Promotion means
+   * first in its current FIFO; a queued item is also made waking, so an idle
+   * agent starts it and a running agent takes it as the next independent turn.
+   */
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>

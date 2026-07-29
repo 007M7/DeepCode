@@ -98,6 +98,21 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxItem",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxAction",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxActionResult",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SendOptions",
       "source": "packages/core/agent/src/types.ts"
     },

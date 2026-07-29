@@ -1051,6 +1051,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         )
         return ok(request, { accepted: true as const })
       },
+      updateQueue: request => err(request, {
+        code: 'queue-item-not-found',
+        message: 'fixture has no pending queue item',
+        details: { itemId: request.payload.itemId },
+      }),
       cancel: (request) => {
         const replay = replays.get(request.payload.sessionId)
         if (replay !== undefined) {
@@ -1487,6 +1492,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
+      case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)

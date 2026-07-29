@@ -8,13 +8,18 @@
  */
 
 import type { Context } from 'cordis'
-import { agentCarrier, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { randomUUID } from 'node:crypto'
+import { agentCarrier, assembleContextFor, emitAgentEvent, InboxItemId } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
   Agent,
   CancelOptions,
   AgentInterruptReason,
+  InboxAction,
+  InboxActionResult,
+  InboxItem,
+  InboxItemId as InboxItemIdType,
   InboxPlacement,
   AgentOptions,
   AgentStatus,
@@ -55,9 +60,9 @@ type StepOutcome =
  */
 export class ReactLoopAgent implements Agent {
   /** Prompts awaiting individual turns. */
-  private queued: { message: UserMessage; wakeup: boolean }[] = []
+  private queued: { item: InboxItem; wakeup: boolean }[] = []
   /** Input taken into the session log at step boundaries. */
-  private outbox: { message: UserMessage; steering: boolean }[] = []
+  private outbox: { message: UserMessage; steering: boolean; item?: InboxItem }[] = []
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
@@ -115,16 +120,77 @@ export class ReactLoopAgent implements Agent {
     }
 
     const placement: InboxPlacement = target === 'next-step' && this.acceptsNextStep ? 'steering' : 'queued'
+    const item: InboxItem = Object.freeze({
+      id: InboxItemId(randomUUID()),
+      message,
+      placement,
+    })
     if (placement === 'steering') {
-      this.outbox.push({ message, steering: true })
+      this.outbox.push({ message, steering: true, item })
     } else {
-      this.queued.push({ message, wakeup })
+      this.queued.push({ item, wakeup })
     }
     // Preserve the routing decision for every send in this synchronous caller
     // stack, while installing quiescence ownership before enqueue observers
     // can cancel or dispose.
     if (placement === 'queued' && wakeup) this.scheduleKick()
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', message, placement)
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', item)
+  }
+
+  /** Apply one synchronous mutation to a still-pending inbox occurrence. */
+  updateInbox(id: InboxItemIdType, action: InboxAction): InboxActionResult {
+    const queuedIndex = this.queued.findIndex(candidate => candidate.item.id === id)
+    const outboxIndex = queuedIndex === -1
+      ? this.outbox.findIndex(candidate => candidate.item?.id === id)
+      : -1
+    if (queuedIndex === -1 && outboxIndex === -1) return 'not-found'
+
+    const pending = queuedIndex === -1 ? this.outbox[outboxIndex] : this.queued[queuedIndex]
+    if (pending === undefined || pending.item === undefined) {
+      throw new Error(`agent "${this.id}" inbox index changed during synchronous update`)
+    }
+
+    switch (action.kind) {
+      case 'edit': {
+        const item: InboxItem = Object.freeze({
+          ...pending.item,
+          message: freezeMessage({ ...pending.item.message, content: action.content }),
+        })
+        if (queuedIndex !== -1) {
+          const queued = this.queued[queuedIndex]
+          if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during edit`)
+          this.queued[queuedIndex] = { ...queued, item }
+        } else {
+          const outbox = this.outbox[outboxIndex]
+          if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during edit`)
+          this.outbox[outboxIndex] = { ...outbox, message: item.message, item }
+        }
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/update', item, 'edit')
+        return 'applied'
+      }
+      case 'remove': {
+        if (queuedIndex !== -1) this.queued.splice(queuedIndex, 1)
+        else this.outbox.splice(outboxIndex, 1)
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
+        return 'applied'
+      }
+      case 'promote': {
+        if (queuedIndex !== -1) {
+          const queued = this.queued.splice(queuedIndex, 1)[0]
+          if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during promotion`)
+          this.queued.unshift({ item: queued.item, wakeup: true })
+          this.scheduleKick()
+        } else {
+          const outbox = this.outbox.splice(outboxIndex, 1)[0]
+          if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during promotion`)
+          this.outbox.unshift(outbox)
+        }
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/update', pending.item, 'promote')
+        return 'applied'
+      }
+      default:
+        return assertNever(action)
+    }
   }
 
   /** Queue one ordinary prompt turn and wake the driver. */
@@ -169,9 +235,9 @@ export class ReactLoopAgent implements Agent {
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
     }
     if (!options.keepInbox) {
-      const discarded = this.queued.map(item => item.message)
+      const discarded = this.queued.map(item => item.item)
       for (const item of this.outbox) {
-        if (item.steering) discarded.push(item.message)
+        if (item.steering && item.item !== undefined) discarded.push(item.item)
       }
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
@@ -222,7 +288,8 @@ export class ReactLoopAgent implements Agent {
     // The some() guard above proves the queue is non-empty; the non-null
     // assertion expresses that invariant.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const { message } = this.queued.shift()!
+    const { item } = this.queued.shift()!
+    const { message } = item
     const inheritedOutboxLength = this.outbox.length
 
     const admission = new AbortController()
@@ -293,7 +360,7 @@ export class ReactLoopAgent implements Agent {
     // Published only after the abort owner and pending done are installed: a
     // dequeue listener that cancels or disposes must find live cancellation
     // and quiescence ownership, not the previous activity's settled state.
-    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message, 'queued')
+    emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item)
   }
 
   /**
@@ -643,7 +710,8 @@ export class ReactLoopAgent implements Agent {
     for (const item of this.outbox.splice(0, limit)) {
       if (item.steering) {
         steered = true
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.message, 'steering')
+        if (item.item === undefined) throw new Error(`agent "${this.id}" steering outbox item has no inbox identity`)
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.item)
         this.session.append(
           'steering/message',
           { turn, message: item.message },

@@ -47,6 +47,7 @@ function agentForCwd(cwd: string): Agent {
     status: 'idle',
     acceptsNextStep: false,
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {
