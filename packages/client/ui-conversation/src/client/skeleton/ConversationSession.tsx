@@ -1,6 +1,6 @@
-/** Strict per-session conversation content: header, view ring, composer, and chat store bindings. */
+/** Strict per-session conversation content: header, view ring, and chat store bindings. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -32,6 +32,7 @@ export function ConversationSession({
   const active = tabs.find(view => view.id === activeId) ?? tabs[0]
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
   const composerPhase = useSession(s => s.composerPhase)
+  const hasPending = useSession(s => s.pending.length > 0)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)
   const storedDraft = useStore(s => s.draft)
@@ -90,7 +91,9 @@ export function ConversationSession({
       {!blankHero && <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>}
-      {composer}
+      {(blankHero || active?.id === 'chat' || hasPending) && (
+        <Fragment key="composer">{composer}</Fragment>
+      )}
     </>
   )
 }
