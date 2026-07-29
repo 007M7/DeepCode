@@ -166,6 +166,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private readonly terminalOperations = new Set<Promise<void>>()
+  private signaledOperation: LocalSendOperation | undefined
   private interrupting: LocalSendOperation | undefined
   private writing: LocalSendOperation | undefined
   private pollingReady: LocalSendOperation | undefined
@@ -173,6 +174,7 @@ export class LocalPtySession implements PtyBackendSession {
   private promptSeen = false
   private promptTextSeen = false
   private promptTail = ''
+  private delayedSignaledPrompt = false
   private shellPgid: number | undefined
   private initializing = false
   private lastOutputAt = Date.now()
@@ -317,6 +319,7 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   async signal(signal: PtySignal): Promise<PtySignalResult> {
+    if (this.active !== undefined) this.signaledOperation = this.active
     const targetPgid = await this.terminal.signalForeground(signal)
     return { delivered: true, targetPgid }
   }
@@ -365,7 +368,9 @@ export class LocalPtySession implements PtyBackendSession {
   private onData(data: string): void {
     const sanitized = this.sanitizer.push(data)
     this.appendOutput(sanitized.text)
-    if (sanitized.prompt) {
+    if (sanitized.prompt && this.delayedSignaledPrompt) {
+      this.delayedSignaledPrompt = false
+    } else if (sanitized.prompt) {
       // Bash can print PROMPT_COMMAND before the kernel publishes its return
       // to the foreground process group. Retain the marker; polling below is
       // the authority that accepts it only after bash owns the foreground.
@@ -461,6 +466,13 @@ export class LocalPtySession implements PtyBackendSession {
   private settleActive(waitReason: PtyWaitReason, retainOwnership = false): void {
     const operation = this.active
     if (operation === undefined) return
+    // A signaled command can return by silence before bash emits its prompt.
+    // Reserve that marker so it cannot become successor readiness after echo.
+    const signaled = this.signaledOperation === operation
+    if (signaled) this.signaledOperation = undefined
+    if (waitReason === 'inferred_idle' && !this.promptSeen && signaled) {
+      this.delayedSignaledPrompt = true
+    }
     const scrollbackTruncated = this.scrollback.snapshot().truncated
     if (retainOwnership) {
       this.stopPolling()
@@ -486,6 +498,7 @@ export class LocalPtySession implements PtyBackendSession {
     this.activeAbort?.()
     this.activeAbort = undefined
     if (this.interrupting === operation) this.interrupting = undefined
+    if (this.signaledOperation === operation) this.signaledOperation = undefined
     this.writing = undefined
     this.pollingReady = undefined
     this.active = undefined
@@ -506,6 +519,7 @@ export class LocalPtySession implements PtyBackendSession {
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
+    this.signaledOperation = operation
     this.interrupting = operation
     this.stopPolling()
     this.ownTerminalOperation(this.interruptOnce(operation))
