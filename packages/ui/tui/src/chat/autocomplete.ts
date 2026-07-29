@@ -33,23 +33,25 @@ export class ReferenceAutocompleteProvider implements AutocompleteProvider {
     cursorCol: number,
     options: { signal: AbortSignal; force?: boolean },
   ): Promise<AutocompleteSuggestions | null> {
+    const basePromise = this.base.getSuggestions(lines, cursorLine, cursorCol, options)
     const currentLine = lines[cursorLine]
     /* v8 ignore next -- Editor always supplies its current state line. */
-    if (currentLine === undefined) return this.base.getSuggestions(lines, cursorLine, cursorCol, options)
+    if (currentLine === undefined) return basePromise
     const token = activeAtToken(currentLine, cursorCol)
     if (token === undefined) {
       this.files.invalidate()
-      return this.base.getSuggestions(lines, cursorLine, cursorCol, options)
+      return basePromise
     }
     const filePromise = this.files.list(token.query, options.signal).catch(() => [])
     const sessionPromise = this.sessions === undefined || token.quoted
       ? Promise.resolve([])
       : this.sessions.listCandidates(this.agent, token.query, undefined, options.signal).catch(() => [])
-    // The command provider has no candidates for an active `@` token. Do not
-    // await it here: upstream may defer its empty result while the editor waits
-    // for this provider, which would suppress otherwise ready references.
-    const [fileCandidates, sessionCandidates] = await Promise.all([filePromise, sessionPromise])
-    if (options.signal.aborted) return null
+    const [base, fileCandidates, sessionCandidates] = await Promise.all([
+      basePromise,
+      filePromise,
+      sessionPromise,
+    ])
+    if (options.signal.aborted) return base
     const fileItems: AutocompleteItem[] = fileCandidates.flatMap((candidate) => {
       const value = formatFileMention(candidate, token.quoted)
       if (value === undefined) return []
@@ -73,8 +75,8 @@ export class ReferenceAutocompleteProvider implements AutocompleteProvider {
       }
     })
     const items = [...fileItems, ...sessionItems]
-    if (items.length === 0) return null
-    return { items, prefix: token.prefix }
+    if (items.length === 0) return base
+    return { items: [...items, ...(base?.items ?? [])], prefix: token.prefix }
   }
 
   applyCompletion(
