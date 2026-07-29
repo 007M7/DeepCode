@@ -227,7 +227,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect((textarea).value).toBe('typed')
   })
 
-  it('wheel over the textarea scrolls the conversation host, not a nested textarea port', () => {
+  it('wheel over a non-overflowing textarea forwards to the conversation host', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
@@ -238,6 +238,40 @@ describe('running and lock semantics (queue cut 1)', () => {
       const wheeled = fireEvent.wheel(textarea, { deltaY: 30 })
       expect(wheeled).toBe(false) // preventDefault
       expect(host.scrollTop).toBe(70)
+    } finally {
+      host.remove()
+    }
+  })
+
+  it('wheel chains: long drafts scroll inside the textarea until each edge, then the host', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
+    const { view, textarea } = bench()
+    host.appendChild(view.container)
+    document.body.appendChild(host)
+    Object.defineProperty(textarea, 'clientHeight', { value: 100, configurable: true })
+    Object.defineProperty(textarea, 'scrollHeight', { value: 400, configurable: true })
+    let scrollTop = 150
+    Object.defineProperty(textarea, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value },
+    })
+    try {
+      // Mid-draft: both directions stay local — host must not move.
+      expect(fireEvent.wheel(textarea, { deltaY: 30 })).toBe(true)
+      expect(fireEvent.wheel(textarea, { deltaY: -30 })).toBe(true)
+      expect(host.scrollTop).toBe(40)
+      // At the bottom edge, further down-scroll forwards to the host.
+      scrollTop = 300
+      expect(fireEvent.wheel(textarea, { deltaY: 30 })).toBe(false)
+      expect(host.scrollTop).toBe(70)
+      // At the top edge, further up-scroll forwards to the host.
+      scrollTop = 0
+      host.scrollTop = 70
+      expect(fireEvent.wheel(textarea, { deltaY: -20 })).toBe(false)
+      expect(host.scrollTop).toBe(50)
     } finally {
       host.remove()
     }

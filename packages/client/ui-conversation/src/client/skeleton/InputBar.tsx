@@ -75,15 +75,20 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked])
 
-  // Active conversation scrollport: never let the textarea become a nested
-  // wheel target; forward delta to `[data-conversation-scroll]` instead.
-  // Hero mounts have no host, so the textarea keeps native wheel scrolling.
+  // Active conversation scrollport: chain the wheel. While the textarea (capped
+  // at 14 lines with overflow-y:auto) can still move in this direction, keep
+  // the native scroll; only at its own edge forward delta to the host so a
+  // short draft never traps the gesture and a long draft stays scrollable.
+  // Hero mounts have no host and keep native wheel scrolling.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
     const onWheel = (e: WheelEvent): void => {
       const host = el.closest('[data-conversation-scroll]')
-      if (!(host instanceof HTMLElement)) return
+      if (!(host instanceof HTMLElement) || e.deltaY === 0) return
+      const atTop = el.scrollTop <= 0
+      const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+      if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atEnd)) return
       e.preventDefault()
       host.scrollTop += e.deltaY
     }

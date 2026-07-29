@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-只要存在会话，`ConversationRoot` 就会始终提供 `wrapActiveBody` owner 回调，将视图环包进 `data-conversation-scroll` 主体，并把编辑器栈放进该主体。活跃阶段 CSS 以 `position: sticky; bottom: 0` 钉住编辑器；hero CSS 在同一滚动主体内居中同一栈。`ConversationSession` 在 blank 时保留隐藏 chrome 的 header + body 壳，使首次发送时树座位不变。可见时会话标题栏仍是滚动容器之上的 `flex: none` 列 chrome。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
+只要存在会话，`ConversationRoot` 就会始终提供 `wrapActiveBody` owner 回调，将视图环包进 `data-conversation-scroll` 主体，并用 `data-composer-seat` 包住整条 `'conversation.composer'` chain 输出（`overlay: true` 下的 fallback 与选举出的 overlay 兄弟节点）。活跃阶段 CSS 以 `position: sticky; bottom: 0` 钉住该 seat，使用户未贴底时 Question／Approval 接管仍可见；hero CSS 在滚动主体内居中 fallback 栈。`ConversationSession` 在 blank 时保留隐藏 chrome 的 header + body 壳，使首次发送时树座位不变。可见时会话标题栏仍是滚动容器之上的 `flex: none` 列 chrome。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
 
-会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 监听 `wheel`，调用 `preventDefault`，并将 `deltaY` 施加到宿主。
+会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 链式处理 `wheel`：在限高 textarea 仍能沿该方向滚动时保留原生手势；仅在自身边缘才 `preventDefault` 并将 `deltaY` 施加到宿主。
 
 ## Alternatives considered
 

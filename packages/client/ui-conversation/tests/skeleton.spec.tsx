@@ -59,6 +59,8 @@ function mount(
   snapshot: ConversationSnapshot,
   workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
   retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
+  /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
+  overlayTakeover = false,
 ) {
   const root = sid('root')
   const sessions = createSnapshotStore<SessionListState>({
@@ -132,7 +134,18 @@ function mount(
     }
     return <div data-testid={`view-${opts?.only ?? key}`} />
   }) as ConversationRootProps['renderSlot']
-  const renderSlotChain = ((_key, _owner, opts) => opts?.fallback ?? null) as ConversationRootProps['renderSlotChain']
+  const renderSlotChain = ((_key, _owner, opts) => (
+    overlayTakeover
+      ? (
+        <>
+          <div data-chain-overlay-fallback="conversation.composer" style={{ display: 'none' }}>
+            {opts?.fallback ?? null}
+          </div>
+          <div data-testid="composer-takeover">TAKEOVER</div>
+        </>
+      )
+      : (opts?.fallback ?? null)
+  )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
     sessionId: SID,
     SessionProvider: ({ children }) => children(SID),
@@ -167,16 +180,28 @@ describe('ConversationRoot resident composer', () => {
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
-  it('active phase: fixed header outside the scrollport; sticky composer inside it', () => {
+  it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {
     const b = mount(conversationSnapshot())
     const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const seat = b.view.container.querySelector('[data-composer-seat]')
     const header = b.view.container.querySelector('header')
     const textarea = b.view.container.querySelector('textarea')
     expect(host).not.toBeNull()
+    expect(seat).not.toBeNull()
     expect(header).not.toBeNull()
-    // Header is column chrome above the scrollport; composer sticks inside it.
+    // Header is column chrome above the scrollport; the seat sticks inside it.
     expect(host?.contains(header)).toBe(false)
-    expect(host?.contains(textarea)).toBe(true)
+    expect(host?.contains(seat)).toBe(true)
+    expect(seat?.contains(textarea)).toBe(true)
+  })
+
+  it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, true)
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    const takeover = b.view.getByTestId('composer-takeover')
+    const fallback = b.view.container.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
+    expect(seat?.contains(takeover)).toBe(true)
+    expect(seat?.contains(fallback)).toBe(true)
   })
 
   it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {

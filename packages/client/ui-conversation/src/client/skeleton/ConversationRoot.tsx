@@ -128,14 +128,24 @@ export function ConversationRoot({
     { fallback: composerBar, overlay: true },
   )
 
+  // Sticky wraps the whole chain output (fallback + elected overlay), not
+  // only `.composerStack`: overlay:true renders those as siblings, and sticky
+  // on the fallback alone would leave Question/Approval panels at the content
+  // end off-screen when the user is not pinned to the floor.
+  const composerSeat = (
+    <div className={css.composerSeat} data-composer-seat="">
+      {composer}
+    </div>
+  )
+
   // Header stays column chrome above this scrollport; the sticky composer
-  // lives inside it with the transcript. Always wrap while a session exists
-  // (hero/settling/active) so the composer keeps one tree seat across the
-  // blank → active flip — relocating it only in active remounted the textarea.
+  // seat lives inside it with the transcript. Always wrap while a session
+  // exists (hero/settling/active) so the composer keeps one tree seat across
+  // the blank → active flip — relocating it only in active remounted the textarea.
   const wrapActiveBody = (view: ReactNode): ReactNode => (
     <div className={css.scrollBody} data-conversation-scroll="">
       {view}
-      {composer}
+      {composerSeat}
     </div>
   )
 
@@ -149,7 +159,7 @@ export function ConversationRoot({
         'conversation.session',
         { wrapActiveBody },
       )}
-      {sessionId === undefined ? composer : null}
+      {sessionId === undefined ? composerSeat : null}
     </div>
   )
 }
