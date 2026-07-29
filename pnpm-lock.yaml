@@ -412,9 +412,6 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:*
         version: link:../packages/ui/app-boot
-      '@deepseek-ai/dsh-bash':
-        specifier: workspace:*
-        version: link:../packages/bash/bash
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:*
         version: link:../packages/bash/bash-local

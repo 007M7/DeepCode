@@ -10,7 +10,6 @@
     "@deepseek-ai/dsh-acp-demo": "workspace:*",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:*",
     "@deepseek-ai/dsh-app-boot": "workspace:*",
-    "@deepseek-ai/dsh-bash": "workspace:*",
     "@deepseek-ai/dsh-bash-local": "workspace:*",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:*",
     "@deepseek-ai/dsh-cli-demo": "workspace:*",
