@@ -19,4 +19,8 @@ UI 集成属于由客户端驱动的插件，而非对循环的修改：它使�
 
 `user-approval`、`user-interaction` 和 `tool-ask-user` 位于此处，因为向用户提问是由 UI 支持的产品功能，并不属于无提供方的核心主干。`user-approval` 负责一次性的 `ctx.approval` 决策机制及其策略层级；应答逻辑仍由负责 agent（智能体）的通道或自动化传输层提供。`user-interaction` 保持提供方无关（`ctx.userInteraction`），`tool-ask-user` 是其模型侧消费方，而交互式 app 包提供具体的提供方。
 
+<<<<<<< HEAD
 基于 [`agent-spine-demo`](../examples/agent-spine-demo/README.md) 组合的可运行 app bundle 位于 [`examples/`](../examples/README.md)（`tui-demo`、`acp-demo`、`jsonrpc-demo`）。`acp-demo` 和 `jsonrpc-demo` 各自提供启动 bin；`tui-demo` bundle 则由产品 [`dsh`](../../apps/cli/README.md) CLI（命令行界面）启动。`ui/` 保留可复用的用户／SDK 通道插件和共享 `app-boot` 粘合层；仅供自动化使用的 ACP（Agent Client Protocol）传输层位于 [`acp/`](../acp/README.md)。每个入口都负责自己的 stdout 策略，叶子 `cordis.yml` 则提供后端与可选工具。
+=======
+基于 [`agent-spine-demo`](../examples/agent-spine-demo/README.md) 组合的可运行 app bundle 位于 [`examples/`](../examples/README.md)（`cli-demo`、`acp-demo`、`jsonrpc-demo`）。`acp-demo` 和 `jsonrpc-demo` 持有启动 bin；产品 [`dsh`](../../apps/cli/README.md) CLI 不使用 bundle：它启动 `apps/cli` 中的平铺 config tree。`ui/` 保留可复用的用户／SDK 通道插件和共享 `app-boot` 粘合层；仅供自动化使用的 ACP 传输层位于 [`acp/`](../acp/README.md)。每个入口都持有自己的 stdout 策略，叶子 `cordis.yml` 则提供后端与可选工具。
+>>>>>>> a1c6a2c3f (refactor(cli)!: one shared base config with per-surface overlays)

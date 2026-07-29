@@ -2,5 +2,10 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/todo/README.md
+<<<<<<< HEAD
 README.md: 1e5ae9a1583b9e9d3913fcd1dca7ef11a5f391fe
 README.zh.md: a77f788a41353ea547059864dc7cf73ac5025219
+=======
+README.md: 495851a13f70bc8e3cb2dc99da47ab305ca205fa
+README.zh.md: abdac592a312cb36d145e7d16e01821561090dcb
+>>>>>>> a1c6a2c3f (refactor(cli)!: one shared base config with per-surface overlays)

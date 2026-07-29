@@ -7,10 +7,13 @@
  */
 
 import { fileURLToPath } from 'node:url'
+import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import { AppCLIEntry } from './app-cli-entry.ts'
 import { registerLiveSessions } from './register-session.ts'
 
-const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+// The shared core every `dsh` surface mounts, plus this surface's overlay over it.
+const BASE_CONFIG = fileURLToPath(new URL('../base.cordis.yml', import.meta.url))
+const WEB_OVERLAY = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 
 // Display-only mirror of the webserver schema's loopback host: the address the
 // local URL always prints. Not a source of truth — the schema is.
@@ -24,6 +27,8 @@ const LOOPBACK_HOST = '127.0.0.1'
  * @param dev - mount the client HMR driver and watch plugin bundles for rebuilds.
  * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
  * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
+ * @param config - an overlay of loader patches applied over the shipped web
+ * composition, or `undefined` for none; already parsed from `--config`.
  */
 export async function runWeb(
   host: string | undefined,
@@ -31,9 +36,12 @@ export async function runWeb(
   dev: boolean,
   workspaceRoot: string | undefined,
   trustedHosts: string[] | undefined,
+  config?: string,
 ): Promise<void> {
   const entry = new AppCLIEntry({
-    configPath: CONFIG_PATH,
+    configPath: BASE_CONFIG,
+    overlayPath: WEB_OVERLAY,
+    ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
     ...host !== undefined && { host },
     ...port !== undefined && { port },

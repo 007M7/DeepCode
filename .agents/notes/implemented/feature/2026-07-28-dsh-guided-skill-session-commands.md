@@ -12,7 +12,7 @@ Two recurring flows begin with the user manually invoking one skill and answerin
 
 `dsh migrate` and `dsh upgrade` boot the ordinary TUI as a fresh session whose first turn auto-invokes a bundled skill (`dsh-migrate`, `dsh-upgrade`), exactly as if the user typed `/skill:<name>` and pressed Enter.
 
-The seed reuses the existing TUI skill path, not a new one. `createTuiChat` already has `invokeSkill(name, instructions)` — the code a typed `/skill:<name>` runs, including the "Unknown skill" notice. The launcher passes the skill name to the app through a new boot-context slot `INITIAL_SKILL_KEY` (`tuiInitialSkill`), mirroring `MAIN_SESSION_ID_KEY`/`TUI_GOODBYE_MESSAGE_KEY`: `ctx.provide` is the only channel from launcher argv into a Loader-mounted plugin. The TUI's `apply()` reads the slot and folds it into `config.initialSkill`; after `ui.start()` succeeds, `createTuiChat` fires `invokeSkill(config.initialSkill, '')` once when set.
+The seed reuses the existing TUI skill path, not a new one. `createTuiChat` already has `invokeSkill(name, instructions)` — the code a typed `/skill:<name>` runs, including the "Unknown skill" notice. The launcher passes the skill name to the TUI through a new boot-context slot `INITIAL_SKILL_KEY` (`tuiInitialSkill`), mirroring `CONFIGURED_AGENT_IDENTITIES_KEY`/`TUI_GOODBYE_MESSAGE_KEY`: `ctx.provide` is the only channel from launcher argv into a Loader-mounted plugin. The TUI's `apply()` reads the slot and folds it into `config.initialSkill`; after `ui.start()` succeeds, `createTuiChat` fires `invokeSkill(config.initialSkill, '')` once when set.
 
 **Freshness is gated in the launcher, not the TUI.** `runSkillSession` always mints a fresh session and provides the slot only when `resumeSessionId === undefined`, so a later `dsh --resume <id>` of that session is an ordinary TUI session with no re-injection. The TUI stays generic: it invokes whatever skill it is handed, once, at startup.
 
@@ -36,7 +36,7 @@ No keyless PTY snapshot: per the maintainer's scope call for this change, unit c
 
 **Support `--resume` on `migrate`/`upgrade`.** Rejected: these are one-shot guided entries. A resumed session is an ordinary TUI session reachable through the default surface's `dsh --resume <id>`; re-injecting the skill on resume would duplicate the first turn.
 
-**Read `INITIAL_SKILL_KEY` in the app bundle (like `MAIN_SESSION_ID_KEY`) rather than in the TUI's `apply()`.** Not needed: `initialSkill` is a TUI `Config` field consumed in `createTuiChat`, so folding the slot into config at the TUI entry keeps it beside the other launcher-owned runtime reads (`tuiResumeHost`, `tuiGoodbyeMessage`) and leaves the app bundle unchanged.
+**Read `INITIAL_SKILL_KEY` outside the TUI (as `CONFIGURED_AGENT_IDENTITIES_KEY` is read by `agent-loop`) rather than in the TUI's `apply()`.** Not needed: `initialSkill` is a TUI `Config` field consumed in `createTuiChat`, so folding the slot into config at the TUI entry keeps it beside the other launcher-owned runtime reads (`tuiResumeHost`, `tuiGoodbyeMessage`) and touches no other plugin.
 
 ## Consequences
 

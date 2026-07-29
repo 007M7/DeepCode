@@ -17,7 +17,7 @@ import type { FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { assertEntriesLoaded, installFailLoud, loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { assertEntriesLoaded, installFailLoud, loadEnv, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -100,8 +100,21 @@ const FIBER_PENDING = 0 as FiberState.PENDING
 
 /** Constructor facts for one dsh invocation over the shared composition (argv already parsed by the surface bin). */
 export interface AppCLIEntryOptions {
-  /** Absolute path of the shipped cordis.yml. */
+  /** Absolute path of the shared base config the Loader includes. */
   configPath: string
+  /**
+   * Absolute path of this surface's overlay: a patch list applied over
+   * {@link configPath} before this entry's own profile/flag patches. Its rows
+   * are also merge inputs, so a flag override preserves the overlay's other
+   * fields on the same row.
+   */
+  overlayPath: string
+  /**
+   * Optional extra overlay applied after {@link overlayPath} and before this
+   * entry's own profile/flag patches — the `--config` escape for demos and
+   * tests that need a row this surface does not ship.
+   */
+  extraOverlayPath?: string
   /** Whether to append the HMR row (the whole prod/dev difference; web surface only). */
   dev: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
@@ -223,11 +236,22 @@ export class AppCLIEntry {
     ctx.baseUrl = pathToFileURL(join(resolve(this.options.configPath), '..')).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    // One include of the shared base with every overlay as a sibling patch
+    // list: patches never cross an include boundary, so nesting them would
+    // silently stop reaching base rows. The surface overlay applies first, then
+    // this entry's profile-json and CLI-flag patches, which therefore win.
+    const patches = [
+      ...loadOverlayPatches('dsh', this.options.overlayPath),
+      ...this.options.extraOverlayPath === undefined
+        ? []
+        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+      ...this.patches,
+    ]
     await ctx.loader.create({
       name: 'cordis:include',
       config: {
         path: pathToFileURL(resolve(this.options.configPath)).href,
-        ...this.patches.length > 0 ? { patches: this.patches } : {},
+        ...patches.length > 0 ? { patches } : {},
       },
     })
     if (this.options.dev) {
@@ -262,15 +286,37 @@ export class AppCLIEntry {
     }
   }
 
-  /** Bypass parse of the shipped yml (id → row) for patch-merge inputs; Loader still reads the file itself. */
+  /**
+   * Bypass parse of the base and this surface's overlay (id → row) for
+   * patch-merge inputs; the Loader still reads both files itself. The overlay
+   * wins per row, matching the order its patches are applied in, and its
+   * `insert` rows are indexed too because a flag may target one of them.
+   */
   private parseYmlRows(): Map<string, { config?: unknown }> {
-    const doc = yaml.load(readFileSync(this.options.configPath, 'utf8'), { schema: includeYamlSchema })
-    if (!Array.isArray(doc)) throw new Error(`dsh: ${this.options.configPath} is not a top-level entry list`)
     const rows = new Map<string, { config?: unknown }>()
-    for (const row of doc as { id?: string; config?: unknown }[]) {
-      if (typeof row.id === 'string') rows.set(row.id, row)
+    const files = [this.options.configPath, this.options.overlayPath]
+    if (this.options.extraOverlayPath !== undefined) files.push(this.options.extraOverlayPath)
+    for (const file of files) {
+      for (const row of this.parseRowList(file)) {
+        if (typeof row.id === 'string') rows.set(row.id, row)
+        for (const inserted of row.insert ?? []) {
+          if (typeof inserted.id === 'string') rows.set(inserted.id, inserted)
+        }
+      }
     }
     return rows
+  }
+
+  /**
+   * Parse one entry or patch list, rejecting anything that is not a top-level
+   * array so a malformed file fails here rather than at row lookup.
+   * @param file - absolute path of the config or overlay file.
+   * @returns the parsed top-level entries.
+   */
+  private parseRowList(file: string): { id?: string; config?: unknown; insert?: { id?: string; config?: unknown }[] }[] {
+    const doc = yaml.load(readFileSync(file, 'utf8'), { schema: includeYamlSchema })
+    if (!Array.isArray(doc)) throw new Error(`dsh: ${file} is not a top-level entry list`)
+    return doc as { id?: string; config?: unknown; insert?: { id?: string; config?: unknown }[] }[]
   }
 
   /** Profile json under cwd; read-only — never created here, absent = no user config. */

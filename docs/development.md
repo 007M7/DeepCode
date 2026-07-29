@@ -143,7 +143,7 @@ The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environ
 pnpm run demo:tui
 ```
 
-The self-referential cordis-agent demo can inspect and modify its live plugin runtime and needs the same credentials:
+The self-referential cordis demo can inspect and modify its live plugin runtime and needs the same credentials (`web` by default, or `acp`):
 
 ```sh
 pnpm run demo:cordis

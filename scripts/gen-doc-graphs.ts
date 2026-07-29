@@ -282,7 +282,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'tui-demo'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -603,10 +603,10 @@ function stripYamlScalar(value: string): string {
 const APP_EXAMPLES = [
   {
     id: 'tui',
-    rel: 'examples/tui-agent/composition.md',
-    title: 'TUI Agent App Composition',
-    label: 'examples/tui-agent',
-    config: 'examples/tui-agent/cordis.yml',
+    rel: 'apps/cli/composition.md',
+    title: 'dsh TUI Composition',
+    label: 'apps/cli (dsh)',
+    config: 'apps/cli/base.cordis.yml',
     summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
   },
   {
@@ -616,14 +616,6 @@ const APP_EXAMPLES = [
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
     summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
-  },
-  {
-    id: 'cordis',
-    rel: 'examples/cordis-agent/composition.md',
-    title: 'Cordis Agent App Composition',
-    label: 'examples/cordis-agent',
-    config: 'examples/cordis-agent/cordis.yml',
-    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.',
   },
   {
     id: 'acp',
@@ -642,9 +634,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-tui-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'tui')}["@deepseek-ai/dsh-tui<br/>pre-created main agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
@@ -672,7 +662,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-tui-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -1184,8 +1174,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/headless-agent/composition.md': 'headless-agent app composition',
-    'examples/tui-agent/composition.md': 'tui-agent app composition',
-    'examples/cordis-agent/composition.md': 'cordis-agent app composition',
+    'apps/cli/composition.md': 'dsh TUI composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
@@ -1194,8 +1183,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/headless-agent/composition.md': 'hybrid generated',
-    'examples/tui-agent/composition.md': 'hybrid generated',
-    'examples/cordis-agent/composition.md': 'hybrid generated',
+    'apps/cli/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',

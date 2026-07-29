@@ -1,0 +1,7 @@
+{
+  "name": "code-mode-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Runnable overlay: the shipped TUI composition with the model-facing registry reduced to the run_code transport"
+}

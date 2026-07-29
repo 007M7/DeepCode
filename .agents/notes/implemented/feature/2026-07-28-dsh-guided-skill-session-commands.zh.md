@@ -12,7 +12,7 @@ Status: implemented
 
 `dsh migrate` 与 `dsh upgrade` 以全新会话启动普通 TUI，其首轮自动调用一个内置 skill（`dsh-migrate`、`dsh-upgrade`），效果等同于用户键入 `/skill:<name>` 并回车。
 
-播种复用现有的 TUI skill 路径，而非新增一条。`createTuiChat` 已有 `invokeSkill(name, instructions)`——即键入 `/skill:<name>` 所走的代码，包含“未知 skill”通知。启动器通过一个新的启动上下文槽 `INITIAL_SKILL_KEY`（`tuiInitialSkill`）把 skill 名称传给应用，与 `MAIN_SESSION_ID_KEY`/`TUI_GOODBYE_MESSAGE_KEY` 一致：`ctx.provide` 是从启动器 argv 进入 Loader 挂载插件的唯一通道。TUI 的 `apply()` 读取该槽并折叠进 `config.initialSkill`；`ui.start()` 成功后，`createTuiChat` 在其被设置时调用一次 `invokeSkill(config.initialSkill, '')`。
+播种复用现有的 TUI skill 路径，而非新增一条。`createTuiChat` 已有 `invokeSkill(name, instructions)`——即键入 `/skill:<name>` 所走的代码，包含“未知 skill”通知。启动器通过一个新的启动上下文槽 `INITIAL_SKILL_KEY`（`tuiInitialSkill`）把 skill 名称传给 TUI，与 `CONFIGURED_AGENT_IDENTITIES_KEY`/`TUI_GOODBYE_MESSAGE_KEY` 一致：`ctx.provide` 是从启动器 argv 进入 Loader 挂载插件的唯一通道。TUI 的 `apply()` 读取该槽并折叠进 `config.initialSkill`；`ui.start()` 成功后，`createTuiChat` 在其被设置时调用一次 `invokeSkill(config.initialSkill, '')`。
 
 **新鲜性在启动器而非 TUI 中把关。** `runSkillSession` 总是创建全新会话，且仅在 `resumeSessionId === undefined` 时提供该槽，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。TUI 保持通用：它只是把接到的 skill 在启动时调用一次。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 **在 `migrate`/`upgrade` 上支持 `--resume`。** 已否决：它们是一次性引导入口。恢复的会话是可经默认界面 `dsh --resume <id>` 到达的普通 TUI 会话；恢复时重新注入 skill 会重复首轮。
 
-**在应用 bundle 中读取 `INITIAL_SKILL_KEY`（像 `MAIN_SESSION_ID_KEY` 那样）而非在 TUI 的 `apply()` 中。** 无此必要：`initialSkill` 是在 `createTuiChat` 中消费的 TUI `Config` 字段，因此在 TUI 入口处把该槽折叠进 config，可与其他启动器拥有的运行时读取（`tuiResumeHost`、`tuiGoodbyeMessage`）并列，且无需改动应用 bundle。
+**在 TUI 之外读取 `INITIAL_SKILL_KEY`（如同 `agent-loop` 读取 `CONFIGURED_AGENT_IDENTITIES_KEY` 那样），而非在 TUI 的 `apply()` 中。** 无此必要：`initialSkill` 是在 `createTuiChat` 中消费的 TUI `Config` 字段，因此在 TUI 入口处把该槽位折叠进配置，可以让它与其他由启动器持有的运行时读取（`tuiResumeHost`、`tuiGoodbyeMessage`）并列，且不触及任何其他插件。
 
 ## 后果
 

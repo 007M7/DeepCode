@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI (which mounts the `tui-demo` bundle), and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: either a `cordis.yml` tree that picks swappable backends and loads one app package, or an **overlay** — a patch list `dsh --config` applies over the shipped composition ([`apps/cli/base.cordis.yml`](../apps/cli/base.cordis.yml) plus a surface overlay). Bundled compositions live in [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle; the `dsh` surfaces use flat config trees instead. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI, and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
 
 ## headless-agent
 
@@ -10,21 +10,21 @@ A non-interactive agent demo that accepts one positional task, runs one complete
 
 Run with: `pnpm run demo:headless "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
 
-## tui-agent
+## code-mode
 
-The interactive coding agent: DeepSeek V4, filesystem and bash tools, subagents, workflows, `todo_write`, compaction, and the full-screen TUI. It is also the home of TUI PTY and snapshot scenarios.
+An **overlay** over the shipped TUI that reduces the model-facing registry to the `run_code` transport, so the model batches tool work into TypeScript programs instead of one call per turn.
 
-Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). Run its Code Mode overlay with `pnpm run demo:code-mode`. See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
+Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [code-mode/README.md](code-mode/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/tui.cordis.yml`](../apps/cli/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
 
 ## jsonrpc-agent
 
 An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foreground-only `bash`, `read` / `write` / `edit`, one foreground `subagent`, `todo_write`, JSONL persistence, and compaction. It excludes terminal UI, stdout logging, approvals, skills, and background task controls. See [jsonrpc-agent/README.md](jsonrpc-agent/README.md).
 
-## cordis-agent
+## web-cordis
 
 The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the current DSH process, mount model-written temporary Plugins (an event listener, a brand-new tool, or a service another temporary Plugin injects), and unmount them again. These Plugins exist only in memory and share one internal `cordis-dynamic` fiber subtree; `ctx.fs`/`ctx.web` ride along provider-only as capabilities they can use.
 
-Run the TUI with `pnpm run demo:cordis`, the browser UI at `http://127.0.0.1:3081` with `pnpm run demo:cordis web`, or the ACP server with `pnpm run demo:cordis acp` (all need `DEEPSEEK_API_KEY`). See [cordis-agent/README.md](cordis-agent/README.md) for the staged demo script and [the toolset Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md) for the design and sandbox caveats.
+Run the browser UI at `http://127.0.0.1:3081` with `pnpm run demo:cordis`, or the ACP server with `pnpm run demo:cordis acp` (both need `DEEPSEEK_API_KEY`). See [the toolset Agent Note](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md) for the design and sandbox caveats.
 
 ## acp-agent
 

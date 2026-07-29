@@ -306,7 +306,6 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
-  const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.theme.color)
   const mdTheme = markdownTheme(palette)
@@ -853,7 +852,9 @@ export function createTuiChat(
     resolved,
     palette,
     overlayManager,
-    sessionQuery,
+    // Optional and independently mounted: read at each use so config row order
+    // cannot decide whether /resume works.
+    sessionQuery: () => ctx.get('sessionQuery'),
     ui,
     editor,
     appendNotice,

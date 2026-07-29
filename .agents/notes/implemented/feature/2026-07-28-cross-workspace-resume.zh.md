@@ -8,7 +8,7 @@ Status: implemented
 
 `/resume` 只能触达在启动目录中创建的会话，因此要回到昨天在另一个项目里的工作，就得记住它的路径、退出 TUI、再到那里重新启动。造成这一限制的原因有两个，彼此独立，只修其中一个都不会有任何变化。
 
-存储是那个决定性的原因。已交付的 `tui-demo` 组合包把 `persistenceRoot` 默认成相对路径 `./.sessions`，于是每个启动目录都独占一份互不相交的 JSONL 根目录，以及一份互不相交的派生 `session-query.db`。来自另一个项目的会话并不是在列表中被过滤掉的——它们根本不存在于列表读取的存储中。JSONL 后端本来就会在*同一个*根目录*内部*按 cwd 分区，所以分区被叠加了两层：一层按根目录，一层在根目录内部。
+存储是那个决定性的原因。已交付的 TUI 组合把持久化根默认成相对路径 `./.sessions`，于是每个启动目录都独占一份互不相交的 JSONL 根目录，以及一份互不相交的派生 `session-query.db`。来自另一个项目的会话并不是在列表中被过滤掉的——它们根本不存在于列表读取的存储中。JSONL 后端本来就会在*同一个*根目录*内部*按 cwd 分区，所以分区被叠加了两层：一层按根目录，一层在根目录内部。
 
 接着选择器又过滤了一次。它在展示前丢弃 `cwd` 与当前会话不同的记录，而 `summarizeResumeCandidate` 又独立地把不同的 `cwd` 标记为 `disabledReason: 'different workspace'`，于是一个确实进入了存储的外部会话既被隐藏，也会被拒绝。
 
@@ -20,7 +20,7 @@ dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根�
 
 **存储。** `dsh-paths` 以 `resolveSessionsRoot()` 拥有该位置（按 `resolveDshHome` 的优先级，取 Harness home 下的 `sessions`），但只有启动器假定它：共享存储策略属于 dsh CLI，绝不属于插件。TUI 界面通过 `SESSIONS_ROOT_KEY` 启动槽位（在 Loader 条目挂载前 `ctx.provide`）提供该根目录，`dsh web` 则在 `apps/cli/src/app-cli-entry.ts` 中为同一根目录打补丁。CLI 的两处界面各自独立计算该路径，正是本次改动所修复的那种失败——互不相交的存储——因此这项事实只有一个归属，而不是每个调用方各做一次 `join`，这与 `run` 已有的 `registryRoot()` 先例一致。
 
-`tui-demo` 自身保持项目本地的 `./.sessions` 默认值，并在显式配置与该默认值之间读取启动器槽位（`config.persistenceRoot ?? ctx.get(SESSIONS_ROOT_KEY) ?? './.sessions'`）。这一优先级放在 `composeTuiApp` 内，而不是写成 schemastery 的 `.default()`，因为 schema 默认值会在 compose 函数运行前物化，使每次 Loader 挂载都遮蔽该槽位。`examples/tui-agent/cordis.yml` 不写 `persistenceRoot`，因此启动器槽位（裸示例启动时则为项目本地默认值）生效。显式配置的根目录总是获胜，对于封闭部署来说这仍然是正确的选择。
+共享 base 直接在配置项自身表达这一优先级：`apps/cli/base.cordis.yml` 的 `session-persistence-jsonl` 配置项写作 `root: !!js launcherSessionsRoot ?? './.sessions'`，因此启动器槽位优先，而没有槽位的裸启动则保留项目本地默认值。把它写成配置项自身的 `!!js` 取值、而不是 schemastery 的 `.default()`，其原因与在组合包中相同：schema 默认值会在能够读取槽位之前就物化。若 overlay 或个人 patch 显式声明了根目录，则始终以其为准——对于要求自洽封闭的部署，这仍是正确选择。
 
 **是范围，不是排除。** 当前 workspace 之外的 workspace 是一种展示范围，而不是禁用理由。`showResume()` 汇总每一条记录，`ResumePicker` 持有一个 `'workspace' | 'all'` 的 `scope`，默认为当前 workspace，因此常见场景毫无变化。Tab 切换范围；范围行会说明当前生效的范围，以及另一个范围下的数量；在全 workspace 范围中每一行都报告自己的 workspace，而该标签只在展示它的范围里才加入可搜索文本。切换范围会清空查询和选中项，使高亮行始终属于可见列表；而逐行的 workspace 行会让该范围下的每一行在终端里多占一行，可见条数预算已经把这一点计入。
 
@@ -49,4 +49,4 @@ dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根�
 
 ## Testing
 
-TUI 测试覆盖默认范围隐藏其他 workspace 但报告其数量、Tab 显示它们并带上逐行 workspace 标签、再按 Tab 返回时清空查询与选中项、按 workspace 标签搜索、无 cwd 的记录仍可见但不可选，以及交接同时收到 id 和在预检时重新读取到的 workspace。原先「拒绝已移动的 cwd」的用例现在断言交接携带新目录。`dsh-paths` 测试固定 `resolveSessionsRoot` 的优先级与 `resolveDshHome` 的一致。`tui-demo` 组合测试固定项目本地默认值以及派生出的 `session-query.db` 路径。无密钥 TUI 快照固定选择器的两个范围，包括范围行、逐行 workspace 行，以及页脚中的 Tab 提示。手动执行的一次跨 workspace 恢复在进程层面验证了替换后进程的工作目录变为目标 workspace。
+TUI 测试覆盖默认范围隐藏其他 workspace 但报告其数量、Tab 显示它们并带上逐行 workspace 标签、再按 Tab 返回时清空查询与选中项、按 workspace 标签搜索、无 cwd 的记录仍可见但不可选，以及交接同时收到 id 和在预检时重新读取到的 workspace。原先「拒绝已移动的 cwd」的用例现在断言交接携带新目录。`dsh-paths` 测试固定 `resolveSessionsRoot` 的优先级与 `resolveDshHome` 的一致。`apps/cli` 测试钉住项目本地默认值与派生的 `session-query.db` 路径。无密钥 TUI 快照固定选择器的两个范围，包括范围行、逐行 workspace 行，以及页脚中的 Tab 提示。手动执行的一次跨 workspace 恢复在进程层面验证了替换后进程的工作目录变为目标 workspace。

@@ -11,10 +11,15 @@
 
 import { Command, CommanderError } from 'commander'
 
-/** Interactive TUI: the default mode. `--config` swaps the tree; `--resume <id>` rehydrates a session. */
+/**
+ * Interactive TUI: the default mode. `--config` applies an overlay over the
+ * shipped composition in place of the personal one, `--config-replace` boots a
+ * file as the whole tree instead, and `--resume <id>` rehydrates a session.
+ */
 interface TuiInvocation {
   mode: 'tui'
   config?: string
+  configReplace?: string
   resume?: string
 }
 
@@ -69,6 +74,8 @@ interface ListSessionsInvocation {
  */
 interface WebInvocation {
   mode: 'web'
+  /** Overlay of loader patches applied over the shipped web composition. */
+  config?: string
   host?: string
   port?: number
   dev: boolean
@@ -88,6 +95,7 @@ export type DshInvocation =
 
 /** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
+  config?: string
   host?: string
   port?: string
   dev?: boolean
@@ -104,6 +112,7 @@ interface WebOptions {
 function resolveWeb(options: WebOptions): WebInvocation {
   return {
     mode: 'web',
+    ...options.config !== undefined && { config: options.config },
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
@@ -140,15 +149,16 @@ Examples:
     // subcommand without a positional collision.
     .option('-p, --prompt <task>', 'answer this task without the interactive UI, then exit')
     .option('--resume <id>', 'continue a past session by id (list ids with `dsh ps`)')
-    .option('--config <path>', 'start with an alternate plugin configuration file')
-    .action((options: { config?: string; prompt?: string; resume?: string }) => {
+    .option('--config <path>', 'apply this overlay of loader patches instead of the personal one')
+    .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped and personal configuration')
+    .action((options: { config?: string; configReplace?: string; prompt?: string; resume?: string }) => {
       if (options.prompt !== undefined) {
         // A headless prompt owns the invocation; an empty task has nothing to
         // run, and --config/--resume are TUI inputs that must not silently
         // vanish from a headless run.
         if (options.prompt === '') program.error('error: --prompt needs a task')
-        if (options.config !== undefined || options.resume !== undefined) {
-          program.error('error: --prompt takes no --config or --resume')
+        if (options.config !== undefined || options.configReplace !== undefined || options.resume !== undefined) {
+          program.error('error: --prompt takes no --config, --config-replace, or --resume')
         }
         resolved = { mode: 'headless', prompt: options.prompt }
         return
@@ -156,9 +166,15 @@ Examples:
       // An empty --resume= id would silently start a fresh session downstream
       // (agent-loop treats '' as no-resume), so a mistyped resume must fail loud.
       if (options.resume === '') program.error('error: --resume needs a session id')
+      // The two config flags are mutually exclusive: one layers over the shipped
+      // tree, the other discards it, so accepting both would silently drop one.
+      if (options.config !== undefined && options.configReplace !== undefined) {
+        program.error('error: --config and --config-replace are mutually exclusive')
+      }
       resolved = {
         mode: 'tui',
         ...options.config !== undefined && { config: options.config },
+        ...options.configReplace !== undefined && { configReplace: options.configReplace },
         ...options.resume !== undefined && { resume: options.resume },
       }
     })
@@ -168,8 +184,9 @@ Examples:
   // a leaked `--config`/`-p`/`--resume` is a mistyped invocation that must fail
   // loud rather than silently run and drop the input.
   const rejectParentOptions = (command: string): void => {
-    const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
-    if (parent.config !== undefined || parent.prompt !== undefined || parent.resume !== undefined) {
+    const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
+    if (parent.config !== undefined || parent.configReplace !== undefined
+      || parent.prompt !== undefined || parent.resume !== undefined) {
       program.error(`error: ${command} takes none of --config, -p/--prompt, or --resume`)
     }
   }
@@ -208,6 +225,7 @@ Examples:
   // would duplicate a fact this file does not own.
   const web = program.command('web').description('serve the browser UI on the configured host and port')
   web
+    .option('--config <path>', 'apply this overlay of loader patches over the shipped configuration')
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--dev', 'developer mode: hot-reload the browser client')

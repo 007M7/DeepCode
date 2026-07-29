@@ -25,11 +25,13 @@ import {
   boot,
   installFailLoud,
   loadEnv,
+  loadOverlayPatches,
   loadPersonalPatches,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
 import { registerLiveSessions } from './register-session.ts'
 import {
@@ -46,7 +48,18 @@ const NAME = 'dsh'
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the shipped default config resolves with
 // the same relative hop from either artifact.
-const DEFAULT_CONFIG = fileURLToPath(new URL('../../../examples/tui-agent/cordis.yml', import.meta.url))
+// The shared core every `dsh` surface mounts, and the TUI's own overlay over
+// it. Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib)
+// sit one directory under apps/cli, so each resolves with the same hop.
+const BASE_CONFIG = fileURLToPath(new URL('../base.cordis.yml', import.meta.url))
+const TUI_OVERLAY = fileURLToPath(new URL('../tui.cordis.yml', import.meta.url))
+
+// The `agents` entry in tui.cordis.yml the TUI drives; the launcher binds its
+// session identity by this config id.
+const MAIN_AGENT_ID = 'main'
+
+/** Filename of the derived `/resume` index, kept beside the session logs. */
+const SESSION_QUERY_DB = 'session-query.db'
 
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
@@ -93,24 +106,31 @@ export async function runSkillSession(skill: string): Promise<void> {
 
 /**
  * Run the interactive TUI from the invoking directory.
- * @param config - a config path to boot instead of the shipped default, or
- * `undefined` for the default; already parsed from `--config`.
+ * @param config - an overlay patch list applied over the shared base and the
+ * TUI overlay, REPLACING the personal `~/.dsh/config.yaml` so a named tree never
+ * inherits the user's route, or `undefined` to use the personal overlay;
+ * already parsed from `--config`.
  * @param resumeSessionId - a persisted session id to resume, or `undefined` to
  * mint a fresh one; already parsed and non-empty-validated from `--resume`.
  * Either way the resulting identity reaches the booted app through
- * {@link MAIN_SESSION_ID_KEY}, so no config key selects the session.
+ * {@link CONFIGURED_AGENT_IDENTITIES_KEY}, so no config key selects the session
+ * and an overlay replacing the agent row cannot drop it.
  * @param workspace - a directory to make the workspace instead of the invoking
  * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
  * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
  * first turn, or `undefined`. Set only by {@link runSkillSession} and ignored
  * on a resume, so it never re-fires; reaches the app through
  * {@link INITIAL_SKILL_KEY}.
+ * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
+ * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
+ * to compose them; already parsed from `--config-replace`.
  */
 export async function runTui(
   config: string | undefined,
   resumeSessionId: string | undefined,
   workspace?: string,
   initialSkill?: string,
+  configReplace?: string,
 ): Promise<void> {
   // Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree
   // is logged per-entry rather than rethrown, so a piped launch would
@@ -150,7 +170,13 @@ export async function runTui(
   const resumeArgs = (sessionId: string, targetCwd?: string): string[] =>
     workspace !== undefined && (targetCwd === undefined || targetCwd === workspace)
       ? ['meta', `--resume=${sessionId}`]
-      : [`--resume=${sessionId}`, ...config !== undefined ? ['--config', config] : []]
+      : [
+        `--resume=${sessionId}`,
+        // Both config flags must survive the handoff: resuming into a different
+        // tree than the session was created in would silently change the agent.
+        ...config !== undefined ? ['--config', config] : [],
+        ...configReplace !== undefined ? ['--config-replace', configReplace] : [],
+      ]
   // Mint the fresh id here rather than in the app bundle: the exit line names
   // the session to resume, so the launcher must know it before the tree boots.
   const identity: MainSessionIdentity = resumeSessionId === undefined
@@ -186,10 +212,25 @@ export async function runTui(
       }
     },
   }
+  // One include of the shared base, with every overlay applied as a sibling
+  // patch list: patches never cross an include boundary, so stacking these as
+  // nested includes would silently stop reaching base rows. Later lists win.
+  //
+  // `--config` REPLACES the personal overlay rather than layering under it: an
+  // explicitly named tree must not inherit `~/.dsh/config.yaml`'s route, or a
+  // demo or test config would silently run on the user's provider and model.
+  // `--config-replace` additionally discards the base and the surface overlay.
+  const replaceTree = configReplace !== undefined
+  const patches = replaceTree ? [] : [
+    ...loadOverlayPatches(NAME, TUI_OVERLAY),
+    ...config === undefined
+      ? loadPersonalPatches(NAME) ?? []
+      : loadOverlayPatches(NAME, resolveConfigPath(config, undefined)),
+  ]
   const ctx = await boot(
     NAME,
-    resolveConfigPath(config ?? DEFAULT_CONFIG, undefined),
-    loadPersonalPatches(NAME),
+    replaceTree ? resolveConfigPath(configReplace, undefined) : BASE_CONFIG,
+    patches,
     (hostCtx) => {
       // The launcher owns session identity and the exit line: a config-mounted
       // app bundle reads both from these slots, so no cordis.yml key can drop
@@ -200,6 +241,13 @@ export async function runTui(
       // the Harness home across every cwd, so /resume and list-sessions see
       // every workspace. The bundle treats the slot as opaque.
       hostCtx.provide(SESSIONS_ROOT_KEY, launcherSessionsRoot())
+      // The agent-loop row reads this to bind `main`, and the tui row reads the
+      // same id, so a personal overlay repointing the model route cannot drop
+      // the session identity or desynchronise the two.
+      hostCtx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, { [MAIN_AGENT_ID]: identity })
+      // The launcher owns the session store location, so it also owns the
+      // derived index path that must sit beside those logs.
+      hostCtx.provide('launcherSessionQueryPath', join(launcherSessionsRoot(), SESSION_QUERY_DB))
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
       // Seed the first turn only for a fresh session, so resuming never
       // re-invokes the skill.

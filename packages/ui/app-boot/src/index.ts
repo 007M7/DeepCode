@@ -94,20 +94,56 @@ export function loadPersonalPatches(
     if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined
     throw new Error(`${binName}: failed to read personal patches ${file}: ${String(error)}`)
   }
+  return parsePatchList(binName, file, content, 'personal patches')
+}
+
+/**
+ * Load a required overlay patch list: a surface overlay (`tui.cordis.yml`) or a
+ * `--config <path>` overlay applied over the shared base. Same file format as
+ * {@link loadPersonalPatches}, but a missing file throws, because the caller
+ * named this file — its absence is a misconfiguration, not "no overlay".
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param file - absolute path of the overlay file.
+ * @returns the parsed patch list.
+ */
+export function loadOverlayPatches(binName: string, file: string): PatchOptions[] {
+  let content: string
+  try {
+    content = readFileSync(file, 'utf8')
+  } catch (error) {
+    throw new Error(`${binName}: failed to read overlay ${file}: ${String(error)}`)
+  }
+  return parsePatchList(binName, file, content, 'overlay')
+}
+
+/**
+ * Parse one loader patch list: a top-level YAML array of
+ * `@cordisjs/plugin-include` `PatchOptions` (id-targeted config overrides and
+ * `insert` lists, `!!js` expressions allowed). Every shape failure throws,
+ * because a patch file that cannot be applied at all is a misconfiguration; a
+ * single patch whose target row is absent stays a per-entry Loader warning, so
+ * one overlay shared across surfaces does not have to match every tree.
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param file - the source path, quoted in errors.
+ * @param content - the file's text.
+ * @param label - what to call this list in errors (`personal patches`, `overlay`).
+ * @returns the parsed patch list.
+ */
+function parsePatchList(
+  binName: string, file: string, content: string, label: string,
+): PatchOptions[] {
   let parsed: unknown
   try {
     parsed = yaml.load(content, { schema: personalPatchesSchema })
   } catch (error) {
-    throw new Error(`${binName}: failed to parse personal patches ${file}: ${String(error)}`)
+    throw new Error(`${binName}: failed to parse ${label} ${file}: ${String(error)}`)
   }
   if (!Array.isArray(parsed)) {
-    throw new Error(`${binName}: personal patches ${file} must be a top-level YAML array of loader patch entries`)
+    throw new Error(`${binName}: ${label} ${file} must be a top-level YAML array of loader patch entries`)
   }
-  // A present personal config that cannot apply is a misconfiguration and must
-  // fail loud here — the include only warns per entry at mount.
   parsed.forEach((entry, index) => {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new Error(`${binName}: personal patches entry ${index + 1} in ${file} must be a mapping (a loader patch entry)`)
+      throw new Error(`${binName}: ${label} entry ${index + 1} in ${file} must be a mapping (a loader patch entry)`)
     }
   })
   return parsed as PatchOptions[]

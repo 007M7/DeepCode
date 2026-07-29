@@ -8,7 +8,7 @@ Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`
 
 TUI 界面：
 
-- 启动已交付的默认配置（`examples/tui-agent/cordis.yml`），或由 `--config <path>` 指定的树（演示／测试用于启动其他示例树的逃生口），并通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 完成启动；
+- 启动已交付的默认配置（`apps/cli/base.cordis.yml`），或由 `--config <path>` 指定的树（演示／测试用于启动其他示例树的逃生口），并通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 完成启动；
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的恢复调用替换进程；不支持进程替换的运行时会让会话继续运行并给出提示。会话身份与退出行由本 CLI 拥有，而非由配置指定：它创建或选定 `main` 会话 id，并把该 id 以及可复现本次调用的确切命令一起提供到启动上下文（[`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) 与 `TUI_GOODBYE_MESSAGE_KEY`）。任何 `cordis.yml` 键都无法移除恢复能力；缺失或无法读取的 id 会明确报错，而不会创建新会话；
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；

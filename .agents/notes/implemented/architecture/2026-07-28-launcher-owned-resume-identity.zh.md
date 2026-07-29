@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-有两项本应由启动器持有的事实，却被作为 `dsh-tui-demo` 上的部署配置键交付：`resumeSessionId`（`main` 绑定到哪个会话）与 `resumeCommand`（退出提示的模板，其中 `{session}` 会被插值）。二者都不随部署而变——它们都是进程被如何调用的属性，而这一点只有启动器知道。
+有两项本应由启动器持有的事实，却被作为 TUI 应用组合包上的部署配置键交付：`resumeSessionId`（`main` 绑定到哪个会话）与 `resumeCommand`（退出提示的模板，其中 `{session}` 会被插值）。二者都不随部署而变——它们都是进程被如何调用的属性，而这一点只有启动器知道。
 
 把它们经由 YAML 传递，使其可被静默丢弃。`@cordisjs/plugin-include` 施加定向补丁的方式是替换整个顶层键（`target[key] = value`），因此一份对 `tui-agent` 条目的 `config` 打补丁的个人 `~/.dsh/config.yaml`，会把交付时的整块内容整体替换掉。于是，一份为改动 provider 和 model 而写的用户 overlay，会删掉它未重述的每一个 resume 键，且没有任何东西报告这一点：缺失 `resumeCommand` 合法地意味着「未配置回退」。
 
@@ -16,12 +16,14 @@ Status: implemented
 
 ## Decision
 
-会话身份与退出行是由启动器持有的上下文槽位，在任何 Loader 条目挂载之前提供。二者都不出现在任何 `cordis.yml` 中，也不出现在 `dsh-tui` 或 `dsh-tui-demo` 的 `Config` 中。
+会话身份与退出行是由启动器持有的上下文槽位，在任何 Loader 条目挂载之前提供。二者都不出现在任何 `cordis.yml` 中，也不出现在任何插件的 `Config` 中。
 
-`dsh-tui` 在既有的 `tuiResumeHost` 宿主能力旁声明这两个槽位，后者确立了先例——resume 宿主一直是一项被提供的能力，而非配置：
+这两个槽位与既有的 `tuiResumeHost` 宿主能力并列，后者确立了先例——resume 宿主一直是一项被提供的能力，而非配置。每个槽位都由消费它的包声明：
 
-- `MAIN_SESSION_ID_KEY` 承载一个 `MainSessionIdentity`（`{ id: SessionId, resume: boolean }`）。`dsh-tui-demo` 把 TUI 与所配置的 agent 都绑定到 `id`，并且仅当 `resume` 被置位时才走加载历史的 `resumeSessionId` 路径，因为该路径要求存在一份日志、否则会明确报错。槽位缺失意味着没有启动器选定会话，于是应用铸造 `main-session-<uuid>` 并新建它。
-- `TUI_GOODBYE_MESSAGE_KEY` 承载退出时终端释放后打印一次的完整行。缺失则什么都不打印。
+- `CONFIGURED_AGENT_IDENTITIES_KEY`（`dsh-agent-loop`）按所配置 agent 的 `id` 承载启动器身份，每项为一个 `LauncherAgentIdentity`（`{ id: SessionId, resume: boolean }`）。`agent-loop` 将匹配的身份覆盖到其所配置的 agent 上，替换两个身份键；并且仅当 `resume` 被置位时才走加载历史的 `resumeSessionId` 路径，因为该路径要求存在一份日志、否则会明确报错。槽位缺失则保留配置中的身份不变。`tui` 配置项通过自身的 `sessionId` 键解析同一个 id，因此前端入口渲染的正是被绑定的那个 agent。
+- `TUI_GOODBYE_MESSAGE_KEY`（`dsh-tui`）承载退出时终端释放后打印一次的完整行。缺失则什么都不打印。
+
+身份归属于 `agent-loop`，因为它才是创建所配置 agent 的插件；也因为 patch 会整体替换配置项的 `config`：重新指向 agent 配置项模型路由的 overlay 会抹掉启动器设置的身份键。参见[共享 base overlay note](../simplification/2026-07-29-shared-base-config-overlays.md)。
 
 `apps/cli` 铸造或选定 id，并依据它所复现的那次调用构建该行，与 `/resume` 的 execve 移交共用同一个 `resumeArgs` 助手，从而使打印出的命令与原地移交不会分歧。该行现在会在传入了 `--config` 时命名它，并在 meta 模式下复现 `dsh meta --resume <id>`——从而收口了 `dsh meta` note 所推迟的随 mode 变化的提示，在那里被复制的提示此前只有在检出目录中才有效。
 
@@ -33,9 +35,9 @@ TUI 持有渲染，而非措辞：它在自己的 `palette.muted` 之前先应�
 
 ## Alternatives considered
 
-**保留这些键，并在 `dsh-tui-demo` 中加入内建默认值。** 拒绝：代码中的默认值能在 overlay 下存活，但表达同一事实的两种途径依然并存，而配置作者仍可把键设错——这正是那行陈旧的 `process.env.RESUME_SESSION_ID` 使 resume 失效的方式。
+**保留这些键，并在应用组合包中加入内建默认值。** 拒绝：代码中的默认值能在 overlay 下存活，但表达同一事实的两种途径依然并存，而配置作者仍可把键设错——这正是那行陈旧的 `process.env.RESUME_SESSION_ID` 使 resume 失效的方式。
 
-**把 `dsh-tui-demo` 合并进 `apps/cli` 并彻底删除该槽位。** 经调查后拒绝，尽管这是移除该槽位的唯一途径。`examples/tui-agent/code-mode.cordis.yml` 通过一个嵌套的 `plugin-include` 给 `tui-agent` 条目打补丁，以切换 `tools.mode` 与人设，而 `examples/cordis-agent/cordis.yml` 把该 bundle 作为另一款产品复用；这两个扩展点都仅因 `tui-agent` 是一个声明式配置条目才存在。合并还会把一段 162 行、18 个依赖的组合逻辑挪进 CLI 的 `v8 ignore` 进程接线块中，脱离逐文件覆盖率门禁。
+**把应用组合包合并进 `apps/cli` 并彻底删除该槽位。** 此处拒绝，但后来以本 note 未曾设想的形式[被采纳](../simplification/2026-07-29-shared-base-config-overlays.md)：组合被搬进平铺的配置文件（`apps/cli/base.cordis.yml` 加各 surface 一份 overlay），而非搬进 CLI 代码，因此从未进入 `v8 ignore` 进程接线块，overlay 的扩展点也作为普通配置项 patch 保留了下来。槽位本身并未被删除——它迁移到了 `dsh-agent-loop`，因为启动器的事实依然不能经由一个可被整体替换的配置键传递。
 
 **把 goodbye 消息放到 `TuiResumeHost` 上。** 拒绝：退出行不是一项移交能力，而一个无法替换自身进程的宿主仍可能想要打印一行。它们是相互独立的槽位。
 
@@ -55,8 +57,8 @@ TUI 持有渲染，而非措辞：它在自己的 `palette.muted` 之前先应�
 
 ## Testing
 
-`packages/ui/tui/tests/tui.spec.ts` 钉住打印出的行、槽位缺失时的静默，以及对恶意消息的转义净化；此前那两个退出抑制测试被替换，因为抑制正是本次改动移除的行为。`packages/examples/tui-demo/tests/tui-agent.spec.ts` 通过一个伪造的 `ctx.get`，为 resume、启动器铸造与无槽位三种情形驱动身份槽位。
+`packages/ui/tui/tests/tui.spec.ts` 钉住打印出的行、槽位缺失时的静默，以及对恶意消息的转义净化；此前那两个退出抑制测试被替换，因为抑制正是本次改动移除的行为。`packages/core/agent-loop/tests/` 为 resume、启动器铸造与无槽位三种情形驱动身份槽位。
 
-承重的覆盖是 `examples/tui-agent/tests/tui-keyless-smoke.e2e.ts`，它在一个 PTY 中拉起真实的 `apps/cli/src/bin.ts`：一个测试断言退出行携带 `--config`，一个回归测试植入一份个人 `config.yaml` 来替换整块 `tui-agent` 配置块并断言该行仍会打印——把「overlay 不能丢掉 resume」编码为一条被执行的契约，而非一句注释。
+承重的覆盖是 `apps/cli/tests/tui-keyless-smoke.e2e.ts`，它在一个 PTY 中拉起真实的 `apps/cli/src/bin.ts`：一个测试断言退出行携带 `--config`，一个回归测试植入一份个人 `config.yaml` 来替换整块 `agent-loop` 配置块并断言该行仍会打印——把「overlay 不能丢掉 resume」编码为一条被执行的契约，而非一句注释。
 
 在 tmux 中针对真实的个人 overlay 做过实测：该缺陷在未修改的 staging 上复现（所请求的 id 被忽略，banner 里是新的 id），而在本分支上同一份 overlay 会产出一行打印的退出行、一个能恢复上一轮次的 `--resume`，以及一个把该会话标记为 `current · live · persisted` 的 `/resume` 选择器。错误的 id 现在会明确报错。

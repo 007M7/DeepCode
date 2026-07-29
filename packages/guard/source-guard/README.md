@@ -19,7 +19,7 @@ Every field fails loud at plugin load: an empty `tools` list, a blank `requiredS
 
 `protectedCheckout` names a path inside the checkout to guard, and its worktree supplies BOTH protected identities: the repository and the exact branch. Its default is this module's own file, which resolves the checkout the running harness was launched from — the live deployment, whatever its branch is named. Nothing about the branch is configured or pattern-matched, so a maintainer whose staging branch follows no naming convention is protected identically. A harness running from an installed copy resolves a different repository, or none, and therefore guards nothing; the rule is meaningless outside a source checkout.
 
-The shipped TUI composition (`examples/tui-agent/cordis.yml`) loads this plugin with defaults. It is inert for anyone whose workspace is not the launcher's own checkout, so an ordinary project sees no change.
+The shipped TUI composition (`apps/cli/base.cordis.yml`) loads this plugin with defaults. It is inert for anyone whose workspace is not the launcher's own checkout, so an ordinary project sees no change.
 
 ## Which paths are protected
 

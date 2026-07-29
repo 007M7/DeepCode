@@ -12,7 +12,7 @@ const UIS = new Map([
     'tsx/esm',
     'apps/cli/src/bin.ts',
     '--config',
-    'examples/tui-agent/code-mode.cordis.yml',
+    'examples/code-mode/cordis.yml',
   ]],
   ['acp', ['--import', 'tsx', 'packages/examples/acp-demo/src/bin.ts', '--config', 'examples/acp-agent/code-mode.cordis.yml']],
 ])

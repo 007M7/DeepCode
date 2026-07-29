@@ -6,7 +6,7 @@ English | [中文](2026-07-28-launcher-owned-resume-identity.zh.md)
 
 ## Problem
 
-Two facts a launcher owns were shipped as deployment config keys on `dsh-tui-demo`: `resumeSessionId` (which session `main` binds to) and `resumeCommand` (the exit hint template, with `{session}` interpolated). Neither varies by deployment — both are properties of how the process was invoked, which only the launcher knows.
+Two facts a launcher owns were shipped as deployment config keys on the TUI app bundle: `resumeSessionId` (which session `main` binds to) and `resumeCommand` (the exit hint template, with `{session}` interpolated). Neither varies by deployment — both are properties of how the process was invoked, which only the launcher knows.
 
 Routing them through YAML made them silently droppable. `@cordisjs/plugin-include` applies a targeted patch by replacing whole top-level keys (`target[key] = value`), so a personal `~/.dsh/config.yaml` patching the `tui-agent` entry's `config` replaces the shipped block entirely. A user overlay written to change provider and model therefore deleted every resume key it did not restate, and nothing reported it: absent `resumeCommand` legitimately means "no fallback configured".
 
@@ -16,12 +16,14 @@ A config key cannot express these facts safely, because the deployment is not th
 
 ## Decision
 
-Session identity and the exit line are launcher-owned context slots, provided before any Loader entry mounts. Neither appears in any `cordis.yml` or in `dsh-tui`'s or `dsh-tui-demo`'s `Config`.
+Session identity and the exit line are launcher-owned context slots, provided before any Loader entry mounts. Neither appears in any `cordis.yml` nor in any plugin's `Config`.
 
-`dsh-tui` declares both slots beside the existing `tuiResumeHost` host capability, which set the precedent — a resume host has always been a provided capability rather than config:
+Both sit beside the existing `tuiResumeHost` host capability, which set the precedent — a resume host has always been a provided capability rather than config. Each slot is declared by the package that consumes it:
 
-- `MAIN_SESSION_ID_KEY` carries a `MainSessionIdentity` (`{ id: SessionId, resume: boolean }`). `dsh-tui-demo` binds both the TUI and the configured agent to `id`, and takes the history-loading `resumeSessionId` path only when `resume` is set, because that path requires an existing log and fails loud without one. An absent slot means no launcher chose a session, so the app mints `main-session-<uuid>` and creates it fresh.
-- `TUI_GOODBYE_MESSAGE_KEY` carries the complete line printed once the terminal is released on exit. Absent prints nothing.
+- `CONFIGURED_AGENT_IDENTITIES_KEY` (`dsh-agent-loop`) carries launcher identities keyed by configured-agent `id`, each a `LauncherAgentIdentity` (`{ id: SessionId, resume: boolean }`). `agent-loop` applies the matching identity over its configured agent, replacing both identity keys, and takes the history-loading `resumeSessionId` path only when `resume` is set, because that path requires an existing log and fails loud without one. An absent slot leaves the configured identity untouched. The `tui` row resolves the same id through its own `sessionId` key, so the front door renders exactly the agent that was bound.
+- `TUI_GOODBYE_MESSAGE_KEY` (`dsh-tui`) carries the complete line printed once the terminal is released on exit. Absent prints nothing.
+
+Identity belongs to `agent-loop` because that is the plugin which creates configured agents, and because a patch replaces a row's whole `config`: an overlay repointing the agent row's model route would erase a launcher-set identity key. See [the shared-base overlay note](../simplification/2026-07-29-shared-base-config-overlays.md).
 
 `apps/cli` mints or selects the id and builds the line from the invocation it is reproducing, sharing one `resumeArgs` helper with the `/resume` execve handoff so the printed command and the in-place handoff cannot diverge. The line now names `--config` when one was passed, and reproduces `dsh meta --resume <id>` in meta mode — closing the mode-aware hint deferred by the `dsh meta` note, where a copied hint previously only worked from the checkout.
 
@@ -33,9 +35,9 @@ The TUI owns rendering, not wording: it applies `displayText` before its own `pa
 
 ## Alternatives considered
 
-**Keep the keys and add built-in defaults in `dsh-tui-demo`.** Rejected: a default in code survives an overlay, but two ways to state one fact remain, and a config author can still set the key wrong — which is exactly how the stale `process.env.RESUME_SESSION_ID` line disabled resume.
+**Keep the keys and add built-in defaults in the app bundle.** Rejected: a default in code survives an overlay, but two ways to state one fact remain, and a config author can still set the key wrong — which is exactly how the stale `process.env.RESUME_SESSION_ID` line disabled resume.
 
-**Merge `dsh-tui-demo` into `apps/cli` and delete the slot entirely.** Rejected after investigation, though it is the only way to remove the slot. `examples/tui-agent/code-mode.cordis.yml` patches the `tui-agent` entry through a nested `plugin-include` to switch `tools.mode` and the persona, and `examples/cordis-agent/cordis.yml` reuses the bundle as a different product; both extension points exist only because `tui-agent` is a declared config entry. Merging also moves a 162-line, 18-dependency composition into the CLI's `v8 ignore` process-wiring block, out of the per-file coverage gate.
+**Merge the app bundle into `apps/cli` and delete the slot entirely.** Rejected here, then [adopted later](../simplification/2026-07-29-shared-base-config-overlays.md) in a form this note did not consider: the composition moved into flat config files (`apps/cli/base.cordis.yml` plus a per-surface overlay) rather than into CLI code, so it never entered the `v8 ignore` process-wiring block, and the overlay extension points survive as ordinary row patches. The slot itself was not deleted — it moved to `dsh-agent-loop`, because a launcher fact still cannot travel through a replaceable config key.
 
 **Put the goodbye message on `TuiResumeHost`.** Rejected: an exit line is not a handoff capability, and a host that cannot replace its process may still want to print one. They are independent slots.
 
@@ -55,8 +57,8 @@ The TUI owns rendering, not wording: it applies `displayText` before its own `pa
 
 ## Testing
 
-`packages/ui/tui/tests/tui.spec.ts` pins the printed line, the absent-slot silence, and escape sanitization of a hostile message; the former two exit-suppression tests are replaced, since suppression is the behavior this change removes. `packages/examples/tui-demo/tests/tui-agent.spec.ts` drives the identity slot for the resume, launcher-minted, and no-slot cases through a fake `ctx.get`.
+`packages/ui/tui/tests/tui.spec.ts` pins the printed line, the absent-slot silence, and escape sanitization of a hostile message; the former two exit-suppression tests are replaced, since suppression is the behavior this change removes. `packages/core/agent-loop/tests/` drives the identity slot for the resume, launcher-minted, and no-slot cases.
 
-The load-bearing coverage is `examples/tui-agent/tests/tui-keyless-smoke.e2e.ts`, which launches the real `apps/cli/src/bin.ts` in a PTY: one test asserts the exit line carries `--config`, and a regression test seeds a personal `config.yaml` that replaces the entire `tui-agent` config block and asserts the line still prints — encoding "an overlay cannot drop resume" as an executed contract rather than a comment.
+The load-bearing coverage is `apps/cli/tests/tui-keyless-smoke.e2e.ts`, which launches the real `apps/cli/src/bin.ts` in a PTY: one test asserts the exit line carries `--config`, and a regression test seeds a personal `config.yaml` that replaces the entire `agent-loop` config block and asserts the line still prints — encoding "an overlay cannot drop resume" as an executed contract rather than a comment.
 
 Verified live in tmux against the real personal overlay: the defect reproduced on unmodified staging (requested id ignored, fresh id in the banner), and on this branch the same overlay yields a printed exit line, a `--resume` that restores the prior turn, and a `/resume` selector marking the session `current · live · persisted`. A wrong id now fails loud.
