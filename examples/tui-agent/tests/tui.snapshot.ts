@@ -41,6 +41,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 type Composition = 'native' | 'code' | 'advanced'
+type ScenarioInteraction = 'skill-invocation-policy'
 
 interface Scenario {
   name: string
@@ -65,8 +66,8 @@ interface Scenario {
    * preview + locator while the program value stays whole.
    */
   spillMaxInlineBytes?: number
-  /** Exercise user-facing skill discovery and exact policy denial without opening a model turn. */
-  skillInvocationPolicy?: boolean
+  /** Run scenario-specific terminal input instead of replaying recorded user prompts. */
+  interaction?: ScenarioInteraction
 }
 
 const SCENARIOS: Scenario[] = [
@@ -106,7 +107,7 @@ const SCENARIOS: Scenario[] = [
     expectedTools: [],
     recorded: false,
     seedWorkspace: true,
-    skillInvocationPolicy: true,
+    interaction: 'skill-invocation-policy',
   },
   {
     name: 'code-mode',
@@ -280,7 +281,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const fixtureFile = join(dir, 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
   const prompts = userPrompts(await readFile(fixtureFile, 'utf8'))
-  if (scenario.skillInvocationPolicy !== true) {
+  if (scenario.interaction === undefined) {
     expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
   }
 
@@ -321,8 +322,8 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     })
     await settleTerminal(terminal)
 
-    let skillPolicySnapshot: string | undefined
-    if (scenario.skillInvocationPolicy === true) {
+    let interactionSnapshot: string | undefined
+    if (scenario.interaction === 'skill-invocation-policy') {
       terminal.send('/skill')
       await settleTerminal(terminal)
       const discovery = normalizeTerminalSnapshot(
@@ -335,6 +336,25 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 
       terminal.send('\x03')
       await settleTerminal(terminal)
+      const skillTurnEnded = new Promise<void>((resolve) => {
+        const detach = ctx.on('session/event', (session, event) => {
+          if (session !== agent.session || event.type !== 'turn/end') return
+          detach()
+          resolve()
+        })
+      })
+      terminal.send('/skill:user-only-skill')
+      terminal.send('\r')
+      await skillTurnEnded
+      await agent.whenIdle()
+      await settleTerminal(terminal)
+      const loaded = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(loaded).toContain('USER-ONLY SKILL LOADED')
+
       terminal.send('/skill:model-only-skill')
       terminal.send('\r')
       await settleTerminal(terminal)
@@ -346,9 +366,12 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(denied).toContain('model-only-skill')
       expect(denied).toContain('not available for user invocation.')
       expect(denied).not.toContain('MODEL-ONLY BODY MUST NOT LOAD')
-      skillPolicySnapshot = [
+      interactionSnapshot = [
         '=== skill autocomplete ===',
         discovery,
+        '',
+        '=== loaded exact invocation ===',
+        loaded,
         '',
         '=== denied exact invocation ===',
         denied,
@@ -380,10 +403,8 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 
     const events: SessionEvent[] = [...agent.session.events]
     const firstHeader = events.find(event => event.type === 'request/header')
-    if (scenario.skillInvocationPolicy !== true) {
-      expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
-        .toContain(FILE_REFERENCE_PROMPT)
-    }
+    expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
+      .toContain(FILE_REFERENCE_PROMPT)
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
@@ -439,12 +460,11 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     expect(terminal.themeViolations(), `${scenario.name} must remain theme-agnostic`).toEqual([])
-    const terminalSnapshot = normalizeTerminalSnapshot(
+    const snapshot = interactionSnapshot ?? normalizeTerminalSnapshot(
       await terminal.snapshot({ includeScrollback: true }),
       cwd,
       displayCwd,
     )
-    const snapshot = skillPolicySnapshot ?? terminalSnapshot
     await handle.dispose()
     const children = disposedSessions
       .filter(session => session !== agent.session)

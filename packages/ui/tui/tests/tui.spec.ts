@@ -4013,9 +4013,10 @@ describe('skill slash command', () => {
           list: () => {
             listCalls += 1
             if (listCalls === 1) return Promise.resolve<SkillSummary[]>([])
-            if (listCalls === 2) {
+            if (listCalls === 2 || listCalls === 3) {
+              const name = listCalls === 2 ? 'demo-skill' : 'error-skill'
               return Promise.resolve<SkillSummary[]>([{
-                name: 'demo-skill',
+                name,
                 description: 'demo',
                 invocation: { modelInvocable: true, userInvocable: true },
                 source: 'runtime',
@@ -4030,6 +4031,9 @@ describe('skill slash command', () => {
     })
     await tick()
     result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:error-skill')
     result.terminal.send('\r')
     await tick()
     result.terminal.send('/skill:other-skill')
@@ -4052,9 +4056,11 @@ describe('skill slash command', () => {
       provider: 'runtime',
       content: 'late body',
     })
+    pendingGet[1]?.reject(new Error('late failure'))
     await tick()
     expect(result.agent.sent).toEqual([])
     expect(result.terminal.output).not.toContain('late body')
+    expect(result.terminal.output).not.toContain('late failure')
   })
 })
 
