@@ -629,6 +629,56 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
   })
 
+  it('a plain right-pane advance parks focus on the new selection (no editor involved)', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    // Keyboard reached the right pane; the advance replaces that whole
+    // column, so focus re-parks on the new left pane's selected row.
+    const row = rowButton(within(columns()[1]!).getByRole('listitem'))
+    row.focus()
+    fireEvent.click(row)
+    await waitFor(() => { expect(document.activeElement?.textContent).toBe('harness') })
+    expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('a create landing parks focus on the created row, or the edit zone when the relist lost it', async () => {
+    // First create: the relist contains the created directory.
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    b.listDirectory.mockImplementation(async (path?: string) => {
+      // The created directory is not in listingFor's fixed tree: serve its
+      // level before the fixture lookup can reject the unknown path.
+      if (path === `${HOME}/fresh`) return { ...listingFor(HOME), path: `${HOME}/fresh`, entries: [] }
+      const base = listingFor(path)
+      if (path === HOME) {
+        return { ...base, entries: [...base.entries, { name: 'fresh', path: `${HOME}/fresh`, hidden: false }] }
+      }
+      return base
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'fresh' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    await waitFor(() => { expect(document.activeElement?.textContent).toBe('fresh') })
+    expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('a create landing whose truncated relist lost the created row parks on the edit zone', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // The relist window misses the created directory (truncated tail).
+    b.listDirectory.mockImplementation(async (path?: string) => ({ ...listingFor(path), truncated: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'zzz-tail' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    // No aria-current row exists for the selection: focus falls back to the
+    // crumb edit zone instead of staying wherever it fell.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+    })
+  })
+
   it('a right-pane pick while editing parks focus on the advanced selection', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })

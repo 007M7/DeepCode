@@ -2,13 +2,14 @@
  * The in-app workspace-directory browser (figma Harness 813-23126 family): a
  * 680×500 dialog (clamped to short/narrow viewports — the Miller row scrolls
  * sideways, the columns scroll down) whose header carries the title, the selection-path
- * breadcrumb, and a click-to-edit path zone; below it a Miller view — one
- * full-width level until a row is selected, then two columns splitting the
- * row evenly (256px floor; level | selected folder's children) around a
- * hairline divider. Navigations land selection-anchored: a crumb jump or a
- * submitted path commits the target immediately, then re-selects it in its
- * parent level once that level arrives, so stepping back keeps two panes
- * away from the display root. Selecting in the
+ * breadcrumb, and a click-to-edit path zone; below it a Miller view of one
+ * or two columns splitting the row evenly (256px floor; level | selected
+ * folder's children) around a hairline divider — the display root and
+ * degraded landings keep the single wide level, while any selection opens
+ * the second pane, including the one a navigation lands with: a crumb jump
+ * or a submitted path commits the target immediately, then re-selects it
+ * in its parent level once that level arrives, so stepping back keeps two
+ * panes away from the display root. Selecting in the
  * right column shifts the view one level deeper. "New folder" opens a nested
  * create dialog targeting the selected folder (or the level itself) and
  * selects the created folder. Open adopts the selected folder, falling back
@@ -56,14 +57,15 @@ function failureText(error: unknown): string {
 }
 
 /**
- * Case-folds a path for comparisons under the listing's platform: backslash
- * (Windows) paths compare case-insensitively — a typed path legally differs
- * in case from the host's stamped one — while slash platforms compare
- * exactly (the filesystem may be case-sensitive; macOS typed-case drift
- * degrades to the single-pane landing instead of a wrong match).
+ * Case-folds a path for comparisons under the given separator's platform:
+ * backslash (Windows) paths compare case-insensitively — a typed path
+ * legally differs in case from the host's stamped one — while slash
+ * platforms compare exactly (the filesystem may be case-sensitive; only a
+ * FINAL-segment macOS case drift misses parent-entry matching and keeps
+ * the single-pane landing, since parent entry paths inherit the typed
+ * prefix).
  */
-function foldPathFor(listing: DirectoryListing): (value: string) => string {
-  const sep = separatorOf(listing)
+function foldPathFor(sep: '\\' | '/'): (value: string) => string {
   return value => (sep === '\\' ? value.toLowerCase() : value)
 }
 
@@ -74,7 +76,7 @@ function foldPathFor(listing: DirectoryListing): (value: string) => string {
  * Windows path still collapses to the Home crumb.
  */
 function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryEntry[] {
-  const fold = foldPathFor(listing)
+  const fold = foldPathFor(separatorOf(listing))
   const homeIndex = listing.crumbs.findIndex(crumb => fold(crumb.path) === fold(listing.home))
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
@@ -109,7 +111,7 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
   const sep = separatorOf(listing)
   const cut = draft.lastIndexOf(sep)
   if (cut === -1) return null
-  const fold = foldPathFor(listing)
+  const fold = foldPathFor(sep)
   const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
   return fold(draft.slice(0, cut + 1)) === fold(level) ? draft.slice(cut + 1) : null
 }
@@ -195,8 +197,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const requestSeq = useRef(0)
   // The in-flight listing's controller: superseding intent aborts the wire
   // request too — the Host stops scanning — instead of only discarding the
-  // eventual result while the scan keeps consuming host resources.
-  const scanController = useRef<AbortController | null>(null)
+  // eventual result while the scan keeps consuming host resources. Always
+  // holds a controller (a settled or aborted one between scans) so no
+  // consumer needs a null guard.
+  const scanController = useRef<AbortController>(new AbortController())
   // Bumped on every open/close edge: settlements from a previous open (a
   // pending creation included) must never mutate a reopened dialog.
   const openGeneration = useRef(0)
@@ -212,7 +216,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   useEffect(() => () => {
     requestSeq.current += 1
     openGeneration.current += 1
-    scanController.current?.abort()
+    scanController.current.abort()
   }, [])
   const compositionGuard = {
     onCompositionStart: () => { composingRef.current = true },
@@ -221,8 +225,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
 
   /** Newer intent wins: invalidate the pending listing's settlement AND abort its wire request. */
   const supersede = useCallback((): number => {
-    scanController.current?.abort()
-    scanController.current = null
+    scanController.current.abort()
     return ++requestSeq.current
   }, [])
 
@@ -257,12 +260,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     // Abort whatever the slot last tracked before overwriting it (the
     // caller's settled leg: a no-op) — the slot must never silently strand
     // a live scan, the exact waste supersede() exists to prevent.
-    const displaced = scanController.current
-    // Inverted so the live abort below stays in coverage: a supersede
-    // would have bumped the seq before any follow-up could run.
-    /* v8 ignore next -- narrowing guard: the landing's target leg installed a controller first. */
-    if (displaced === null) throw new Error('continueScan launched before any leg installed a controller')
-    displaced.abort()
+    scanController.current.abort()
     const controller = new AbortController()
     scanController.current = controller
     return listDirectory(path, controller.signal)
@@ -306,16 +304,18 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         // Windows resolves a typed path preserving its case; anchor on the
         // parent level's actual entry so selection comparisons hold (slash
         // platforms compare exactly — see foldPathFor).
-        const fold = foldPathFor(parentLevel)
+        const fold = foldPathFor(separatorOf(parentLevel))
         const match = parentLevel.entries.find(entry => fold(entry.path) === fold(target.path))
         if (match === undefined) return
         // The upgrade replaces every committed row node; if focus lives
         // among them (Tab reached the rows during the parent leg), arm the
         // refocus effect so it re-parks on the re-selected row.
         const rowHost = millerRowRef.current
-        // Inverted so the live contains() probe below stays in coverage.
-        /* v8 ignore next -- narrowing guard: the committed landing just rendered the miller row. */
-        if (rowHost === null) throw new Error('parent-leg upgrade before the miller row rendered')
+        // A close race can clear the ref before the close effect's
+        // supersede runs (commit precedes passive effects): drop the
+        // upgrade, the dialog is going away.
+        /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
+        if (rowHost === null) return
         if (rowHost.contains(document.activeElement)) refocusPick.current = true
         setParent(parentLevel)
         setSelected(match)
@@ -336,9 +336,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const select = useCallback((entry: DirectoryEntry) => {
     const { seq, scan } = launchListing(entry.path)
     // A pick while the path editor is open adopts the (filtered) row and
-    // closes the editor — the draft served its purpose. Focus re-parks on
-    // the selection after commit (see the refocus effect below).
-    if (pathDraft !== null) refocusPick.current = true
+    // closes the editor — the draft served its purpose. EVERY pick re-parks
+    // focus on the selection after commit (see the refocus effect below):
+    // a left-pane pick lands on the very row that was clicked (a near
+    // no-op), while a right-pane advance and a create landing replace the
+    // picked button's column entirely and would otherwise drop focus to
+    // body.
+    refocusPick.current = true
     setPathDraft(null)
     setSelected(entry)
     setChild(null)
@@ -477,12 +481,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     const row = millerRowRef.current
     if (row !== null && childPath !== undefined) row.scrollLeft = row.scrollWidth
   }, [childPath])
-  // Every editor exit that would drop focus to body re-parks it after
-  // commit, so keyboard traversal stays inside the dialog (the Modal has no
-  // focus trap): a pick lands on the selection's row — aria-current in the
-  // freshly rendered left pane, which survives even a right-pane advance
-  // replacing the picked button's column — while Enter and an input-focused
-  // Escape land on the crumb edit zone that replaces the input.
+  // Every pick and editor exit that would drop focus to body re-parks it
+  // after commit, so keyboard traversal stays inside the dialog (the Modal
+  // has no focus trap): a pick lands on the selection's row — aria-current
+  // in the freshly rendered left pane, which survives even a right-pane
+  // advance or a create landing replacing the picked button's column —
+  // while Enter and an input-focused Escape land on the crumb edit zone
+  // that replaces the input.
   useEffect(() => {
     if (pathDraft !== null) return
     if (refocusPick.current) {
@@ -492,10 +497,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       /* v8 ignore next -- narrowing guard: the miller row is mounted whenever a pick just committed. */
       if (rowHost === null) return
       const row = rowHost.querySelector<HTMLButtonElement>('button[aria-current="true"]')
-      /* v8 ignore next -- narrowing guard: the pick that set the flag just rendered its aria-current row. */
-      if (row === null) return
-      row.focus()
-      return
+      if (row !== null) {
+        row.focus()
+        return
+      }
+      // The pick lost its row (a truncated relist after Create can drop
+      // the created directory outside the window): fall through to the
+      // edit-zone parking below instead of leaving focus where it fell.
+      refocusEditZone.current = true
     }
     if (refocusEditZone.current) {
       refocusEditZone.current = false
