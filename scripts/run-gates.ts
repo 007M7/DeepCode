@@ -181,10 +181,6 @@ function pnpmInvocation(args: string[]): Pick<Gate, 'command' | 'args'> {
   return { command: process.execPath, args: [entrypoint, ...args] }
 }
 
-function nodeOptions(...options: string[]): string {
-  return [process.env.NODE_OPTIONS, ...options].filter(option => option !== undefined && option !== '').join(' ')
-}
-
 /**
  * Construct the complete gate list for a named aggregate.
  * @param selected - aggregate mode to construct.
@@ -375,43 +371,22 @@ function ciWindowsObservationalGates(): Gate[] {
   ]
 }
 
-function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
-  const concurrencyArgs = eslintConcurrencyArgs()
-  if (process.env.DSH_ESLINT_CACHE === '1') {
-    return pnpmExec('lint', [
-      'eslint',
-      ...eslintTargets,
-      ...concurrencyArgs,
-      '--cache',
-      '--cache-location',
-      '.cache/eslint/',
-      '--cache-strategy',
-      'content',
-    ], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
+function lintGate(oxlintTargets: readonly string[] = ['.']): Gate {
+  const threadArgs = oxlintThreadArgs()
+  if (threadArgs.length > 0) {
+    return pnpmExec('lint', ['oxlint', ...oxlintTargets, ...threadArgs], { label: 'lint' })
   }
-  if (concurrencyArgs.length > 0) {
-    return pnpmExec('lint', ['eslint', ...eslintTargets, ...concurrencyArgs], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
-  }
-  return pnpmScript('lint', 'lint', {
-    env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-  })
+  return pnpmScript('lint', 'lint')
 }
 
-function eslintConcurrencyArgs(): string[] {
-  const raw = process.env.DSH_ESLINT_CONCURRENCY
+function oxlintThreadArgs(): string[] {
+  const raw = process.env.DSH_OXLINT_THREADS
   if (raw === undefined || raw === '') return []
-  if (raw === 'auto') return ['--concurrency=auto']
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
-    throw new Error(`run-gates: DSH_ESLINT_CONCURRENCY must be a positive integer or auto, got ${JSON.stringify(raw)}.`)
+    throw new Error(`run-gates: DSH_OXLINT_THREADS must be a positive integer, got ${JSON.stringify(raw)}.`)
   }
-  return [`--concurrency=${raw}`]
+  return [`--threads=${raw}`]
 }
 
 function coverageGate(): Gate {

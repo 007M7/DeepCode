@@ -195,7 +195,7 @@ export class BasicCompactService extends CompactService {
         // A model-free prune can land before later summary work fails. That
         // durable reduction is sufficient retry proof; do not discard it just
         // because the optional second phase threw. Cancellation still wins.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while recovery is awaited.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while recovery is awaited.
         if (!signal.aborted && agent.session.surface.replaceGeneration > generation) {
           ctx.logger.warn(
             `context-overflow compaction failed after durable surface progress: ${message}; `
@@ -205,14 +205,14 @@ export class BasicCompactService extends CompactService {
           return { kind: 'retry' }
         }
         ctx.logger.warn(
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while recovery is awaited.
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while recovery is awaited.
           `context-overflow compaction failed: ${message}; ${signal.aborted
             ? 'cancellation prevents retry'
             : 'preserving the original request error'}`,
         )
         return next()
       }
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while compaction is awaited.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while compaction is awaited.
       if (signal.aborted
         || agent.session.surface.replaceGeneration <= generation) return next()
       if (result !== null) logResult(result, 'context overflow recovery')

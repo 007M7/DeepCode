@@ -34,7 +34,7 @@ function contentText(content: readonly unknown[]): { text: string; rest: unknown
 async function writeClipboard(text: string): Promise<void> {
   // lib.dom types clipboard non-optional, but insecure contexts omit it —
   // that runtime gap is exactly what this guard detects.
-  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
+  /* oxlint-disable-next-line typescript/no-unnecessary-condition */
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text)
@@ -45,7 +45,7 @@ async function writeClipboard(text: string): Promise<void> {
   }
   // execCommand('copy') is the only clipboard fallback where the async API
   // is missing (insecure contexts); deprecated but deliberately retained.
-  /* eslint-disable @typescript-eslint/no-deprecated */
+  /* oxlint-disable typescript/no-deprecated */
   const exec = typeof document.execCommand === 'function'
     ? document.execCommand.bind(document)
     : undefined
@@ -62,7 +62,7 @@ async function writeClipboard(text: string): Promise<void> {
   } catch {
     // Clipboard unavailable; the button stays idle.
   }
-  /* eslint-enable @typescript-eslint/no-deprecated */
+  /* oxlint-enable typescript/no-deprecated */
   el.remove()
 }
 

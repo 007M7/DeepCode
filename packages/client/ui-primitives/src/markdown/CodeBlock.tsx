@@ -22,7 +22,7 @@ export interface CodeBlockProps {
 async function writeClipboard(text: string): Promise<boolean> {
   // lib.dom types clipboard non-optional, but insecure contexts omit it —
   // that runtime gap is exactly what this guard detects.
-  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
+  /* oxlint-disable-next-line typescript/no-unnecessary-condition */
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text)
@@ -35,7 +35,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   // jsdom and older hosts: best-effort execCommand path when present.
   // execCommand('copy') is the only clipboard fallback where the async API
   // is missing; deprecated but deliberately retained.
-  /* eslint-disable @typescript-eslint/no-deprecated */
+  /* oxlint-disable typescript/no-deprecated */
   const exec = typeof document.execCommand === 'function'
     ? document.execCommand.bind(document)
     : undefined
@@ -54,7 +54,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   } finally {
     el.remove()
   }
-  /* eslint-enable @typescript-eslint/no-deprecated */
+  /* oxlint-enable typescript/no-deprecated */
 }
 
 export function CodeBlock({ code, lang, className }: CodeBlockProps) {

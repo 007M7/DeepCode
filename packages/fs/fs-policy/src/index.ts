@@ -32,6 +32,7 @@ class ObservedStateGate {
    * the write/edit prior-observation policy.
    */
   private owner(actor: object | undefined): object | undefined {
+    // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc requires the structural view before property access.
     return (actor as FsPolicyExec | undefined)?.agent?.session
   }
 

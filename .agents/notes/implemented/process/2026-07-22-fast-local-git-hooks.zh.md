@@ -12,7 +12,7 @@ agent（智能体）已经会运行能够覆盖自身改动的测试和检查，
 
 ## 决策
 
-[lefthook.yml](../../../../lefthook.yml) 将两个钩子都保留为有界的本地检查点。Pre-commit 按顺序运行：ESLint 修复改动过的 JavaScript 和 TypeScript 文件并重新暂存，`git diff --cached --check` 拒绝暂存 diff 中的空白错误，vendor manifest（元数据清单）守卫检查 vendor 源码元数据。Pre-push 直接调用仓库内的 TypeScript 二进制，并启用增量构建模式。
+[lefthook.yml](../../../../lefthook.yml) 将两个钩子都保留为有界的本地检查点。Pre-commit 按顺序运行：[Oxlint](2026-07-29-oxlint-linter.md) 修复改动过的 JavaScript 和 TypeScript 文件并重新暂存，`git diff --cached --check` 拒绝暂存 diff 中的空白错误，vendor manifest（元数据清单）守卫检查 vendor 源码元数据。Pre-push 直接调用仓库内的 TypeScript 二进制，并启用增量构建模式。
 
 两个钩子都不运行测试、快照、文档检查、构建、`hygiene` 或门禁调度器。可选运行的 `check:all` 包脚本独立于这些钩子，从 [scripts/run-gates.ts](../../../../scripts/run-gates.ts) 中选择 `check-all` 调度器清单；它是贡献者命令，而非对 agent 的指令。
 

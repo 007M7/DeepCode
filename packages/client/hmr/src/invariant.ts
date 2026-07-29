@@ -32,7 +32,7 @@ const install: InvariantInstaller = (ctx, fail) => {
   const baselines = new WeakMap<Fiber, number>()
   // Async listener by design: emitPluginDisposed awaits-and-logs returned
   // promises, so a violation surfaces loudly instead of unhandled.
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  // oxlint-disable-next-line typescript/no-misused-promises
   ctx.on('internal/plugin', async (fiber) => {
     if (fiber.name !== 'client-hmr') return
     if (fiber.uid !== null) {

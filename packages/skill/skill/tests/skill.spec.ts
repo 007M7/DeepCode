@@ -580,7 +580,7 @@ describe('SkillService registry', () => {
       name: 'hostile-failure',
       list() {
         // Deliberately violate the provider contract to prove containment is total.
-        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
         return Promise.reject(hostileFailure)
       },
       async get() {

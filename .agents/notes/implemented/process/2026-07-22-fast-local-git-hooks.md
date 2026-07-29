@@ -12,7 +12,7 @@ Fast hooks still need to reject cheap, high-confidence defects before work leave
 
 ## Decision
 
-[lefthook.yml](../../../../lefthook.yml) keeps both hooks as bounded local checkpoints. Pre-commit runs sequentially: ESLint fixes and re-stages changed JavaScript and TypeScript, `git diff --cached --check` rejects staged whitespace errors, and the vendor manifest guard checks vendored-source metadata. Pre-push invokes the repository TypeScript binary directly in incremental build mode.
+[lefthook.yml](../../../../lefthook.yml) keeps both hooks as bounded local checkpoints. Pre-commit runs sequentially: [Oxlint](2026-07-29-oxlint-linter.md) fixes and re-stages changed JavaScript and TypeScript, `git diff --cached --check` rejects staged whitespace errors, and the vendor manifest guard checks vendored-source metadata. Pre-push invokes the repository TypeScript binary directly in incremental build mode.
 
 Neither hook runs tests, snapshots, documentation checks, builds, hygiene, or the gate scheduler. The opt-in `check:all` package script selects the `check-all` scheduler inventory in [scripts/run-gates.ts](../../../../scripts/run-gates.ts) independently of the hooks; it is a contributor command, not an agent instruction.
 
