@@ -196,7 +196,7 @@ it('hides the plan strip when the next turn starts', async () => {
   await openFixtureSession()
   expect(document.querySelector('[data-testid="todo-panel"]')).not.toBeNull()
 
-  const composer = await screen.findByPlaceholderText('Message the agent', {}, { timeout: 10_000 })
+  const composer = await screen.findByPlaceholderText('给智能体发消息', {}, { timeout: 10_000 })
   fireEvent.change(composer, { target: { value: '下一轮清空计划' } })
   fireEvent.keyDown(composer, { key: 'Enter' })
 
