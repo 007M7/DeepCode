@@ -47,7 +47,7 @@ afterEach(async () => {
 })
 
 describe('local attachment store', () => {
-  it.skipIf(process.platform === 'win32')('syncs every newly created object ancestor before returning', async () => {
+  it.skipIf(process.platform === 'win32')('syncs every object ancestor up to the durable boundary before returning', async () => {
     const storageRoot = await root()
     const base = join(storageRoot, '..', '..')
     const sha256 = createHash('sha256').update(PNG).digest('hex')
@@ -57,12 +57,20 @@ describe('local attachment store', () => {
 
     await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
 
+    // Every level between each created directory and the vouched boundary
+    // syncs unconditionally — "already existed" is not "already durable"
+    // when a concurrent first save may have created but not yet synced it.
     expect(fsControl.syncedDirectories).toEqual([
+      // bucket chain: every parent entry between the bucket and the boundary.
       objects,
       storageRoot,
       join(storageRoot, '..'),
       base,
+      // staging chain re-walks the shared ancestors after creating tmp.
       storageRoot,
+      join(storageRoot, '..'),
+      base,
+      // publication: the settled object's bucket and its parent for the rename.
       bucket,
       objects,
     ])

@@ -110,33 +110,48 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   }))
 }
 
-function imageInContent(content: unknown, attachmentId: string): ImageAttachmentRef | undefined {
+/**
+ * The ONE recursive block walk shared by attachment authorization and the
+ * model-selection gate (nested tool-result content included). Both consumers
+ * must agree on what counts as replayed image content — a route added to one
+ * walker but not the other would silently skip authorization or stranding
+ * protection — so there is exactly one walker, parameterized by match.
+ */
+function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
   if (!Array.isArray(content)) return undefined
   for (const value of content) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
     const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
     if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
       const ref = block.attachment as ImageAttachmentRef
-      if (String(ref.attachmentId) === attachmentId) return ref
+      if (match(ref)) return ref
     }
     if (block.type === 'tool-result') {
-      const nested = imageInContent(block.content, attachmentId)
+      const nested = imageBlockIn(block.content, match)
       if (nested !== undefined) return nested
     }
   }
   return undefined
 }
 
+/** Every replayed content route of one event: direct content, wrapped message content, streamed block-end. */
+function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
+  const data = event.data as { content?: unknown; message?: { content?: unknown }; chunk?: { type?: unknown; block?: unknown } }
+  const direct = imageBlockIn(data.content, match)
+  if (direct !== undefined) return direct
+  if (data.message !== undefined) {
+    const wrapped = imageBlockIn(data.message.content, match)
+    if (wrapped !== undefined) return wrapped
+  }
+  if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
+    return imageBlockIn([data.chunk.block], match)
+  }
+  return undefined
+}
+
 /** True when any block (nested tool-result content included) is an image block. */
 function contentHasImage(content: unknown): boolean {
-  if (!Array.isArray(content)) return false
-  for (const value of content) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-    const block = value as { type?: unknown; content?: unknown }
-    if (block.type === 'image') return true
-    if (block.type === 'tool-result' && contentHasImage(block.content)) return true
-  }
-  return false
+  return imageBlockIn(content, () => true) !== undefined
 }
 
 /**
@@ -145,23 +160,13 @@ function contentHasImage(content: unknown): boolean {
  * The log is immutable, so a true here is permanent for the session's life.
  */
 function sessionHasImage(events: readonly SessionEvent[]): boolean {
-  return events.some((event) => {
-    const data = event.data as { content?: unknown; message?: { content?: unknown }; chunk?: { type?: unknown; block?: unknown } }
-    if (contentHasImage(data.content)) return true
-    if (data.message !== undefined && contentHasImage(data.message.content)) return true
-    return event.type === 'assistant/chunk' && data.chunk?.type === 'block-end' && contentHasImage([data.chunk.block])
-  })
+  return events.some(event => imageInEvent(event, () => true) !== undefined)
 }
 
 function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
   for (const event of events) {
-    const data = event.data as { content?: unknown; chunk?: { type?: unknown; block?: unknown } }
-    const direct = imageInContent(data.content, attachmentId)
-    if (direct !== undefined) return direct
-    if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
-      const streamed = imageInContent([data.chunk.block], attachmentId)
-      if (streamed !== undefined) return streamed
-    }
+    const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
+    if (found !== undefined) return found
   }
   return undefined
 }
@@ -1141,7 +1146,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // wire routes reject image content on text-only models — accepting
           // this selection would strand the session (every turn fails, no
           // in-product recovery). Refuse at the selection boundary instead.
-          if (sessionHasImage(found.agent.session.events)) {
+          // The pending inbox counts too: a queued image prompt enters the log
+          // only when claimed, which would happen AFTER this switch landed.
+          const queuedImage = (queuedMirror.get(sessionId) ?? [])
+            .some(entry => contentHasImage(entry.message.content))
+          if (queuedImage || sessionHasImage(found.agent.session.events)) {
             const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
             if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
               return err(request, {

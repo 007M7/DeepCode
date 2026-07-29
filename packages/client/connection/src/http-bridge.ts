@@ -30,9 +30,13 @@ export async function bridge(
   })
   const declaredLength = req.headers['content-length']
   if (declaredLength !== undefined && Number(declaredLength) > maxRequestBodyBytes) {
-    res.writeHead(413)
+    // Same discipline as the chunked-overrun path below: destroy, never
+    // drain. resume() would keep the socket open while the client trickles
+    // its declared length — an already-rejected request holding a server
+    // socket for as long as it likes.
+    res.writeHead(413, { connection: 'close' })
     res.end()
-    req.resume()
+    req.destroy()
     return
   }
   const chunks: Buffer[] = []

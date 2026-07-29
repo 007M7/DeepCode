@@ -37,8 +37,6 @@ export const hostDescribeValueSchema = z.object({
     mediaTypes: z.array(imageMediaTypeSchema),
   }).optional(),
   attachedSessions: z.number().int().nonnegative(),
-  // Open string, not a literal union: unknown kinds must survive the wire so
-  // a merge-added capability can advertise (the client hides the affordance).
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
 /** host.pickDirectory request payload (empty object literal). */

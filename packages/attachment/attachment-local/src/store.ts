@@ -79,21 +79,28 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 /**
- * Create one private directory tree and persist every newly published ancestor.
+ * Create one private directory tree and persist every ancestor entry up to a
+ * caller-vouched durable boundary. The walk deliberately ignores what mkdir
+ * reports as newly created: a concurrent first save can create a level this
+ * process then merely observes, so "already existed" is not "already durable"
+ * — the entry may still be unsynced in the creator, and a crash would drop a
+ * directory the session checkpoint already references. Re-syncing a durable
+ * entry is harmless; skipping an unsynced one is not.
  * @param path - absolute directory to create.
+ * @param boundary - absolute ancestor the caller vouches is already durable.
  */
-async function ensureDurableDirectory(path: string): Promise<void> {
+async function ensureDurableDirectory(path: string, boundary: string): Promise<void> {
   const target = resolve(path)
-  const firstCreated = await mkdir(target, { recursive: true, mode: 0o700 })
+  const stop = resolve(boundary)
+  await mkdir(target, { recursive: true, mode: 0o700 })
   await chmod(target, 0o700)
-  if (firstCreated === undefined) return
-
-  const highestCreated = resolve(firstCreated)
-  let created = target
-  while (true) {
-    await syncDirectory(dirname(created))
-    if (created === highestCreated) return
-    created = dirname(created)
+  let level = target
+  while (level !== stop) {
+    const parent = dirname(level)
+    await syncDirectory(parent)
+    /* v8 ignore next -- filesystem-root guard: callers pass a boundary that is an ancestor of path, so the walk reaches it first. */
+    if (parent === level) return
+    level = parent
   }
 }
 
@@ -110,8 +117,12 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
-  await ensureDurableDirectory(bucket)
-  await ensureDurableDirectory(staging)
+  // The durable boundary is the root's grandparent (DSH_HOME for the
+  // documented `DSH_HOME/attachments/v1` layout): `attachments`/`v1` may be
+  // first-created by a concurrent save, so their entries sync on every path.
+  const boundary = dirname(dirname(resolve(root)))
+  await ensureDurableDirectory(bucket, boundary)
+  await ensureDurableDirectory(staging, boundary)
   const temporary = join(staging, randomUUID())
   const target = objectPath(root, sha256)
   let handle

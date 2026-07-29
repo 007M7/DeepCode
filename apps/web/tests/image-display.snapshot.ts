@@ -120,24 +120,41 @@ it('renders the history image pair through the authorized attachment route and o
   await openFixtureSession()
 
   // Both the user-side (align=end) and assistant-side (align=start) galleries
-  // load real fixture bytes over sessions.attachment (data: fallback in jsdom).
+  // load real fixture bytes over sessions.attachment. jsdom provides
+  // createObjectURL, so this environment MUST take the object-URL path — a
+  // data: src here would mean the fallback ran where it should not.
   await waitFor(() => {
-    const user = document.querySelector('[data-align="end"] img')
-    const assistant = document.querySelector('[data-align="start"] img')
-    if (user === null || assistant === null) throw new Error('history image galleries missing')
-    // jsdom serves object URLs; environments without createObjectURL fall back to data:.
-    expect(user.getAttribute('src')).toMatch(/^(blob:|data:image\/png;base64,)/)
-    expect(assistant.getAttribute('src')).toMatch(/^(blob:|data:image\/png;base64,)/)
+    if (document.querySelector('[data-align="end"] img') === null
+      || document.querySelector('[data-align="start"] img') === null) {
+      throw new Error('history image galleries missing')
+    }
   }, { timeout: 10_000 })
+  const galleryShape = (align: string) => [...document.querySelectorAll(`[data-align="${align}"] img`)]
+    .map(img => ({ alt: img.getAttribute('alt'), scheme: img.getAttribute('src')?.split(':')[0] }))
+  expect({ user: galleryShape('end'), assistant: galleryShape('start') }).toMatchInlineSnapshot(`
+    {
+      "assistant": [
+        {
+          "alt": "fixture-image.png",
+          "scheme": "blob",
+        },
+      ],
+      "user": [
+        {
+          "alt": "fixture-image.png",
+          "scheme": "blob",
+        },
+      ],
+    }
+  `)
   const userImage = document.querySelector<HTMLElement>('[data-align="end"] img')!
-  expect(userImage.getAttribute('alt')).toBe('fixture-image.png')
 
   // Double-click opens the original-size lightbox; Escape/close dismisses it.
   const frame = userImage.closest('button')
   if (frame === null) throw new Error('image frame button missing')
   fireEvent.doubleClick(frame)
   const lightbox = await screen.findByRole('dialog')
-  expect(within(lightbox).getByRole('img').getAttribute('src')).toMatch(/^(blob:|data:image\/png;base64,)/)
+  expect(within(lightbox).getByRole('img').getAttribute('src')?.split(':')[0]).toBe('blob')
   fireEvent.click(within(lightbox).getByRole('button', { name: /关闭/ }))
   await waitFor(() => {
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -166,7 +183,16 @@ it('accepts a pasted image into the composer rail and removes it', async () => {
     if (el === null) throw new Error('attachment rail missing')
     return el
   }, { timeout: 5_000 })
-  expect(rail.querySelector('img')?.getAttribute('src')).toMatch(/^(blob:|data:)/)
+  expect([...rail.querySelectorAll('img')].map(img => ({
+    alt: img.getAttribute('alt'), scheme: img.getAttribute('src')?.split(':')[0],
+  }))).toMatchInlineSnapshot(`
+    [
+      {
+        "alt": "pasted.png",
+        "scheme": "blob",
+      },
+    ]
+  `)
 
   const remove = rail.querySelector('button[aria-label^="移除图片"]')
   if (remove === null) throw new Error('remove button missing')

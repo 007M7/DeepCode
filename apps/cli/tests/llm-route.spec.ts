@@ -1,6 +1,7 @@
 /** resolveLlmRoute: layered provider/model resolution and the dynamic pi-ai mount decision. */
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveLlmRoute } from '../src/app-cli-entry.ts'
+import { parseIncludeYmlRows, resolveLlmRoute, ymlPiAiProvidersOf } from '../src/app-cli-entry.ts'
 
 /** The shipped yml shape: DeepSeek gateway default plus a pi-ai row routing openai/anthropic. */
 const SHIPPED = {
@@ -50,6 +51,20 @@ describe('resolveLlmRoute', () => {
       gateway: { provider: 'anthropic' },
       ymlPiAiProviders: ['openai', 'anthropic'],
     })).toThrow(/provider anthropic requires an explicit model/)
+  })
+
+  it('reuses the SHIPPED cordis.yml roster — the coupling that prevents the duplicate-adapter boot failure', () => {
+    // Parsed from the real file through the production extraction, not a
+    // literal roster: renaming the `llm-pi-ai` row or its providers field
+    // must fail here, because composePatches reads exactly these shapes.
+    const rows = parseIncludeYmlRows(join(import.meta.dirname, '..', 'cordis.yml'))
+    const roster = ymlPiAiProvidersOf(rows)
+    expect(roster).toEqual(['openai', 'anthropic'])
+    const gateway = (rows.get('api-gateway')?.config ?? {}) as { provider?: unknown; model?: unknown }
+    expect(resolveLlmRoute({
+      cli: { provider: 'anthropic', model: 'claude-opus-4-8' }, profile: {},
+      gateway, ymlPiAiProviders: roster,
+    })).toEqual({ provider: 'anthropic', dynamicPiAiProvider: undefined })
   })
 
   it('fails loud on a missing or empty provider', () => {

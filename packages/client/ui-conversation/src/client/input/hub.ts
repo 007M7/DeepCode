@@ -87,11 +87,17 @@ export class InputHub implements InputService {
         for (const off of offs) off()
         // Draft attachments die with the scope: the shell only holds ids, so
         // the service-owned File objects and object URLs must be released
-        // here or they leak for the page lifetime.
+        // here or they leak for the page lifetime. The lookup is optional —
+        // during application teardown or HMR of this plugin the root
+        // `conversation` service can already be unregistered while session
+        // scopes are still alive; a throwing disposer would abort teardown
+        // quiescence, and the service's own disposal effect revokes every
+        // remaining URL in that case anyway.
         const drafts = shell.snapshot.imageIds
         shell.dispose()
         this.shells.delete(id)
-        for (const imageId of drafts) this.conversation().releaseDraftImage(imageId)
+        const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+        for (const imageId of drafts) conversation?.releaseDraftImage(imageId)
       }
     }, 'conversation.input: session shell')
     return shell
@@ -139,8 +145,18 @@ export class InputHub implements InputService {
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend(imageIds)
     void this.conversation().sendSession(session, text, mode, imageIds).catch(() => {
-      shell?.restoreImages(imageIds)
-      if (shell?.snapshot.draft === '') shell.setDraft(text)
+      // Restore only into the shell that still owns the session: if the scope
+      // died while the send was in flight, `commitSend` already removed the
+      // ids from the (now disposed) shell, so the teardown release could not
+      // see them — release the drafts here instead of resurrecting them onto
+      // a dead instance where they would leak for the page lifetime.
+      if (this.shells.get(session.sessionId) === shell) {
+        shell?.restoreImages(imageIds)
+        if (shell?.snapshot.draft === '') shell.setDraft(text)
+        return
+      }
+      const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+      for (const id of imageIds) conversation?.releaseDraftImage(id)
     })
   }
 

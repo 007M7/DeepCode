@@ -166,8 +166,12 @@ export class DeepSeekAdapter extends LlmAdapter {
     const contextWindow = configured?.contextWindow
       ?? this.options.defaultContextWindow
     return Promise.resolve({
+      // The chat-completions wire route is text-only regardless of catalog
+      // membership, so the uncatalogued fallback declares the same negative
+      // capability — "unknown" here would let the host accept and persist
+      // images the serializer must then reject.
       ...configured === undefined
-        ? { provider, id: model, name: model }
+        ? { provider, id: model, name: model, inputModalities: ['text' as const], outputModalities: ['text' as const] }
         : modelInfo(provider, configured),
       ...contextWindow === undefined ? {} : { context: { contextWindow } },
       ...this.options.defaults?.thinking === 'disabled'

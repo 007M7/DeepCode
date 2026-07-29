@@ -1177,6 +1177,8 @@ describe('LlmService', () => {
     [{ provider: 'route', id: 'm', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'm', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'm', name: 'M', description: 1 }, 'non-string description'],
+    [{ provider: 'route', id: 'm', name: 'M', inputModalities: 'text' }, 'non-array input modalities'],
+    [{ provider: 'route', id: 'm', name: 'M', outputModalities: [1] }, 'non-string output modality'],
   ] as const)('rejects invalid model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

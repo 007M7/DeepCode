@@ -116,6 +116,34 @@ export function resolveLlmRoute(input: LlmRouteInput): LlmRoute {
   }
 }
 
+/**
+ * Bypass parse of an include yml's top-level entry rows (id → row). Exported
+ * so tests can pin the shipped tree's real row coupling instead of literals.
+ * @param configPath - absolute path of the include cordis.yml.
+ * @returns row map keyed by entry id.
+ */
+export function parseIncludeYmlRows(configPath: string): Map<string, { config?: unknown }> {
+  const doc = yaml.load(readFileSync(configPath, 'utf8'), { schema: includeYamlSchema })
+  if (!Array.isArray(doc)) throw new Error(`dsh: ${configPath} is not a top-level entry list`)
+  const rows = new Map<string, { config?: unknown }>()
+  for (const row of doc as { id?: string; config?: unknown }[]) {
+    if (typeof row.id === 'string') rows.set(row.id, row)
+  }
+  return rows
+}
+
+/**
+ * Providers the yml's static pi-ai row routes — the roster {@link resolveLlmRoute} reuses.
+ * @param rows - parsed include rows.
+ * @returns provider ids in row order (empty when the row is absent).
+ */
+export function ymlPiAiProvidersOf(rows: ReadonlyMap<string, { config?: unknown }>): string[] {
+  const config = rows.get('llm-pi-ai')?.config as { providers?: { provider?: unknown }[] } | undefined
+  return (config?.providers ?? [])
+    .map(entry => entry.provider)
+    .filter((value): value is string => typeof value === 'string')
+}
+
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
   jsonPath: string
@@ -170,7 +198,11 @@ export interface AppCLIEntryOptions {
   port?: number
   /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
   workspaceRoot?: string
-  /** Host default provider override. Non-DeepSeek routes mount pi-ai with ambient credentials. */
+  /**
+   * Host default provider override. Providers the shipped yml pi-ai row
+   * already routes are reused; only a provider absent from that row mounts
+   * pi-ai dynamically.
+   */
   provider?: string
   /** Host default model override. */
   model?: string
@@ -262,14 +294,11 @@ export class AppCLIEntry {
     if (this.options.model !== undefined) put('api-gateway', 'model', this.options.model)
 
     const gatewayConfig = rows.get('api-gateway')?.config as Record<string, unknown> | undefined
-    const piAiRow = rows.get('llm-pi-ai')?.config as { providers?: { provider?: unknown }[] } | undefined
     const route = resolveLlmRoute({
       cli: { provider: this.options.provider, model: this.options.model },
       profile: { provider: profile.provider, model: profile.model },
       gateway: { provider: gatewayConfig?.provider, model: gatewayConfig?.model },
-      ymlPiAiProviders: (piAiRow?.providers ?? [])
-        .map(p => p.provider)
-        .filter((value): value is string => typeof value === 'string'),
+      ymlPiAiProviders: ymlPiAiProvidersOf(rows),
     })
     this.piAiProvider = route.dynamicPiAiProvider
 
@@ -344,13 +373,7 @@ export class AppCLIEntry {
 
   /** Bypass parse of the shipped yml (id → row) for patch-merge inputs; Loader still reads the file itself. */
   private parseYmlRows(): Map<string, { config?: unknown }> {
-    const doc = yaml.load(readFileSync(this.options.configPath, 'utf8'), { schema: includeYamlSchema })
-    if (!Array.isArray(doc)) throw new Error(`dsh: ${this.options.configPath} is not a top-level entry list`)
-    const rows = new Map<string, { config?: unknown }>()
-    for (const row of doc as { id?: string; config?: unknown }[]) {
-      if (typeof row.id === 'string') rows.set(row.id, row)
-    }
-    return rows
+    return parseIncludeYmlRows(this.options.configPath)
   }
 
   /** Profile json under cwd; read-only — never created here, absent = no user config. */

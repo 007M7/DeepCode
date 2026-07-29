@@ -13,6 +13,7 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
+  ModelModality,
   StreamChunk,
 } from './types.ts'
 import { freezeMessage, type Message } from './message.ts'
@@ -254,6 +255,28 @@ export class LlmService extends Service {
   }
 
   /**
+   * Validate adapter-owned modality arrays and detach them. One rule for the
+   * advisory catalog and exact resolution: both validate, both copy — two
+   * readings of the same adapter field with different trust or detachment
+   * would be an unexplained asymmetry.
+   * @param provider - provider route (diagnostic context).
+   * @param code - error code matching the calling surface.
+   * @param modalities - adapter-owned array, or undefined for unknown.
+   * @returns a detached copy, or undefined when absent.
+   */
+  private detachedModalities(
+    provider: string,
+    code: 'INVALID_CATALOG' | 'INVALID_MODEL_INFO',
+    modalities: readonly unknown[] | undefined,
+  ): ModelModality[] | undefined {
+    if (modalities === undefined) return undefined
+    if (!Array.isArray(modalities) || modalities.some(entry => typeof entry !== 'string')) {
+      throw new LlmError(`adapter returned invalid modality metadata for provider "${provider}"`, code)
+    }
+    return [...(modalities as readonly ModelModality[])]
+  }
+
+  /**
    * Discover models advertised by one registered provider. Catalog membership
    * is advisory and never changes routing or request validation.
    * @param provider - registered provider route to inspect.
@@ -277,13 +300,15 @@ export class LlmService extends Service {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
       }
       seen.add(model.id)
+      const inputModalities = this.detachedModalities(provider, 'INVALID_CATALOG', model.inputModalities)
+      const outputModalities = this.detachedModalities(provider, 'INVALID_CATALOG', model.outputModalities)
       return {
         provider: model.provider,
         id: model.id,
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
-        ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
-        ...model.outputModalities === undefined ? {} : { outputModalities: [...model.outputModalities] },
+        ...inputModalities === undefined ? {} : { inputModalities },
+        ...outputModalities === undefined ? {} : { outputModalities },
       }
     })
   }
@@ -333,23 +358,17 @@ export class LlmService extends Service {
         'INVALID_MODEL_CONTEXT',
       )
     }
-    for (const modalities of [resolved.inputModalities, resolved.outputModalities]) {
-      if (modalities !== undefined && (!Array.isArray(modalities) || modalities.some(m => typeof m !== 'string'))) {
-        throw new LlmError(
-          `adapter returned invalid modality metadata for provider "${provider}" model "${model}"`,
-          'INVALID_MODEL_INFO',
-        )
-      }
-    }
+    // Capability metadata rides through: an explicit modality omission is
+    // negative capability downstream preflights act on (image admission).
+    const inputModalities = this.detachedModalities(provider, 'INVALID_MODEL_INFO', resolved.inputModalities)
+    const outputModalities = this.detachedModalities(provider, 'INVALID_MODEL_INFO', resolved.outputModalities)
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
-      // Capability metadata rides through: an explicit modality omission is
-      // negative capability downstream preflights act on (image admission).
-      ...resolved.inputModalities === undefined ? {} : { inputModalities: resolved.inputModalities },
-      ...resolved.outputModalities === undefined ? {} : { outputModalities: resolved.outputModalities },
+      ...inputModalities === undefined ? {} : { inputModalities },
+      ...outputModalities === undefined ? {} : { outputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
     }
     const reasoning = resolved.reasoning

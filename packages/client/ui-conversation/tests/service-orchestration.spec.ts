@@ -69,6 +69,34 @@ describe('ConversationService', () => {
     await b.runtime.dispose()
   })
 
+  it('releases in-flight send images when the scope dies before the failure lands', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:inflight-1')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const [attachment] = b.root.createDraftImages([new File([new Uint8Array(4)], 'b.png', { type: 'image/png' })])
+      if (attachment === undefined) throw new Error('draft attachment missing')
+      const shell = b.hub.shell(b.runtime.sessions.behavior('s1').sessionId)
+      shell.addImages([attachment.id])
+      let reject!: (error: Error) => void
+      b.prompt.mockReturnValueOnce(new Promise((_resolve, rej) => { reject = rej }) as never)
+      shell.setDraft('x')
+      shell.submit('queue')
+      // commitSend already removed the ids from the shell; kill the scope
+      // while the RPC is still pending, then land the failure.
+      await b.runtime.sessions.remove('s1')
+      reject(new Error('transport died'))
+      await vi.waitFor(() => {
+        expect(revoked).toHaveBeenCalledWith('blob:inflight-1')
+      })
+      expect(b.root.draftImages([attachment.id])).toEqual([])
+    } finally {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('fails loudly from the root scope, on an unbound session, or without SessionsService', async () => {
     const b = await bench()
     await expect(b.root.send('x', 'queue')).rejects.toThrow(/requires a session scope/)

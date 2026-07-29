@@ -274,6 +274,52 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refuses a text-only selection while an image prompt is still queued (not yet logged)', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+      }
+    }('Text Only', []))
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    // The queued message enters the session log only when claimed — after a
+    // model switch would already have landed. The pending-inbox mirror must
+    // therefore gate the switch too.
+    ctx.emit('agent/inbox/enqueue', agent, {
+      id: 'q-1', role: 'user', source: { kind: 'user' },
+      content: [{ type: 'image', attachment: { attachmentId: 'att-q', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
+    } as never, 'queued')
+    const stranded = await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))
+    expect(stranded.result.ok).toBe(false)
+    // Claiming the message drains the mirror; the log now owns the decision.
+    ctx.emit('agent/inbox/dequeue', agent, { id: 'q-1' } as never, 'queued')
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
+
+  it('authorizes an attachment read referenced only from wrapped message content', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    const ref = { attachmentId: 'att-w', mediaType: 'image/png' as const, bytes: 4, width: 1, height: 1 }
+    ctx.provide('attachments', {
+      readImage: () => Promise.resolve({ ref, data: new Uint8Array([1, 2, 3, 4]) }),
+    } as never)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    // The only reference lives inside an assistant/message wrapper — the same
+    // walk that gates model selection must authorize the read, or a real host
+    // denies galleries the fixture (with its own authorization mirror) serves.
+    agent.session.append('assistant/message', {
+      turn: 1, step: 0,
+      message: { id: 'a-1', role: 'assistant', source: { kind: 'model', provider: 'p', model: 'm' }, content: [{ type: 'image', attachment: ref }] },
+    } as never, { surfaceOp: 'append' })
+    const got = await api.sessions.attachment(request({ sessionId, attachmentId: 'att-w' as never }))
+    expect(got.result).toMatchObject({ ok: true, value: { attachment: ref } })
+    const denied = await api.sessions.attachment(request({ sessionId, attachmentId: 'att-other' as never }))
+    expect(denied.result).toMatchObject({ ok: false, error: { details: { reason: 'ATTACHMENT_NOT_REFERENCED' } } })
+    await ctx.fiber.dispose()
+  })
+
   it('detects images on every replayed route: wrapped messages, streamed blocks, nested tool results', async () => {
     const image = { type: 'image', attachment: { attachmentId: 'att-x', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }
     const cases: { label: string; append: (agent: Agent) => void }[] = [
