@@ -260,7 +260,7 @@ async function setup(
 
 describe('tool-bash-persistent', () => {
   it('registers a configurable schema and reuses one owner shell', async () => {
-    const { ctx, owner, stub } = await setup({
+    const { ctx, owner, stub, fiber } = await setup({
       backendType: 'stub',
       description: 'deployment-specific persistent shell',
     })
@@ -282,6 +282,10 @@ describe('tool-bash-persistent', () => {
     const ownerWithoutCwd = agent(ctx, undefined)
     expect(text(await call(ctx, ownerWithoutCwd, 'pwd'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(2)
+
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(ctx.tools.get('bash')).toBeUndefined()
   })
 
   it('handles inferred idle, prompt fallback, shell exit, clipping, and cleanup', async () => {

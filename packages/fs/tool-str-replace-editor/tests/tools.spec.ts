@@ -78,13 +78,13 @@ async function setup(
     await ctx.plugin(SandboxedFileSystem, { cwd: root })
   }
   if (options.fsPolicy === true) await ctx.plugin(FsPolicy)
-  await ctx.plugin(ToolStrReplaceEditor, config)
-  return { ctx, root, owner: agent(ctx, root) }
+  const fiber = await ctx.plugin(ToolStrReplaceEditor, config)
+  return { ctx, root, fiber, owner: agent(ctx, root) }
 }
 
 describe('tool-str-replace-editor', () => {
   it('registers the standalone schema and configurable description', async () => {
-    const { ctx } = await setup({ description: 'custom editor description' })
+    const { ctx, fiber } = await setup({ description: 'custom editor description' })
     const schema = ctx.tools.schemas()[0]
     expect(ctx.tools.schemas().map(item => item.name)).toEqual(['str_replace_editor'])
     expect(schema?.description).toBe('custom editor description')
@@ -147,6 +147,10 @@ describe('tool-str-replace-editor', () => {
     })).toMatchObject({
       locations: [{ path: '/workspace/a.txt' }],
     })
+
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(ctx.tools.get('str_replace_editor')).toBeUndefined()
   })
 
   it('creates, views, replaces, and inserts with the canonical model-facing output', async () => {
