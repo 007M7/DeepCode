@@ -223,4 +223,5 @@ export class RuntimeOutputLedger {
 }
 
 export { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
+export { jsonValueBytesUpTo } from './output-json.ts'
 export type { WorkerJsonWire } from './worker-json.ts'
