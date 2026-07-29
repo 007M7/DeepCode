@@ -9,7 +9,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
-  IconCloseOutline16, IconEditOutline16, IconRightUpOutline16, IconTrashOutline16,
+  IconCloseOutline16, IconEditOutline16, IconSendOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -185,7 +185,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                           )
                         }}
                       >
-                        <IconRightUpOutline16 size={14} />
+                        <IconSendOutline16 size={14} />
                       </button>
                     </>
                   )}
