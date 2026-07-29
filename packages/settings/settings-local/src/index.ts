@@ -8,10 +8,10 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, extname, join, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { Settings, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 
@@ -137,19 +137,8 @@ export class SettingsLocal extends Settings {
     const output = this.spec.format === 'yaml'
       ? this.renderYaml(ns, section)
       : this.renderJson(ns, section)
-    await mkdir(dirname(this.spec.filename), { recursive: true })
-    // Exclusive-create (`wx`) a random-suffix sibling: the open refuses to
-    // follow any planted symlink at a guessable temp path, and the fresh inode
-    // carries owner-only permissions that survive the rename — a document that
-    // may hold personal values is never world-readable and never a symlink.
-    const temp = `${this.spec.filename}.${randomBytes(6).toString('hex')}.tmp`
-    try {
-      await writeFile(temp, output, { mode: 0o600, flag: 'wx' })
-      await rename(temp, this.spec.filename)
-    } catch (error) {
-      await rm(temp, { force: true })
-      throw error
-    }
+    // 0600: a document that may hold personal values is never world-readable.
+    await writeFileAtomic(this.spec.filename, output, { mode: 0o600 })
     this.text = output
   }
 
