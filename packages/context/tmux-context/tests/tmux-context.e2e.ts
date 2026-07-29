@@ -5,16 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
-// Keep the Loader config under examples so both modes exercise the same deployable
-// topology: local fixture source plus bare plugins owned by the examples workspace.
-const driver = fileURLToPath(new URL(
-  '../../../../examples/headless-agent/tests/fixtures/tmux-context-driver.ts',
-  import.meta.url,
-))
-const configPath = fileURLToPath(new URL(
-  '../../../../examples/headless-agent/tests/fixtures/tmux-context.cordis.yml',
-  import.meta.url,
-))
+const driver = fileURLToPath(new URL('./fixtures/tmux-context-driver.ts', import.meta.url))
+const configPath = fileURLToPath(new URL('./fixtures/tmux-context.cordis.yml', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 async function jsonlFiles(dir: string): Promise<string[]> {
