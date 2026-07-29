@@ -87,6 +87,7 @@ type StubMode =
   | 'spawn-error'
   | 'send-error'
   | 'prompt-after-idle'
+  | 'empty-page-after-latest'
 
 class StubPtySession implements PtyBackendSession {
   readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
@@ -168,19 +169,22 @@ class StubPtySession implements PtyBackendSession {
     return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
   }
 
-  read(_request: PtyReadRequest) {
+  read(request: PtyReadRequest) {
     if (this.mode === 'empty-read') {
       return { text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }
     }
     if (this.mode === 'stalled-read') {
       return { text: 'stalled', totalLines: 1, lineBegin: 0, lineEnd: 0, truncated: false }
     }
+    if (this.mode === 'empty-page-after-latest' && (request.offset ?? 0) > 0) {
+      return { text: '', totalLines: 2, lineBegin: 1, lineEnd: 1, truncated: false }
+    }
     const lines = this.scrollback.split('\n')
     return {
       text: this.scrollback,
-      totalLines: lines.length,
+      totalLines: this.mode === 'empty-page-after-latest' ? lines.length + 1 : lines.length,
       lineBegin: 0,
-      lineEnd: lines.length,
+      lineEnd: this.mode === 'empty-page-after-latest' ? 1 : lines.length,
       truncated: this.historyTruncated,
     }
   }
@@ -329,6 +333,9 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'stalled-read'
     expect(text(await call(ctx, owner, 'stalled page'))).toContain('hello from stub')
+
+    session.mode = 'empty-page-after-latest'
+    expect(text(await call(ctx, owner, 'empty continuation page'))).toContain('hello from stub')
   })
 
   it('sanitizes a prompt fallback reached after multiple polling rounds', async () => {

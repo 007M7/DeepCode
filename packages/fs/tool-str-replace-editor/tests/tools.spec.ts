@@ -129,6 +129,24 @@ describe('tool-str-replace-editor', () => {
       kind: 'edit',
       locations: [{ path: '/workspace/a.txt', line: 1 }],
     })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'create',
+      path: '/workspace/empty.txt',
+    })).toMatchObject({
+      diffs: [{ path: '/workspace/empty.txt', oldText: null, newText: '' }],
+    })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'str_replace',
+      path: '/workspace/a.txt',
+    })).toMatchObject({
+      diffs: [{ path: '/workspace/a.txt', oldText: null, newText: '' }],
+    })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'insert',
+      path: '/workspace/a.txt',
+    })).toMatchObject({
+      locations: [{ path: '/workspace/a.txt' }],
+    })
   })
 
   it('creates, views, replaces, and inserts with the canonical model-facing output', async () => {
@@ -192,7 +210,11 @@ describe('tool-str-replace-editor', () => {
     ctx.fs.listDir = async (target, signal) => {
       const entries = await listDir(target, signal)
       return target.displayPath === join(root, 'dir')
-        ? [...entries, { name: 'other', type: 'other', target: otherTarget }]
+        ? [
+          { name: 'same-target', type: 'other', target: otherTarget },
+          { name: 'other', type: 'other', target: otherTarget },
+          ...entries.toReversed(),
+        ]
         : entries
     }
 
@@ -235,6 +257,11 @@ describe('tool-str-replace-editor', () => {
       command: 'view',
       path: plain,
     }))).toContain('     1  one')
+    expect((await call(ctx, undefined, {
+      command: 'create',
+      path: join(root, 'ownerless.txt'),
+      file_text: 'ownerless',
+    })).isError).toBe(false)
 
     await call(ctx, owner, {
       command: 'insert',
@@ -383,6 +410,14 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(existing, 'utf8')).toBe('after')
 
     expect((await call(ctx, owner, {
+      command: 'insert',
+      path: existing,
+      insert_line: 1,
+      new_str: 'tail',
+    })).isError).toBe(false)
+    expect(await readFile(existing, 'utf8')).toBe('after\ntail')
+
+    expect((await call(ctx, owner, {
       command: 'create',
       path: created,
       file_text: 'new',
@@ -400,19 +435,79 @@ describe('tool-str-replace-editor', () => {
     })
     expect(result.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
     expect(text(result)).toContain('[sandbox: file access denied under read-only mode]')
+
+    const ownerless = await call(ctx, undefined, {
+      command: 'create',
+      path: join(root, 'ownerless-blocked.txt'),
+      file_text: 'blocked',
+    })
+    expect(ownerless.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
   })
 
   it('can preserve tabs outside the edited region', async () => {
     const { ctx, root, owner } = await setup({ expandTabsOnMutation: false })
     const path = join(root, 'Makefile')
-    await writeFile(path, 'target:\n\told\n')
+    await writeFile(path, 'target:\n\told\nremove\n')
     await call(ctx, owner, {
       command: 'str_replace',
       path,
       old_str: 'old',
       new_str: 'new',
     })
-    expect(await readFile(path, 'utf8')).toBe('target:\n\tnew\n')
+    await call(ctx, owner, {
+      command: 'str_replace',
+      path,
+      old_str: 'remove\n',
+    })
+    await call(ctx, owner, {
+      command: 'insert',
+      path,
+      insert_line: 1,
+      new_str: '\tkept',
+    })
+    expect(await readFile(path, 'utf8')).toBe('target:\n\tkept\n\tnew\n')
+  })
+
+  it('reports missing sandbox-policy composition during plugin startup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-tool-str-replace-editor-missing-policy-'))
+    roots.push(root)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalFileSystem, { cwd: root })
+    Object.defineProperty(ctx.fs, 'sandboxMode', { value: 'read-only' })
+
+    await expect(ctx.plugin(ToolStrReplaceEditor))
+      .rejects.toThrow('the mounted filesystem confines but ctx.sandboxPolicy is missing')
+  })
+
+  it('maps unexpected backend write failures for replace and insert', async () => {
+    const { ctx, root, owner } = await setup()
+    const path = join(root, 'backend-error.txt')
+    await writeFile(path, 'old\n')
+    ctx.fs.writeText = async () => {
+      throw new Error('backend write failed')
+    }
+
+    const replace = await call(ctx, owner, {
+      command: 'str_replace',
+      path,
+      old_str: 'old',
+      new_str: 'new',
+    })
+    expect(replace.isError).toBe(true)
+    expect(text(replace)).toContain('backend write failed')
+
+    const insert = await call(ctx, owner, {
+      command: 'insert',
+      path,
+      insert_line: 1,
+      new_str: 'new',
+    })
+    expect(insert.isError).toBe(true)
+    expect(text(insert)).toContain('backend write failed')
   })
 
   it('rejects invalid plugin config', () => {

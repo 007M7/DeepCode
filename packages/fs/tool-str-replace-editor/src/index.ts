@@ -281,7 +281,7 @@ async function createFile(
     outcome = await ctx.fs.writeText(
       target,
       content,
-      intent ?? { kind: 'createIfAbsent' },
+      intent,
       exec.signal,
       sandboxPolicy,
     )

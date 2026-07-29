@@ -81,12 +81,7 @@ function wrapCommand(command: string, marker: CommandMarkers): string {
 }
 
 function stripPrompt(text: string): string {
-  let result = text
-  while (result.endsWith(`${SHELL_PROMPT}\r\n`) || result.endsWith(`${SHELL_PROMPT}\n`)) {
-    result = result.slice(0, result.endsWith('\r\n')
-      ? -SHELL_PROMPT.length - 2
-      : -SHELL_PROMPT.length - 1)
-  }
+  let result = text.replace(/\r?\n$/, '')
   while (result.endsWith(SHELL_PROMPT)) {
     result = result.slice(0, -SHELL_PROMPT.length)
   }
@@ -96,10 +91,9 @@ function stripPrompt(text: string): string {
 function commandOutput(
   snapshot: RetainedOutput,
   marker: CommandMarkers,
-): CapturedOutput | undefined {
+): CapturedOutput {
   const text = snapshot.text
   const end = text.lastIndexOf(marker.end)
-  if (end < 0) return undefined
   const startMarker = text.lastIndexOf(marker.start, end)
   const start = startMarker < 0 ? 0 : startMarker + marker.start.length
   return {
@@ -182,7 +176,6 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
   const creating = new Set<Promise<PtySessionId>>()
   const ownerCleanupInstalled = new WeakSet<Agent>()
   const lifecycle = new AbortController()
-  let disposed = false
 
   const close = async (owner: Agent, id: PtySessionId, reason: string): Promise<void> => {
     if (!ctx.pty.list(owner).some(snapshot => snapshot.sessionId === id)) return
@@ -190,7 +183,6 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
   }
 
   ctx.effect(() => async () => {
-    disposed = true
     lifecycle.abort(new Error('tool-bash-persistent disposed during shell creation'))
     await Promise.allSettled([...creating])
     const closing = [...live].map(async ([owner, id]) => { await close(owner, id, 'tool-bash-persistent disposed') })
@@ -206,7 +198,6 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
   }
 
   const get = (owner: Agent, signal: AbortSignal): Promise<PtySessionId> => {
-    if (disposed) return Promise.reject(new Error('tool-bash-persistent is disposed'))
     const existing = pending.get(owner)
     if (existing !== undefined) return existing
     const combinedSignal = AbortSignal.any([signal, lifecycle.signal])
@@ -302,7 +293,7 @@ async function executeCommand(
     }
     if (latest.text.includes(marker.end)) {
       const complete = commandOutput(retainedScrollback(ctx, owner, id, latest), marker)
-      if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
+      return renderCaptured(complete, config.maxOutputChars)
     }
     if (result.sessionStatus.kind === 'exited') {
       const snapshot = retainedScrollback(ctx, owner, id, latest)
