@@ -135,7 +135,18 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  */
 function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | undefined }) {
   const terminal = terminalCardModel(material.block, cwd)
-  if (terminal !== null) return <TerminalBlock {...terminal.card} className={css.terminal} />
+  if (terminal !== null) {
+    // The contract renders the presenter's description above the card, and the
+    // panel has no summary row to carry it, so it is drawn here.
+    return (
+      <>
+        {terminal.description !== undefined && (
+          <div className={css.terminalDescription}>{terminal.description}</div>
+        )}
+        <TerminalBlock {...terminal.card} className={css.terminal} />
+      </>
+    )
+  }
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

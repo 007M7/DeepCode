@@ -267,6 +267,19 @@ describe('chat row terminal body', () => {
     expect(view.queryByText('List files')).toBeNull()
   })
 
+  it('keeps the presenter description visible once the terminal card is expanded', () => {
+    // The contract puts the description ABOVE the card. The collapsed summary is
+    // hidden while a row is open, so an expanded terminal row has to draw it
+    // itself or the description would only ever be visible collapsed.
+    const view = render(<GenericToolCard {...ownerProps(settled({
+      callView: callTerminal({ description: 'Terminal 3' }),
+    }))} />)
+    expect(view.getByText('Terminal 3')).toBeTruthy()
+    fireEvent.click(view.container.querySelector('button')!)
+    expect(view.container.querySelector('[data-terminal]')).not.toBeNull()
+    expect(view.getByText('Terminal 3')).toBeTruthy()
+  })
+
   it('a running terminal call expands to the prompt line with no output yet', () => {
     const view = render(<GenericToolCard {...ownerProps(running())} />)
     fireEvent.click(view.container.querySelector('button')!)
@@ -419,6 +432,17 @@ describe('DetailsPanel Output section', () => {
       })],
     }), { turnSeq: 10, callId: 'c2', toolName: 'bash' })
     expect(second.getByRole('button', { name: '展开其余 4 行输出' })).toBeTruthy()
+  })
+
+  it('renders the presenter description above the card', () => {
+    const view = mount(snapshot({
+      nodes: [settled({ callView: callTerminal({ description: 'Terminal 3' }) })],
+    }), target)
+    const description = view.getByText('Terminal 3')
+    const card = view.container.querySelector('[data-terminal]')
+    expect(card).not.toBeNull()
+    // Above, not below: document order is what places it as the card's heading.
+    expect(description.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('resolves the prompt cwd against the session workspace', () => {

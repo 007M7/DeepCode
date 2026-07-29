@@ -156,6 +156,12 @@ export function ToolRow({
           </>
         )}
       </div>
+      {/* The terminal presenter's description belongs ABOVE the card per the
+          render-intent contract, so an expanded terminal row keeps showing it
+          even though the collapsed summary is hidden while open. */}
+      {open && terminalBody?.description !== undefined && (
+        <div className={css.terminalDescription}>{terminalBody.description}</div>
+      )}
       {open && (terminalBody !== null
         ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
         : variant === 'code'

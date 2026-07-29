@@ -151,8 +151,26 @@ describe('parseAnsiLines: carriage returns', () => {
     expect(onlySpan('10%\r55%\r100%')).toEqual({ text: '100%', style: undefined })
   })
 
-  it('drops the SGR codes that preceded a discarded redraw', () => {
-    expect(onlySpan(`${ESC}[31mgone\rkept`)).toEqual({ text: 'kept', style: undefined })
+  it('leaves the tail of a longer frame standing under a shorter redraw', () => {
+    // Verified against a real terminal: `100%\rOK` paints `OK0%`. A carriage
+    // return only moves the cursor, so the two columns the redraw never reaches
+    // still hold the frame beneath — truncating to the last `\r` would lose them.
+    expect(onlySpan('100%\rOK')).toEqual({ text: 'OK0%', style: undefined })
+    expect(onlySpan('abcdef\rXY')).toEqual({ text: 'XYcdef', style: undefined })
+  })
+
+  it('clamps a backspace run at the line start rather than going negative', () => {
+    // More backspaces than characters: the cursor stops at column 0, so the
+    // following write simply overwrites from there.
+    expect(onlySpan(`ab${BS}${BS}${BS}${BS}xyz`)).toEqual({ text: 'xyz', style: undefined })
+  })
+
+  it('keeps SGR state in force across a redraw, as a terminal does', () => {
+    // Verified against a real terminal: `\x1b[31mgone\rkept` paints `kept` RED.
+    // A carriage return moves the cursor; it does not reset the graphic state,
+    // so the redraw inherits the color the discarded frame was written with.
+    expect(onlySpan(`${ESC}[31mgone\rkept`))
+      .toEqual({ text: 'kept', style: { color: 'var(--dsw-alias-state-error-primary)' } })
   })
 
   it('preserves both lines of a CRLF pair instead of treating it as a redraw', () => {
@@ -184,6 +202,17 @@ describe('parseAnsiLines: backspaces', () => {
     ])
   })
 
+  it('treats a trailing backspace as a cursor move, not a delete', () => {
+    // Verified against a real terminal: `abc\b` still shows `abc`. Only a later
+    // write overwrites; a backspace with nothing after it erases nothing.
+    expect(onlySpan(`abc${BS}`)).toEqual({ text: 'abc', style: undefined })
+    // Same at a line boundary: the newline ends the line before any overwrite.
+    expect(parseAnsiLines(`abc${BS}\ndef`)).toEqual([
+      [{ text: 'abc', style: undefined }],
+      [{ text: 'def', style: undefined }],
+    ])
+  })
+
   it('steps over an SGR sequence instead of erasing its bytes', () => {
     // `abc` reset then two backspaces then `XY`: erasing the reset's bytes would
     // corrupt it and repaint the rest of the line with whatever the remainder
@@ -202,14 +231,21 @@ describe('parseAnsiLines: backspaces', () => {
     ]])
   })
 
-  it('applies the overwrite after a carriage-return redraw, not before', () => {
-    // The redraw wins first; the backspace then erases inside what survived.
-    expect(onlySpan(`old\rnew${BS}`)).toEqual({ text: 'ne', style: undefined })
+  it('replays a redraw and a trailing backspace as pure cursor moves', () => {
+    // Verified against a real terminal: `old\rnew\b` shows `new`. The redraw
+    // repaints all three columns and the trailing backspace only moves the
+    // cursor left — nothing overwrites the `w`, so nothing is lost.
+    expect(onlySpan(`old\rnew${BS}`)).toEqual({ text: 'new', style: undefined })
   })
 
-  it('keeps the run\'s style while erasing its own characters', () => {
-    expect(onlySpan(sgr('31', `bad${BS}${BS}${BS}ok`)))
-      .toEqual({ text: 'ok', style: { color: 'var(--dsw-alias-state-error-primary)' } })
+  it('overwrites only the columns the later write reaches, keeping the rest styled', () => {
+    // Verified against a real terminal: red `bad`, three backspaces, then `ok`
+    // shows `okd` — the cursor returned to column 0 and `ok` overwrote two of
+    // the three columns, so the untouched `d` keeps the run's red.
+    expect(parseAnsiLines(`${sgr('31', 'bad')}${BS}${BS}${BS}ok`)).toEqual([[
+      { text: 'ok', style: undefined },
+      { text: 'd', style: { color: 'var(--dsw-alias-state-error-primary)' } },
+    ]])
   })
 })
 

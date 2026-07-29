@@ -82,95 +82,99 @@ const NON_CSI_ESCAPE = /\u001b(?!\[)[\u0020-\u002f]*[\u0030-\u007e]?/g
 
 /**
  * C0 controls with no display meaning here. Tab, newline, backspace and ESC
- * survive: the first two for layout, backspace for its overwrite, ESC for
- * anser's CSI split.
+ * survive: the first two for layout, backspace for the cursor replay, ESC
+ * for anser's CSI split.
  */
 const INERT_CONTROL = /[\u0000-\u0007\u000b-\u001a\u001c-\u001f\u007f]/g
 
 /**
- * Apply carriage-return redraws: within a line, only the text after the last
- * `\r` survives, which is what a terminal shows for progress output. A `\r`
- * that only terminates a CRLF line is dropped first so those lines keep
- * their text. SGR codes preceding a dropped redraw are dropped with it.
- * @param text - output text, already free of OSC and non-CSI escapes.
- * @returns the text with each line reduced to its final redraw.
- */
-function applyCarriageReturns(text: string): string {
-  return text.split('\n').map((raw) => {
-    const line = raw.replace(/\r+$/, '')
-    return line.slice(line.lastIndexOf('\r') + 1)
-  }).join('\n')
-}
-
-/**
- * Apply backspaces as the cursor-left-then-overwrite a terminal performs, so
- * `abc` followed by two backspaces and `XY` reads `aXY` instead of keeping the
- * characters it overwrote. Progress meters and captured PTY output use
- * backspace this way. Resolved per line, so a backspace neither eats the
- * newline before it nor reaches into the previous line's tail; one at a line
- * start has nothing to erase.
- * @param text - output text, already reduced to its carriage-return redraws.
- * @returns the text with each backspace resolved against the character before it.
- */
-function applyBackspaces(text: string): string {
-  if (!text.includes('\u0008')) return text
-  return text.split('\n').map(applyBackspacesToLine).join('\n')
-}
-
-/**
- * One line's backspaces, resolved over VISIBLE characters only. A CSI sequence
- * moves no cursor, so it must survive intact: erasing its bytes would corrupt
- * the sequence and repaint the rest of the output with whatever the mangled
- * remainder parses as. The sequences are therefore held as indivisible units
- * that a backspace steps over on its way to the last printed character, and a
- * unit already erased stays erased so a run's own color still applies to what
- * remains of it.
+ * Replay one line's cursor movements the way a terminal paints it, into a
+ * column buffer. Carriage return and backspace only MOVE the cursor — neither
+ * erases anything — so what a reader sees is whatever each column last had
+ * written to it. That distinction is the whole point of doing this as a buffer
+ * rather than as string surgery: `100%\rOK` shows `OK0%` because the redraw is
+ * shorter than the frame beneath it, and a trailing `abc\b` still shows `abc`
+ * because nothing ever overwrote the `c`.
+ *
+ * A CSI sequence occupies no column; it changes the state that the NEXT writes
+ * are stamped with, which is how a terminal stores color per cell. `red bad`
+ * then three backspaces then `ok` therefore shows `okd` with the `d` still red:
+ * `ok` overwrote two cells and the third kept the state it was written with.
+ * The columns are re-emitted as runs, so anser sees that same styling.
  * @param line - one output line, still carrying its CSI sequences.
- * @returns the line with each backspace applied to the character before it.
+ * @returns the line as the terminal would have it after every movement.
  */
-function applyBackspacesToLine(line: string): string {
-  if (!line.includes('\u0008')) return line
-  const units: { text: string; visible: boolean }[] = []
-  // Same shape anser splits on: CSI ... final byte. Matched here so a sequence
-  // is one unit rather than a run of erasable characters.
+function replayLine(line: string): string {
+  // Same shape anser splits on, so a sequence is one unit here as well.
   const csi = /\u001b\[[\u0030-\u003f]*[\u0020-\u002f]*[\u0040-\u007e]/g
+  /** Per column: the SGR state in force when it was written, and its character. */
+  const columns: { sgr: string; char: string }[] = []
+  let cursor = 0
+  // SGR state accumulates as the line is scanned, exactly as a terminal tracks
+  // it: each cell is stamped with whatever was in force at the moment of the
+  // write, so a later redraw cannot restyle the cells it does not reach.
+  let sgr = ''
   let at = 0
+
+  const consume = (chunk: string): void => {
+    for (const char of chunk) {
+      if (char === '\r') { cursor = 0; continue }
+      if (char === '\u0008') { cursor = Math.max(0, cursor - 1); continue }
+      columns[cursor] = { sgr, char }
+      cursor++
+    }
+  }
+
   for (const match of line.matchAll(csi)) {
-    for (const char of line.slice(at, match.index)) units.push({ text: char, visible: true })
-    units.push({ text: match[0], visible: false })
+    consume(line.slice(at, match.index))
+    // A reset clears the accumulated state; anything else adds to it.
+    sgr = /^\u001b\[0?m$/.test(match[0]) ? '' : sgr + match[0]
     at = match.index + match[0].length
   }
-  for (const char of line.slice(at)) units.push({ text: char, visible: true })
+  consume(line.slice(at))
 
-  const kept: { text: string; visible: boolean }[] = []
-  for (const unit of units) {
-    if (unit.visible && unit.text === '\u0008') {
-      // Walk back past any escapes to the last printed character and drop it,
-      // keeping those escapes so the surviving text stays styled as authored.
-      for (let index = kept.length - 1; index >= 0; index--) {
-        if (kept[index]?.visible !== true) continue
-        kept.splice(index, 1)
-        break
-      }
-      continue
+  // Re-emit the columns, opening a run only where its SGR state changes and
+  // closing the previous one, so anser sees the same styling a terminal shows.
+  // No index can be missing: `\r` and backspace only move the cursor LEFT, so
+  // every column up to the furthest write has been written at least once.
+  let out = ''
+  let active = ''
+  for (const column of columns) {
+    if (column.sgr !== active) {
+      if (active !== '') out += '\u001b[0m'
+      out += column.sgr
+      active = column.sgr
     }
-    kept.push(unit)
+    out += column.char
   }
-  return kept.map(unit => unit.text).join('')
+  return active === '' ? out : `${out}\u001b[0m`
+}
+
+/**
+ * Replay every line's cursor movements. A `\r` that only terminates a CRLF line
+ * is dropped first, so those lines keep their text instead of being redrawn onto
+ * themselves.
+ * @param text - output text, already free of OSC and non-CSI escapes.
+ * @returns the text with each line painted as the terminal would.
+ */
+function applyCursorMovements(text: string): string {
+  return text.split('\n')
+    .map(raw => raw.replace(/\r+$/, ''))
+    .map(line => (/[\r\u0008]/.test(line) ? replayLine(line) : line))
+    .join('\n')
 }
 
 /**
  * Remove every escape sequence and control character that carries no color,
- * leaving CSI sequences for anser and `\n`/`\t` for layout. Carriage-return
- * redraws and backspace overwrites resolve first: both are cursor movements
- * whose effect on the visible text must land before the characters that
- * expressed them are dropped.
+ * leaving CSI sequences for anser and `\n`/`\t` for layout. Cursor movements
+ * (carriage return, backspace) replay first, since their effect on the visible
+ * text must land before the characters that expressed them are dropped.
  * @param text - raw command output.
  * @returns text whose only remaining escapes are CSI sequences.
  */
 function sanitize(text: string): string {
   const escaped = text.replace(OSC_SEQUENCE, '').replace(NON_CSI_ESCAPE, '')
-  return applyBackspaces(applyCarriageReturns(escaped)).replace(INERT_CONTROL, '')
+  return applyCursorMovements(escaped).replace(INERT_CONTROL, '')
 }
 
 /**
