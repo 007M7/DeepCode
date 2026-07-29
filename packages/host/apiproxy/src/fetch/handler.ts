@@ -17,11 +17,11 @@ import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
 import {
   sessionCancelRequestSchema,
   sessionCreateRequestSchema,
-  sessionRenameRequestSchema,
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
+  sessionRenameRequestSchema,
   sessionSelectModelRequestSchema,
 } from '../api/sessions.schema.ts'
 import {

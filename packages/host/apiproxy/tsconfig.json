@@ -39,10 +39,10 @@
       "path": "../../session-projection/session-projection"
     },
     {
-      "path": "../../session-title/session-title"
+      "path": "../../session-projection/session-projection-cache"
     },
     {
-      "path": "../../session-projection/session-projection-cache"
+      "path": "../../session-title/session-title"
     },
     {
       "path": "../../skill/skill"

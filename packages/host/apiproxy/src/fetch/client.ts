@@ -20,11 +20,11 @@ import {
 import {
   sessionCancelValueSchema,
   sessionCreateValueSchema,
-  sessionRenameValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
   sessionModelsValueSchema,
   sessionPromptValueSchema,
+  sessionRenameValueSchema,
   sessionSelectModelValueSchema,
 } from '../api/sessions.schema.ts'
 import {
