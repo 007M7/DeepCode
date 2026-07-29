@@ -186,6 +186,15 @@ describe('TodoRow', () => {
     expect(screen.getByText('1/1 已完成')).toBeTruthy()
   })
 
+  it('keeps the counts when an active item has unusable content, instead of the generic summary', () => {
+    // planSummary yields activeContent null here, but the counts are known good,
+    // so the row drops only the active clause — `?? model.summary` never runs.
+    const args = JSON.stringify({ todos: [{ content: 'done', status: 'completed' }, { content: 42, status: 'in_progress' }] })
+    const { container } = render(<TodoRow {...rowProps(resultNode(args))} />)
+    expect(screen.getByText('1/2 已完成')).toBeTruthy()
+    expect(container.textContent).not.toContain('+')
+  })
+
   it('keeps the non-ok execution states visible: running dot, interrupted marker', () => {
     // A running call (no result yet) shows the ongoing dot, never the ok badge.
     const args = JSON.stringify({ todos: LIST })
