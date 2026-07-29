@@ -115,9 +115,6 @@ export class E2BOutputReader implements SubprocessOutputReader {
 
   /** @inheritdoc */
   readFrom(fromByte: number): SubprocessOutputRead {
-    if (!Number.isSafeInteger(fromByte) || fromByte < 0) {
-      throw new Error('subprocess output offset must be a non-negative safe integer')
-    }
     const retained = Buffer.concat(this.chunks, this.retainedBytes)
     const firstRetained = this.totalBytes - this.retainedBytes
     const lossy = fromByte < firstRetained

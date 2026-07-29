@@ -6,7 +6,7 @@
 
 | 包（package） | ctx 键 | 职责 |
 |---|---|---|
-| [`e2b`](e2b/README.md)（`@deepseek-ai/dsh-e2b`） | `ctx.e2b` | 创建或重新连接一个沙箱，创建其工作目录与运行时目录，公开共享 SDK 句柄，并应用配置的 kill/pause/leave 处置方式 |
+| [`e2b`](e2b/README.md)（`@deepseek-ai/dsh-e2b`） | `ctx.e2b` | 创建一个沙箱，准备其工作目录与运行时目录，公开共享 SDK 句柄，并在超时或资源释放时将其删除 |
 | [`fs-e2b`](fs-e2b/README.md)（`@deepseek-ai/dsh-fs-e2b`） | `ctx.fs` | 通过 E2B Filesystem API 实现文件系统 seam |
 | [`subprocess-e2b`](subprocess-e2b/README.md)（`@deepseek-ai/dsh-subprocess-e2b`） | `ctx.subprocess` | 通过 E2B Commands 与 PTY API 实现可执行文件查找、受管进程组与 stdio、远程 spill 文件及终端会话 |
 

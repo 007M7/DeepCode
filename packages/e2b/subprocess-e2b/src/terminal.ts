@@ -41,7 +41,6 @@ const TERMINAL_RUNNER_SOURCE = [
   '  exit 125',
   'fi',
   'printf \'%s\' "$dsh_output_marker"',
-  "printf 'ready\\n' > \"$dsh_state/ready\"",
   'exec env -i -- "${dsh_env[@]}" "${dsh_argv[@]}"',
   '',
 ].join('\n')
@@ -51,7 +50,6 @@ interface TerminalPaths {
   environment: string
   argv: string
   outputMarker: string
-  ready: string
 }
 
 function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
@@ -165,26 +163,6 @@ async function terminalSessionId(
   return parsePositiveId(result.stdout, `subprocess-e2b: cannot resolve process session for terminal ${pid}`)
 }
 
-async function waitUntilReady(
-  sandbox: Sandbox,
-  paths: TerminalPaths,
-  completion: Promise<CommandResult>,
-  signal?: AbortSignal,
-): Promise<void> {
-  const settled = completion.then(() => true, () => true)
-  for (;;) {
-    signal?.throwIfAborted()
-    try {
-      if ((await sandbox.files.read(paths.ready, signalOpts(signal))).trim() === 'ready') return
-    } catch (error: unknown) {
-      if (!(error instanceof FileNotFoundError)) throw error
-    }
-    if (await Promise.race([settled, delay(POLL_MS).then(() => false)])) {
-      throw new Error('subprocess-e2b: terminal exited before publishing readiness')
-    }
-  }
-}
-
 async function sessionProcessGroups(
   sandbox: Sandbox,
   sessionId: number,
@@ -241,8 +219,13 @@ async function awaitSessionEmpty(
   const deadline = Date.now() + graceMs
   for (;;) {
     const groups = await sessionProcessGroups(sandbox, sessionId, envs)
-    if (groups.length === 0 || Date.now() >= deadline) return groups
-    if (kill) await signalGroups(sandbox, groups, 'KILL', envs)
+    if (groups.length === 0) return groups
+    if (kill) {
+      await signalGroups(sandbox, groups, 'KILL', envs)
+      if (Date.now() >= deadline) return await sessionProcessGroups(sandbox, sessionId, envs)
+    } else if (Date.now() >= deadline) {
+      return groups
+    }
     await delay(Math.min(POLL_MS, Math.max(1, deadline - Date.now())))
   }
 }
@@ -277,7 +260,6 @@ async function rollbackUnpublishedTerminal(
         groups = await awaitSessionEmpty(sandbox, sessionId, envs, graceMs)
       }
       if (groups.length > 0) {
-        await signalGroups(sandbox, groups, 'KILL', envs)
         await awaitSessionEmpty(sandbox, sessionId, envs, graceMs, true)
       }
     } catch (error: unknown) {
@@ -285,25 +267,13 @@ async function rollbackUnpublishedTerminal(
     }
   }
   // Completion can settle while any awaited provider cleanup above is running.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- Provider cleanup yields to completion.
   if (!topLevelExited) {
-    if (validPid) {
-      try {
-        await sandbox.pty.kill(handle.pid)
-      } catch (error: unknown) {
-        if (error instanceof SandboxNotFoundError) return
-        attemptFailures.push(asError(error))
-      }
-    }
-    // The awaited PTY fallback can settle completion before the SDK fallback.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!topLevelExited) {
-      try {
-        await handle.kill()
-      } catch (error: unknown) {
-        if (error instanceof SandboxNotFoundError) return
-        attemptFailures.push(asError(error))
-      }
+    try {
+      await handle.kill()
+    } catch (error: unknown) {
+      if (error instanceof SandboxNotFoundError) return
+      attemptFailures.push(asError(error))
     }
     await Promise.race([completion.catch(() => undefined), delay(graceMs)])
   }
@@ -321,7 +291,7 @@ async function rollbackUnpublishedTerminal(
     }
   }
   // The bounded completion race above updates this callback-owned state.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- The callback mutates this after a race.
   if (!topLevelExited) {
     proofFailures.push(new Error(`subprocess-e2b: terminal setup rollback failed; surviving pid: ${handle.pid}`))
   }
@@ -347,7 +317,6 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   private cleanup: Promise<void> | undefined
   private readonly operationController = new AbortController()
   private readonly operations = new Set<Promise<unknown>>()
-  private terminating = false
   private terminationSignal: NodeJS.Signals | null = null
 
   constructor(
@@ -400,7 +369,6 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   /** @inheritdoc */
   terminate(): Promise<void> {
     if (this.cleanup !== undefined) return this.cleanup
-    this.terminating = true
     this.operationController.abort(new Error('subprocess-e2b: terminal is terminating'))
     const cleanup = this.closeAfterOperations()
     this.cleanup = cleanup
@@ -434,7 +402,9 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    if (this.terminating) return Promise.reject(new Error('subprocess-e2b: terminal is terminating'))
+    if (this.operationController.signal.aborted) {
+      return Promise.reject(new Error('subprocess-e2b: terminal is terminating'))
+    }
     const pending = operation(this.operationController.signal)
     this.operations.add(pending)
     void pending.then(
@@ -445,7 +415,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async closeAfterOperations(): Promise<void> {
-    if (this.operations.size > 0) await Promise.allSettled(this.operations)
+    await Promise.allSettled(this.operations)
     await this.closeOnce()
   }
 
@@ -481,7 +451,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
       this.terminationSignal = 'SIGKILL'
       if (!this.topLevelExited) {
         try {
-          await this.sandbox.pty.kill(this.pid)
+          await this.handle.kill()
         } catch (error: unknown) {
           if (error instanceof SandboxNotFoundError) return
           throw error
@@ -504,7 +474,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     try {
       await this.sandbox.files.remove(this.stateDir)
     } catch (_adapterPrivateStateRemovalFailure) {
-      // The terminal is quiescent; a retained sandbox tolerates private residue.
+      // The terminal is quiescent; owner teardown bounds private residue.
     }
   }
 }
@@ -531,7 +501,6 @@ export async function spawnE2BTerminal(
     environment: posix.join(stateDir, 'environment'),
     argv: posix.join(stateDir, 'argv'),
     outputMarker: posix.join(stateDir, 'output-marker'),
-    ready: posix.join(stateDir, 'ready'),
   }
   const outputMarker = Buffer.from(`dsh-e2b-bootstrap:${randomUUID()}`)
   const output = new PassThrough()
@@ -577,7 +546,6 @@ export async function spawnE2BTerminal(
     }
     const command = `exec /bin/bash ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(stateDir)}\r`
     await sandbox.pty.sendInput(handle.pid, Buffer.from(command), signalOpts(spec.signal))
-    await waitUntilReady(sandbox, paths, completion, spec.signal)
     await waitForBootstrapOutput(outputFilter.ready, completion, spec.signal)
     const sessionId = await terminalSessionId(sandbox, handle.pid, controlEnvs, spec.signal)
     return new E2BTerminalHandle(

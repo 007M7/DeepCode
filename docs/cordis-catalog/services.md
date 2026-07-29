@@ -580,18 +580,18 @@ Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/
 
 ## `ctx.e2b` — `E2BSandboxService`
 
-Owns one lazily consumable E2B SDK handle and its final kill/pause/leave decision. The connection begins at plugin construction; adapters await getSandbox before their first operation.
+Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal. Creation begins at plugin construction; adapters await getSandbox before their first operation.
 
 ```ts cordis-catalog
 /**
  * Return the shared live SDK handle.
- * @returns the created or reconnected sandbox after the configured cwd exists.
- * @throws when E2B rejects creation/reconnection or the service is disposing.
+ * @returns the created sandbox after the configured cwd exists.
+ * @throws when E2B rejects creation or the service is disposing.
  */
 async getSandbox(): Promise<Sandbox>
 ```
 
-Source: [`packages/e2b/e2b/src/index.ts:108`](../../packages/e2b/e2b/src/index.ts)
+Source: [`packages/e2b/e2b/src/index.ts:76`](../../packages/e2b/e2b/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 

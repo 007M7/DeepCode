@@ -316,7 +316,6 @@ function runtime(fake: FakeSandbox, getSandbox: () => Promise<Sandbox> = async (
   return {
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
-    disposeMode: 'kill',
     getSandbox,
   } as unknown as E2BSandboxService
 }
@@ -372,8 +371,6 @@ describe('E2BOutputReader', () => {
     const overCap = new E2BOutputReader(2, 3, '/too-small')
     overCap.push(Buffer.from('abcd'))
     expect(overCap.readFrom(0)).toEqual({ text: 'cd', nextOffset: 4, lossy: true })
-    expect(() => overCap.readFrom(-1)).toThrow(/non-negative safe integer/)
-    expect(() => overCap.readFrom(1.5)).toThrow(/non-negative safe integer/)
   })
 })
 
@@ -1673,7 +1670,6 @@ describe('E2BSubprocessService', () => {
     expect(() => ctx.subprocess.spawn(spec({ argv: [] }))).toThrow(/non-empty program/)
     expect(() => ctx.subprocess.spawn(spec({ graceMs: 0 }))).toThrow(/positive finite/)
     expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort('stop') }))).toThrow(/aborted before spawn/)
-    expect(() => ctx.subprocess.spawn(spec({ signal: { aborted: true, reason: undefined } as AbortSignal }))).toThrow(/aborted$/)
   })
 
   it('registers the package-owned empty invariant installer', async () => {

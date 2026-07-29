@@ -24,8 +24,8 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **No host synchronization** — an empty E2B cwd stays empty until a tool, command, template, or external process populates it; local files are neither uploaded nor reflected back.
+- **No host synchronization** — an empty E2B cwd stays empty until a tool, command, or external process populates it; local files are neither uploaded nor reflected back.
 - **Mutation coordination is host-process-local** — another harness connection or remote command can race the adapter; version guards detect only metadata changes represented by E2B.
 - **Reads reopen canonical targets by path** — a concurrent remote path replacement between resolution and stream opening is not fenced by a stable file handle; no observed product defect justifies a provider-specific bounded-read protocol in this POC.
 - **Whole-file mutation costs remain** — overwrite diffs and literal edits read complete files into host memory, and every operation incurs E2B controller latency.
-- **Custom templates must support the used Linux/GNU and E2B filesystem features** — `realpath -mz`, `base64 -w0`, `chmod`, same-filesystem rename, streaming reads, and file metadata extended attributes are required; unsupported templates fail rather than degrade silently.
+- **The POC targets E2B's default Linux image** — it relies on GNU `realpath`/`base64`/`chmod`, same-filesystem rename, streaming reads, and metadata extended attributes; custom templates are outside this POC.

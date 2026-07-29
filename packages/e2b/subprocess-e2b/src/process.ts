@@ -149,10 +149,6 @@ function commandOpts(
   return { envs: e2bControlEnvs(envs), ...(signal === undefined ? {} : { signal }) }
 }
 
-function isAborted(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true
-}
-
 function waitTick(signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted === true) return Promise.resolve(false)
   return new Promise<boolean>((resolve) => {
@@ -173,7 +169,7 @@ const WAIT_ABORTED = Symbol('wait aborted')
 function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof WAIT_ABORTED> {
   if (signal === undefined) return promise
   if (signal.aborted) return Promise.resolve(WAIT_ABORTED)
-  return new Promise<T | typeof WAIT_ABORTED>((resolve, reject) => {
+  return new Promise<T | typeof WAIT_ABORTED>((resolve) => {
     const onAbort = (): void => { cleanup(); resolve(WAIT_ABORTED) }
     const cleanup = (): void => { signal.removeEventListener('abort', onAbort) }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -181,10 +177,7 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
       onAbort()
       return
     }
-    void promise.then(
-      (value) => { cleanup(); resolve(value) },
-      (error: unknown) => { cleanup(); reject(asError(error)) },
-    )
+    void promise.then((value) => { cleanup(); resolve(value) })
   })
 }
 
@@ -206,12 +199,9 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private readonly paths: RemotePaths
   private controlEnvs: Record<string, string> = {}
   private remotePid = -1
-  private commandHandle: CommandHandle | undefined
   private outputTransportError: Error | undefined
   private outputDrainExpired = false
   private stateDirectoryCreated = false
-  private preparing = true
-  private terminationStarted = false
   private quiescenceProven = false
   private terminationAttempt: Promise<void> | undefined
   private terminationFailure: Error | undefined
@@ -265,7 +255,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   /** @inheritdoc */
   terminate(): void {
     if (this.quiescenceProven || this.terminationAttempt !== undefined) return
-    this.terminationStarted = true
     this.terminationController.abort(new Error('subprocess-e2b: command terminated'))
     this.stdout?.destroy()
     this.stderr?.destroy()
@@ -285,7 +274,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     if (this.quiescenceProven) return true
     let handle: CommandHandle | undefined
-    if (this.terminationStarted) {
+    if (this.terminationController.signal.aborted) {
       const observed = await waitWithSignal(this.commandState.promise, signal)
       if (observed === WAIT_ABORTED) return false
       handle = observed
@@ -295,22 +284,23 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       }
       if (this.remotePid <= 0) {
         const attempt = this.terminationAttempt
-        if (attempt !== undefined && await waitWithSignal(attempt, signal) === WAIT_ABORTED) return false
+        if (attempt !== undefined && await waitWithSignal(attempt.catch(() => undefined), signal) === WAIT_ABORTED) {
+          return false
+        }
         this.throwTerminationFailure()
         // Successful pre-publication termination records quiescence; its only other outcome is the failure above.
         return true
       }
     } else {
-      try {
-        const observed = await waitWithSignal(this.readyState.promise, signal)
-        if (observed === WAIT_ABORTED) return false
-        handle = observed
-      } catch {
-        handle = this.commandHandle
-        if (handle === undefined) {
-          this.markQuiescent()
-          return true
-        }
+      const observed = await waitWithSignal(
+        this.readyState.promise.catch(() => this.commandState.promise),
+        signal,
+      )
+      if (observed === WAIT_ABORTED) return false
+      handle = observed
+      if (handle === undefined) {
+        this.markQuiescent()
+        return true
       }
     }
     this.throwTerminationFailure()
@@ -318,7 +308,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     try {
       sandbox = await this.runtime.getSandbox()
     } catch (error: unknown) {
-      if (isAborted(signal)) return false
+      if (signal?.aborted === true) return false
       if (error instanceof SandboxNotFoundError) {
         this.markQuiescent()
         return true
@@ -331,7 +321,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (!await waitTick(signal)) return false
     }
     this.throwTerminationFailure()
-    if (isAborted(signal)) return false
+    if (signal?.aborted === true) return false
     this.markQuiescent()
     return true
   }
@@ -345,10 +335,11 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   private async run(): Promise<SubprocessOutcome> {
     let sandbox: Sandbox | undefined
+    let preparing = true
     try {
       sandbox = await this.runtime.getSandbox()
       await this.prepareState(sandbox)
-      this.preparing = false
+      preparing = false
       const handle = await sandbox.commands.run(
         commandText(this.spec, this.paths),
         {
@@ -361,7 +352,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           onStderr: async (data) => { await this.dispatchOutput('stderr', data) },
         },
       )
-      this.commandHandle = handle
       const completion = handle.wait()
       void completion.catch(() => {})
       if (!isValidProcessId(handle.pid)) {
@@ -369,7 +359,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         try {
           await handle.kill()
           this.markQuiescent()
-          this.commandHandle = undefined
         } catch (cleanupError: unknown) {
           this.terminationFailure = asError(cleanupError)
           this.commandState.resolve(handle)
@@ -404,9 +393,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       await this.finalizeSpills(sandbox)
       return outcome
     } catch (error: unknown) {
-      const canceledPreparation = this.preparing
-        && this.terminationStarted
-        && this.terminationController.signal.aborted
+      const canceledPreparation = preparing && this.terminationController.signal.aborted
       let failure = await this.rollbackPublishedFailure(error)
       if (sandbox !== undefined && this.stateDirectoryCreated) {
         try {
@@ -423,7 +410,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (canceledPreparation && failure === error) return { exitCode: null, signal: 'SIGTERM' }
       throw failure
     } finally {
-      this.preparing = false
       this.spec.signal?.removeEventListener('abort', this.onAbort)
       this.stdout?.end()
       this.stderr?.end()
@@ -583,7 +569,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async rollbackPublishedFailure(error: unknown): Promise<unknown> {
-    if (this.remotePid <= 0 || this.commandHandle === undefined || this.quiescenceProven) return error
+    if (this.remotePid <= 0 || this.quiescenceProven) return error
     this.terminate()
     try {
       await this.waitForExit()
@@ -626,7 +612,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     if (!isValidProcessId(handle.pid) && this.remotePid <= 0) {
       await handle.kill()
       this.markQuiescent()
-      this.commandHandle = undefined
       return
     }
     const sandbox = await this.runtime.getSandbox()
@@ -730,7 +715,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       const size = (reader as E2BOutputReader).size
       if (this.outputDrainExpired || size <= mode.maxBytes || size > mode.spill.maxBytes) {
         removals.push(sandbox.files.remove(path).catch((_adapterPrivateSpillRemovalFailure: unknown) => {
-          // The command outcome is authoritative; a retained sandbox tolerates private residue.
+          // The command outcome is authoritative; owner teardown bounds private residue.
         }))
       }
     }

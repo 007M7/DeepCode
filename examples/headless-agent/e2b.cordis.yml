@@ -15,19 +15,12 @@
       - id: code-runtime
         name: '@deepseek-ai/dsh-code-runtime-worker'
         disabled: true
-      - id: bash
-        name: '@deepseek-ai/dsh-bash-local'
-        config:
-          cwd: !!js process.cwd()
-          timeoutMs: 60000
       - insert:
           - id: e2b
             name: '@deepseek-ai/dsh-e2b'
             config:
               cwd: !!js process.cwd()
               timeoutMs: 300000
-              onTimeout: kill
-              onDispose: kill
           - id: subprocess-e2b
             name: '@deepseek-ai/dsh-subprocess-e2b'
           - id: fs-e2b

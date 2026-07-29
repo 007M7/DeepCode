@@ -90,9 +90,6 @@ class FakeTerminalSandbox {
   readonly writes = new Map<string, string>()
   createOptions: Parameters<Sandbox['pty']['create']>[0] | undefined
   ambient = 'KEEP=visible\0UNICODE=你好\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
-  ready: string | Error = 'ready\n'
-  readyMisses = 0
-  readyReads = 0
   sessionId = '123\n'
   foreground = '456\n'
   groups = [123]
@@ -108,12 +105,9 @@ class FakeTerminalSandbox {
   sessionGroupsFailure: unknown
   foregroundFailure: unknown
   termFailure: unknown
-  ptyKillError: unknown
   removeError: unknown
   clearOnTerm = true
   clearOnKill = true
-  settleOnPtyKill = true
-  ptyKills = 0
   resolvedExecutable = '/usr/bin/node\n'
   requestedOutput = 'requested-shell$ '
   emitOutputMarker = true
@@ -143,15 +137,6 @@ class FakeTerminalSandbox {
         for (const file of files) this.writes.set(file.path, file.data)
         if (this.writeError !== undefined) throw this.writeError
         return files.map(() => ({}))
-      },
-      read: async (): Promise<string> => {
-        this.readyReads += 1
-        if (this.readyMisses > 0) {
-          this.readyMisses -= 1
-          throw new FileNotFoundError('not ready')
-        }
-        if (this.ready instanceof Error) throw this.ready
-        return this.ready
       },
       remove: async (path: string): Promise<void> => {
         this.removed.push(path)
@@ -237,12 +222,6 @@ class FakeTerminalSandbox {
           }
         }
       },
-      kill: async (pid: number): Promise<boolean> => {
-        this.ptyKills += 1
-        if (this.ptyKillError !== undefined) throw this.ptyKillError
-        if (this.settleOnPtyKill) this.handle.fail(137)
-        return pid === this.handle.pid
-      },
     },
   } as unknown as Sandbox
 }
@@ -251,7 +230,6 @@ function runtime(fake: FakeTerminalSandbox): E2BSandboxService {
   return {
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
-    disposeMode: 'kill',
     getSandbox: async () => fake.sandbox,
   } as unknown as E2BSandboxService
 }
@@ -284,7 +262,6 @@ function holdRequestUntilAbort(started: PromiseWithResolvers<AbortSignal>) {
 describe('E2B terminal allocation', () => {
   it('hides bootstrap-shell bytes and preserves requested-shell bytes across the output boundary', async () => {
     const fake = new FakeTerminalSandbox()
-    fake.readyMisses = 1
     const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/terminal-one')
     let output = ''
     terminal.output.on('data', (chunk) => { output += String(chunk) })
@@ -417,12 +394,6 @@ describe('E2B terminal allocation', () => {
     expect(failedInput.commands).toContain('kill -TERM -- -123')
     expect(failedInput.groups).toEqual([])
 
-    const exited = new FakeTerminalSandbox()
-    exited.ready = new FileNotFoundError('not ready')
-    queueMicrotask(() => { exited.handle.succeed(0) })
-    await expect(spawnE2BTerminal(runtime(exited), spec(), '/runtime/exited'))
-      .rejects.toThrow('exited before publishing readiness')
-
     const invalidSession = new FakeTerminalSandbox()
     invalidSession.sessionId = 'not-a-session\n'
     invalidSession.clearOnTerm = false
@@ -431,7 +402,7 @@ describe('E2B terminal allocation', () => {
     expect(invalidSession.commands).toContain('kill -TERM -- -123')
     expect(invalidSession.commands).toContain('kill -KILL -- -123')
     expect(invalidSession.groups).toEqual([])
-    expect(invalidSession.ptyKills).toBe(1)
+    expect(invalidSession.handle.sdkKills).toBe(1)
     const lateData = invalidSession.createOptions?.onData
     if (lateData === undefined) throw new Error('missing captured terminal callback')
     expect(lateData(Buffer.from('late bytes'))).toBeUndefined()
@@ -442,12 +413,12 @@ describe('E2B terminal allocation', () => {
     await expect(spawnE2BTerminal(runtime(termFailed), spec(), '/runtime/term-failed'))
       .rejects.toThrow('bootstrap failed')
     expect(termFailed.commands).toContain('kill -KILL -- -123')
-    expect(termFailed.ptyKills).toBe(1)
+    expect(termFailed.handle.sdkKills).toBe(1)
 
     const uninspectable = new FakeTerminalSandbox()
     uninspectable.sendError = new Error('bootstrap failed')
     uninspectable.sessionGroupsFailure = 'session enumeration failed'
-    uninspectable.ptyKillError = new Error('PTY kill failed')
+    uninspectable.handle.sdkKillError = new Error('PTY kill failed')
     let uninspectableFailure: unknown
     try {
       await spawnE2BTerminal(runtime(uninspectable), spec(), '/runtime/uninspectable')
@@ -455,7 +426,6 @@ describe('E2B terminal allocation', () => {
       uninspectableFailure = error
     }
     expect(uninspectableFailure).toBeInstanceOf(AggregateError)
-    expect(uninspectable.ptyKills).toBe(1)
     expect(uninspectable.handle.sdkKills).toBe(1)
 
     const survivingGroups = new FakeTerminalSandbox()
@@ -468,7 +438,6 @@ describe('E2B terminal allocation', () => {
     const survivingPid = new FakeTerminalSandbox()
     survivingPid.sendError = new Error('bootstrap failed')
     survivingPid.groups = []
-    survivingPid.settleOnPtyKill = false
     survivingPid.handle.settleOnSdkKill = false
     await expect(spawnE2BTerminal(runtime(survivingPid), spec({ graceMs: 1 }), '/runtime/surviving-pid'))
       .rejects.toThrow('bootstrap failed')
@@ -491,12 +460,12 @@ describe('E2B terminal allocation', () => {
     const expiredDuringRollback = new FakeTerminalSandbox()
     expiredDuringRollback.sendError = new Error('bootstrap failed before timeout')
     expiredDuringRollback.groups = []
-    expiredDuringRollback.settleOnPtyKill = false
-    expiredDuringRollback.ptyKillError = new SandboxNotFoundError('sandbox expired')
+    expiredDuringRollback.handle.settleOnSdkKill = false
+    expiredDuringRollback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
     expiredDuringRollback.removeError = new SandboxNotFoundError('sandbox expired')
     await expect(spawnE2BTerminal(runtime(expiredDuringRollback), spec(), '/runtime/expired-rollback'))
       .rejects.toThrow('bootstrap failed before timeout')
-    expect(expiredDuringRollback.ptyKills).toBe(1)
+    expect(expiredDuringRollback.handle.sdkKills).toBe(1)
 
     const expiredBeforeSdkRollback = new FakeTerminalSandbox()
     expiredBeforeSdkRollback.handle.waitError = new Error('wait failed after timeout')
@@ -504,15 +473,6 @@ describe('E2B terminal allocation', () => {
     expiredBeforeSdkRollback.handle.settleOnSdkKill = false
     await expect(spawnE2BTerminal(runtime(expiredBeforeSdkRollback), spec(), '/runtime/expired-sdk-rollback'))
       .rejects.toThrow('wait failed after timeout')
-
-    const expiredDuringSdkFallback = new FakeTerminalSandbox()
-    expiredDuringSdkFallback.sendError = new Error('bootstrap failed before SDK fallback')
-    expiredDuringSdkFallback.groups = []
-    expiredDuringSdkFallback.settleOnPtyKill = false
-    expiredDuringSdkFallback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
-    expiredDuringSdkFallback.handle.settleOnSdkKill = false
-    await expect(spawnE2BTerminal(runtime(expiredDuringSdkFallback), spec(), '/runtime/expired-sdk-fallback'))
-      .rejects.toThrow('bootstrap failed before SDK fallback')
 
     const missingDuringDisconnect = new FakeTerminalSandbox()
     missingDuringDisconnect.sendError = new Error('bootstrap failed before disconnect')
@@ -537,10 +497,6 @@ describe('E2B terminal allocation', () => {
     await expect(spawnE2BTerminal(runtime(createFailed), spec(), '/runtime/create'))
       .rejects.toThrow('create failed')
 
-    const readFailed = new FakeTerminalSandbox()
-    readFailed.ready = new Error('ready transport failed')
-    await expect(spawnE2BTerminal(runtime(readFailed), spec(), '/runtime/read'))
-      .rejects.toThrow('ready transport failed')
   })
 
   it('bounds a missing bootstrap-output boundary by process exit or cancellation', async () => {
@@ -560,7 +516,6 @@ describe('E2B terminal allocation', () => {
       '/runtime/cancel-output-boundary',
     )
     await vi.waitFor(() => { expect(cancelled.inputs).toHaveLength(1) })
-    await vi.waitFor(() => { expect(cancelled.readyReads).toBeGreaterThan(0) })
     await new Promise(resolve => setTimeout(resolve, 0))
     controller.abort(new Error('cancel output boundary'))
     await expect(cancelling).rejects.toThrow('cancel output boundary')
@@ -661,23 +616,23 @@ describe('E2B terminal lifecycle', () => {
   it('treats sandbox disappearance during PTY kill as quiescent', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
-    fake.settleOnPtyKill = false
-    fake.ptyKillError = new SandboxNotFoundError('sandbox expired')
+    fake.handle.settleOnSdkKill = false
+    fake.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
     const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/expired-pty-kill')
 
     await terminal.terminate()
-    expect(fake.ptyKills).toBe(1)
+    expect(fake.handle.sdkKills).toBe(1)
   })
 
   it('propagates a non-missing PTY kill failure', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
-    fake.settleOnPtyKill = false
-    fake.ptyKillError = new Error('PTY kill transport failed')
+    fake.handle.settleOnSdkKill = false
+    fake.handle.sdkKillError = new Error('PTY kill transport failed')
     const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/failed-pty-kill')
 
     await expect(terminal.terminate()).rejects.toThrow('PTY kill transport failed')
-    fake.ptyKillError = undefined
+    fake.handle.sdkKillError = undefined
     fake.handle.succeed(0)
     await terminal.done
     await terminal.terminate()
@@ -712,11 +667,11 @@ describe('E2B terminal lifecycle', () => {
     await terminal.terminate()
   })
 
-  it('escalates surviving process groups', async () => {
+  it('sends KILL before checking an expired force-cleanup deadline', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = [123, 456]
     fake.clearOnTerm = false
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/escalate')
+    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 0 }), '/runtime/escalate')
     const terminating = terminal.terminate()
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await terminating
@@ -771,11 +726,11 @@ describe('E2B terminal lifecycle', () => {
   it('keeps a late command rejection authoritative after PTY kill', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
-    fake.settleOnPtyKill = false
+    fake.handle.settleOnSdkKill = false
     const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/reject-after-kill')
     terminal.output.on('error', () => {})
     const cleanup = terminal.terminate()
-    while (fake.ptyKills === 0) await new Promise(resolve => setTimeout(resolve, 0))
+    while (fake.handle.sdkKills === 0) await new Promise(resolve => setTimeout(resolve, 0))
     await Promise.resolve()
     fake.handle.crash(new Error('late command transport failed'))
     await expect(terminal.done).rejects.toThrow('late command transport failed')
@@ -791,7 +746,7 @@ describe('E2B terminal lifecycle', () => {
 
     const livePid = new FakeTerminalSandbox()
     livePid.groups = []
-    livePid.settleOnPtyKill = false
+    livePid.handle.settleOnSdkKill = false
     const live = await spawnE2BTerminal(runtime(livePid), spec({ graceMs: 1 }), '/runtime/live-pid')
     await expect(live.terminate()).rejects.toThrow('surviving pid: 123')
     livePid.handle.succeed(0)
@@ -879,13 +834,13 @@ describe('E2B subprocess terminal service', () => {
     expect(fake.removed.some(path => path.includes('/terminals/'))).toBe(true)
   })
 
-  it('aborts and rolls back terminal setup that cannot publish readiness during disposal', async () => {
+  it('aborts and rolls back terminal setup that cannot publish its output boundary during disposal', async () => {
     const fake = new FakeTerminalSandbox()
-    fake.ready = new FileNotFoundError('not ready')
+    fake.emitOutputMarker = false
     const { ctx, fiber } = await service(fake)
     const spawning = ctx.subprocess.spawnTerminal(spec())
     const rejected = expect(spawning).rejects.toThrow('service disposed during terminal setup')
-    await vi.waitFor(() => { expect(fake.readyReads).toBeGreaterThan(0) })
+    await vi.waitFor(() => { expect(fake.inputs).toHaveLength(1) })
 
     await fiber.dispose()
     await rejected

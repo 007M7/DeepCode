@@ -5,8 +5,7 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import E2BSandboxService, {
-  e2bControlEnvs,
+import {
   FileNotFoundError,
   Sandbox,
   SandboxNotFoundError,
@@ -113,26 +112,6 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       await subprocessFiber.dispose()
       await ptyFiber.dispose()
 
-      await sandbox.commands.run([
-        'rm -rf -- /home/user/.dsh-e2b /home/user/dsh-e2b-runtime-target',
-        'mkdir -p -- /home/user/dsh-e2b-runtime-target',
-        'chmod 755 -- /home/user/dsh-e2b-runtime-target',
-        'ln -s -- /home/user/dsh-e2b-runtime-target /home/user/.dsh-e2b',
-      ].join('\n'), { envs: e2bControlEnvs({ NPM_TOKEN: '' }) })
-      const linkedCtx = new Context()
-      const linkedFiber = await linkedCtx.plugin(E2BSandboxService, {
-        apiKey,
-        sandboxId: sandbox.sandboxId,
-        cwd: '/home/user',
-        onDispose: 'leave',
-      })
-      try {
-        await expect(linkedCtx.e2b.getSandbox()).rejects.toThrow('runtime root must be a real directory')
-        const target = await sandbox.files.getInfo('/home/user/dsh-e2b-runtime-target')
-        expect(target.mode & 0o777).toBe(0o755)
-      } finally {
-        await linkedFiber.dispose()
-      }
     } finally {
       await sandbox.kill().catch(() => false)
     }
@@ -160,23 +139,10 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     expect(stderr).toBe('')
     const output = JSON.parse(stdout) as Record<string, unknown>
     expect(output).toMatchObject({
-      bashRead: 'written-by-fs-versioned\n',
-      fsVersionGuard: true,
+      bashRead: 'versioned-by-fs\n',
       fsRead: 'written-by-bash\n',
       explicitEnvironment: true,
       splitUtf8Output: '你好',
-      outputDrain: {
-        outcome: { exitCode: 0, signal: null },
-        text: 'leader-done\n',
-        exited: true,
-        clean: true,
-      },
-      publicationRollback: true,
-      spill: {
-        liveBytes: 6,
-        outcome: { exitCode: null, signal: 'SIGTERM' },
-        read: { text: '6789', nextOffset: 10, lossy: true },
-      },
       hover: {
         kind: 'hover',
         hover: { contents: '**remote hover** 你好 café' },
@@ -185,24 +151,14 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         kind: 'locations',
         locations: [{ range: { start: { line: 0, character: 6 }, end: { line: 0, character: 10 } } }],
       },
-      lspDocumentBound: true,
       terminal: {
         echo: { waitReason: 'stdin_read', sessionStatus: { kind: 'running' } },
         signal: { delivered: true },
         interrupted: { sessionStatus: { kind: 'running' } },
-        interruptIdentitySafe: true,
         treeCleanup: true,
       },
-      hostileOutput: { error: { kind: 'output-limit' } },
-      nativeOutput: { error: { kind: 'output-limit' } },
-      descriptorOutput: { error: { kind: 'output-limit' } },
-      inheritedOutput: { error: { kind: 'output-limit' } },
       descendantPipe: { value: true, logs: [] },
       descendantCleanup: true,
-      timedOut: { error: { kind: 'timeout' } },
-      aborted: { error: { kind: 'abort', message: 'live abort' } },
-      oversizedBoot: { error: { kind: 'worker-exit' } },
-      oversizedReply: { error: { kind: 'worker-exit' } },
       lingeringCodeRunners: 0,
     })
     const terminalMotd = (output.terminal as { motd: string }).motd
@@ -217,10 +173,11 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     )
     expect(output.code).toEqual({
       value: { doubled: 42, typed: true },
-      logs: ['remote-log 你好 42', 'post-mutation'],
+      logs: ['remote-log 你好 42'],
     })
     const apiKey = process.env.E2B_API_KEY
     if (apiKey === undefined) throw new Error('E2B_API_KEY disappeared during the live composition test')
     await expect(Sandbox.getInfo(String(output.sandboxId), { apiKey })).rejects.toBeInstanceOf(SandboxNotFoundError)
+    await expect(Sandbox.list({ apiKey }).nextItems()).resolves.toEqual([])
   }, 195_000)
 })

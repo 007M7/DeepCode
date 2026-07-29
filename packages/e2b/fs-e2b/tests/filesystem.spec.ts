@@ -275,7 +275,6 @@ async function setup(remote = new FakeRemote()): Promise<{ ctx: Context; fs: E2B
   const runtime = {
     cwd: '/workspace',
     runtimeRoot: '/workspace/.dsh-e2b',
-    disposeMode: 'kill',
     getSandbox: async () => remote.sandbox,
   } as unknown as E2BSandboxService
   ctx.provide('e2b', runtime)

@@ -106,7 +106,7 @@ export class E2BSubprocessService extends SubprocessService {
 
   /** @inheritdoc */
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
-    if (this.isDisposing()) throw new Error('subprocess-e2b: service is disposing')
+    if (this.disposing) throw new Error('subprocess-e2b: service is disposing')
     const program = spec.argv[0]
     if (program === undefined || program.length === 0) {
       throw new Error('invalid argv: expected a non-empty program name at argv[0]')
@@ -115,7 +115,7 @@ export class E2BSubprocessService extends SubprocessService {
       throw new Error('subprocess-e2b: graceMs must be a positive finite number')
     }
     if (spec.signal?.aborted === true) {
-      throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
+      throw new Error(`aborted before spawn: ${String(spec.signal.reason)}`)
     }
     const stateDir = posix.join(this.ctx.e2b.runtimeRoot, 'processes', randomUUID())
     const handle = new E2BSubprocessHandle(this.ctx.e2b, spec, stateDir)
@@ -132,7 +132,7 @@ export class E2BSubprocessService extends SubprocessService {
 
   /** @inheritdoc */
   async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
-    if (this.isDisposing()) throw new Error('subprocess-e2b: service is disposing')
+    if (this.disposing) throw new Error('subprocess-e2b: service is disposing')
     const program = spec.argv[0]
     if (program === undefined || program.length === 0) {
       throw new Error('subprocess-e2b: terminal argv must contain a program')
@@ -158,7 +158,8 @@ export class E2BSubprocessService extends SubprocessService {
         (cleanup) => { this.failedTerminalSetupCleanups.add(cleanup) },
       )
       this.terminals.add(terminal)
-      if (this.isDisposing()) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Remote allocation yields to disposal.
+      if (this.disposing) {
         await terminal.terminate()
         this.terminals.delete(terminal)
         throw new Error('subprocess-e2b: service disposed during terminal setup')
@@ -175,10 +176,6 @@ export class E2BSubprocessService extends SubprocessService {
       this.terminalSetups.delete(setup.promise)
       setup.resolve()
     }
-  }
-
-  private isDisposing(): boolean {
-    return this.disposing
   }
 }
 

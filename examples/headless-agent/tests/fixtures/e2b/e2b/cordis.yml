@@ -3,8 +3,6 @@
   config:
     cwd: !!js process.cwd()
     timeoutMs: 180000
-    onTimeout: kill
-    onDispose: kill
 
 - id: subprocess-e2b
   name: '@deepseek-ai/dsh-subprocess-e2b'
@@ -12,7 +10,6 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
-    cwd: !!js process.cwd()
     timeoutMs: 30000
 
 - id: fs-e2b
@@ -63,5 +60,4 @@
     maxWallMs: 15000
     maxOutputBytes: 4096
     maxOldGenerationSizeMb: 128
-    maxFrameBytes: 32768
     killGraceMs: 500
