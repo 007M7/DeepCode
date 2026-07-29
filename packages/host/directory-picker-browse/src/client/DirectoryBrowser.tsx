@@ -85,12 +85,12 @@ function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
  * Lexically normalizes a typed absolute path for comparisons against the
  * backend's resolved ones (every listing path arrives in the
  * DirectoryListing contract's canonical shape; only the DRAFT side, the
- * one path a user types, needs this): collapses
- * repeated and trailing separators, drops `.` segments, and applies `..`
- * without ever crossing the root — POSIX's `/`, a drive's `C:`, or UNC's
- * `\\server\share` pair — mirroring resolve()'s lexical behavior. Expects
- * separators already folded to `sep` (foldSeparatorsFor); a lexical mirror
- * only, symlinks are the backend's business.
+ * one path a user types, needs this): collapses repeated and trailing
+ * separators, drops `.` segments, and applies `..` without ever crossing
+ * the root — POSIX's `/`, a drive's `C:`, or UNC's `\\server\share` pair —
+ * mirroring resolve()'s lexical behavior. Expects separators already
+ * folded to `sep` (foldSeparatorsFor); a lexical mirror only, symlinks are
+ * the backend's business.
  */
 function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
   return (value) => {

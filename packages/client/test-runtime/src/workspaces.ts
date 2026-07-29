@@ -142,7 +142,9 @@ export class TestWorkspaces implements IWorkspaces {
    * Browse child creation (recorded). The default joins parent and name.
    * @param path - absolute existing parent directory.
    * @param name - single path segment.
-   * @returns the created directory's absolute path.
+   * @returns the created directory's absolute path, in the shape
+   * `DirectoryPickerBrowseCapability.createDirectory` contracts (verbatim
+   * equal to the child's `entries[].path` in the parent's next listing).
    */
   async createDirectory(path: string, name: string): Promise<string> {
     this.calls.push({ method: 'createDirectory', args: [path, name] })

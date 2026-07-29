@@ -38,5 +38,6 @@ it('resolves a decorated homedir before stamping listing.home', async () => {
   const listing = await picked.list()
   expect(listing.home).toBe(resolve(scratch))
   expect(listing.path).toBe(listing.home)
+  expect(listing.crumbs.at(-1)!.path).toBe(listing.home)
   await fiber.dispose()
 })

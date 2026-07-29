@@ -207,6 +207,10 @@ describe('BrowseDirectoryPicker', () => {
     expect(created).toBe(join(root, 'fresh'))
     const listing = await capability.list(root)
     expect(listing.entries.map(entry => entry.name)).toContain('fresh')
+    // The contract's cross-method equality: the returned path is verbatim
+    // the child's entries[].path (clients anchor the create landing's
+    // selection and focus on it).
+    expect(listing.entries.find(entry => entry.name === 'fresh')!.path).toBe(created)
   })
 
   it('refuses an existing child with directory-exists', async () => {
