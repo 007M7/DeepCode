@@ -5,8 +5,9 @@
 // the code-variant parent row titled by the model-authored description, its
 // three always-visible nested sub-rows (bash through the sample registration,
 // read through GenericToolCard, the failing read wearing the error state),
-// the expanded program body, inert bash / file-link sub-row gestures, and
-// the trajectory/waterfall tabs' sub-call cells and timing lanes.
+// the expanded program body, inert bash / file-link sub-row gestures,
+// details-panel resolution of a sub-callId, and the Trajectory tab's sub-call
+// cells and timing overview.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -197,7 +198,7 @@ it('expands the code row into the program body; sub-row clicks do not open detai
   `)
 })
 
-it('trajectory and waterfall surface the run_code sub-calls with real timing', async () => {
+it('trajectory surfaces run_code sub-calls in the ledger and timing overview', async () => {
   boot()
   await openFixtureSession()
 
@@ -208,51 +209,30 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
   }, { timeout: 10_000 })
   const subCells = [...document.querySelectorAll('[data-kind="subtool"]')]
   expect({
-    // Three Sub cells nested under the run_code Tool cell, in dispatch order,
-    // each with a real +N.Ns own-duration off the start/settle pair (the
-    // fixture spaces every event 800ms apart — never the em dash).
+    // Three Subtool cells nested under the run_code Tool cell in dispatch
+    // order, each paired with its result preview.
     subCells: subCells.map(cell => visibleText(cell)),
   }).toMatchInlineSnapshot(`
     {
       "subCells": [
-        "#49Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
-        "#50Subread · {"path":"notes/demo.txt"}+0.8s",
-        "#51Subread · {"path":"notes/missing.txt"}+0.8s",
+        "SUBTOOLbash{"command":"ls notes","description":"List notes"}→demo.txt new-demo.txt",
+        "SUBTOOLread{"path":"notes/demo.txt"}→hello fixture",
+        "SUBTOOLread{"path":"notes/missing.txt"}→error",
       ],
     }
   `)
 
-  // Waterfall: each sub-call draws a measured lane scaled into the parent
-  // turn's dispatch window.
-  fireEvent.click(screen.getByRole('tab', { name: 'Waterfall' }))
-  await waitFor(() => {
-    expect(document.querySelector('[data-subspan]')).not.toBeNull()
-  }, { timeout: 10_000 })
-  const lanes = [...document.querySelectorAll('[data-subspan]')]
+  const timelineSubCalls = [...document.querySelectorAll('[data-timeline-span="subtool"]')]
   expect({
-    lanes: lanes.map(lane => ({
-      label: visibleText(lane.querySelector('[class*="subTag"]') ?? lane),
-      title: lane.querySelector('[data-timing]')?.getAttribute('title'),
-      timing: lane.querySelector('[data-timing]')?.getAttribute('data-timing'),
-    })),
+    count: timelineSubCalls.length,
+    measured: timelineSubCalls.map(span => span.getAttribute('title')?.endsWith(' · 800 ms')),
   }).toMatchInlineSnapshot(`
     {
-      "lanes": [
-        {
-          "label": "bash",
-          "timing": "measured",
-          "title": "bash · 0.80s",
-        },
-        {
-          "label": "read",
-          "timing": "measured",
-          "title": "read · 0.80s",
-        },
-        {
-          "label": "read",
-          "timing": "measured",
-          "title": "read · 0.80s",
-        },
+      "count": 3,
+      "measured": [
+        true,
+        true,
+        true,
       ],
     }
   `)

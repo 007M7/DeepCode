@@ -3,7 +3,7 @@
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.__ModuleLoader__.load, resolves externals through the injected
  * require, returns the export surface (apply + inject), and a mounted apply
- * registers both view tabs into a real SlotsService ring. Skips when dist/ is
+ * registers the view tab into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
 import { readFileSync } from 'node:fs'
@@ -47,6 +47,7 @@ describe('tsdown client artifact', () => {
     const modules = new Map<string, unknown>([
       ['react', await import('react')],
       ['react/jsx-runtime', await import('react/jsx-runtime')],
+      ['@deepseek-ai/dsh-client-ui-primitives', await import('@deepseek-ai/dsh-client-ui-primitives')],
     ])
     const surface = handoff!.factory((spec) => {
       if (!modules.has(spec)) throw new Error(`unexpected require: ${spec}`)
@@ -59,10 +60,10 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots', 'conversation'])
+    expect(surface.inject).toEqual(['slots', 'conversation', 'sessions'])
   })
 
-  it.skipIf(code === undefined)('mounted as an object plugin, apply registers both view tabs on the real ring', async () => {
+  it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
     const { surface } = await loadArtifact()
     const ctx = new Context()
     const slots = new SlotsService(ctx)
@@ -71,13 +72,13 @@ describe('tsdown client artifact', () => {
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
-    // The plugin injects 'conversation' as an ordering edge (the declaring
-    // plugin provides it after declaring the ring); the bench declares the
-    // ring itself, so a stub satisfies the wait.
+    // The plugin injects 'conversation' as an ordering edge and 'sessions'
+    // for its per-session history callback; this bench supplies both.
     ctx.provide('conversation', {})
+    ctx.provide('sessions', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
-    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory', 'waterfall'])
+    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
     await fiber.dispose()
     expect(slots.entries('conversation.view')).toHaveLength(0)
   })
