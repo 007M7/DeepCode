@@ -83,8 +83,9 @@ function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
 
 /**
  * Lexically normalizes a typed absolute path for comparisons against the
- * backend's resolved ones (the wire contract keeps `path`, `crumbs[].path`,
- * and `home` in resolved shape; only the DRAFT side needs this): collapses
+ * backend's resolved ones (every listing path arrives in the
+ * DirectoryListing contract's canonical shape; only the DRAFT side, the
+ * one path a user types, needs this): collapses
  * repeated and trailing separators, drops `.` segments, and applies `..`
  * without ever crossing the root — POSIX's `/`, a drive's `C:`, or UNC's
  * `\\server\share` pair — mirroring resolve()'s lexical behavior. Expects

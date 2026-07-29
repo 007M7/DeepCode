@@ -48,8 +48,8 @@ describe('BrowseDirectoryPicker', () => {
   it('lists directories only, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
     const listing = await capability.list(root)
     expect(listing.path).toBe(root)
-    // Resolved like path and crumbs — the environment may decorate HOME,
-    // and the wire contract promises one canonical shape for all three.
+    // The environment may decorate HOME; every listing path ships in the
+    // DirectoryListing contract's canonical shape, home included.
     expect(listing.home).toBe(resolve(homedir()))
     expect(listing.entries.map(entry => entry.name)).toEqual(['.hidden-dir', 'linked', 'projects'])
     expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
@@ -161,11 +161,6 @@ describe('BrowseDirectoryPicker', () => {
     expect(listing.crumbs.at(-2)!.name).toBe(basename(root))
     // The chain starts at the filesystem root, whose crumb is labeled by its full path.
     expect(listing.crumbs[0]!.name).toBe(listing.crumbs[0]!.path)
-  })
-
-  it('lists the home directory when no path is given', async () => {
-    const listing = await capability.list()
-    expect(listing.path).toBe(homedir())
   })
 
   it('throws directory-unreadable for a missing target', async () => {

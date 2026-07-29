@@ -20,8 +20,9 @@ export interface DirectoryEntry {
  * Every path in one listing — `path`, `crumbs[].path`, `entries[].path`,
  * and `home` — is host-resolved canonical form: no `.`/`..` segments, no
  * repeated or trailing separators (bare roots `/`, `C:\`, `\\server\share\`
- * excepted), one platform separator. Clients compare paths on this promise
- * without re-normalizing.
+ * excepted), one platform separator. Resolution is lexical (`resolve()`),
+ * never realpath: a symlinked ancestry keeps the logical path the operator
+ * navigated. Clients compare paths on this promise without re-normalizing.
  */
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
@@ -82,7 +83,9 @@ export interface HostApi {
    * Create one child directory under an existing parent (the browser's
    * "New folder"). Only served under the `browse` capability; an existing
    * child fails with `directory-exists`, every other filesystem failure with
-   * `directory-create-failed`.
+   * `directory-create-failed`. The returned path is in the listing
+   * contract's canonical shape — verbatim equal to the child's
+   * `entries[].path` in the parent's next listing.
    */
   createDirectory(
     request: RpcRequest<{ path: string; name: string }>,

@@ -39,8 +39,11 @@ export interface DirectoryEntry {
  * Every path in one listing — `path`, `crumbs[].path`, `entries[].path`,
  * and `home` — is host-resolved canonical form: no `.`/`..` segments, no
  * repeated or trailing separators (bare roots `/`, `C:\`, `\\server\share\`
- * excepted), one platform separator. Clients compare paths on this promise
- * without re-normalizing; every backend must resolve before stamping.
+ * excepted), one platform separator. Resolution is lexical (`resolve()`),
+ * never realpath: a symlinked ancestry keeps the logical path the operator
+ * navigated (the seam Agent Note's symlink ruling). Clients compare paths
+ * on this promise without re-normalizing; every backend must resolve
+ * before stamping.
  */
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
@@ -86,7 +89,10 @@ export interface DirectoryPickerBrowseCapability {
    * Create one child directory under an existing parent.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment (no separators, not `.`/`..`).
-   * @returns the created directory's absolute path.
+   * @returns the created directory's absolute path, in the listing
+   * contract's canonical shape — verbatim equal to the child's
+   * `entries[].path` in the parent's next listing (clients anchor the
+   * create landing's selection and focus on that equality).
    * @throws {DirectoryPickerError} `directory-exists` for an existing child,
    * `directory-create-failed` for a parent that is not fully qualified or any other failure.
    */
