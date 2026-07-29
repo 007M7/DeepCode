@@ -100,15 +100,14 @@ export async function readHostSource(
     for await (const chunk of stream) {
       throwIfAborted(signal)
       bytes += Buffer.byteLength(chunk)
-      if (bytes > maxDocumentBytes) {
-        throw new Error(`source "${filePath}" exceeds the ${maxDocumentBytes}-byte limit`)
-      }
+      if (bytes > maxDocumentBytes) break
       chunks.push(chunk)
     }
   } catch (error: unknown) {
     throwIfAborted(signal)
     throw new Error(`source "${filePath}" could not be read: ${messageOf(error)}`, { cause: error })
   }
+  if (bytes > maxDocumentBytes) throw new Error(`source "${filePath}" exceeds the ${maxDocumentBytes}-byte limit`)
   throwIfAborted(signal)
   return {
     fileUrl: fs.fileUrl(target),

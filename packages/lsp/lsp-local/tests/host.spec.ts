@@ -158,7 +158,9 @@ describe('readHostSource', () => {
 
   it('rejects an oversized source', async () => {
     await writeFile(join(ws, 'big.ts'), 'x'.repeat(100))
-    await expect(readSource('big.ts', 10)).rejects.toThrow(/10-byte limit/)
+    await expect(readSource('big.ts', 10)).rejects.toMatchObject({
+      message: 'source "big.ts" exceeds the 10-byte limit',
+    })
   })
 
   it('counts the complete UTF-8 byte length at the configured boundary', async () => {

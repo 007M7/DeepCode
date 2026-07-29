@@ -129,27 +129,29 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Resolve every server-local setting before registration so a bad later command or bound cannot
   // publish an earlier provider. Registry-level mapping conflicts are rolled back below.
   const providers = await (async () => {
+    const lookups = entries.map(async ([providerId, rawConfig]) => {
+      if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
+      const resolved = rawConfig as ResolvedServerConfig
+      validateServerConfig(providerId, resolved)
+      const executable = await ctx.subprocess.resolveExecutable(
+        resolved.command,
+        resolved.env,
+        setupAbort.signal,
+      )
+      setupAbort.signal.throwIfAborted()
+      return new LocalLspProvider(
+        providerId,
+        ctx.fs,
+        resolved,
+        executable,
+        spec => ctx.subprocess.spawn(spec),
+      )
+    })
     try {
-      return await Promise.all(entries.map(async ([providerId, rawConfig]) => {
-        if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
-        const resolved = rawConfig as ResolvedServerConfig
-        validateServerConfig(providerId, resolved)
-        const executable = await ctx.subprocess.resolveExecutable(
-          resolved.command,
-          resolved.env,
-          setupAbort.signal,
-        )
-        setupAbort.signal.throwIfAborted()
-        return new LocalLspProvider(
-          providerId,
-          ctx.fs,
-          resolved,
-          executable,
-          spec => ctx.subprocess.spawn(spec),
-        )
-      }))
+      return await Promise.all(lookups)
     } catch (error: unknown) {
       setupAbort.abort(error)
+      await Promise.allSettled(lookups)
       throw error
     } finally {
       stopSetupCancellation()

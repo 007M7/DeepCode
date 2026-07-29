@@ -237,7 +237,7 @@ export class LocalPtySession implements PtyBackendSession {
     }
     this.activeDeadlineTimer = setTimeout(() => {
       if (this.active === operation) {
-        this.settleActive('timeout', this.activeWrite?.operation === operation)
+        this.settleActive('timeout', this.activeWrite?.operation === operation || this.interrupting === operation)
       }
     }, this.config.timeoutMs)
     void this.beginSend(operation, request)

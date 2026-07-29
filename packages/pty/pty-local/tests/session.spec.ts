@@ -365,11 +365,11 @@ describe('LocalPtySession readiness and output', () => {
     expect(operation.cancel()).toBe(true)
 
     terminal.emitData('\x1b]133;D;130\x07dsh> ')
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation.done).waitReason).toBe('timeout')
     expect(() => session.startSend({ text: 'successor', submit: true })).toThrow('active send')
     signalGate.resolve(undefined)
-    await vi.advanceTimersByTimeAsync(10)
-    await operation.done
+    await vi.advanceTimersByTimeAsync(0)
     expect(inspector.groups).toContainEqual([456, 'SIGINT'])
     expect(inspector.groups).not.toContainEqual([789, 'SIGINT'])
   })
