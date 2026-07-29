@@ -57,6 +57,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
   readonly commands: ApiProxy['commands']
+  readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
@@ -74,6 +75,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.workspace = api.workspace
     this.host = api.host
     this.commands = api.commands
+    this.goals = api.goals
     this.skills = api.skills
     this.events = api.events
     // createApiProxy returns closures (no `this` capture); bind only satisfies
