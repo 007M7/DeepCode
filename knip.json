@@ -288,15 +288,6 @@
         "tests/**/*.ts"
       ]
     },
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/fixtures/register-once.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/session-query/session-query-sqlite": {
       "entry": [
         "tests/**/*.spec.ts",
