@@ -289,13 +289,13 @@ describe('DirectoryBrowser', () => {
     // A blur while the document itself lost focus (window switch, dev-tools
     // focus) must not discard the draft: value and filter both survive.
     const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
-    fireEvent.blur(input)
+    fireEvent.focusOut(input)
     hasFocus.mockRestore()
     expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
     // A keyboard focus move that stays inside the dialog (Tab onto the
     // filtered row) keeps the draft too — the results stay reachable.
-    fireEvent.blur(input, { relatedTarget: rowButton(screen.getByRole('listitem')) })
+    fireEvent.focusOut(input, { relatedTarget: rowButton(screen.getByRole('listitem')) })
     expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
     // Toggling show-hidden mid-edit suppresses focus steal: the draft and
     // its filter survive the toggle in both directions.
@@ -305,9 +305,31 @@ describe('DirectoryBrowser', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
-    // Focus landing outside the dialog cancels like Escape.
-    fireEvent.blur(input, { relatedTarget: document.body })
+    // Focus landing outside the dialog cancels like Escape — even when the
+    // departure happens from a row the user had Tabbed onto, not the input
+    // (the observer lives on the card scope, not the input).
+    fireEvent.focusOut(rowButton(screen.getByRole('listitem')), { relatedTarget: document.body })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Outside editing the card-scope observer is inert.
+    fireEvent.focusOut(screen.getByRole('button', { name: 'browser.showHidden' }))
+    expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
+  })
+
+  it('Escape with focus on a filtered row collapses the editor, not the dialog', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    // Tab parked focus on the result row; Escape must still mean "leave
+    // path editing", not "close the whole dialog".
+    const row = rowButton(screen.getByRole('listitem'))
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    expect(b.onClose).not.toHaveBeenCalled()
+    // With no draft left, Escape falls through to the Modal and closes.
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(b.onClose).toHaveBeenCalledTimes(1)
   })
 
   it('a picked dot-revealed hidden row stays visible as the selection', async () => {
@@ -340,6 +362,9 @@ describe('DirectoryBrowser', () => {
     fireEvent.mouseDown(row)
     fireEvent.click(row)
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Focus parks on the picked row (the editor's input just unmounted and
+    // the Modal has no focus trap to catch a fall to body).
+    expect(document.activeElement).toBe(row)
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
   })
@@ -373,7 +398,7 @@ describe('DirectoryBrowser', () => {
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
     fireEvent.change(input, { target: { value: '/somewhere/else' } })
     // Focus moving anywhere outside the editor abandons the draft like Escape.
-    fireEvent.blur(input)
+    fireEvent.focusOut(input)
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
     // The crumb view is back and the abandoned draft was never navigated to.
     expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()

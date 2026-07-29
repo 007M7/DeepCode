@@ -70,7 +70,8 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
  * legal POSIX name character. Still a heuristic at the last step: a POSIX
  * home directory whose own name contains a backslash would misread.
  * TODO: replace with a host-stamped `separator` field on the wire
- * DirectoryListing so the platform fact travels verbatim.
+ * DirectoryListing so the platform fact travels verbatim (the trade-off is
+ * recorded in the directory-picker capability seam Agent Note).
  */
 function separatorOf(listing: DirectoryListing): '\\' | '/' {
   return listing.home.includes('\\') ? '\\' : '/'
@@ -131,7 +132,13 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
               // where the blur lands before our guards) drop this click.
               // Outside editing, rows keep native focus behavior.
               onMouseDown={pathEditing ? (event) => { event.preventDefault() } : undefined}
-              onClick={() => { onPick(entry) }}
+              onClick={(event) => {
+                // A pick during editing is about to unmount the focused
+                // input; park focus on the picked row so keyboard traversal
+                // stays inside the dialog (the Modal has no focus trap).
+                if (pathEditing) event.currentTarget.focus()
+                onPick(entry)
+              }}
             >
               {selected
                 ? <IconFolderOpen16 size={16} className={css.rowIconSelected} />
@@ -386,177 +393,197 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       className={clsx(css.dialog)}
       headless
     >
-      <div className={css.header}>
-        <h2 className={css.title}>{t('browser.title')}</h2>
-        <div className={css.crumbBar}>
-          {pathDraft === null
-            ? (
-              <>
-                <span className={css.crumbTrail} role="navigation" ref={crumbTrailRef}>
-                  {crumbs.map((crumb, index) => (
-                    <span key={crumb.path} className={css.crumbSeat}>
-                      {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
-                      <button
-                        type="button"
-                        className={css.crumb}
-                        disabled={parentInert}
-                        onClick={() => { navigate(crumb.path) }}
-                      >
-                        {crumb.name}
-                      </button>
-                    </span>
-                  ))}
-                </span>
-                {/* The empty zone right of the crumbs is the path-edit affordance. */}
-                <button
-                  type="button"
-                  className={css.crumbEditZone}
-                  aria-label={t('browser.editPath')}
-                  // Stays available with no listed level: when the home
-                  // listing itself fails, typing an absolute path is the one
-                  // remaining way forward.
-                  disabled={parentInert}
-                  onClick={() => {
+      {/* Path-edit cancellation is observed at the card scope, not the
+        * input: once Tab parks focus on a filtered row the input is off the
+        * event path, yet Escape must still collapse the editor (not the
+        * dialog) and a further focus move out of the card must still
+        * cancel. display:contents keeps header/content/footer as direct
+        * flex children of the Modal card. */}
+      <div
+        className={css.editorScope}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape' || pathDraft === null) return
+          // stopPropagation keeps the card-scope Escape from the Modal's
+          // document listener — the same containment the input previously
+          // provided for itself.
+          event.stopPropagation()
+          cancelPathEdit()
+        }}
+        // Focus leaving THIS dialog card while editing cancels like Escape.
+        // Guarded non-cancel paths: window/tab focus loss (document no
+        // longer focused); a focus move that stays inside the card (Tab
+        // onto the filtered rows or the footer toggle); and pointer paths,
+        // where rows and the toggle suppress focus steal on mousedown while
+        // editing so their click lands first. Enter keeps focus in the
+        // input while its navigation is in flight, so a submitted path is
+        // never withdrawn here. Anchored to this card via closest, not any
+        // [role="dialog"], so focus escaping into a sibling overlay cancels.
+        onBlur={(event) => {
+          if (pathDraft === null) return
+          if (!document.hasFocus()) return
+          const card = event.currentTarget.closest('[role="dialog"]')
+          /* v8 ignore next -- narrowing guard: this scope always renders inside the Modal card. */
+          if (card === null) return
+          if (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) return
+          cancelPathEdit()
+        }}
+      >
+        <div className={css.header}>
+          <h2 className={css.title}>{t('browser.title')}</h2>
+          <div className={css.crumbBar}>
+            {pathDraft === null
+              ? (
+                <>
+                  <span className={css.crumbTrail} role="navigation" ref={crumbTrailRef}>
+                    {crumbs.map((crumb, index) => (
+                      <span key={crumb.path} className={css.crumbSeat}>
+                        {index > 0 && <IconChevronRightOutline14 size={12} className={css.crumbChevron} />}
+                        <button
+                          type="button"
+                          className={css.crumb}
+                          disabled={parentInert}
+                          onClick={() => { navigate(crumb.path) }}
+                        >
+                          {crumb.name}
+                        </button>
+                      </span>
+                    ))}
+                  </span>
+                  {/* The empty zone right of the crumbs is the path-edit affordance. */}
+                  <button
+                    type="button"
+                    className={css.crumbEditZone}
+                    aria-label={t('browser.editPath')}
+                    // Stays available with no listed level: when the home
+                    // listing itself fails, typing an absolute path is the one
+                    // remaining way forward.
+                    disabled={parentInert}
+                    onClick={() => {
                     // Opening the editor supersedes any pending listing: a
                     // settlement landing before the first keystroke would
                     // otherwise close the editor via navigate's draft reset.
-                    supersede()
-                    setLoading(false)
-                    // Seed with a trailing separator so typing immediately
-                    // continues into child names (and prefix-filters below).
-                    // No listed level means nothing to seed from (the editor
-                    // is the recovery path for a failed home listing).
-                    if (parent === null) {
-                      setPathDraft('')
-                      return
-                    }
-                    const base = selected?.path ?? parent.path
-                    const sep = separatorOf(parent)
-                    setPathDraft(base.endsWith(sep) ? base : `${base}${sep}`)
-                  }}
-                />
-              </>
-            )
-            : (
-              <input
-                className={css.pathInput}
-                value={pathDraft}
-                aria-label={t('browser.editPath')}
-                autoFocus
-                disabled={parentInert}
-                onChange={(event) => {
+                      supersede()
+                      setLoading(false)
+                      // Seed with a trailing separator so typing immediately
+                      // continues into child names (and prefix-filters below).
+                      // No listed level means nothing to seed from (the editor
+                      // is the recovery path for a failed home listing).
+                      if (parent === null) {
+                        setPathDraft('')
+                        return
+                      }
+                      const base = selected?.path ?? parent.path
+                      const sep = separatorOf(parent)
+                      setPathDraft(base.endsWith(sep) ? base : `${base}${sep}`)
+                    }}
+                  />
+                </>
+              )
+              : (
+                <input
+                  className={css.pathInput}
+                  value={pathDraft}
+                  aria-label={t('browser.editPath')}
+                  autoFocus
+                  disabled={parentInert}
+                  onChange={(event) => {
                   // Editing the draft supersedes any in-flight navigation:
                   // its completion must neither clear the newer text nor
                   // repopulate the view with the older path.
-                  supersede()
-                  setLoading(false)
-                  setPathDraft(event.target.value)
-                }}
-                {...compositionGuard}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !composingRef.current) {
-                    event.preventDefault()
-                    // Trim only detects a blank draft; the Host gets the
-                    // original text — a real directory name may end in
-                    // whitespace, and trimming would list its sibling.
-                    if (pathDraft.trim() !== '') navigate(pathDraft)
-                  }
-                  if (event.key === 'Escape') {
-                    event.stopPropagation()
-                    cancelPathEdit()
-                  }
-                }}
-                // Focus leaving the DIALOG reads as leaving the editor and
-                // cancels like Escape. Three guarded non-cancel paths: window
-                // or tab focus loss (document no longer focused); a focus
-                // move that stays inside the dialog card (keyboard Tab onto
-                // the filtered rows or the footer toggle); and pointer paths,
-                // where rows and the toggle suppress focus steal on mousedown
-                // while editing so their click lands first. Enter keeps focus
-                // in the input while its navigation is in flight, so a
-                // submitted path is never withdrawn here.
-                onBlur={(event) => {
-                  if (!document.hasFocus()) return
-                  if (event.relatedTarget instanceof HTMLElement
-                    && event.relatedTarget.closest('[role="dialog"]') !== null) return
-                  cancelPathEdit()
-                }}
+                    supersede()
+                    setLoading(false)
+                    setPathDraft(event.target.value)
+                  }}
+                  {...compositionGuard}
+                  // Escape and focus-leave cancellation live on the card-scope
+                  // wrapper above (they must work after focus Tabs onto the
+                  // rows); this handler owns only submission.
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !composingRef.current) {
+                      event.preventDefault()
+                      // Trim only detects a blank draft; the Host gets the
+                      // original text — a real directory name may end in
+                      // whitespace, and trimming would list its sibling.
+                      if (pathDraft.trim() !== '') navigate(pathDraft)
+                    }
+                  }}
+                />
+              )}
+          </div>
+        </div>
+        <div className={css.content}>
+          <div className={css.millerRow} ref={millerRowRef}>
+            {parent !== null && (
+              <LevelColumn
+                entries={parent.entries}
+                selectedPath={selected?.path ?? null}
+                busy={parentInert}
+                onPick={select}
+                showHidden={showHidden}
+                filterPrefix={draftPrefixFor(parent, pathDraft)}
+                pathEditing={draftPending}
               />
             )}
-        </div>
-      </div>
-      <div className={css.content}>
-        <div className={css.millerRow} ref={millerRowRef}>
-          {parent !== null && (
-            <LevelColumn
-              entries={parent.entries}
-              selectedPath={selected?.path ?? null}
-              busy={parentInert}
-              onPick={select}
-              showHidden={showHidden}
-              filterPrefix={draftPrefixFor(parent, pathDraft)}
-              pathEditing={draftPending}
-            />
-          )}
-          {twoPane && <span className={css.divider} />}
-          {twoPane && child !== null && (
-            <LevelColumn
-              entries={child.entries}
-              selectedPath={null}
-              busy={parentInert}
-              onPick={advance}
-              showHidden={showHidden}
-              filterPrefix={draftPrefixFor(child, pathDraft)}
-              pathEditing={draftPending}
-            />
-          )}
-        </div>
-        {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
-        {/* The backend bounds a level at its complete-result limit; say so
+            {twoPane && <span className={css.divider} />}
+            {twoPane && child !== null && (
+              <LevelColumn
+                entries={child.entries}
+                selectedPath={null}
+                busy={parentInert}
+                onPick={advance}
+                showHidden={showHidden}
+                filterPrefix={draftPrefixFor(child, pathDraft)}
+                pathEditing={draftPending}
+              />
+            )}
+          </div>
+          {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
+          {/* The backend bounds a level at its complete-result limit; say so
           * whenever a visible pane was cut instead of letting the tail of a
           * huge directory go silently missing. */}
-        {(parent?.truncated === true || child?.truncated === true) && !loading
+          {(parent?.truncated === true || child?.truncated === true) && !loading
           && <div className={css.status} role="status">{t('browser.truncated')}</div>}
-        {error !== null && <div className={css.error} role="alert">{error}</div>}
-      </div>
-      <div className={css.footerBar}>
-        <Button
-          variant="outline"
-          icon={<IconPlusOutline16 size={14} />}
-          disabled={parent === null || loading || parentInert || draftPending}
-          onClick={() => {
-            setFolderDraft('')
-            setCreateError(null)
-          }}
-        >
-          {t('browser.newFolder')}
-        </Button>
-        <button
-          type="button"
-          className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
-          aria-pressed={showHidden}
-          disabled={parentInert}
-          // The toggle composes with the path editor (dot-led prefixes and
-          // this filter interleave): while editing, don't steal focus, so
-          // toggling never blur-cancels a draft mid-thought. Outside editing
-          // it keeps native focus behavior.
-          onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
-          onClick={() => { setShowHidden(prev => !prev) }}
-        >
-          {showHidden && <IconCheckOutline16 size={14} />}
-          {t('browser.showHidden')}
-        </button>
-        <span className={css.footerGap} />
-        <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>
-        <Button
-          variant="primary"
-          className={clsx(css.footerAction)}
-          disabled={targetPath === null || loading || parentInert || draftPending}
-          /* v8 ignore next -- narrowing guard: Open disables while no target exists. */
-          onClick={() => { if (targetPath !== null) onOpen(targetPath) }}
-        >
-          {t('browser.open')}
-        </Button>
+          {error !== null && <div className={css.error} role="alert">{error}</div>}
+        </div>
+        <div className={css.footerBar}>
+          <Button
+            variant="outline"
+            icon={<IconPlusOutline16 size={14} />}
+            disabled={parent === null || loading || parentInert || draftPending}
+            onClick={() => {
+              setFolderDraft('')
+              setCreateError(null)
+            }}
+          >
+            {t('browser.newFolder')}
+          </Button>
+          <button
+            type="button"
+            className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
+            aria-pressed={showHidden}
+            disabled={parentInert}
+            // The toggle composes with the path editor (dot-led prefixes and
+            // this filter interleave): while editing, don't steal focus, so
+            // toggling never blur-cancels a draft mid-thought. Outside editing
+            // it keeps native focus behavior.
+            onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
+            onClick={() => { setShowHidden(prev => !prev) }}
+          >
+            {showHidden && <IconCheckOutline16 size={14} />}
+            {t('browser.showHidden')}
+          </button>
+          <span className={css.footerGap} />
+          <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>
+          <Button
+            variant="primary"
+            className={clsx(css.footerAction)}
+            disabled={targetPath === null || loading || parentInert || draftPending}
+            /* v8 ignore next -- narrowing guard: Open disables while no target exists. */
+            onClick={() => { if (targetPath !== null) onOpen(targetPath) }}
+          >
+            {t('browser.open')}
+          </Button>
+        </div>
       </div>
       {/* Nested create dialog (figma 813:23278): names one folder inside the target. */}
       <Modal

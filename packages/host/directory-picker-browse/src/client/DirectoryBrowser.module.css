@@ -155,7 +155,8 @@
   flex: 1 1 0;
   min-width: 256px;
   overflow-y: auto;
-  /* The overlay scrollbar paints at the column's edge; keep the row pills
+  /* The themed scrollbar occupies the column's edge (styled scrollbars are
+   * classic, gutter-taking ones); the extra clearance keeps the row pills
    * clear of the thumb. */
   padding-right: 8px;
 }
@@ -281,6 +282,13 @@
 
 .showHiddenToggleActive {
   color: var(--dsw-alias-label-primary);
+}
+
+/* Card-scope wrapper hosting the path editor's Escape and focus-leave
+ * observers; display:contents keeps header/content/footer as direct flex
+ * children of the Modal card. */
+.editorScope {
+  display: contents;
 }
 
 .footerGap {
