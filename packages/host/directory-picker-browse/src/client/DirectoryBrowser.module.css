@@ -55,8 +55,9 @@
   align-items: stretch;
   flex: 1 1 0;
   min-height: 0;
-  /* Columns already end in an 8px scrollbar clearance, so the divider only
-   * needs a slim gap of its own on each side. */
+  /* 12px of row gap on each side of the divider; the left side reads wider
+   * by the column's trailing 8px scrollbar clearance, which is deliberate —
+   * the thumb needs that room, the right pane's rows do not. */
   gap: 12px;
   overflow-x: auto;
   scrollbar-width: none;

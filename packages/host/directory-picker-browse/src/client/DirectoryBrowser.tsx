@@ -65,9 +65,12 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
 }
 
 /**
- * The listing's platform separator, read from the host-stamped home path —
- * never sniffed from typed text or entry paths, where a backslash is a legal
- * POSIX name character rather than a platform fact.
+ * The listing's platform separator, inferred from the home path the host
+ * stamped — never from typed text or entry paths, where a backslash is a
+ * legal POSIX name character. Still a heuristic at the last step: a POSIX
+ * home directory whose own name contains a backslash would misread.
+ * TODO: replace with a host-stamped `separator` field on the wire
+ * DirectoryListing so the platform fact travels verbatim.
  */
 function separatorOf(listing: DirectoryListing): '\\' | '/' {
   return listing.home.includes('\\') ? '\\' : '/'
@@ -91,15 +94,20 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
-function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPrefix }: {
+function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPrefix, pathEditing }: {
   entries: readonly DirectoryEntry[]
   selectedPath: string | null
   busy: boolean
   onPick: (entry: DirectoryEntry) => void
   showHidden: boolean
   filterPrefix: string | null
+  pathEditing: boolean
 }) {
   const visible = entries.filter((entry) => {
+    // The selection is exempt from both filters: it anchors the two-pane
+    // view (crumbs and the child pane point at it), so neither the hidden
+    // filter after a dot-reveal pick nor a prefix miss may orphan it.
+    if (entry.path === selectedPath) return true
     if (filterPrefix !== null && !entry.name.toLowerCase().startsWith(filterPrefix.toLowerCase())) return false
     // A dot-led prefix names hidden entries explicitly, so matching ones
     // surface even while the toggle keeps the rest hidden.
@@ -118,10 +126,11 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
               aria-current={selected || undefined}
               className={clsx(css.row, selected && css.rowSelected)}
               disabled={busy}
-              // Keep focus where it is (the path editor, notably): a focus
-              // steal on mousedown would blur-cancel the editor, unmount the
-              // filtered rows mid-gesture, and drop this very click.
-              onMouseDown={(event) => { event.preventDefault() }}
+              // While the path editor is open, keep focus in it: a focus
+              // steal on mousedown would blur the editor and (in engines
+              // where the blur lands before our guards) drop this click.
+              // Outside editing, rows keep native focus behavior.
+              onMouseDown={pathEditing ? (event) => { event.preventDefault() } : undefined}
               onClick={() => { onPick(entry) }}
             >
               {selected
@@ -457,16 +466,19 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     cancelPathEdit()
                   }
                 }}
-                // Clicking anywhere outside the editor reads as leaving it:
-                // focus loss cancels the edit like Escape. Enter keeps focus
+                // Focus leaving the DIALOG reads as leaving the editor and
+                // cancels like Escape. Three guarded non-cancel paths: window
+                // or tab focus loss (document no longer focused); a focus
+                // move that stays inside the dialog card (keyboard Tab onto
+                // the filtered rows or the footer toggle); and pointer paths,
+                // where rows and the toggle suppress focus steal on mousedown
+                // while editing so their click lands first. Enter keeps focus
                 // in the input while its navigation is in flight, so a
-                // submitted path is never withdrawn by this handler; rows and
-                // the show-hidden toggle suppress focus steal on mousedown so
-                // a click on them lands before any cancel. Window/tab focus
-                // loss also fires blur in some engines — only a focus move
-                // within a focused document reads as leaving the editor.
-                onBlur={() => {
+                // submitted path is never withdrawn here.
+                onBlur={(event) => {
                   if (!document.hasFocus()) return
+                  if (event.relatedTarget instanceof HTMLElement
+                    && event.relatedTarget.closest('[role="dialog"]') !== null) return
                   cancelPathEdit()
                 }}
               />
@@ -483,6 +495,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               onPick={select}
               showHidden={showHidden}
               filterPrefix={draftPrefixFor(parent, pathDraft)}
+              pathEditing={draftPending}
             />
           )}
           {twoPane && <span className={css.divider} />}
@@ -494,6 +507,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               onPick={advance}
               showHidden={showHidden}
               filterPrefix={draftPrefixFor(child, pathDraft)}
+              pathEditing={draftPending}
             />
           )}
         </div>
@@ -523,9 +537,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           aria-pressed={showHidden}
           disabled={parentInert}
           // The toggle composes with the path editor (dot-led prefixes and
-          // this filter interleave): don't steal focus, so toggling never
-          // blur-cancels a draft mid-thought.
-          onMouseDown={(event) => { event.preventDefault() }}
+          // this filter interleave): while editing, don't steal focus, so
+          // toggling never blur-cancels a draft mid-thought. Outside editing
+          // it keeps native focus behavior.
+          onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
           onClick={() => { setShowHidden(prev => !prev) }}
         >
           {showHidden && <IconCheckOutline16 size={14} />}

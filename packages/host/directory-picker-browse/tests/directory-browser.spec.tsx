@@ -29,6 +29,18 @@ function listingFor(path?: string): DirectoryListing {
       ],
       truncated: false,
     },
+    [`${HOME}/.config`]: {
+      path: `${HOME}/.config`,
+      home: HOME,
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'u', path: HOME, hidden: false },
+        { name: '.config', path: `${HOME}/.config`, hidden: true },
+      ],
+      entries: [],
+      truncated: false,
+    },
     [DOCS]: {
       path: DOCS,
       home: HOME,
@@ -261,23 +273,58 @@ describe('DirectoryBrowser', () => {
     expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
     expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
     // Erasing back into the parent's own path moves the filter to the LEFT
-    // pane and releases the right one.
+    // pane and releases the right one. The selected row is exempt (it
+    // anchors the two-pane view), so it alone survives the miss.
     fireEvent.change(input, { target: { value: `${HOME}/zz` } })
-    expect(within(columns()[0]!).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
   })
 
-  it('keeps the path editor open when blur comes from window focus loss', async () => {
+  it('keeps the draft and filter through window focus loss and in-dialog focus moves', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
     // A blur while the document itself lost focus (window switch, dev-tools
-    // focus) must not discard the draft.
+    // focus) must not discard the draft: value and filter both survive.
     const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
     fireEvent.blur(input)
-    expect(screen.getByLabelText('browser.editPath', { selector: 'input' })).toBeTruthy()
     hasFocus.mockRestore()
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // A keyboard focus move that stays inside the dialog (Tab onto the
+    // filtered row) keeps the draft too — the results stay reachable.
+    fireEvent.blur(input, { relatedTarget: rowButton(screen.getByRole('listitem')) })
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    // Toggling show-hidden mid-edit suppresses focus steal: the draft and
+    // its filter survive the toggle in both directions.
+    const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
+    fireEvent.mouseDown(toggle)
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // Focus landing outside the dialog cancels like Escape.
+    fireEvent.blur(input, { relatedTarget: document.body })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+  })
+
+  it('a picked dot-revealed hidden row stays visible as the selection', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/.co` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    expect(row.textContent).toBe('.config')
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // The pick cleared the draft (and with it the dot-reveal), but the
+    // selection is exempt from the hidden filter: the anchor row survives.
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(within(columns()[0]!).getByText('.config')).toBeTruthy()
   })
 
   it('picking a filtered row adopts it and closes the path editor', async () => {
