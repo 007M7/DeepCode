@@ -24,6 +24,7 @@ import {
   isSkillName,
   type SkillCandidate,
   type SkillDefinition,
+  type SkillInvocationPolicy,
   type SkillLookupOptions,
   type SkillProvider,
   type SkillProviderControl,
@@ -100,7 +101,7 @@ interface ParsedSkill {
   name: string
   description: string
   whenToUse?: string
-  disableModelInvocation?: boolean
+  invocation: SkillInvocationPolicy
   metadata?: Record<string, unknown>
   content: string
 }
@@ -197,7 +198,7 @@ export class LocalSkillProvider implements SkillProvider {
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      ...parsed.disableModelInvocation !== undefined ? { disableModelInvocation: parsed.disableModelInvocation } : {},
+      invocation: parsed.invocation,
       source: candidate.source,
       provider: this.name,
       resourceBase: { kind: 'directory', path: locator.directory },
@@ -709,7 +710,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandida
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      ...parsed.disableModelInvocation !== undefined ? { disableModelInvocation: parsed.disableModelInvocation } : {},
+      invocation: parsed.invocation,
       provider: 'local',
       source: root.source,
       rank: root.rank,
@@ -793,11 +794,18 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     ctx.logger.warn(`skill file ${path} ignored: invalid skill name "${name}"`)
     return undefined
   }
+  let invocation
+  try {
+    invocation = parseInvocationPolicy(parsed.data)
+  } catch (error) {
+    ctx.logger.warn(`skill file ${path} ignored: invalid invocation frontmatter: ${errorMessage(error)}`)
+    return undefined
+  }
   return {
     name,
     description,
     ...optionalString(parsed.data, 'whenToUse'),
-    ...optionalBoolean(parsed.data, 'disableModelInvocation'),
+    invocation,
     ...optionalMetadata(parsed.data),
     content: parsed.body.trim(),
   }
@@ -958,9 +966,43 @@ function optionalString(data: Record<string, unknown>, key: string): { [K in typ
   return typeof value === 'string' && value.length > 0 ? { [key]: value } : {}
 }
 
-function optionalBoolean(data: Record<string, unknown>, key: string): { [K in typeof key]?: boolean } {
+function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {
+  rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
+  rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
+  rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
+  const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
+  const userInvocable = frontmatterBoolean(data, 'user-invocable')
+  return {
+    modelInvocable: disableModelInvocation !== true,
+    userInvocable: userInvocable !== false,
+  }
+}
+
+function rejectLegacyInvocationKey(data: Record<string, unknown>, legacy: string, canonical: string): void {
+  if (Object.hasOwn(data, legacy)) {
+    throw new Error(`frontmatter field "${legacy}" is unsupported; use "${canonical}"`)
+  }
+}
+
+function frontmatterBoolean(data: Record<string, unknown>, key: string): boolean | undefined {
+  if (!Object.hasOwn(data, key)) return undefined
   const value = data[key]
-  return typeof value === 'boolean' ? { [key]: value } : {}
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+  if (typeof value === 'string') {
+    switch (value.toLowerCase()) {
+      case 'true':
+      case 'yes':
+      case 'on':
+        return true
+      case 'false':
+      case 'no':
+      case 'off':
+        return false
+    }
+  }
+  throw new TypeError(`frontmatter field "${key}" must be a boolean`)
 }
 
 function optionalMetadata(data: Record<string, unknown>): { metadata?: Record<string, unknown> } {

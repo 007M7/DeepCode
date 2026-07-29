@@ -41,6 +41,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 type Composition = 'native' | 'code' | 'advanced'
+type ScenarioInteraction = 'skill-invocation-policy'
 
 interface Scenario {
   name: string
@@ -65,6 +66,8 @@ interface Scenario {
    * preview + locator while the program value stays whole.
    */
   spillMaxInlineBytes?: number
+  /** Run scenario-specific terminal input instead of replaying recorded user prompts. */
+  interaction?: ScenarioInteraction
 }
 
 const SCENARIOS: Scenario[] = [
@@ -97,6 +100,14 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['read', 'read'],
     recorded: true,
     seedWorkspace: true,
+  },
+  {
+    name: 'skill-invocation-policy',
+    composition: 'native',
+    expectedTools: [],
+    recorded: false,
+    seedWorkspace: true,
+    interaction: 'skill-invocation-policy',
   },
   {
     name: 'code-mode',
@@ -269,9 +280,10 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const dir = scenarioDir(scenario)
   const fixtureFile = join(dir, 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
-  const fixture = await readFile(fixtureFile, 'utf8')
-  const prompts = userPrompts(fixture)
-  expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
+  const prompts = userPrompts(await readFile(fixtureFile, 'utf8'))
+  if (scenario.interaction === undefined) {
+    expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
+  }
 
   const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
   const displayCwd = `/tmp/${basename(cwd)}`
@@ -309,6 +321,63 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       formatCwd: () => displayCwd,
     })
     await settleTerminal(terminal)
+
+    let interactionSnapshot: string | undefined
+    if (scenario.interaction === 'skill-invocation-policy') {
+      terminal.send('/skill')
+      await settleTerminal(terminal)
+      const discovery = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(discovery).toContain('user-only-skill')
+      expect(discovery).not.toContain('model-only-skill')
+
+      terminal.send('\x03')
+      await settleTerminal(terminal)
+      const skillContext = ctx
+      const skillTurnEnded = new Promise<void>((resolve) => {
+        const detach = skillContext.on('session/event', (session, event) => {
+          if (session !== agent.session || event.type !== 'turn/end') return
+          detach()
+          resolve()
+        })
+      })
+      terminal.send('/skill:user-only-skill')
+      terminal.send('\r')
+      await skillTurnEnded
+      await agent.whenIdle()
+      await settleTerminal(terminal)
+      const loaded = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(loaded).toContain('USER-ONLY SKILL LOADED')
+
+      terminal.send('/skill:model-only-skill')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+      const denied = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(denied).toContain('model-only-skill')
+      expect(denied).toContain('not available for user invocation.')
+      expect(denied).not.toContain('MODEL-ONLY BODY MUST NOT LOAD')
+      interactionSnapshot = [
+        '=== skill autocomplete ===',
+        discovery,
+        '',
+        '=== loaded exact invocation ===',
+        loaded,
+        '',
+        '=== denied exact invocation ===',
+        denied,
+      ].join('\n')
+    }
 
     let remainingPrompts = prompts
     if (scenario.enterPlanMode === true) {
@@ -392,7 +461,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     expect(terminal.themeViolations(), `${scenario.name} must remain theme-agnostic`).toEqual([])
-    const snapshot = normalizeTerminalSnapshot(
+    const snapshot = interactionSnapshot ?? normalizeTerminalSnapshot(
       await terminal.snapshot({ includeScrollback: true }),
       cwd,
       displayCwd,

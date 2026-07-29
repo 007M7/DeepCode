@@ -22,7 +22,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 `host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，Linux 为 `xdg-open`）。打开器可在测试中注入。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
 
-`command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行，语义为纯准入：响应报告该行是否解析到处理器，并在解析到时回带铸造的生命周期 `commandId`（将本次确认与流节点关联）；结局经由持久落账并在 mux 流广播的 `command/run`/`command/done` 生命周期事件对承载；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
+`command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`skill.list` 服务于浏览器中由用户选择的模型引用路径，因此仅返回模型和用户均可调用的 skill；该领域没有直接加载 skill 的 RPC。`command.execute` 在宿主侧运行一条斜杠命令行，语义为纯准入：响应报告该行是否解析到处理器，并在解析到时回带铸造的生命周期 `commandId`（将本次确认与流节点关联）；结局经由持久落账并在 mux 流广播的 `command/run`/`command/done` 生命周期事件对承载；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 
 ## 载体层（`/client` + 根路径）
 
