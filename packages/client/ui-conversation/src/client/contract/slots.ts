@@ -117,6 +117,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
+  /**
+   * Wrap the view ring in the transcript scrollport that also hosts the
+   * sticky composer seat (whole `'conversation.composer'` chain output).
+   * Supplied for every real session (hero/settling/active) so the composer
+   * keeps one tree seat across the blank → active flip; the header stays
+   * outside that wrapper as ordinary column chrome (`flex: none`), while
+   * active CSS sticks the seat to the bottom of the same scrollport so wheel
+   * over the footer scrolls the flow.
+   * @param view - the session view-ring content (null while blank chrome is hidden).
+   * @returns the scrollport containing `view` and the sticky composer seat.
+   */
+  wrapActiveBody?: (view: ReactNode) => ReactNode
 }
 
 /**

@@ -61,6 +61,8 @@ function mount(
   snapshot: ConversationSnapshot,
   workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
   retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
+  /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
+  overlayTakeover = false,
 ) {
   const root = sid('root')
   const sessions = createSnapshotStore<SessionListState>({
@@ -111,6 +113,7 @@ function mount(
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
+          {...owner}
         />
       )
     }
@@ -141,7 +144,18 @@ function mount(
     }
     return <div data-testid={`view-${opts?.only ?? key}`} />
   }) as ConversationRootProps['renderSlot']
-  const renderSlotChain = ((_key, _owner, opts) => opts?.fallback ?? null) as ConversationRootProps['renderSlotChain']
+  const renderSlotChain = ((_key, _owner, opts) => (
+    overlayTakeover
+      ? (
+        <>
+          <div data-chain-overlay-fallback="conversation.composer" style={{ display: 'none' }}>
+            {opts?.fallback ?? null}
+          </div>
+          <div data-testid="composer-takeover">TAKEOVER</div>
+        </>
+      )
+      : (opts?.fallback ?? null)
+  )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
     sessionId: SID,
     SessionProvider: ({ children }) => children(SID),
@@ -176,6 +190,30 @@ describe('ConversationRoot resident composer', () => {
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
+  it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {
+    const b = mount(conversationSnapshot())
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    const header = b.view.container.querySelector('header')
+    const textarea = b.view.container.querySelector('textarea')
+    expect(host).not.toBeNull()
+    expect(seat).not.toBeNull()
+    expect(header).not.toBeNull()
+    // Header is column chrome above the scrollport; the seat sticks inside it.
+    expect(host?.contains(header)).toBe(false)
+    expect(host?.contains(seat)).toBe(true)
+    expect(seat?.contains(textarea)).toBe(true)
+  })
+
+  it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, true)
+    const seat = b.view.container.querySelector('[data-composer-seat]')
+    const takeover = b.view.getByTestId('composer-takeover')
+    const fallback = b.view.container.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
+    expect(seat?.contains(takeover)).toBe(true)
+    expect(seat?.contains(fallback)).toBe(true)
+  })
+
   it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {
     const b = mount(
       conversationSnapshot({ composerPhase: 'blank', blank: true }),
@@ -184,13 +222,19 @@ describe('ConversationRoot resident composer', () => {
         { ...workspace('second'), title: 'Selected Folder' },
       ],
     )
-    // Hero chrome present, view ring absent.
+    // Hero chrome present, view ring absent; scroll host already wraps the
+    // resident composer so the blank → active flip does not remount it.
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const header = b.view.container.querySelector('header')
+    expect(host).not.toBeNull()
+    expect(header?.getAttribute('aria-hidden')).toBe('true')
     expect(b.view.getByText("Let's start building")).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
-    // persistence mirror stays bound (ConversationSession mounts chrome-less
+    // persistence mirror stays bound (ConversationSession mounts chrome-hidden
     // for blank sessions): hero typing reaches the chat store.
     const box = b.view.getByRole('textbox')
+    expect(host?.contains(box)).toBe(true)
     fireEvent.change(box, { target: { value: 'draft in hero' } })
     expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
@@ -203,16 +247,20 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
-  it('textarea DOM identity survives the hero → active flip', () => {
+  it('same textarea DOM node survives the hero → active flip into the sticky scrollport', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
     const before = b.view.getByRole('textbox')
     fireEvent.change(before, { target: { value: 'kept across flip' } })
-    // First message landed: content exists, phase leaves blank.
+    // First message landed: content exists, phase leaves blank. Composer
+    // already sat in the Session scrollport during hero, so the textarea
+    // node and InputHub draft both survive.
     b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
     b.rerender()
-    const after = b.view.getByRole('textbox')
+    const after = b.view.getByRole('textbox') as HTMLTextAreaElement
     expect(after).toBe(before)
-    expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
+    expect(after.value).toBe('kept across flip')
+    expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
+    expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
     expect(b.view.queryByText("Let's start building")).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })
