@@ -45,7 +45,7 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
-import { pickNativeDirectory } from './native-directory-picker.ts'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
@@ -195,6 +195,14 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
   }
 }
 
+/** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
+function directoryError(error: unknown): RpcError {
+  if (error instanceof DirectoryPickerError) {
+    return { code: error.code, message: error.message, details: { path: error.path } }
+  }
+  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
+}
+
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
   provider: string
@@ -203,8 +211,6 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
-  /** Native single-directory picker; injectable for carrier tests. */
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
@@ -1090,8 +1096,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async pickDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'native') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
         try {
-          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          const path = await capability.pick(signal)
           return ok(request, { path })
         } catch (error: unknown) {
           if (signal.aborted) {
@@ -1106,6 +1120,45 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
             details: {},
           })
+        }
+      },
+
+      async listDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.listDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          // The carrier's signal follows the caller: a disconnect or timeout
+          // stops the backend's directory scan instead of outliving it.
+          return ok(request, await capability.list(request.payload.path, signal))
+        } catch (error: unknown) {
+          // An abort is the caller's own timeout/disconnect, not a server
+          // failure — same code pickDirectory and command.execute report.
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
+          }
+          return err(request, directoryError(error))
+        }
+      },
+
+      async createDirectory(request) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.createDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          return ok(request, { path: await capability.createDirectory(request.payload.path, request.payload.name) })
+        } catch (error: unknown) {
+          return err(request, directoryError(error))
         }
       },
 
