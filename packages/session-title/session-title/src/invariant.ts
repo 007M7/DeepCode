@@ -5,7 +5,8 @@
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-session-title'
 
@@ -15,11 +16,26 @@ export const name = 'session-title-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the service validates provider revisions before their
- * title append, and its remaining lifecycle state is process-local and covered
- * by package tests.
+ * Durable title-provenance invariant: an automatic title always cites at
+ * least one human `user/message` seq, and an explicit user rename cites none
+ * — `messageSeqs` is empty iff `source.kind` is `user`. Provider revisions
+ * are validated by the service before their append; this checks the durable
+ * relationship every appended `session/title` event must keep, whichever
+ * writer produced it.
  */
-const install: InvariantInstaller = () => {}
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  // internal/dispatch interception rejects the append before publication
+  // (the session/event listener would only observe the already-committed log).
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const [, event] = args as [unknown, SessionEvent]
+    if (event.type !== 'session/title') return
+    const { source, messageSeqs } = event.data
+    if ((messageSeqs.length === 0) !== (source.kind === 'user')) {
+      fail(`session/title event ${String(event.seq)} breaks provenance: source "${source.kind}" with ${String(messageSeqs.length)} cited message seq(s)`)
+    }
+  }, { global: true })
+}, { inject: ['sessions'] })
 
 /**
  * Register this package's invariant companion.

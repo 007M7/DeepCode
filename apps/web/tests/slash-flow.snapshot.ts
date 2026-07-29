@@ -57,12 +57,16 @@ class ResizeObserverStub {
   unobserve(): void {}
 }
 
+// jsdom has no scrollIntoView; the slash menu follows its highlighted option.
+const scrollIntoView = vi.fn()
 const win = window as FixtureWindow
 let unmount: (() => void) | undefined
 
 beforeEach(() => {
   localStorage.clear()
   document.title = 'DeepSeek Harness'
+  Element.prototype.scrollIntoView = scrollIntoView
+  scrollIntoView.mockClear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
     setTimeout(() => { callback(0) }, 0) as unknown as number)
@@ -80,6 +84,7 @@ afterEach(() => {
   document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
   document.title = ''
   history.replaceState(null, '', '/')
+  Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
   vi.unstubAllGlobals()
 })
 

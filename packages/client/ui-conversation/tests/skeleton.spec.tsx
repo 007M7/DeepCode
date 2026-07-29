@@ -133,6 +133,7 @@ function mount(
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
           command={() => Promise.resolve(true)}
+          translateHint={(key: string) => key}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />

@@ -19,6 +19,8 @@ export interface GoalBarActions {
    * @param objective - replacement objective text.
    */
   onEdit: (objective: string) => Promise<GoalActionResult>
+  /** Pause an active goal. */
+  onPause: () => Promise<GoalActionResult>
   /** Resume a paused goal. */
   onResume: () => Promise<GoalActionResult>
   /** Clear the current goal (tombstone). */

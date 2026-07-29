@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPlayOutline16, IconSparkle16, IconTrashOutline16,
+  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPauseOutline16, IconPlayOutline16, IconSparkle16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
 import css from './GoalBar.module.css'
@@ -28,7 +28,7 @@ const PHASE_LABELS = {
   blocked: 'Blocked Goal',
 } as const
 
-export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
+export function GoalBar({ goal, onEdit, onPause, onResume, onClear }: GoalBarProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -120,6 +120,11 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
         <span className={css.objective}>{goal.objective}</span>
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
         <div className={css.actions}>
+          {goal.phase === 'active' && (
+            <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onPause) }} title="Pause goal" aria-label="Pause goal">
+              <IconPauseOutline16 />
+            </button>
+          )}
           {goal.phase === 'paused' && (
             <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onResume) }} title="Resume goal" aria-label="Resume goal">
               <IconPlayOutline16 />
@@ -148,12 +153,13 @@ export function GoalBar({ goal, onEdit, onResume, onClear }: GoalBarProps) {
 export type GoalDockProps = import('@deepseek-ai/dsh-client-ui-slots').PropsRuntime<'conversation.input.dock'> & GoalBarActions
 
 /** Dock adapter: reads the host-computed 'goal' projection (whole value; absent or null renders nothing). */
-export function GoalDock({ useProjection, onEdit, onResume, onClear }: GoalDockProps) {
+export function GoalDock({ useProjection, onEdit, onPause, onResume, onClear }: GoalDockProps) {
   const projection = useProjection('goal')
   return (
     <GoalBar
       goal={projection === undefined ? undefined : projection === null ? null : projection.goal}
       onEdit={onEdit}
+      onPause={onPause}
       onResume={onResume}
       onClear={onClear}
     />
