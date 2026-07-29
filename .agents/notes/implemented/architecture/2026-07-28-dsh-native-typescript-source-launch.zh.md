@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-07-28-dsh-native-typescript-source-launch.md) | 中文
 
+> Node 原生启动向量已被 [dsh 通过 tsx ESM hook 源码启动](2026-07-29-dsh-source-launch-tsx-esm.md) 取代：Node 26.0.0 移除了 `--experimental-transform-types`，本文描述的 paths loader 已删除。Cordis 配置声明门禁（`verify-cordis-config`）、app-boot 的 fail-loud 插件诊断以及 vendor 中的 `import type` 标注仍然有效。
+
 ## 问题
 
 `dsh` 源码入口原本使用 `tsx` 运行 `apps/cli/src/bin.ts`，TypeScript 转换和根 tsconfig 的 `paths` 解析都由同一个第三方 loader 隐式处理。改由 Node 原生处理 TypeScript 后，Node 不会应用 tsconfig 路径映射；如果改为通过包导出解析，源码启动会混入可能陈旧或不存在的 `lib/` 产物。
