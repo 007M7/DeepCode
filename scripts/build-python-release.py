@@ -23,17 +23,6 @@ PLATFORMS = {
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
 SPAWN_HELPER_SUFFIX = "-spawn-helper"
-EXECUTABLE_TARGETS = {value[1]: key for key, value in PLATFORMS.items()}
-
-
-def executable_target(executable_name: str) -> str:
-    try:
-        return EXECUTABLE_TARGETS[executable_name]
-    except KeyError as error:
-        supported = ", ".join(sorted(EXECUTABLE_TARGETS))
-        raise ValueError(
-            f"unsupported runtime executable {executable_name!r}; expected one of: {supported}"
-        ) from error
 
 
 def main() -> None:
@@ -144,28 +133,24 @@ def stage_sdk(destination: Path, version: str) -> None:
 
 
 def stage_runtime(destination: Path, version: str, executable: Path, executable_name: str) -> None:
-    if not executable.is_file():
-        raise FileNotFoundError(f"runtime executable does not exist: {executable}")
-    if executable.stat().st_mode & stat.S_IXUSR == 0:
-        raise PermissionError(f"runtime executable is not executable: {executable}")
-    expected_target = executable_target(executable_name)
-    spawn_helper = Path(f"{executable}{SPAWN_HELPER_SUFFIX}")
-    if expected_target.startswith("macos-"):
-        if not spawn_helper.is_file():
-            raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
-        if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
-            raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
+    payload = [(executable, executable_name)]
+    if "-macos-" in executable_name:
+        payload.append(
+            (Path(f"{executable}{SPAWN_HELPER_SUFFIX}"), f"{executable_name}{SPAWN_HELPER_SUFFIX}")
+        )
+    for source, _ in payload:
+        if not source.is_file():
+            raise FileNotFoundError(f"runtime file does not exist: {source}")
+        if source.stat().st_mode & stat.S_IXUSR == 0:
+            raise PermissionError(f"runtime file is not executable: {source}")
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    destination_executable = runtime_dir / executable_name
-    shutil.copyfile(executable, destination_executable)
-    destination_executable.chmod(executable.stat().st_mode & 0o777)
-    if expected_target.startswith("macos-"):
-        destination_helper = runtime_dir / f"{executable_name}{SPAWN_HELPER_SUFFIX}"
-        shutil.copyfile(spawn_helper, destination_helper)
-        destination_helper.chmod(spawn_helper.stat().st_mode & 0o777)
+    for source, name in payload:
+        target = runtime_dir / name
+        shutil.copyfile(source, target)
+        target.chmod(source.stat().st_mode & 0o777)
 
 
 def verify_wheel(
@@ -187,26 +172,18 @@ def verify_wheel(
         runtime_files = [
             name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
         ]
-        helpers = [name for name in runtime_files if name.endswith(SPAWN_HELPER_SUFFIX)]
-        executables = [name for name in runtime_files if not name.endswith(SPAWN_HELPER_SUFFIX)]
         if package == "runtime":
             assert platform is not None
-            if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
-                raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
-            expected_target = executable_target(platform[1])
-            expected_helper = f"{platform[1]}{SPAWN_HELPER_SUFFIX}"
-            expected_helpers = [expected_helper] if expected_target.startswith("macos-") else []
-            found_helpers = [Path(helper).name for helper in helpers]
-            if found_helpers != expected_helpers:
-                expected = ", ".join(expected_helpers) or "none"
-                found = ", ".join(found_helpers) or "none"
-                raise RuntimeError(
-                    f"{wheel} runtime helper payload mismatch: expected {expected}; found {found}"
-                )
-            for executable in [executables[0], *helpers]:
-                mode = archive.getinfo(executable).external_attr >> 16
+            expected_files = [platform[1]]
+            if "-macos-" in platform[1]:
+                expected_files.append(f"{platform[1]}{SPAWN_HELPER_SUFFIX}")
+            found_files = sorted(Path(name).name for name in runtime_files)
+            if found_files != expected_files:
+                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            for runtime_file in runtime_files:
+                mode = archive.getinfo(runtime_file).external_attr >> 16
                 if mode & stat.S_IXUSR == 0:
-                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {executable}")
+                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
         elif runtime_files:
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":

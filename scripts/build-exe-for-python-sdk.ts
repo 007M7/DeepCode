@@ -53,15 +53,6 @@ const ARCHES = ['x64', 'arm64'] as const
 type Platform = (typeof PLATFORMS)[number]
 type Arch = (typeof ARCHES)[number]
 
-interface RuntimeProduct {
-  executable: string
-  spawnHelper?: string
-}
-
-function runtimeProductFiles(product: RuntimeProduct): string[] {
-  return [product.executable, ...(product.spawnHelper === undefined ? [] : [product.spawnHelper])]
-}
-
 function isPlatform(value: string): value is Platform {
   return (PLATFORMS as readonly string[]).includes(value)
 }
@@ -299,9 +290,9 @@ class SingleExeBuild {
   /**
    * Package one target; SEA mode accepts one target per invocation.
    * @param target - the pkg target triple to build.
-   * @returns the canonical product path `<out>/dsh-jsonrpc-agent-pkg-<platform>-<arch>`.
+   * @returns the executable path and, on macOS, its helper path.
    */
-  async pack(target: Target): Promise<RuntimeProduct> {
+  async pack(target: Target): Promise<string[]> {
     const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
     await this.prepareNativePty(target)
     if (!this.cli.dryRun) mkdirSync(this.outDir, { recursive: true })
@@ -318,7 +309,7 @@ class SingleExeBuild {
     if (!this.cli.dryRun && !existsSync(product)) {
       throw new Error(`build-exe-for-python-sdk: product ${product} is missing after the pkg run; inspect ${this.outDir}.`)
     }
-    if (target.platform !== 'macos') return { executable: product }
+    if (target.platform !== 'macos') return [product]
     const spawnHelper = `${product}${SPAWN_HELPER_SUFFIX}`
     if (this.cli.dryRun) {
       console.log(`build-exe-for-python-sdk: [dry-run] copy target node-pty spawn-helper to ${spawnHelper}`)
@@ -327,7 +318,7 @@ class SingleExeBuild {
       await copyFile(source, spawnHelper)
       await chmod(spawnHelper, statSync(source).mode & 0o777)
     }
-    return { executable: product, spawnHelper }
+    return [product, spawnHelper]
   }
 
   /**
@@ -341,21 +332,19 @@ class SingleExeBuild {
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${stagedBuild}`)
     else await rm(stagedBuild, { recursive: true, force: true })
 
-    const nativePlatform = target.platform === 'macos' ? 'darwin' : 'linux'
-    const prebuilt = join(stagedRoot, 'prebuilds', `${nativePlatform}-${target.arch}`, 'pty.node')
     const source = join(root, 'packages', 'pty', 'pty-local', 'node_modules', 'node-pty', 'build', 'Release', 'pty.node')
     const destination = join(stagedBuild, 'Release', 'pty.node')
     if (this.cli.dryRun) {
       if (target.platform === 'linux') console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)
       return
     }
-    if (existsSync(prebuilt)) return
+    if (target.platform === 'macos') return
 
     const host = Target.host()
     if (target.platform !== host.platform || target.arch !== host.arch || !existsSync(source)) {
       throw new Error(
         `build-exe-for-python-sdk: node-pty native addon for ${target.platform}-${target.arch} is missing; `
-        + `checked ${prebuilt}, ${source}. Build the Linux runtime on its target architecture.`,
+        + `checked ${source}. Build the Linux runtime on its target architecture.`,
       )
     }
     await mkdir(dirname(destination), { recursive: true })
@@ -368,19 +357,11 @@ class SingleExeBuild {
    * @returns a physical executable outside pkg's virtual snapshot.
    */
   private resolveSpawnHelper(target: Target): string {
-    const nodePtyRoot = join(this.staging, 'node_modules', 'node-pty')
-    const candidates = [
-      join(nodePtyRoot, 'prebuilds', `darwin-${target.arch}`, 'spawn-helper'),
-    ]
-    const host = Target.host()
-    if (target.platform === host.platform && target.arch === host.arch) {
-      candidates.push(join(root, 'packages', 'pty', 'pty-local', 'node_modules', 'node-pty', 'build', 'Release', 'spawn-helper'))
-    }
-    const helper = candidates.find(candidate => existsSync(candidate))
-    if (helper === undefined) {
+    const helper = join(this.staging, 'node_modules', 'node-pty', 'prebuilds', `darwin-${target.arch}`, 'spawn-helper')
+    if (!existsSync(helper)) {
       throw new Error(
         `build-exe-for-python-sdk: node-pty spawn-helper for ${target.platform}-${target.arch} is missing; `
-        + `checked ${candidates.join(', ')}. Build each runtime on its target platform and architecture.`,
+        + `checked ${helper}. Build each runtime on its target platform and architecture.`,
       )
     }
     if (statSync(helper).mode & 0o111) return helper
@@ -391,43 +372,37 @@ class SingleExeBuild {
    * Print each product path and, outside dry-run mode, its size.
    * @param products - the product paths returned by {@link pack}.
    */
-  printProducts(products: RuntimeProduct[]): void {
+  printProducts(products: string[]): void {
     console.log(this.cli.dryRun ? 'build-exe-for-python-sdk: [dry-run] would produce:' : 'build-exe-for-python-sdk: products:')
-    for (const product of products) {
+    for (const path of products) {
       if (this.cli.dryRun) {
-        for (const path of runtimeProductFiles(product)) console.log(`  ${path}`)
+        console.log(`  ${path}`)
         continue
       }
-      for (const path of runtimeProductFiles(product)) {
-        const megabytes = statSync(path).size / (1024 * 1024)
-        console.log(`  ${path}  (${megabytes.toFixed(1)} MB)`)
-      }
+      const megabytes = statSync(path).size / (1024 * 1024)
+      console.log(`  ${path}  (${megabytes.toFixed(1)} MB)`)
     }
   }
 
   /**
-   * Copy each executable into the Python runtime package. The deployed node
+   * Copy each product into the Python runtime package. The deployed node
    * carrier is already in place, and `dist-exe/` retains upload copies.
    * @param products - the product paths returned by {@link pack}.
    */
-  async syncToPythonRuntime(products: RuntimeProduct[]): Promise<void> {
+  async syncToPythonRuntime(products: string[]): Promise<void> {
     const destDir = resolve(root, PYTHON_RUNTIME_DIR)
     if (this.cli.dryRun) {
-      for (const product of products) {
-        for (const path of runtimeProductFiles(product)) {
-          console.log(`build-exe-for-python-sdk: [dry-run] cp ${path} ${join(destDir, basename(path))}`)
-        }
+      for (const path of products) {
+        console.log(`build-exe-for-python-sdk: [dry-run] cp ${path} ${join(destDir, basename(path))}`)
       }
       return
     }
     mkdirSync(destDir, { recursive: true })
-    for (const product of products) {
-      for (const path of runtimeProductFiles(product)) {
-        const destination = join(destDir, basename(path))
-        await copyFile(path, destination)
-        await chmod(destination, statSync(path).mode & 0o777)
-        console.log(`build-exe-for-python-sdk: synced ${destination}`)
-      }
+    for (const path of products) {
+      const destination = join(destDir, basename(path))
+      await copyFile(path, destination)
+      await chmod(destination, statSync(path).mode & 0o777)
+      console.log(`build-exe-for-python-sdk: synced ${destination}`)
     }
   }
 
@@ -476,8 +451,8 @@ async function main(): Promise<void> {
   await pipeline.build()
   await pipeline.deployStaging()
   await pipeline.injectPkgConfig()
-  const products: RuntimeProduct[] = []
-  for (const target of cli.targets) products.push(await pipeline.pack(target))
+  const products: string[] = []
+  for (const target of cli.targets) products.push(...await pipeline.pack(target))
   pipeline.printProducts(products)
   await pipeline.syncToPythonRuntime(products)
 }

@@ -39,31 +39,24 @@ class RuntimeBuildHook(BuildHookInterface):
             )
 
         platform_tag = os.environ.get("DSH_RUNTIME_PLATFORM_TAG") or _host_platform_tag()
-        matches = [(key, value) for key, value in _PLATFORMS.items() if value[0] == platform_tag]
+        matches = [value for value in _PLATFORMS.values() if value[0] == platform_tag]
         if len(matches) != 1:
             supported = ", ".join(value[0] for value in _PLATFORMS.values())
             raise RuntimeError(
                 f"unsupported DSH_RUNTIME_PLATFORM_TAG {platform_tag!r}; expected one of {supported}"
             )
-        expected_target, (_, expected_executable) = matches[0]
+        expected_executable = matches[0][1]
         runtime_dir = Path(self.root) / "src" / "deepseek_harness_runtime" / "runtime"
         runtime_files = sorted(runtime_dir.glob("dsh-jsonrpc-agent-pkg-*") if runtime_dir.is_dir() else [])
-        executables = [path for path in runtime_files if not path.name.endswith(_SPAWN_HELPER_SUFFIX)]
-        helpers = [path for path in runtime_files if path.name.endswith(_SPAWN_HELPER_SUFFIX)]
-        if [path.name for path in executables] != [expected_executable]:
-            found = ", ".join(path.name for path in executables) or "none"
+        expected_files = [expected_executable]
+        if "-macos-" in expected_executable:
+            expected_files.append(f"{expected_executable}{_SPAWN_HELPER_SUFFIX}")
+        found_files = [path.name for path in runtime_files]
+        if found_files != expected_files:
             raise RuntimeError(
-                f"runtime wheel {platform_tag} must contain only {expected_executable}; found {found}"
+                f"runtime wheel {platform_tag} payload must be {expected_files}; found {found_files}"
             )
-        expected_helper = f"{expected_executable}{_SPAWN_HELPER_SUFFIX}"
-        expected_helpers = [expected_helper] if expected_target.startswith("macos-") else []
-        if [path.name for path in helpers] != expected_helpers:
-            expected = ", ".join(expected_helpers) or "none"
-            found = ", ".join(path.name for path in helpers) or "none"
-            raise RuntimeError(
-                f"runtime wheel {platform_tag} helper payload mismatch: expected {expected}; found {found}"
-            )
-        for executable in [executables[0], *helpers]:
+        for executable in runtime_files:
             if executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
         build_data["pure_python"] = False
