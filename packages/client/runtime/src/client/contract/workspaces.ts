@@ -6,7 +6,7 @@
  * the concrete class. Widening this interface is the explicit act of
  * widening what features may do to the workspaces domain.
  */
-import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
+import type { DirectoryListing, SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
 import type { WorkspaceListState } from '../workspaces/service.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -37,6 +37,20 @@ export interface IWorkspaces {
    * @returns the selected path, or null when the user cancelled.
    */
   pickDirectory(): Promise<string | null>
+  /**
+   * List one directory level through the Host's `browse` capability.
+   * @param path - absolute directory to list; absent lists the Host home directory.
+   * @param signal - aborts the wire request (and the Host's scan) when the caller supersedes it.
+   * @returns the level's listing with breadcrumb ancestry.
+   */
+  listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing>
+  /**
+   * Create one child directory through the Host's `browse` capability.
+   * @param path - absolute existing parent directory.
+   * @param name - single non-blank path segment.
+   * @returns the created directory's absolute path.
+   */
+  createDirectory(path: string, name: string): Promise<string>
   /**
    * Open a filesystem path with the Host operating system's default application.
    * @param path - absolute or host-resolvable path.

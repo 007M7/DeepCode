@@ -13,8 +13,8 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  acknowledgeReloadConnectionLoss, assertFixtureInventory, launchWebScaffold, seedSession, watchConsole,
-  webSnapshotMode, type WebScaffold,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -23,6 +23,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/workspace-management', i
 // spec needs any one cold session row, not new recorded content.
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const MODE = webSnapshotMode()
+const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
 
 describe('web e2e: workspace management (create / rename / flat view / hover card)', () => {
@@ -30,14 +31,40 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let pickedDirectory: string | null = null
+
+  /**
+   * Drive the in-app browser to a directory via its path-edit affordance,
+   * confirm it, and wait for the adoption to settle host-side (workspace
+   * registered + the flow's New-Session agent up), so later test steps can't
+   * race the in-flight blank-session attach.
+   */
+  async function openLocalFolder(path: string, options: { waitForAgent?: boolean } = {}): Promise<void> {
+    const agentsBefore = scaffold.ctx.agents.list().length
+    await page.getByRole('button', { name: 'Create workspace' }).click()
+    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '编辑路径' }).click()
+    await dialog.getByLabel('编辑路径').fill(path)
+    await dialog.getByLabel('编辑路径').press('Enter')
+    await dialog.getByRole('button', { name: '打开' }).click()
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(path),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
+    // First adoption births a blank Session+Agent whose workspace attach must
+    // settle before a test may delete the registration; the reuse path (same
+    // canonical cwd already has a blank session) creates no agent, so callers
+    // opt in only where a fresh attach is possible.
+    if (options.waitForAgent === true) {
+      await expect.poll(() => scaffold.ctx.agents.list().length, { timeout: 10_000 })
+        .toBeGreaterThan(agentsBefore)
+    }
+  }
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    scaffold.ctx.apiProxy.host.pickDirectory = request => Promise.resolve({
-      rpcId: request.rpcId,
-      result: { ok: true, value: { path: pickedDirectory } },
-    })
     // Seed one cold session (Ungrouped bucket) for the flat view + hover card.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
@@ -137,14 +164,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
     // Register the scaffold's existing project directory through the real UI.
-    pickedDirectory = scaffold.workspaceCwd
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
-
-    await expect.poll(
-      () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
-      { timeout: 10_000 },
-    ).not.toBeUndefined()
+    await openLocalFolder(scaffold.workspaceCwd, { waitForAgent: true })
     const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     if (workspace === undefined) throw new Error('GUI did not register the existing project directory')
     await workspace.attachSession(SessionId(SEED_ID))
@@ -200,9 +220,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // Re-registering the exact deleted path immediately, without a reload, is
     // a supported reversible flow. It creates a fresh Workspace id without
     // re-adopting the retained Session.
-    pickedDirectory = scaffold.workspaceCwd
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await openLocalFolder(scaffold.workspaceCwd)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
       { timeout: 10_000 },
@@ -272,9 +290,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
 
-    pickedDirectory = oldPath
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+    await openLocalFolder(oldPath)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(oldPath),
       { timeout: 10_000 },
@@ -330,6 +346,42 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('matches the directory-browser dialog aria golden at a staged directory', async () => {
+    // A staged subtree under the scaffold cwd keeps the listing deterministic
+    // (normalizeAria scrubs the cwd), and pointing the in-process host's HOME
+    // at the cwd collapses the breadcrumb ancestry into the Home crumb — no
+    // machine-specific path segments or real $HOME contents enter the golden.
+    const staged = join(scaffold.workspaceCwd, 'browse-golden')
+    await mkdir(join(staged, 'alpha'), { recursive: true })
+    await mkdir(join(staged, 'beta'), { recursive: true })
+    // homedir() reads HOME on POSIX and USERPROFILE on Windows: root both
+    // at the scaffold cwd so the golden's ancestry collapses everywhere.
+    const realHome = process.env.HOME
+    const realUserProfile = process.env.USERPROFILE
+    process.env.HOME = scaffold.workspaceCwd
+    process.env.USERPROFILE = scaffold.workspaceCwd
+    try {
+      await page.getByRole('button', { name: 'Create workspace' }).click()
+      await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+      const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+      await dialog.waitFor({ timeout: 10_000 })
+      await dialog.getByRole('button', { name: '编辑路径' }).click()
+      await dialog.getByLabel('编辑路径').fill(staged)
+      await dialog.getByLabel('编辑路径').press('Enter')
+      await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+      const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(BROWSER_EXPECTED, snapshot, MODE)
+      await dialog.getByRole('button', { name: '取消' }).click()
+      await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+    } finally {
+      if (realHome === undefined) delete process.env.HOME
+      else process.env.HOME = realHome
+      if (realUserProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = realUserProfile
+    }
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('shows the session hover card after a dwell on the row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
     // Expand Ungrouped to reveal the seeded session row, then dwell on it
@@ -361,8 +413,8 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.warnings).toEqual([])
-    // This spec mints no fixture directory contents of its own; the seed it
-    // reuses is owned (and inventory-guarded) by seeded-history.
-    await assertFixtureInventory(SNAPSHOT_DIR, ['.gitkeep'])
+    // The directory-browser aria golden is this spec's one owned artifact;
+    // the seed it reuses is owned (and inventory-guarded) by seeded-history.
+    await assertFixtureInventory(SNAPSHOT_DIR, ['.gitkeep', 'directory-browser.expected.md'])
   })
 })

@@ -79,7 +79,7 @@ const colorSchema = z.boolean().default(true)
 // No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
 const truecolorSchema = z.boolean()
 const DEFAULT_LEFT_PROMPT = '${cwd}${git/worktree}${model}${token_meter/cache_hit_rate}${context}'
-const DEFAULT_RIGHT_PROMPT = '${timing}'
+const DEFAULT_RIGHT_PROMPT = '${queued}'
 const DEFAULT_INPUT_PROMPT = '${symbol} ${indicator}'
 const DEFAULT_INPUT_PLACEHOLDER = 'press enter to steer and esc to cancel'
 const TuiThemeConfigSchema: z<TuiThemeConfig> = z.object({
@@ -120,19 +120,19 @@ export interface Config extends TuiConfig {
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
   /**
-   * Shell command fallback printed on exit or after selecting a session when
-   * the host cannot hand off in place. Every `{session}` becomes the selected
-   * id; the TUI never executes this text. Absent disables only the fallback,
-   * not the interactive selector.
+   * Skill name auto-invoked as this session's first user turn, exactly as if
+   * the user typed `/skill:<name>`. Set only by a launcher for a fresh
+   * skill-guided session (`dsh migrate`/`dsh upgrade`); absent leaves the first
+   * turn to the user.
    */
-  resumeCommand?: string
+  initialSkill?: string
 }
 
 /** Schemastery schema for the full plugin configuration. */
 export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
-  resumeCommand: z.string(),
+  initialSkill: z.string(),
   showReasoning: tuiConfigSchemaFields.showReasoning,
   maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
   maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
