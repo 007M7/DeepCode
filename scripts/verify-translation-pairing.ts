@@ -9,9 +9,9 @@
  * See `docs/i18n/README.md` for the owning contract.
  */
 
-import { createHash } from 'node:crypto'
 import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, sep } from 'node:path'
+import { gitBlobHash, storeGitBlob } from './translation-pairing-git.ts'
 import {
   linksTo,
   parseTranslationMarkdown,
@@ -52,14 +52,6 @@ const manifest = parseTranslationPairingManifest(readFileSync(join(root, 'script
  */
 function isExcluded(file: string): boolean {
   return manifest.excluded.some(entry => (entry.endsWith('/') ? file.startsWith(entry) : file === entry))
-}
-
-/** Full git blob hash (what `git hash-object` prints). */
-function blobHash(content: Buffer): string {
-  const hash = createHash('sha1')
-  hash.update(`blob ${content.byteLength}\0`)
-  hash.update(content)
-  return hash.digest('hex')
 }
 
 /** The three paths of a pair, derived from the English-file path. */
@@ -148,7 +140,12 @@ if (writeMode) {
       }
       continue
     }
-    const record = renderMeta(source, blobHash(readFileSync(join(root, source))), zh, blobHash(readFileSync(join(root, zh))))
+    const sourceContent = readFileSync(join(root, source))
+    const zhContent = readFileSync(join(root, zh))
+    // A consistency record is also a recovery pointer for the briefing
+    // generator. Persist both snapshots even when the sidecar text is already
+    // current, because the bytes may exist only in this working tree.
+    const record = renderMeta(source, storeGitBlob(root, sourceContent), zh, storeGitBlob(root, zhContent))
     if (existsSync(join(root, meta)) && readFileSync(join(root, meta), 'utf8') === record) continue
     writeFileSync(join(root, meta), record)
     console.log(`verify-translation-pairing: recorded ${meta}`)
@@ -203,7 +200,7 @@ for (const source of [...pairAnchors].sort()) {
 
   let consistent = true
   for (const [file, content] of [[source, sourceContent], [zh, zhContent]] as const) {
-    const current = blobHash(content)
+    const current = gitBlobHash(content)
     if (record.get(basename(file)) !== current) {
       errors.push(`${file}: out of sync — content no longer matches the pair's last confirmed-consistent state in ${meta} (bring the other side along, then re-record with --write)`)
       consistent = false
