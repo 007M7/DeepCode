@@ -356,7 +356,7 @@ describe('DirectoryBrowser', () => {
       path: TYPED,
       home: ROOT,
       crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }, { name: 'users', path: TYPED, hidden: false }],
-      entries: [],
+      entries: [{ name: 'Alpha', path: `${TYPED}\\Alpha`, hidden: false }],
       truncated: false,
     }
     mount({ listDirectory: vi.fn(async (path?: string) => (path === TYPED ? winUsers : winRoot)) })
@@ -370,6 +370,16 @@ describe('DirectoryBrowser', () => {
       expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
     })
     expect(within(columns()[0]!).getByText('Users')).toBeTruthy()
+    // The editor seeds from the actual-cased selection while the child
+    // level still carries the typed case: the draft's directory part folds
+    // per platform, so the right pane keeps prefix-filtering.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    expect(input.value).toBe('C:\\Users\\')
+    fireEvent.change(input, { target: { value: 'C:\\Users\\a' } })
+    expect(within(columns()[1]!).getByText('Alpha')).toBeTruthy()
+    fireEvent.change(input, { target: { value: 'C:\\Users\\z' } })
+    expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
   })
 
   it('re-parks focus on the edit zone when a failed pick unmounts a dot-revealed row', async () => {

@@ -95,20 +95,23 @@ function separatorOf(listing: DirectoryListing): '\\' | '/' {
 }
 
 /**
- * The path draft's final segment, when its directory part is exactly the
- * level `listing` lists — the segment the level prefix-filters on while the
- * user types. Any other draft (no separator yet, or naming some other
- * directory) leaves the level unfiltered. The directory part compares
- * exactly (it is the host's own path text, reached by seeding or erasing);
- * only the name filter downstream is case-insensitive.
+ * The path draft's final segment, when its directory part names the level
+ * `listing` lists — the segment the level prefix-filters on while the user
+ * types. Any other draft (no separator yet, or naming some other directory)
+ * leaves the level unfiltered. The directory part compares under the
+ * platform fold (exact on slash platforms; Windows folds case, since an
+ * upgraded selection may carry the actual entry's case while the level
+ * below still carries the typed one); the name filter downstream is
+ * case-insensitive everywhere.
  */
 function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
   if (draft === null) return null
   const sep = separatorOf(listing)
   const cut = draft.lastIndexOf(sep)
   if (cut === -1) return null
+  const fold = foldPathFor(listing)
   const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
-  return draft.slice(0, cut + 1) === level ? draft.slice(cut + 1) : null
+  return fold(draft.slice(0, cut + 1)) === fold(level) ? draft.slice(cut + 1) : null
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
@@ -231,6 +234,21 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     return { seq, scan: listDirectory(path, controller.signal) }
   }, [supersede, listDirectory])
 
+  // The miller row's scroll host, shared by the pin and refocus effects
+  // below and read by navigate's upgrade leg (declared ahead of both).
+  const millerRowRef = useRef<HTMLDivElement | null>(null)
+  // Focus parking (consumed by the refocus effect below): a pick — and a
+  // parent-leg upgrade that displaces focused rows — parks on the
+  // selection's row; Enter, an input-focused Escape, and a failed pick
+  // whose row unmounts park on the crumb edit zone (the latter only when
+  // focus actually fell to body). Pointer-out cancels never set (or clear)
+  // these — yanking focus back from wherever the user clicked would be
+  // worse than the fall.
+  const refocusPick = useRef(false)
+  const refocusEditZone = useRef(false)
+  const pathInputRef = useRef<HTMLInputElement | null>(null)
+  const editZoneRef = useRef<HTMLButtonElement | null>(null)
+
   /**
    * Launch a follow-up listing under the CURRENT supersession seq: a newer
    * intent aborts it like the leg it continues, and it supersedes nothing.
@@ -240,8 +258,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     // caller's settled leg: a no-op) — the slot must never silently strand
     // a live scan, the exact waste supersede() exists to prevent.
     const displaced = scanController.current
-    /* v8 ignore next -- narrowing guard: the landing's target leg installed a controller before any follow-up runs. */
-    if (displaced !== null) displaced.abort()
+    // Inverted so the live abort below stays in coverage: a supersede
+    // would have bumped the seq before any follow-up could run.
+    /* v8 ignore next -- narrowing guard: the landing's target leg installed a controller first. */
+    if (displaced === null) throw new Error('continueScan launched before any leg installed a controller')
+    displaced.abort()
     const controller = new AbortController()
     scanController.current = controller
     return listDirectory(path, controller.signal)
@@ -256,10 +277,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * shape never disagree — a parent leg then upgrades the landing in place:
    * the target's ACTUAL parent-level entry re-selected (left pane = parent,
    * right pane = the target), so a crumb jump reads as stepping back one
-   * pane (Windows folds case; slash-platform typed-case drift degrades to
-   * the single-pane landing). A failed parent leg, or a truncated parent
-   * window that lacks the target, leaves the committed single-pane landing
-   * — the upgrade must never orphan the selection it exists to anchor.
+   * pane (Windows folds case; on slash platforms only a FINAL-segment case
+   * drift misses the match and keeps the single-pane landing — parent
+   * entries inherit the typed prefix, so ancestor-segment drift still
+   * matches, at the cost of the Home collapse). A failed parent leg, or a
+   * truncated parent window that lacks the target, leaves the committed
+   * single-pane landing — the upgrade must never orphan the selection it
+   * exists to anchor.
    */
   const navigate = useCallback((path?: string) => {
     const { seq, scan } = launchListing(path)
@@ -289,9 +313,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         // among them (Tab reached the rows during the parent leg), arm the
         // refocus effect so it re-parks on the re-selected row.
         const rowHost = millerRowRef.current
+        // Inverted so the live contains() probe below stays in coverage.
         /* v8 ignore next -- narrowing guard: the committed landing just rendered the miller row. */
-        const focusInRows = rowHost !== null && rowHost.contains(document.activeElement)
-        if (focusInRows) refocusPick.current = true
+        if (rowHost === null) throw new Error('parent-leg upgrade before the miller row rendered')
+        if (rowHost.contains(document.activeElement)) refocusPick.current = true
         setParent(parentLevel)
         setSelected(match)
         setChild(target)
@@ -306,18 +331,6 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setError(failureText(reason))
     })
   }, [launchListing, continueScan])
-
-  // Focus parking (consumed by the refocus effect below the miller-row
-  // ref): a pick — and a parent-leg upgrade that displaces focused rows —
-  // parks on the selection's row; Enter, an input-focused Escape, and a
-  // failed pick whose row unmounts park on the crumb edit zone (the latter
-  // only when focus actually fell to body). Pointer-out cancels never set
-  // (or clear) these — yanking focus back from wherever the user clicked
-  // would be worse than the fall.
-  const refocusPick = useRef(false)
-  const refocusEditZone = useRef(false)
-  const pathInputRef = useRef<HTMLInputElement | null>(null)
-  const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
@@ -455,8 +468,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [crumbTail])
   // On viewports too narrow for both fixed panes the Miller row scrolls;
   // whenever a child preview lands, pin it into view the way the crumb tail
-  // pins — otherwise descent is unreachable on a phone-width window.
-  const millerRowRef = useRef<HTMLDivElement | null>(null)
+  // pins — otherwise descent is unreachable on a phone-width window. On a
+  // parent-leg upgrade the refocus effect below runs after this pin and its
+  // row.focus() may scroll the selected LEFT row back into view: for that
+  // one landing, focus placement wins over the child pin by design.
   const childPath = child?.path
   useEffect(() => {
     const row = millerRowRef.current
@@ -712,8 +727,6 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             onClick={() => { setShowHidden(prev => !prev) }}
           >
             {t('browser.showHidden')}
-            {/* Trailing check (Menu's selected vocabulary): the label never
-              * shifts when the pressed state toggles. */}
             {showHidden && <IconCheckOutline16 size={14} />}
           </button>
           <span className={css.footerGap} />
