@@ -226,7 +226,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
     dir: 'tool-cordis',
-    source: 'packages/cordis/tool-cordis/src/index.ts',
+    source: 'packages/self-modification/tool-cordis/src/index.ts',
     requires: ['ctx.tools'],
     writes: ['tool/call', 'tool/result', 'process-local temporary Plugin lifecycle'],
     async mount(ctx) {

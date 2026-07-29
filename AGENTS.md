@@ -29,9 +29,9 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   bundle/      profile plugin bundles: installable patch layers for dsh --profile
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
-  plan/        plan mode as logged per-agent collaboration state
-  guard/       loop-hygiene plugins
-  cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
+  plan/        plan mode as logged collaboration state
+  guard/       loop-hygiene plugins + tool-call timeouts
+  self-modification/  the agent inspects/mounts plugins in its runtime
   hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
   session/     durable session data plane: persistence, projection, titles, reporting
   settings/    user-settings seam + file-backed provider

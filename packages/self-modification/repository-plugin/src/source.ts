@@ -11,7 +11,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { PREPARED_ENTRY_FILENAME } from './format.ts'
 
 // Value mirror: Cordis's const enum has no runtime object to import. Keep
-// aligned with `packages/cordis/tool-cordis/src/fiber-state.ts`.
+// aligned with `packages/self-modification/tool-cordis/src/fiber-state.ts`.
 const FIBER_ACTIVE = 2 as FiberState.ACTIVE
 
 /** Directory under the Harness home containing immutable repository generations. */

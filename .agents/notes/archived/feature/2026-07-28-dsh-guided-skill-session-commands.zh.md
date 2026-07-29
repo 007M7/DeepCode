@@ -25,7 +25,7 @@ Archived: 2026-08-03
 
 `apps/cli/tests/args.spec.ts` 新增 `migrate`/`upgrade` 的路由（裸判别式），以及每个子命令两侧任一泄漏选项的退出码 1。
 
-`packages/ui/tui/tests/tui.spec.ts` 在既有 skill describe 块中新增两个伪终端用例：设置 `config.initialSkill` 时无需用户输入即把渲染后的 skill 正文作为首轮投递；未知的初始 skill 以通知形式报告且不发送。`runSkillSession` 本身是模块 `v8 ignore` 块内的组装，与 `runTui`/`runMeta` 相同。
+`packages/interaction/tui/tests/tui.spec.ts` 在既有 skill describe 块中新增两个伪终端用例：设置 `config.initialSkill` 时无需用户输入即把渲染后的 skill 正文作为首轮投递；未知的初始 skill 以通知形式报告且不发送。`runSkillSession` 本身是模块 `v8 ignore` 块内的组装，与 `runTui`/`runMeta` 相同。
 
 无 keyless PTY 快照：依据维护者对本次改动的范围裁定，单元覆盖加交互式验证已足够，且播种走的是已有快照的 `/skill:` 渲染路径。两个命令均已在 tmux 中从临时 cwd 交互式验证：`dsh migrate` 加载 `dsh-migrate` 并询问源 agent；`dsh upgrade` 加载 `dsh-upgrade`，后者引入 `dsh-customize` 并开始 checkout 发现。
 

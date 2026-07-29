@@ -16,7 +16,7 @@ import { renderCordisCoreApiPages } from './cordis-core-api.ts'
 const root = resolve(import.meta.dirname, '..')
 const OUT_EVENTS = 'docs/cordis-catalog/events.md'
 const OUT_SERVICES = 'docs/cordis-catalog/services.md'
-const OUT_RUNTIME_API = 'packages/cordis/tool-cordis/src/api-catalog.ts'
+const OUT_RUNTIME_API = 'packages/self-modification/tool-cordis/src/api-catalog.ts'
 
 /** One primary core-data-structures page per project type used by a generated signature. */
 export const LINK_MAP: Readonly<Record<string, string>> = {

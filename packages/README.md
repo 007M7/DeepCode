@@ -34,10 +34,9 @@ Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Gr
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
-| [`timeout/`](timeout/README.md) | Tool-call `tools/execute` deadline enforcement | Product — stable surface |
-| [`guard/`](guard/README.md) | Loop-hygiene advisory repeat-call reminders | Product — stable surface |
+| [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders + the `tools/execute` deadline enforcer | Product — stable surface |
 | [`bundle/`](bundle/README.md) | Installable `dsh --profile` patch layers | Product — stable surface |
-| [`cordis/`](cordis/README.md) | Cordis runtime integration: self-inspection, temporary Plugins, restricted repository Plugin loading | Product — stable surface |
+| [`self-modification/`](self-modification/README.md) | The agent modifies its own runtime: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) and restricted repository Plugin loading | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session/`](session/README.md) | Durable session data plane: persistence seam + JSONL/SQLite backends, projection seam, log-backed titles, session reporting | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |

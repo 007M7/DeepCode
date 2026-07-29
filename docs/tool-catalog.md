@@ -280,7 +280,7 @@ Inspect the live Cordis runtime in the current DSH process. Read-only. Sections:
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 ### `cordis_mount`
 
@@ -301,7 +301,7 @@ Mount a temporary Cordis Plugin in the current DSH process. This creates an in-m
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 ### `cordis_unmount`
 
@@ -322,7 +322,7 @@ Unmount a current-process temporary Plugin created by cordis_mount. Waits for it
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.
 

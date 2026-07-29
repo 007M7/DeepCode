@@ -18,7 +18,7 @@ describe('Typert-backed Cordis catalog', () => {
     expect(renderEvents([...model.events], CORDIS_CATALOG_POLICY)).toBe(expected('docs/cordis-catalog/events.md'))
     expect(renderServices([...model.services], CORDIS_CATALOG_POLICY)).toBe(expected('docs/cordis-catalog/services.md'))
     expect(projector.renderRuntimeApi(model)).toBe(
-      expected('packages/cordis/tool-cordis/src/api-catalog.ts'),
+      expected('packages/self-modification/tool-cordis/src/api-catalog.ts'),
     )
   })
 })

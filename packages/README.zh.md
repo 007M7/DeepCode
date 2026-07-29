@@ -34,10 +34,9 @@
 | [`spill/`](spill/README.md) | 溢出能力系列：存储 seam、本地实现、工具结果溢出策略 | 产品：稳定表面 |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
-| [`timeout/`](timeout/README.md) | 工具调用 `tools/execute` 截止时间强制执行 | 产品：稳定表面 |
-| [`guard/`](guard/README.md) | 循环卫生建议性重复调用提醒 | 产品：稳定表面 |
+| [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
 | [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定表面 |
-| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检、临时 Plugin、受限 repository Plugin 加载 | 产品：稳定表面 |
+| [`self-modification/`](self-modification/README.md) | agent 修改自身运行时：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)），以及受限 repository Plugin 加载 | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session/`](session/README.md) | 持久会话数据平面：持久化 seam + JSONL/SQLite 后端、投影 seam、日志支持的标题、会话上报 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |

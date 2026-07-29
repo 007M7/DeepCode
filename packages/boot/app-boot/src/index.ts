@@ -641,7 +641,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 
 /**
  * Value mirrors used because Cordis's const enum has no runtime object to import.
- * Keep aligned with `packages/cordis/tool-cordis/src/fiber-state.ts` and
+ * Keep aligned with `packages/self-modification/tool-cordis/src/fiber-state.ts` and
  * `packages/client/web/src/loader-status.ts`.
  */
 const FIBER_PENDING = 0 as FiberState.PENDING
