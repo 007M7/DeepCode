@@ -41,7 +41,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 ## 两类预算、两类产物
 
-原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ paths }` 中保留所有已取得路径；`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于 原生渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
+原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ paths }` 中保留所有已取得路径；`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于原生渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
 
 ## 错误
 

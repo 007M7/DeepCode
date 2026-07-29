@@ -71,7 +71,7 @@ Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ## 已知限制与暂缓事项
 

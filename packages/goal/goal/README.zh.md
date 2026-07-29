@@ -19,7 +19,7 @@
 
 `ctx.goals` 只接受以对应 id 注册的完全相同的活跃 `Agent` 实例。`get()` 返回与内部状态脱离的 `GoalView`；变更通过 `GoalRef { id, revision }` 比较并设置屏障，并拒绝陈旧引用。服务通过生成的[服务目录](../../../docs/cordis-catalog/services.md)公开 create、edit、pause、resume、complete、block 和 clear 动词。创建默认值在内部解析。`disarm()` 是仅供生命周期使用的例外：它移除进程本地续行权限，不写入新 revision，也不发出变更。
 
-最多只有一个当前目标。创建操作会生成 revision 为 1、phase 为 active 的目标并启用续行。未完成的目标必须编辑、转换或清除；已完成目标可以由拥有全局未使用过的 id 的目标替换。编辑会保留 phase、blocker reason 与 activation。暂停、完成、阻塞和清除都会停用续行。阻塞会记录策略自有的 lower-kebab-case 代码和规范化的自由文本说明；提供方限制、配置预算、执行错误与请求人工输入都使用这一种持久 phase，不会扩增生命周期状态。只有配置的 Round 上限仍有剩余容量时，resume 才接受已停止 phase 或phase 为 active 但已停用续行的目标；它会清除原 blocker reason。phase 为 active 且已启用续行的目标会拒绝冗余操作。
+最多只有一个当前目标。创建操作会生成 revision 为 1、phase 为 active 的目标并启用续行。未完成的目标必须编辑、转换或清除；已完成目标可以由拥有全局未使用过的 id 的目标替换。编辑会保留 phase、blocker reason 与 activation。暂停、完成、阻塞和清除都会停用续行。阻塞会记录策略自有的 lower-kebab-case 代码和规范化的自由文本说明；提供方限制、配置预算、执行错误与请求人工输入都使用这一种持久 phase，不会扩增生命周期状态。只有配置的 Round 上限仍有剩余容量时，resume 才接受已停止 phase 或 phase 为 active 但已停用续行的目标；它会清除原 blocker reason。phase 为 active 且已启用续行的目标会拒绝冗余操作。
 
 每次非 clear 变更都会通过 `agent.inject()` 追加完整的版本化快照；clear 则追加带 revision 的 tombstone。模型可见的 `user/message` 内容与其带类型的 `{ kind: 'goal', change }` 来源必须完全一致。回放会拒绝形状错误、来源／内容漂移、不连续 revision、非法生命周期转换、每目标时间戳非单调，以及不连续的 Goal Round。墙钟时间倒退时，变更时间戳会限制在不早于上一次目标更新的值。
 

@@ -37,7 +37,6 @@
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
-| capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库接口、实现与消费方分离的命名架构概念；普通 `seam` 仍按其词条处理 |
 | Cordis | Cordis | | | |
 | dispose | dispose | dispose（资源释放） | | |
 | doc-sync | doc-sync | doc-sync（文档同步门禁） | | |
@@ -82,6 +81,7 @@
 | build target | 构建目标 | | | |
 | cancel | 取消 | | | |
 | canary test | canary 测试 | | 金丝雀测试 | 本仓库保留 `canary` |
+| capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库接口、实现与消费方分离的命名架构概念；普通 `seam` 仍按其词条处理 |
 | feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
 | feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
 | checkpoint | 检查点 | | | |

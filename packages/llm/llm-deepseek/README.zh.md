@@ -6,7 +6,7 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 同一 seam 的第二个基于库的实现位于 `@deepseek-ai/dsh-llm-pi-ai`。本包（package）始终负责 `deepseek` 提供方路由；在同一上下文中装载 `provider: deepseek` 的 pi-ai profile 会按设计抛出 `LlmError('DUPLICATE_ADAPTER')`。
 
-包根入口导出 Cordis 插件契约与 `DeepSeekAdapter`；协议序列化、SSE 解析与 分片转换 helper 不属于该根契约。
+包根入口导出 Cordis 插件契约与 `DeepSeekAdapter`；协议序列化、SSE 解析与分片转换 helper 不属于该根契约。
 
 ## 配置
 
@@ -62,7 +62,7 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 ## 测试
 
-单元套件使用本地 `node:http` mock SSE 服务器（无网络），覆盖动态 `high`／`off`／`max` 选择、结构化 HTTP 事实、格式错误／截断流、调用方 abort、连接失败，以及 idle 超时确实会 abort 实际 body 的证明。真实 API 覆盖位于 `tests/adapter.e2e.ts`（`pnpm run test:e2e`，需有 key 才会运行）：V4 Flash + V4 Pro，覆盖 思考启用／禁用与两种官方 effort 级别，包括思考 + 工具往返与推理回传。
+单元套件使用本地 `node:http` mock SSE 服务器（无网络），覆盖动态 `high`／`off`／`max` 选择、结构化 HTTP 事实、格式错误／截断流、调用方 abort、连接失败，以及 idle 超时确实会 abort 实际 body 的证明。真实 API 覆盖位于 `tests/adapter.e2e.ts`（`pnpm run test:e2e`，需有 key 才会运行）：V4 Flash + V4 Pro，覆盖思考启用／禁用与两种官方 effort 级别，包括思考 + 工具往返与推理回传。
 
 ## 模型体验
 
@@ -74,7 +74,7 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 #### Token 影响
 
-精确输入取决于提供方 tokenization。有条件推理回传会增加工具往返上下文，丢弃其他推理 则避免再次支付这些 token；可用时会报告 cache-read 用量。
+精确输入取决于提供方 tokenization。有条件推理回传会增加工具往返上下文，丢弃其他推理则避免再次支付这些 token；可用时会报告 cache-read 用量。
 
 #### KV Cache 影响
 

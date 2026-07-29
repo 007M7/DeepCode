@@ -124,7 +124,7 @@ Load referenced resources only as needed.
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV Cache 条目失效。
+仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ### 工具错误
 
@@ -138,7 +138,7 @@ Load referenced resources only as needed.
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV Cache 条目失效。
+仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ## 已知限制与暂缓事项
 

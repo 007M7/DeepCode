@@ -83,7 +83,7 @@ export interface Config {
 
 #### 模型看到的内容
 
-在每个 loop 实例的第一个请求中，模型会收到一条持久 user 角色消息，其中按从宽泛到具体的顺序包含有界 用户全局指令与项目指令链。
+在每个 loop 实例的第一个请求中，模型会收到一条持久 user 角色消息，其中按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。
 
 ##### 基线指令模板
 
@@ -163,7 +163,7 @@ The previously loaded instructions from this file no longer apply.
 
 - **发现跟随结构化 fs 工具，而非 shell 导航**：更改目录的 `bash` 命令不会触发嵌套指令发现，因为 shell 语法与每次调用 shell 状态不是可靠的文件系统 seam。
 - **刷新由 touch 驱动**：没有 watcher；外部编辑会在下一次成功的第一方 `read`、`write` 或 `edit` 时可见，也会在恢复 loop 准备基线时可见。
-- **候选语义有意保持简单**：不解释小写名称、`.claude/rules/` 与 `@path` import；项目 scope 默认加载 `AGENTS.local.md`／`CLAUDE.local.md` overlay，但 用户全局 `$DSH_HOME` scope 没有本地 overlay，其他自定义名称需要显式候选配置。
+- **候选语义有意保持简单**：不解释小写名称、`.claude/rules/` 与 `@path` import；项目 scope 默认加载 `AGENTS.local.md`／`CLAUDE.local.md` overlay，但用户全局 `$DSH_HOME` scope 没有本地 overlay，其他自定义名称需要显式候选配置。
 - **每目录去重基于内容**：只有在去除首尾空白后字节完全一致时，才折叠同级候选文件。`CLAUDE.md` 若 symlink 到同级 `AGENTS.md`，会解析为相同内容，并像任何重复项一样折叠；从 `AGENTS.md` 漂移的独立实体副本则会与它一起完整加载。
 - **Symlink 指令文件会跨越信任边界跟随**：最终组件是 symlink 的候选文件会被解析并加载其目标，因此克隆仓库可以将树外文件内容呈现为较低优先级的工作区指引（它绝不会覆盖 system、developer 或用户直接下达的指令）。加载不受信任仓库时，请用文件系统策略门禁或 OS 沙箱限制 `ctx.fs`。
 - **指令内容受限但不会被摘要**：超出预算的宽泛文件会被省略，最具体文件可能被截断；该插件绝不请求模型压缩指令文本。

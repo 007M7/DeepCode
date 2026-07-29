@@ -67,11 +67,11 @@ import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
 
 YAML include 可以去重配置，却无法拥有 bin 或提供前端入口默认值。ACP 应用包默认接出协议纯净的 stdout，但叶节点仍可添加不安全的 logger。组合包子节点把服务注册到根 isolate-keyed store，因此叶节点的同级插件无需依赖加载顺序即可通过注入看到它们。
 
-重试策略可能在新的编号步骤中重复失败的请求。重试状态、提供方错误和失败的部分分片 不进入模型历史；每次提供方尝试仍可能产生计费；always 模式没有尝试次数上限；前端入口从所有已记录步骤推导用量；重建的请求保留先前前缀，以便复用提供方缓存。
+重试策略可能在新的编号步骤中重复失败的请求。重试状态、提供方错误和失败的部分分片不进入模型历史；每次提供方尝试仍可能产生计费；always 模式没有尝试次数上限；前端入口从所有已记录步骤推导用量；重建的请求保留先前前缀，以便复用提供方缓存。
 
 ## 模型体验
 
-模型通过 `dsh-system-prompt`、`dsh-tool-skill`、`dsh-tool-bash`、`dsh-tools` 和 `dsh-llm-retry` 间接获得体验；还会通过 `dsh-tool-goal` 与Goal Round 提示词获得体验，前提是启用 `goals`。组合包自身不添加面向模型的包装内容。
+模型通过 `dsh-system-prompt`、`dsh-tool-skill`、`dsh-tool-bash`、`dsh-tools` 和 `dsh-llm-retry` 间接获得体验；还会通过 `dsh-tool-goal` 与 Goal Round 提示词获得体验，前提是启用 `goals`。组合包自身不添加面向模型的包装内容。
 
 #### KV Cache 影响
 

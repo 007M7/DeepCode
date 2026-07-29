@@ -57,9 +57,9 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议格式是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
-本包（package）没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
+本包（package）没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
 无密钥测试通过真实 stdio 驱动脚本化 ACP 子进程，其中包括一个由 Loader 组合的 stdio 应用，用于端到端证明父会话 cwd 继承。带密钥 e2e 会驱动仓库中的真实 ACP agent；没有 `DEEPSEEK_API_KEY` 时自行跳过。
 

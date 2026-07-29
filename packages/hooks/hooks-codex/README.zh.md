@@ -36,7 +36,7 @@ const config: Config = {
 
 配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，而非每会话解析（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理（记录 + 不注册任何内容）。只运行同步 `type: 'command'` hook；非 command 或 `async: true` hook 会被解析并跳过，同时记录警告。hook 接受 `timeout` 或 `timeoutSec` alias；两者都未设置时，使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟）。五个桥接支持点之外的事件会在解析时丢弃。
 
-hook 本身会在 agent（智能体）的会话工作区中运行：对 agent scope 点，桥接会将会话 `cwd` 作为 hook 进程工作目录，因此 hook 作用于 用户项目树，而非服务器启动目录。
+hook 本身会在 agent（智能体）的会话工作区中运行：对 agent scope 点，桥接会将会话 `cwd` 作为 hook 进程工作目录，因此 hook 作用于用户项目树，而非服务器启动目录。
 
 ## Hook 点 → seam Decision
 

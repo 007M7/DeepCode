@@ -8,7 +8,7 @@
 
 ## fixture 的工作方式
 
-fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `assistant/chunk` 事件包含每个 `StreamChunk`，因此按 `(turn, step)` 分组即可重建每次 `stream()` 调用的分片序列（每个循环步骤调用一次模型）。因此，录制就是“运行一次真实 agent 并收集 `.jsonl`”，由快照 harness 完成；该插件本身不录制。fixture 的 `request/header` 内容可能被标记化为 `{{system}}`/`{{tools}}`（harness 会在一个场景中固定该内容，并清除其余场景中的内容）；回放不受影响，因为派生过程只读取 `assistant/chunk` 事件和第 0 行的会话 header。
+fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `assistant/chunk` 事件包含每个 `StreamChunk`，因此按 `(turn, step)` 分组即可重建每次 `stream()` 调用的分片序列（每个循环步骤调用一次模型）。因此，录制就是「运行一次真实 agent 并收集 `.jsonl`」，由快照 harness 完成；该插件本身不录制。fixture 的 `request/header` 内容可能被标记化为 `{{system}}`/`{{tools}}`（harness 会在一个场景中固定该内容，并清除其余场景中的内容）；回放不受影响，因为派生过程只读取 `assistant/chunk` 事件和第 0 行的会话 header。
 
 有两种失败模式无法仅根据 `assistant/chunk` 重建：在产生任何分片前直接抛出异常（例如 HTTP 401，此时日志只有 `turn/end {error}` 而没有分片），以及取消或挂起（差异在时序，而非分片内容）。需要这些行为的场景可提供伴随文件（`<scenario>/replay.override.json`）：它可以替换派生脚本（裸 `ReplayEntry[]`），也可以增补派生脚本（`{ patches: [{ at, entry }] }`：保留所有从 JSONL 派生的调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加一次调用）。补丁索引不得重复。文件加载时会校验覆写文档、每个补丁和条目，以及每个分片的判别标签。`hang` 条目可以指定 `readyFile`；当前缀分片到达循环后、开始等待取消前，回放会写入这个空标记，使外部驱动程序无需观察展示层更新即可确定性地取消。
 
