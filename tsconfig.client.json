@@ -19,6 +19,8 @@
     "packages/client/*/src/css-modules.d.ts",
     "packages/client/*/tests/**/*.ts",
     "packages/client/*/tests/**/*.tsx",
+    "packages/host/directory-picker-native/tests/**/*.ts",
+    "packages/host/directory-picker-native/tests/**/*.tsx",
     "packages/client/tsdown.client.ts",
     "scripts/client-bundle-purity.spec.ts"
   ],
@@ -27,6 +29,10 @@
     // smoke policy). webserver has zero workspace deps and no cordis merge,
     // so it cannot drag host-side Context augmentation into this program.
     { "path": "./packages/host/webserver" },
+    // Dual-face host leaf: the node half is the native picking backend, the
+    // browser half registers the picking flow into ui-workspace's slot —
+    // client-side Context merges keep it out of the host program.
+    { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },

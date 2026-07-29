@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
@@ -24,6 +25,41 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 /** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
 const PROFILE_DIR = '.dsh-tmp-profile'
 const PROFILE_FILE = 'config.json'
+
+/** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation here and the printed LAN URL in web.ts. */
+const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Non-internal IPv4 interface addresses of this machine — the IP-literal
+ * authorities an all-interfaces bind is reachable by on the LAN.
+ * @returns the addresses in interface order (possibly empty).
+ */
+function lanIPv4Addresses(): string[] {
+  return Object.values(networkInterfaces()).flat()
+    .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    .map(iface => iface.address)
+}
+
+/**
+ * One LAN-trust resolution for one invocation, sampled exactly once: the
+ * machine's LAN IP literals when the effective bind is all-interfaces, and
+ * the `trustedHosts` value built from them plus the explicit extras. The
+ * single sample is deliberate — display must advertise only addresses the
+ * fence was configured with, so both read this snapshot. Derived entries are
+ * port-less IP literals: DNS rebinding needs an attacker-controlled name, so
+ * an IP-literal Host is safe on any port, and the bound port may be
+ * OS-assigned, unknowable pre-boot.
+ * @param bindHost - the effective webserver bind host (CLI flag, else the yml default).
+ * @param extra - `--trusted-host` values, in argv order.
+ * @returns the sampled LAN addresses and the connection row's `trustedHosts` value (each possibly empty).
+ */
+export function resolveLanTrust(
+  bindHost: string | undefined,
+  extra: readonly string[],
+): { lanAddresses: string[]; trustedHosts: string[] } {
+  const lanAddresses = bindHost === ALL_INTERFACES_HOST ? lanIPv4Addresses() : []
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
 
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
@@ -79,6 +115,8 @@ export interface AppCLIEntryOptions {
   port?: number
   /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
   workspaceRoot?: string
+  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`), appended to the derived LAN IP literals. */
+  trustedHosts?: string[]
 }
 
 /**
@@ -90,6 +128,14 @@ export interface AppCLIEntryOptions {
 export class AppCLIEntry {
   /** The root context, set by {@link run}. */
   ctx!: Context
+
+  /**
+   * LAN IPv4 addresses sampled once at patch composition — the exact snapshot
+   * the /api trust fence was configured with. Display reads this instead of
+   * re-sampling, so the advertised LAN URL can never name an address the
+   * fence rejects. Empty unless the effective bind is all-interfaces.
+   */
+  lanAddresses: readonly string[] = []
 
   private patches: PatchOptions[] = []
 
@@ -151,6 +197,13 @@ export class AppCLIEntry {
     if (this.options.host !== undefined) put('webserver', 'host', this.options.host)
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
     if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
+
+    // Source 2b: authorities for the /api browser-trust fence (rationale on
+    // resolveLanTrust).
+    const ymlHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
+    const { lanAddresses, trustedHosts } = resolveLanTrust(this.options.host ?? ymlHost, this.options.trustedHosts ?? [])
+    this.lanAddresses = lanAddresses
+    if (trustedHosts.length > 0) put('connection', 'trustedHosts', trustedHosts)
 
     // Source 3: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.
