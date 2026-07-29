@@ -2,7 +2,7 @@
 
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
@@ -48,7 +48,9 @@ describe('BrowseDirectoryPicker', () => {
   it('lists directories only, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
     const listing = await capability.list(root)
     expect(listing.path).toBe(root)
-    expect(listing.home).toBe(homedir())
+    // Resolved like path and crumbs — the environment may decorate HOME,
+    // and the wire contract promises one canonical shape for all three.
+    expect(listing.home).toBe(resolve(homedir()))
     expect(listing.entries.map(entry => entry.name)).toEqual(['.hidden-dir', 'linked', 'projects'])
     expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
     // Every entry path is absolute and host-joined — clients never join segments.

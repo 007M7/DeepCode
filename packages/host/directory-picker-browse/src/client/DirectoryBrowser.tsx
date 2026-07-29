@@ -82,19 +82,17 @@ function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
 }
 
 /**
- * Lexically normalizes an absolute host path for comparisons: folds
- * forward slashes on Windows (win32 accepts either), collapses repeated
- * and trailing separators, drops `.` segments, and applies `..` without
- * ever crossing the root — POSIX's `/`, a drive's `C:`, or UNC's
- * `\\server\share` pair — mirroring the backend's resolve() for the
- * shapes an environment-supplied HOME legally carries verbatim while the
- * backend's own paths arrive already resolved. A lexical mirror only:
- * symlinks are the backend's business.
+ * Lexically normalizes a typed absolute path for comparisons against the
+ * backend's resolved ones (the wire contract keeps `path`, `crumbs[].path`,
+ * and `home` in resolved shape; only the DRAFT side needs this): collapses
+ * repeated and trailing separators, drops `.` segments, and applies `..`
+ * without ever crossing the root — POSIX's `/`, a drive's `C:`, or UNC's
+ * `\\server\share` pair — mirroring resolve()'s lexical behavior. Expects
+ * separators already folded to `sep` (foldSeparatorsFor); a lexical mirror
+ * only, symlinks are the backend's business.
  */
 function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
-  const foldSeparators = foldSeparatorsFor(sep)
-  return (raw) => {
-    const value = foldSeparators(raw)
+  return (value) => {
     const unc = sep === '\\' && value.startsWith(`${sep}${sep}`)
     const rawSegments = (unc ? value.slice(2) : value).split(sep)
     // Empty segments are separator noise everywhere except POSIX's leading
@@ -123,16 +121,14 @@ function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
 /**
  * Breadcrumb rows for display: inside the home subtree the chain starts at a
  * localized Home crumb; outside it the full ancestry shows, the root labeled
- * by its own path. The home comparison folds per platform and lexically
- * normalizes both sides, so a typed-case Windows path or a `HOME=/home/u/.`
- * shape still collapses to the Home crumb.
+ * by its own path. `home` and every crumb path arrive in the same resolved
+ * shape (the wire contract), so only the platform case fold remains — a
+ * typed-case Windows chain still collapses to the Home crumb.
  */
 function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryEntry[] {
-  const sep = separatorOf(listing)
-  const fold = foldPathFor(sep)
-  const normalize = normalizePathFor(sep)
-  const home = fold(normalize(listing.home))
-  const homeIndex = listing.crumbs.findIndex(crumb => fold(normalize(crumb.path)) === home)
+  const fold = foldPathFor(separatorOf(listing))
+  const home = fold(listing.home)
+  const homeIndex = listing.crumbs.findIndex(crumb => fold(crumb.path) === home)
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
@@ -161,13 +157,14 @@ function separatorOf(listing: DirectoryListing): '\\' | '/' {
  * The path draft's final segment, when its directory part names the level
  * `listing` lists — the segment the level prefix-filters on while the user
  * types. Any other draft (no separator yet, or naming some other directory)
- * leaves the level unfiltered. The directory part compares lexically
- * normalized (dot segments, repeated separators, and win32 forward
- * slashes all match what Enter would navigate to) and under the platform
- * case fold (exact on slash platforms; Windows folds, since an upgraded
- * selection may carry the actual entry's case while the level below still
- * carries the typed one); the name filter downstream is case-insensitive
- * everywhere.
+ * leaves the level unfiltered. Only the directory part is lexically
+ * normalized (dot segments, repeated separators, and win32 forward slashes
+ * all match what Enter would navigate to) and platform-case-folded (exact
+ * on slash platforms; Windows folds, since an upgraded selection may carry
+ * the actual entry's case while the level below still carries the typed
+ * one); the FINAL segment stays a literal name prefix — a lone `.` reads
+ * as the dot-reveal, `..` matches no entry (Enter still navigates it) —
+ * and the name filter downstream is case-insensitive everywhere.
  */
 function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
   if (draft === null) return null
@@ -177,7 +174,7 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
   if (cut === -1) return null
   const fold = foldPathFor(sep)
   const normalize = normalizePathFor(sep)
-  return fold(normalize(folded.slice(0, cut + 1))) === fold(normalize(listing.path))
+  return fold(normalize(folded.slice(0, cut + 1))) === fold(listing.path)
     ? folded.slice(cut + 1)
     : null
 }
@@ -593,15 +590,16 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     if (row !== null && childPath !== undefined) row.scrollLeft = row.scrollWidth
   }, [childPath])
   // Every pick and editor exit that would drop focus to body re-parks it
-  // after commit, so keyboard traversal stays inside the dialog (the Modal
-  // has no focus trap): a pick lands on the selection's row — aria-current
-  // in the freshly rendered left pane, which survives even a right-pane
+  // after commit, so THIS DIALOG'S OWN node replacements never leak focus
+  // out of the card: a pick lands on the selection's row — aria-current in
+  // the freshly rendered left pane, which survives even a right-pane
   // advance or a create landing replacing the picked button's column —
   // while the edit-zone exits enumerated at the flag declarations fall
-  // back to the crumb edit zone. The one window outside this invariant is
-  // the owner's adopt: busy inerts every control in the card (browsers
-  // blur disabled elements to body) and no parking applies — the owner
-  // closes the dialog either way.
+  // back to the crumb edit zone. Outside the guarantee: the Modal has no
+  // focus trap, so tabbing past the card's edge legitimately leaves, and
+  // the owner's adopt window (busy inerts every control; browsers blur
+  // disabled elements to body) gets no parking — the owner closes the
+  // dialog either way.
   useEffect(() => {
     if (pathDraft !== null) return
     if (refocusPick.current) {

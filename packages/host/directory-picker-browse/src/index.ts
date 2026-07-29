@@ -215,7 +215,12 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
   }
 
   private async list(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
-    const home = homedir()
+    // Resolved like every other path in the listing: the environment may
+    // decorate HOME (trailing or repeated separators, dot segments, win32
+    // forward slashes) and homedir() ships it verbatim, while clients
+    // compare home against the resolved `path`/`crumbs` — the wire contract
+    // promises one canonical shape for all three.
+    const home = resolve(homedir())
     // The seam contract takes fully qualified paths only; resolve() would
     // silently rebase a relative or empty wire value under the host process
     // cwd (or, for rooted drive-less Windows forms, its current drive).

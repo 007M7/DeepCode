@@ -240,19 +240,6 @@ describe('DirectoryBrowser', () => {
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
   })
 
-  // HOME ships verbatim from the environment while listing paths arrive
-  // resolved; each decoration (trailing, repeated, dot, dot-dot segments)
-  // must still normalize to the display root — single pane, Home crumb,
-  // and no parent leg launched.
-  it.each(['/', '//', '/foo/../.'])('a home decorated with "%s" is still the display root', async (decoration) => {
-    const listDirectory = vi.fn(async (path?: string) => ({ ...listingFor(path), home: `${HOME}${decoration}` }))
-    mount({ listDirectory })
-    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    expect(columns()).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
-    expect(listDirectory).toHaveBeenCalledTimes(1)
-  })
-
   it('a landing whose new level dropped the focused row parks on the edit zone', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -407,42 +394,16 @@ describe('DirectoryBrowser', () => {
     expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
   })
 
-  it('a UNC home with dot-dot never pops the share root and still collapses to Home', async () => {
+  it('a UNC level is home-collapsed and filters decorated UNC drafts without popping the share root', async () => {
     const SHARE = '\\\\server\\share'
     const listing: DirectoryListing = {
       path: `${SHARE}\\x`,
-      // USERPROFILE ships verbatim; win32.resolve keeps \\server\share as
-      // the unpoppable root and folds the doubled separator, so this
-      // normalizes to \\server\share\x.
-      home: '\\\\server\\\\share\\..\\x',
+      home: `${SHARE}\\x`,
       crumbs: [
         { name: `${SHARE}\\`, path: `${SHARE}\\`, hidden: false },
         { name: 'x', path: `${SHARE}\\x`, hidden: false },
       ],
-      entries: [],
-      truncated: false,
-    }
-    const listDirectory = vi.fn(async () => listing)
-    mount({ listDirectory })
-    await waitFor(() => { expect(listDirectory).toHaveBeenCalled() })
-    await waitFor(() => { expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy() })
-    expect(columns()).toHaveLength(1)
-    expect(listDirectory).toHaveBeenCalledTimes(1)
-  })
-
-  it('a forward-slash Windows home still reads as the display root', async () => {
-    const listing: DirectoryListing = {
-      path: 'C:\\Users\\Alice',
-      // USERPROFILE may legally use forward slashes; the root crumb (not
-      // the home text) carries the platform, and normalization folds the
-      // slashes before comparing.
-      home: 'C:/Users/Alice',
-      crumbs: [
-        { name: 'C:\\', path: 'C:\\', hidden: false },
-        { name: 'Users', path: 'C:\\Users', hidden: false },
-        { name: 'Alice', path: 'C:\\Users\\Alice', hidden: false },
-      ],
-      entries: [{ name: 'Desktop', path: 'C:\\Users\\Alice\\Desktop', hidden: false }],
+      entries: [{ name: 'Alpha', path: `${SHARE}\\x\\Alpha`, hidden: false }],
       truncated: false,
     }
     const listDirectory = vi.fn(async () => listing)
@@ -450,7 +411,15 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     expect(columns()).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
-    expect(listDirectory).toHaveBeenCalledTimes(1)
+    // A decorated UNC draft (doubled separator, share-root-crossing dot-dot)
+    // still normalizes to the listed level: the filter matches what Enter
+    // would navigate to, and \\server\share stays unpoppable.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: '\\\\server\\\\share\\..\\x\\a' } })
+    expect(screen.getByText('Alpha')).toBeTruthy()
+    fireEvent.change(input, { target: { value: `${SHARE}\\x\\z` } })
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 
   it('collapses a typed-case Windows home to the display root (single pane, Home crumb)', async () => {
@@ -681,6 +650,8 @@ describe('DirectoryBrowser', () => {
     fireEvent.change(input, { target: { value: `${HOME}/./do` } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
     fireEvent.change(input, { target: { value: `${HOME}//do` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    fireEvent.change(input, { target: { value: `${HOME}/foo/../do` } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
   })
 

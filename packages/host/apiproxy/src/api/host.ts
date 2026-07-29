@@ -19,7 +19,7 @@ export interface DirectoryEntry {
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
   path: string
-  /** The host account's home directory (breadcrumb "Home" rooting). */
+  /** The host account's home directory (breadcrumb "Home" rooting), in the same resolved shape as `path` and `crumbs[].path`. */
   home: string
   /**
    * Ancestor chain from the filesystem root to the listed directory
