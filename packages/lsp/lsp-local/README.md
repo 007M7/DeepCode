@@ -55,6 +55,5 @@ No direct invalidation; `dsh-tool-lsp` owns request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **No confinement policy** — this package trusts the configured server and does not sandbox its process; a restricted deployment must supply appropriate process/filesystem providers or a same-world sandbox wrapper.
-- **Execution-world URI rendering** — the stdio host produces provider-owned `file:` URIs. The current model tool renders them with the harness host's path library, so a Windows harness paired with a POSIX remote execution world may show remote locations as URIs or non-native paths; protocol queries remain correct.
 - **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertise `None`) are unsupported even if closed-document queries would work; the pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
 - **Per-server/workspace serialization latency** — parallel agents sharing one server and workspace queue behind one process; long-lived workspace processes consume memory until disposal.
