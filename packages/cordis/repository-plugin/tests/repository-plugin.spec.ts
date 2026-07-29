@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { RepositoryCache } from '@cordisjs/plugin-loader/repository'
 import SkillService from '@deepseek-ai/dsh-skill'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -12,6 +13,11 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RepositoryPlugin from '@deepseek-ai/dsh-repository-plugin'
 import * as RepositoryPluginInvariant from '@deepseek-ai/dsh-repository-plugin/invariant'
 import { parsePreparedPluginConfig } from '../src/format.ts'
+import {
+  loadPreparedRepository,
+  resolveRepositoryCacheDirectory,
+  resolveRepositorySpecifier,
+} from '../src/source.ts'
 
 const roots: string[] = []
 
@@ -35,6 +41,8 @@ async function writeSkill(root: string, name: string): Promise<void> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
@@ -253,12 +261,119 @@ describe('prepared repository plugin Loader composition', () => {
     await ctx.plugin(Loader)
     const registrar = ctx.plugin(RepositoryPlugin)
     await registrar
-    expect(() => { RepositoryPlugin.apply(ctx) }).toThrow('already registered')
+    await expect(RepositoryPlugin.apply(ctx)).rejects.toThrow('already registered')
 
     const replacement = { name: 'replacement', apply() {} }
     ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN] = replacement
     await registrar.dispose()
     expect(ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN]).toBe(replacement)
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('configured GitHub repository sources', () => {
+  it('defaults an omitted source list and rejects unknown configuration fields', () => {
+    expect(RepositoryPlugin.Config.parse(undefined)).toEqual({ repositories: [] })
+    expect(RepositoryPlugin.Config.safeParse({ repositories: [], unexpected: true }).success).toBe(false)
+  })
+
+  it('accepts an empty direct-apply config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    await RepositoryPlugin.apply(ctx, {})
+    expect(ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN]).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('adds the root plugin subpath and preserves an explicit nested plugin subpath', () => {
+    expect(resolveRepositorySpecifier('github:PolyArch/humanize#v1.0.0'))
+      .toBe('github:PolyArch/humanize#v1.0.0&path:/.dsh-plugin')
+    expect(resolveRepositorySpecifier('github:owner/repository#feature/ref&path:/plugins/one/.dsh-plugin'))
+      .toBe('github:owner/repository#feature/ref&path:/plugins/one/.dsh-plugin')
+  })
+
+  it('rejects absent refs and invalid plugin subpaths', () => {
+    for (const source of [
+      'github:owner/repository',
+      'github:owner/repository#',
+      'https://github.com/owner/repository#ref',
+      'github:owner/repository#ref&path:relative/.dsh-plugin',
+    ]) {
+      expect(() => resolveRepositorySpecifier(source)).toThrow('must use github:owner/repo#<ref>')
+    }
+    for (const path of [
+      '/plugins//.dsh-plugin',
+      '/plugins/../.dsh-plugin',
+      '/plugins/./.dsh-plugin',
+      '/plugins/not-a-plugin',
+    ]) {
+      expect(() => resolveRepositorySpecifier(`github:owner/repository#ref&path:${path}`))
+        .toThrow('path must be an absolute repository subpath')
+    }
+  })
+
+  it('resolves the default cache under DSH_HOME and an explicit cache absolutely', async () => {
+    const root = await temporaryDirectory('cache-root')
+    vi.stubEnv('DSH_HOME', root)
+    expect(resolveRepositoryCacheDirectory(undefined)).toBe(join(root, 'cache', 'repository-plugins'))
+    expect(resolveRepositoryCacheDirectory(join(root, 'explicit'))).toBe(join(root, 'explicit'))
+  })
+
+  it('loads a configured source through the immutable cache and removes its skill on teardown', async () => {
+    const root = await temporaryDirectory('configured-source')
+    await writeSkill(join(root, 'skills'), 'configured-repository-skill')
+    const directory = await writePlugin(root, 'configured-source-fixture', { skills: ['../skills'] })
+    await RepositoryPlugin.prepareDshPlugin(directory)
+    const resolved: string[] = []
+    const cacheDirectory = join(root, 'cache')
+    vi.spyOn(RepositoryCache.prototype, 'resolve').mockImplementation(async function (this: RepositoryCache, specifier) {
+      expect(this.directory).toBe(cacheDirectory)
+      resolved.push(specifier)
+      return directory
+    })
+
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    await ctx.plugin(SkillService)
+    const registrar = ctx.plugin(RepositoryPlugin, {
+      repositories: ['github:owner/repository#fixed-ref'],
+      cacheDir: cacheDirectory,
+    })
+    await registrar
+    expect(resolved).toEqual(['github:owner/repository#fixed-ref&path:/.dsh-plugin'])
+    await expect(ctx.skills.get('configured-repository-skill')).resolves.toMatchObject({
+      provider: 'repository:configured-source-fixture',
+    })
+
+    await registrar.dispose()
+    await expect(ctx.skills.get('configured-repository-skill')).resolves.toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects duplicate generations and cleans the builtin after cache preparation fails', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    await expect(RepositoryPlugin.apply(ctx, {
+      repositories: [
+        'github:owner/repository#ref',
+        'github:owner/repository#ref',
+      ],
+    })).rejects.toThrow('must resolve to unique exact specifiers')
+
+    vi.spyOn(RepositoryCache.prototype, 'resolve').mockRejectedValue(new Error('prepare failed'))
+    await expect(RepositoryPlugin.apply(ctx, {
+      repositories: ['github:owner/repository#other'],
+    })).rejects.toThrow('prepare failed')
+    expect(ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN]).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('labels a missing prepared wrapper with its exact source and path', async () => {
+    const root = await temporaryDirectory('missing-wrapper')
+    const ctx = new Context()
+    const specifier = 'github:owner/repository#missing&path:/.dsh-plugin'
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, specifier))
+      .rejects.toThrow(`failed to load prepared repository Plugin ${JSON.stringify(specifier)}`)
     await ctx.fiber.dispose()
   })
 })

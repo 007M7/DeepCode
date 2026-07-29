@@ -22,7 +22,7 @@
 
 `.mcp.json` 中的每个 server 都变成一个现有 `dsh-mcp-client` 子级。适配层接受通用根对象 `{ "mcpServers": ... }`；stdio 定义只允许可选的 `type: "stdio"`、`command`、`args` 与 `env`，HTTP 定义只允许 `type: "http"`、`url` 与 `headers`。严格的 `${NAME}` 进程环境变量引用在运行时、cache 准备之后展开；缺失变量会使 Plugin 加载失败。HTTP 映射到 client 的 Streamable HTTP transport，stdio 使用已准备 package 目录作为 `cwd`。只有现有 client 负责连接尝试、失败日志、远端工具同步、工具调用和断开。因此 MCP 连接失败会继续沿用“Plugin 成功但不注册工具”的既有行为，不会被重新分类为 repository 准备或 Loader 失败。
 
-未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容契约。Hooks、commands、agents、apps、任意 Cordis 代码、marketplace 和发现同样不受支持。Repository 子目录选择与 GitHub 配置属于后续 app/cache 集成，而不是本格式 package。
+未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容契约。Hooks、commands、agents、apps、任意 Cordis 代码、marketplace 和发现同样不受支持。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本格式 package。
 
 ## 考虑过的替代方案
 

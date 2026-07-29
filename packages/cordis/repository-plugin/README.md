@@ -28,6 +28,23 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
 
 `dsh.skills` is an optional array of local skill roots. `dsh.mcpServers` is an optional path to one `.mcp.json`; at least one field is required. Paths are relative to `.dsh-plugin`, must stay under its parent source directory, and may therefore refer to existing repository assets such as `../skills`. A repository containing several Plugins gives each one its own `.dsh-plugin` package under a different selectable subdirectory.
 
+## Standalone app configuration
+
+The shipped `dsh` TUI, Web, and headless trees contain an empty `repository-plugins` row. A standalone user enables exact GitHub generations by replacing that row's config in `$DSH_HOME/config.yaml` (default `~/.dsh/config.yaml`):
+
+```yaml
+- id: repository-plugins
+  name: '@deepseek-ai/dsh-repository-plugin'
+  config:
+    repositories:
+      - 'github:PolyArch/humanize#<commit>'
+      - 'github:owner/repository#<ref>&path:/plugins/one/.dsh-plugin'
+```
+
+Each source must use `github:owner/repository#<ref>`. Omitting `&path:` selects `/.dsh-plugin`; an explicit path is absolute within the repository and must end in `.dsh-plugin`. A commit ref gives the clearest immutable identity, while tags and branches remain accepted exact config values. `cacheDir` may override the default `$DSH_HOME/cache/repository-plugins` cache root.
+
+The TUI and Web watch `config.yaml` through Cordis HMR. A valid source-list change installs and swaps the complete repository Plugin generation; a failed fetch, prepare, import, or Plugin application keeps the last good tree and broadcasts `hmr/config-update-failed(filename, error)`. Headless runs consume the file only at startup. An identical source string permanently reuses its prepared cache entry, so selecting changed code requires a ref, path, or other source-config change. App integration rationale: [config-only repository Plugins Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md).
+
 ## Preparation
 
 `dsh-plugin-prepare` validates `package.json#dsh`, verifies skill-root types, parses the MCP file, copies assets under `dsh-plugin-assets`, and writes `dsh-plugin.mjs`. The wrapper contains only the normalized static manifest and fixed code that looks up the `dsh-repository-plugin` Loader builtin. It neither discovers nor compiles repository JavaScript, and the runtime never imports another repository entry point.

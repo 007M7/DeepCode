@@ -24,6 +24,9 @@
       "path": "../../mcp/mcp-client"
     },
     {
+      "path": "../../util/paths"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

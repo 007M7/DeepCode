@@ -28,6 +28,23 @@
 
 `dsh.skills` 是可选的本地 skill 根数组。`dsh.mcpServers` 是指向一个 `.mcp.json` 的可选路径；两者至少声明一个。路径相对于 `.dsh-plugin`，必须留在其父级源码目录下，因此可以引用 `../skills` 等仓库现有资源。一个仓库可以在不同的可选择子目录下放置多个各自独立的 `.dsh-plugin` package。
 
+## 独立应用配置
+
+已交付的 `dsh` TUI、Web 和无头配置树包含一个空的 `repository-plugins` 配置项。独立用户只需在 `$DSH_HOME/config.yaml`（默认 `~/.dsh/config.yaml`）中替换该配置项的配置，即可启用精确指定的 GitHub generation：
+
+```yaml
+- id: repository-plugins
+  name: '@deepseek-ai/dsh-repository-plugin'
+  config:
+    repositories:
+      - 'github:PolyArch/humanize#<commit>'
+      - 'github:owner/repository#<ref>&path:/plugins/one/.dsh-plugin'
+```
+
+每个源都必须采用 `github:owner/repository#<ref>`。省略 `&path:` 时选择 `/.dsh-plugin`；显式路径是仓库内的绝对路径，并且必须以 `.dsh-plugin` 结尾。commit ref 提供最清晰的不可变身份；tag 和 branch 仍可作为显式配置值使用。`cacheDir` 可覆盖默认缓存根 `$DSH_HOME/cache/repository-plugins`。
+
+TUI 和 Web 通过 Cordis HMR（热模块替换）监视 `config.yaml`。有效的源列表变更会安装并替换整套仓库插件 generation；拉取、准备、导入或插件应用失败时，最后一个可用树保持运行，并广播 `hmr/config-update-failed(filename, error)`。无头运行只在启动时使用该文件。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入仓库插件的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
+
 ## 准备阶段
 
 `dsh-plugin-prepare` 校验 `package.json#dsh`、确认 skill 根类型、解析 MCP 文件、把资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。包装模块只包含规范化后的静态 manifest（元数据清单），以及查找 `dsh-repository-plugin` Loader builtin 的固定代码；它不会发现或编译仓库 JavaScript，运行时也不会导入仓库的其他入口。

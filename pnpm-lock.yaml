@@ -312,6 +312,9 @@ importers:
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../packages/guard/repeat-tool-guard
+      '@deepseek-ai/dsh-repository-plugin':
+        specifier: workspace:^
+        version: link:../../packages/cordis/repository-plugin
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../../packages/sandbox/sandbox-local
@@ -2368,6 +2371,9 @@ importers:
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:^
         version: link:../../mcp/mcp-client
+      '@deepseek-ai/dsh-paths':
+        specifier: workspace:^
+        version: link:../../util/paths
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill

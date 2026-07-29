@@ -995,6 +995,22 @@ export interface Config {
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
 
+## `@deepseek-ai/dsh-repository-plugin`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Repository Plugin runtime and source-list configuration. */
+export interface Config {
+  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
+  repositories?: string[]
+  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
+  cacheDir?: string
+}
+```
+
+Source: [`packages/cordis/repository-plugin/src/index.ts:41`](../packages/cordis/repository-plugin/src/index.ts)
+
 ## `@deepseek-ai/dsh-sandbox-local`
 
 ```ts config-catalog
@@ -2322,7 +2338,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
-- `@deepseek-ai/dsh-repository-plugin` — requires `loader` ([`packages/cordis/repository-plugin/src/index.ts`](../packages/cordis/repository-plugin/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))

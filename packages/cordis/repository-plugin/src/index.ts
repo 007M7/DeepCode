@@ -8,8 +8,10 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import type {} from '@cordisjs/plugin-loader'
+import { RepositoryCache } from '@cordisjs/plugin-loader/repository'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import { z } from 'zod'
 import {
   REPOSITORY_PLUGIN_BUILTIN,
   isOutside,
@@ -17,6 +19,11 @@ import {
   type PreparedPluginConfig,
 } from './format.ts'
 import { parseMcpDocument, resolveMcpServers } from './mcp.ts'
+import {
+  loadPreparedRepository,
+  resolveRepositoryCacheDirectory,
+  resolveRepositorySpecifier,
+} from './source.ts'
 
 export {
   PREPARED_ASSET_DIRECTORY,
@@ -30,6 +37,19 @@ export {
 export const name = 'repository-plugin'
 /** Loader service required to register the fixed prepared-wrapper builtin. */
 export const inject = ['loader']
+
+/** Repository Plugin runtime and source-list configuration. */
+export interface Config {
+  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
+  repositories?: string[]
+  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
+  cacheDir?: string
+}
+
+export const Config = z.object({
+  repositories: z.array(z.string().min(1)).default([]),
+  cacheDir: z.string().min(1).optional(),
+}).strict().default({ repositories: [] })
 
 function preparedPath(baseUrl: string, configured: string): string {
   if (isAbsolute(configured)) throw new Error(`prepared DSH plugin path must be relative: ${JSON.stringify(configured)}`)
@@ -101,16 +121,25 @@ const preparedRuntime = {
  * Register the DSH-owned runtime as the Loader builtin used by fixed prepared wrappers.
  * @param ctx - plugin context carrying the Loader service.
  */
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   if (ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] !== undefined) {
     throw new Error(`Loader builtin ${REPOSITORY_PLUGIN_BUILTIN} is already registered`)
   }
-  ctx.effect(function* () {
+  const repositories = (config.repositories ?? []).map(resolveRepositorySpecifier)
+  if (new Set(repositories).size !== repositories.length) {
+    throw new Error('repository sources must resolve to unique exact specifiers')
+  }
+  const cache = new RepositoryCache(resolveRepositoryCacheDirectory(config.cacheDir))
+  await ctx.effect(async function* () {
     ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] = preparedRuntime
     yield () => {
       if (ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] === preparedRuntime) {
         Reflect.deleteProperty(ctx.loader.builtins, REPOSITORY_PLUGIN_BUILTIN)
       }
     }
-  }, 'repository-plugin Loader builtin')
+    for (const repository of repositories) {
+      const plugin = await loadPreparedRepository(ctx, cache, repository)
+      yield plugin.dispose
+    }
+  }, 'repository-plugin runtime and sources')
 }

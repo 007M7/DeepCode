@@ -22,7 +22,7 @@ Each prepared skill set mounts `dsh-skill-local` with a unique `repository:<pack
 
 Each `.mcp.json` server becomes one existing `dsh-mcp-client` child. The adapter accepts the common root `{ "mcpServers": ... }`; stdio definitions allow only optional `type: "stdio"`, `command`, `args`, and `env`, while HTTP definitions allow only `type: "http"`, `url`, and `headers`. Exact `${NAME}` process-environment references expand at runtime, after cache preparation; missing names fail Plugin load. HTTP maps to the client's Streamable HTTP transport, and stdio uses the prepared package directory as `cwd`. The existing client alone owns connection attempts, failure logging, remote tool synchronization, tool calls, and disconnects. Consequently an MCP connection failure keeps its established successful-plugin/no-tools behavior and is not reclassified as a repository preparation or Loader failure.
 
-Unknown MCP fields reject. This intentionally excludes OAuth, `auth` objects, `CLAUDE_PLUGIN_ROOT`, and a broader Claude compatibility contract. Hooks, commands, agents, apps, arbitrary Cordis code, marketplaces, and discovery are also unsupported. Repository subdirectory selection and GitHub configuration belong to the later app/cache integration, not this format package.
+Unknown MCP fields reject. This intentionally excludes OAuth, `auth` objects, `CLAUDE_PLUGIN_ROOT`, and a broader Claude compatibility contract. Hooks, commands, agents, apps, arbitrary Cordis code, marketplaces, and discovery are also unsupported. Repository subdirectory selection and GitHub source configuration belong to the [standalone app integration](../feature/2026-07-30-config-only-repository-plugins.md), not this format package.
 
 ## Alternatives considered
 

@@ -18,6 +18,9 @@
       "path": "../../../vendor/include"
     },
     {
+      "path": "../../../vendor/hmr"
+    },
+    {
       "path": "../../support/invariants"
     },
     {

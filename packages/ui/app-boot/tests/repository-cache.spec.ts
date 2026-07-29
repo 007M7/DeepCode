@@ -112,17 +112,27 @@ describe('RepositoryCache', () => {
     await expect(cache.resolve(specifier)).rejects.toThrow('repository cache marker is invalid')
   })
 
-  it('runs a Git dependency prepare script through the bundled pnpm', { timeout: 60_000 }, async () => {
+  it('selects and prepares a root .dsh-plugin Git subpath through the bundled pnpm', { timeout: 60_000 }, async () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
-    await mkdir(repository)
+    await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
+    await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
       version: '1.0.0',
-      scripts: { prepare: 'node prepare.mjs' },
     })}\n`)
-    await writeFile(join(repository, 'prepare.mjs'), [
-      "import { writeFile } from 'node:fs/promises'",
+    await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
+    await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
+      name: 'repository-plugin-fixture',
+      version: '1.0.0',
+      scripts: { prepare: 'node prepare.mjs' },
+      dsh: { skills: ['../skills'] },
+    })}\n`)
+    await writeFile(join(repository, '.dsh-plugin', 'prepare.mjs'), [
+      "import { cp, mkdir, writeFile } from 'node:fs/promises'",
+      "await mkdir('dsh-plugin-assets/skills', { recursive: true })",
+      "await cp('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
+      "await writeFile('dsh-plugin.mjs', 'export function apply() {}\\n')",
       "await writeFile('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
       '',
     ].join('\n'))
@@ -134,11 +144,16 @@ describe('RepositoryCache', () => {
       'commit', '--quiet', '-m', 'fixture',
     ], { cwd: repository })
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' })
-    const specifier = `git+${pathToFileURL(repository).href}#${stdout.trim()}`
+    const specifier = `git+${pathToFileURL(repository).href}#${stdout.trim()}&path:/.dsh-plugin`
     vi.stubEnv('REPOSITORY_TEST_VISIBLE', 'visible')
     vi.stubEnv('REPOSITORY_TEST_TOKEN', 'hidden')
 
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
+    await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
+    await expect(readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8'))
+      .resolves.toBe('repository skill source\n')
+    await expect(readFile(join(installed, 'package.json'), 'utf8'))
+      .resolves.toContain('repository-plugin-fixture')
   })
 })
