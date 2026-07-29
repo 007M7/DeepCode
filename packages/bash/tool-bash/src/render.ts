@@ -95,10 +95,23 @@ export function renderProcessRead(
 }
 
 /**
- * Recover the structured exit status from a rendered {@link renderResult}
- * string — the inverse of the status markers it appends. A killed marker
- * yields `signal`; otherwise a non-zero marker yields `exitCode`; absent both
- * means a clean exit 0.
+ * The exit status recovered from a rendered result, with the output body that
+ * status was split off from.
+ */
+export type ParsedExitStatus =
+  & { body: string }
+  & ({ exitCode: number } | { signal: string })
+
+/**
+ * Split a rendered {@link renderResult} string into its output body and the
+ * structured exit status — the inverse of the status markers it appends. A
+ * killed marker yields `signal`; otherwise a non-zero marker yields `exitCode`;
+ * absent both means a clean exit 0.
+ *
+ * The consumed marker is removed from `body` because a terminal presentation
+ * shows the exit status as its own pill: leaving the marker in the output would
+ * render the exit twice. Other markers (timeout, sandbox denial) carry facts no
+ * pill shows, so they stay in the body.
  *
  * Replay only retains the rendered content text, not the original
  * `BashRunResult`, so terminal presentation must recover the exit pill here.
@@ -106,12 +119,12 @@ export function renderProcessRead(
  * that merely ends with marker-like text from matching unless the final line
  * is indistinguishable from a real marker.
  * @param text - rendered model-facing bash result.
- * @returns the recovered terminal exit code or signal.
+ * @returns the marker-free body plus the recovered terminal exit code or signal.
  */
-export function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
+export function parseExitStatus(text: string): ParsedExitStatus {
   const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
-  if (signal?.[1] !== undefined) return { signal: signal[1] }
+  if (signal?.[1] !== undefined) return { body: text.slice(0, signal.index), signal: signal[1] }
   const exit = /\n\[exit code: (\d+)\]$/.exec(text)
-  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
-  return { exitCode: 0 }
+  if (exit?.[1] !== undefined) return { body: text.slice(0, exit.index), exitCode: Number(exit[1]) }
+  return { body: text, exitCode: 0 }
 }

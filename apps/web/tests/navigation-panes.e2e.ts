@@ -24,6 +24,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', impor
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
 const WATERFALL_EXPECTED = join(SNAPSHOT_DIR, 'waterfall.expected.md')
+const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
 
@@ -162,6 +163,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
     await bashRow.click()
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    // The card's own controls are outside the summary row and must not open
+    // details either — the terminal card is read in place.
+    await page.locator('[data-sample="bash-global"] ~ [data-terminal] [class*="_copyButton_"]').first().click()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
     // Read summaries are host-open file links; they also must not open details.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
@@ -169,11 +174,92 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-terminal'))
+    await page.getByRole('tab', { name: 'Chat' }).click()
+    // The card is resident in the keyed bash row (no expand gesture): the
+    // recorded command's own output sits in the message flow, derived from the
+    // logged call/result presentations alone.
+    const card = page.locator('[data-sample="bash-global"] ~ [data-terminal], [data-sample="bash-global"] [data-terminal]').first()
+    await card.waitFor({ timeout: 15_000 })
+    // Real layout, not jsdom's stub (which computes no geometry at all):
+    // squeeze the output pane below its content width and the line must keep
+    // its single row and overflow sideways instead of folding. Soft-wrapping
+    // here is what shredded the column alignment this card exists to hold.
+    const layout = await card.locator('[class*="_output_"]').first().evaluate((node) => {
+      const pane = node as HTMLElement
+      const row = pane.querySelector<HTMLElement>('[class*="_line_"]')
+      if (row === null) throw new Error('output pane has no line')
+      const before = row.offsetHeight
+      const restore = pane.style.width
+      pane.style.width = '8px'
+      const squeezed = { wrapped: row.offsetHeight > before, scrollsSideways: pane.scrollWidth > pane.clientWidth }
+      pane.style.width = restore
+      return { whiteSpace: getComputedStyle(row).whiteSpace, overflowX: getComputedStyle(pane).overflowX, ...squeezed }
+    })
+    expect(layout).toEqual({ whiteSpace: 'pre', overflowX: 'auto', wrapped: false, scrollsSideways: true })
+    // The run-state dot's color is the whole point of it and is the one thing
+    // jsdom cannot report: --dsw-* tokens resolve only against the real theme
+    // stylesheet. This command settled cleanly, so the dot must be the green
+    // success token — a red one here would read as a failed command.
+    const dot = await card.locator('[class*="_runState_"][data-state]').first().evaluate((node) => {
+      // The token lives on body, so the probe must sit in the same cascade.
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--dsw-alias-state-success-primary)'
+      document.body.appendChild(probe)
+      const success = getComputedStyle(probe).color
+      probe.remove()
+      return {
+        state: node.getAttribute('data-state'),
+        color: getComputedStyle(node as HTMLElement).color,
+        success,
+        // One label per card (the state is the call's), so it hangs off the
+        // prompt column rather than the row the dot sits in.
+        label: node.closest('[class*="_prompt_"]')?.querySelector('[class*="_runStateLabel_"]')?.textContent ?? null,
+        // The dot precedes the prompt label in document order, which is what
+        // puts it to the left of the `$`.
+        beforePrompt: node.compareDocumentPosition(node.parentElement!.querySelector('[class*="_cwd_"]')!)
+          === Node.DOCUMENT_POSITION_FOLLOWING,
+        // The dot lives in the card's OWN left padding, so it sits inside the
+        // card box yet left of the prompt text. Owning the reservation as padding
+        // rather than margin is what keeps a consumer's own margin from
+        // cancelling it and letting a container clip the dot — geometry jsdom
+        // cannot compute.
+        insideCard: (node as HTMLElement).getBoundingClientRect().left
+          >= (node.closest('[data-terminal]')?.getBoundingClientRect().left ?? Infinity),
+        leftOfPrompt: (node as HTMLElement).getBoundingClientRect().right
+          <= (node.closest('[class*="_promptLine_"]')
+            ?.querySelector('[class*="_cwd_"]')
+            ?.getBoundingClientRect().left ?? -Infinity),
+      }
+    })
+    expect(dot.state).toBe('done')
+    expect(dot.label).toBe('已完成')
+    expect(dot.beforePrompt).toBe(true)
+    expect(dot.insideCard).toBe(true)
+    expect(dot.leftOfPrompt).toBe(true)
+    // Resolved through the theme token, not a literal hex in the component.
+    expect(dot.success).toMatch(/^rgb/)
+    expect(dot.color).toBe(dot.success)
+    // Golden of the card at rest — captured before the copy click, whose
+    // confirmation label self-reverts on a timer and would not hold still.
+    const snapshot = (await captureStableAria(page, '[data-terminal]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(TERMINAL_EXPECTED, snapshot, MODE)
+    // Copy writes the raw output through the browser's own clipboard, which in
+    // a real page is the async Clipboard API rather than the jsdom fallback.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await card.locator('[class*="_copyButton_"]').first().click()
+    await expect.poll(() => card.locator('[class*="_copyButton_"]').first().textContent(), { timeout: 5_000 })
+      .toBe('复制成功')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md',
+      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md', 'terminal-card.expected.md',
     ])
   })
 })

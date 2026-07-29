@@ -1,26 +1,23 @@
 /**
  * Session-resume sub-controller for the interactive chat channel: the
  * `/resume` selector, per-candidate summary reads that tolerate a corrupt
- * neighbor, the pre-handoff preflight, the terminal handoff itself, and the
- * durable resume-hint command printed on exit.
+ * neighbor, the pre-handoff preflight, and the terminal handoff itself.
  * @module @deepseek-ai/dsh-tui/chat/resume
  */
 
 import type { TUI } from '@earendil-works/pi-tui'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SessionLogSnapshot,
   SessionQueryService,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { HintEditor } from './helpers.ts'
 import { formatCwd } from './helpers.ts'
 import type { TuiOverlaySession } from '../extension/types.ts'
 import type { TuiRuntime } from '../runtime.ts'
-import type { Config } from '../config.ts'
 import {
   ResumePicker,
   summarizeResumeCandidate,
@@ -31,9 +28,7 @@ import type { ChannelNotice, ChatChannelDeps } from './channel.ts'
 /** Collaborators the resume controller needs from the chat channel. */
 export interface ResumeControllerDeps extends ChatChannelDeps, ChannelNotice {
   readonly agent: Agent
-  readonly config: Config
   readonly runtime: TuiRuntime
-  readonly persistence: SessionPersistence | undefined
   readonly sessionQuery: SessionQueryService | undefined
   readonly ui: TUI
   readonly editor: HintEditor
@@ -43,47 +38,27 @@ export interface ResumeControllerDeps extends ChatChannelDeps, ChannelNotice {
 
 /** Session-resume controller for one chat channel. */
 export interface ResumeController {
-  /** Open the current-workspace searchable session selector. */
+  /** Open the searchable session selector, scoped to this workspace until the user widens it. */
   showResume(): void
-  /**
-   * The resume command for the current session — the configured template with
-   * every `{session}` filled — but only once the session is durably persisted;
-   * `undefined` otherwise.
-   */
-  currentResumeCommand(): Promise<string | undefined>
 }
 
 /**
  * Build the session-resume controller for one chat channel.
  * @param deps - channel collaborators, terminal handles, and optional services.
- * @returns the controller wired to the `/resume` command and exit hint.
+ * @returns the controller wired to the `/resume` command.
  */
 export function createResumeController(deps: ResumeControllerDeps): ResumeController {
   const {
-    ctx, agent, config, runtime, resolved, palette, overlayManager,
-    persistence, sessionQuery, ui, editor,
+    ctx, agent, runtime, resolved, palette, overlayManager,
+    sessionQuery, ui, editor,
   } = deps
   let resumeOverlay: TuiOverlaySession | undefined
   let resumeInFlight = false
   let resumeScan = 0
 
-  /**
-   * Persisted sessions for this workspace, newest first. Empty when no
-   * persistence backend is mounted or a listing failure would otherwise block
-   * exit or crash `/resume`; the resume hint is best-effort convenience.
-   */
-  const listWorkspaceSessions = async (): Promise<SessionHeader[]> => {
-    if (persistence === undefined) return []
-    let all: readonly SessionHeader[]
-    try {
-      all = await persistence.list()
-    } catch {
-      // A listing failure must never block terminal exit or crash `/resume`.
-      return []
-    }
-    return all
-      .filter(header => header.cwd === agent.session.header.cwd)
-  }
+  /** Label any session's own workspace the way the prompt labels the current one. */
+  const workspaceLabel = (cwd: string | undefined): string =>
+    runtime.formatCwd?.(cwd) ?? formatCwd(cwd)
 
   /** Build one display candidate without letting a corrupt neighbor abort the selector. */
   const readResumeCandidate = async (
@@ -109,6 +84,7 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         agent.session.id,
         agent.session.header.cwd,
         providers,
+        workspaceLabel,
       )
     } catch (error: unknown) {
       return {
@@ -116,13 +92,18 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         title: 'Unreadable session',
         lastActivityAt: record.header.createdAt,
         lastTurn: 'log unavailable',
+        currentWorkspace: record.header.cwd === agent.session.header.cwd,
+        workspaceLabel: workspaceLabel(record.header.cwd),
         disabledReason: `session cannot be loaded: ${errorChain(error)}`,
       }
     }
   }
 
-  /** Re-read every mutable precondition immediately before terminal handoff. */
-  const preflightResume = async (sessionId: SessionId): Promise<ResumeCandidate> => {
+  /**
+   * Re-read every mutable precondition immediately before terminal handoff and
+   * resolve the exact identity and workspace the host will re-exec into.
+   */
+  const preflightResume = async (sessionId: SessionId): Promise<{ id: SessionId; cwd: string }> => {
     /* v8 ignore next -- only showResume can call this closure, after proving the optional service exists */
     if (sessionQuery === undefined) throw new Error('Resume is unavailable: session query is not mounted.')
     const initialStatus = deps.agentStatus()
@@ -134,9 +115,12 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       new Set(ctx.llm.listProviders().map(provider => provider.id)),
     )
     if (candidate.disabledReason !== undefined) throw new Error(candidate.disabledReason)
+    const cwd = candidate.record.header.cwd
+    /* v8 ignore next -- summarizeResumeCandidate disables a cwd-less record, so the check above already rejected it */
+    if (cwd === undefined) throw new Error(`Session "${sessionId}" has no recorded workspace to resume in.`)
     const finalStatus = deps.agentStatus()
     if (finalStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${finalStatus}).`)
-    return candidate
+    return { id: candidate.record.header.id, cwd }
   }
 
   const handoffResume = async (candidate: ResumeCandidate, overlay: TuiOverlaySession): Promise<void> => {
@@ -147,13 +131,9 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       const checked = await preflightResume(candidate.record.header.id)
       const hostHandoff = runtime.handoffResume
       if (hostHandoff === undefined) {
-        const template = config.resumeCommand
-        const fallback = template?.replaceAll('{session}', checked.record.header.id)
         await overlay.close()
         resumeOverlay = undefined
-        deps.appendNotice(fallback === undefined
-          ? 'Session is resumable, but this host cannot hand it off in place.'
-          : `This host cannot hand off in place. Exit and run: ${fallback}`, 'warning')
+        deps.appendNotice('Session is resumable, but this host cannot hand it off in place.', 'warning')
         return
       }
       /* v8 ignore next -- shutdown during preflight invalidates an awaited service read or reaches this guard */
@@ -169,7 +149,10 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       if (deps.isDisposed()) return
       ui.stop()
       terminalReleased = true
-      await hostHandoff(checked.record.header.id)
+      // The host re-execs into the session's own workspace: process cwd, not the
+      // restored session header, is what the filesystem and shell tools resolve
+      // against.
+      await hostHandoff(checked.id, checked.cwd)
       throw new Error('resume host returned without replacing the process')
     } catch (error: unknown) {
       if (!deps.isDisposed()) {
@@ -189,12 +172,6 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
   }
 
   return {
-    currentResumeCommand: async (): Promise<string | undefined> => {
-      if (config.resumeCommand === undefined) return undefined
-      const sessions = await listWorkspaceSessions()
-      if (!sessions.some(header => header.id === agent.session.id)) return undefined
-      return config.resumeCommand.replaceAll('{session}', agent.session.id)
-    },
     showResume(): void {
       if (agent.status !== 'idle') {
         deps.appendNotice('Resume requires the current turn to finish or be cancelled first.', 'warning')
@@ -208,9 +185,10 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       void resumeOverlay?.close()
       void sessionQuery.listSessions().then(async (records) => {
         if (deps.isDisposed() || scan !== resumeScan) return
-        const workspace = records.filter(record => record.header.cwd === agent.session.header.cwd)
+        // Every workspace in the store is summarized; the picker owns the
+        // current-workspace/all-workspaces scope split over the whole set.
         const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
-        const candidates = await Promise.all(workspace.map(record => readResumeCandidate(record, providers)))
+        const candidates = await Promise.all(records.map(record => readResumeCandidate(record, providers)))
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))
         if (deps.isDisposed() || scan !== resumeScan) return
@@ -218,7 +196,7 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
           create: host => new ResumePicker(
             candidates,
             resolved.maxResumeOptions,
-            runtime.formatCwd?.(agent.session.header.cwd) ?? formatCwd(agent.session.header.cwd),
+            workspaceLabel(agent.session.header.cwd),
             () => host.viewport.rows,
             palette,
             (candidate) => { void handoffResume(candidate, session) },

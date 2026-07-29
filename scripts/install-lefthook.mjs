@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
@@ -437,6 +437,15 @@ function inspectOwnedHooksDirectory(hooksPath) {
   return { markerPath, ...marker }
 }
 
+function isRegisteredOwnedHooksPath(commonDirectory, hooksPath) {
+  const normalizedHooksPath = normalizedPath(hooksPath)
+  const isRegistered = registeredWorktreeConfigPaths(commonDirectory).some(
+    configPath => normalizedPath(join(dirname(configPath), HOOKS_DIRECTORY)) === normalizedHooksPath,
+  )
+  if (!isRegistered) return false
+  return inspectOwnedHooksDirectory(hooksPath)?.hooksPath === hooksPath
+}
+
 function ensureOwnedHooksDirectory(hooksPath) {
   const inspected = inspectOwnedHooksDirectory(hooksPath)
   if (inspected !== undefined) return inspected
@@ -561,14 +570,22 @@ async function main() {
       'worktree core.hooksPath',
     )
     let ownedHooksDirectory
+    let copiedWorktreePathIsOwned = false
     if (worktreePath !== undefined && worktreePath !== hooksPath) {
       ownedHooksDirectory = inspectOwnedHooksDirectory(hooksPath)
-      if (ownedHooksDirectory === undefined || ownedHooksDirectory.hooksPath !== worktreePath) {
+      const worktreePathIsRelocated = ownedHooksDirectory?.hooksPath === worktreePath
+      copiedWorktreePathIsOwned = !worktreePathIsRelocated
+        && isRegisteredOwnedHooksPath(commonDirectory, worktreePath)
+      if (!worktreePathIsRelocated && !copiedWorktreePathIsOwned) {
         refuseScopedHooksPath({ origin: `file:${worktreeConfigPath}`, scope: 'worktree', value: worktreePath })
       }
     }
     const directWorktreePathIsOwned = worktreePath !== undefined
-      && (worktreePath === hooksPath || ownedHooksDirectory?.hooksPath === worktreePath)
+      && (
+        worktreePath === hooksPath
+        || ownedHooksDirectory?.hooksPath === worktreePath
+        || copiedWorktreePathIsOwned
+      )
     const effectiveEntry = effectiveConfigEntry(root, 'core.hooksPath')
     if (effectiveEntry !== undefined) {
       const effectivePathIsOwned = effectiveEntry.scope === 'worktree'
@@ -593,6 +610,7 @@ async function main() {
       worktreePath !== undefined
       && worktreePath !== hooksPath
       && ownedHooksDirectory.hooksPath !== worktreePath
+      && !copiedWorktreePathIsOwned
     ) {
       throw new Error(`hooks directory ownership changed while relocating ${JSON.stringify(worktreePath)}`)
     }
