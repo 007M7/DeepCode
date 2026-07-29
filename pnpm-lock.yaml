@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
-  node-pty@1.1.0: fa5e4a788317512778f95ef1573fec565f9b601ce10383bbf103234db3e61985
+  node-pty@1.1.0: 4a1568bc9ef77084629054d0736430818818155abcd0dce581ef8c782e974c15
 
 importers:
 
@@ -650,7 +650,7 @@ importers:
     devDependencies:
       node-pty:
         specifier: 1.1.0
-        version: 1.1.0(patch_hash=fa5e4a788317512778f95ef1573fec565f9b601ce10383bbf103234db3e61985)
+        version: 1.1.0(patch_hash=4a1568bc9ef77084629054d0736430818818155abcd0dce581ef8c782e974c15)
 
   packages/acp/acp:
     dependencies:
@@ -3384,7 +3384,7 @@ importers:
     dependencies:
       node-pty:
         specifier: ^1.1.0
-        version: 1.1.0(patch_hash=fa5e4a788317512778f95ef1573fec565f9b601ce10383bbf103234db3e61985)
+        version: 1.1.0(patch_hash=4a1568bc9ef77084629054d0736430818818155abcd0dce581ef8c782e974c15)
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -15269,7 +15269,7 @@ snapshots:
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
 
-  node-pty@1.1.0(patch_hash=fa5e4a788317512778f95ef1573fec565f9b601ce10383bbf103234db3e61985):
+  node-pty@1.1.0(patch_hash=4a1568bc9ef77084629054d0736430818818155abcd0dce581ef8c782e974c15):
     dependencies:
       node-addon-api: 7.1.1
 
