@@ -121,23 +121,16 @@ describe('Oxlint gate', () => {
     })
   })
 
-  it('passes the configured worker bound to both Oxlint backends', () => {
+  it('surfaces the configured worker bound on the shared package script', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
 
     expect(subject).toMatchObject({
       id: 'lint',
-      displayCommand: 'pnpm exec oxlint . --threads=4',
+      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint',
       command: process.execPath,
-      args: ['/private/pnpm.cjs', 'exec', 'oxlint', '.', '--threads=4'],
-      env: { GOMAXPROCS: '4' },
+      args: ['/private/pnpm.cjs', 'run', 'lint'],
     })
-  })
-
-  it('rejects a non-positive or non-integer worker bound', () => {
-    expect(() => withEnv('DSH_OXLINT_THREADS', 'auto', () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-lint'))))
-      .toThrow('DSH_OXLINT_THREADS must be a positive integer')
   })
 })
 

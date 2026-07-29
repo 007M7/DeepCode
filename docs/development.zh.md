@@ -107,7 +107,7 @@ pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
 pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
 pnpm run lint           # oxlint .
-pnpm run lint:fix       # oxlint . --fix
+pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale

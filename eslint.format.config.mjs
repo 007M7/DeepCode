@@ -13,6 +13,7 @@ export default [
       '.claude/**',
       '**/.doc-typecheck-*/**',
       '**/.node-next-types-*/**',
+      // Do not mirror Oxlint's contract-fixture ignore: those files must reach this formatter.
       'website/.generated/**',
       'vendor/**',
       'native/**',

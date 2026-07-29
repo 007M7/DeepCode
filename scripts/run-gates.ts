@@ -377,24 +377,10 @@ function ciWindowsObservationalGates(): Gate[] {
 }
 
 function lintGate(): Gate {
-  const threadBound = oxlintThreadBound()
-  if (threadBound !== undefined) {
-    return pnpmExec('lint', ['oxlint', '.', `--threads=${threadBound}`], {
-      label: 'lint',
-      env: { GOMAXPROCS: threadBound },
-    })
-  }
-  return pnpmScript('lint', 'lint')
-}
-
-function oxlintThreadBound(): string | undefined {
   const raw = process.env.DSH_OXLINT_THREADS
-  if (raw === undefined || raw === '') return undefined
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
-    throw new Error(`run-gates: DSH_OXLINT_THREADS must be a positive integer, got ${JSON.stringify(raw)}.`)
-  }
-  return raw
+  return pnpmScript('lint', 'lint', raw === undefined || raw === ''
+    ? {}
+    : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
 }
 
 function coverageGate(): Gate {

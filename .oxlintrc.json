@@ -5,6 +5,7 @@
     "correctness": "off"
   },
   "options": {
+    "reportUnusedDisableDirectives": "warn",
     "typeAware": true
   },
   "env": {
@@ -18,6 +19,7 @@
     "**/.doc-typecheck-*/**",
     "**/.node-next-types-*/**",
     "**/.oxlint-contract-*/**", // Scratch files created by the executable lint-contract tests.
+    "**/oxlint-contract-*", // Flat probes use real TypeScript project include paths.
     "website/.generated/**",
     "vendor/**", // Vendored source keeps upstream style and idioms.
     "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
@@ -281,6 +283,7 @@
             }
           }
         ],
+        // Validation-only: line length has no safe formatter fix.
         "@stylistic/max-len": [
           "error",
           {

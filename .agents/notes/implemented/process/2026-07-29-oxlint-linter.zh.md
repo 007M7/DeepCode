@@ -12,19 +12,19 @@ Status: implemented
 
 ## 决策
 
-根目录的 [`.oxlintrc.json`](../../../../.oxlintrc.json) 是仓库 lint 配置的权威来源。`lint` 包（package）脚本、门禁调度器和 CI 使用 Oxlint 进行全仓库及类型感知验证。`lint:fix` 脚本和 lefthook 先调用仅用于格式化的 [`eslint.format.config.mjs`](../../../../eslint.format.config.mjs)，再运行 Oxlint。直接的 `eslint` 和 `@typescript-eslint/parser` 开发依赖仅用于这次不加载项目的格式化流程；该配置不包含正确性规则或类型感知规则。
+根目录的 [`.oxlintrc.json`](../../../../.oxlintrc.json) 是仓库 lint 配置的权威来源。`lint` 包（package）脚本、门禁调度器、CI 和 lefthook 通过 [`scripts/run-oxlint.ts`](../../../../scripts/run-oxlint.ts) 调用 Oxlint，进行全仓库、类型感知或暂存验证。`lint:fix` 脚本和 lefthook 先调用仅用于格式化的 [`eslint.format.config.mjs`](../../../../eslint.format.config.mjs)，再运行 Oxlint。直接的 `eslint` 和 `@typescript-eslint/parser` 开发依赖仅用于这次不加载项目的格式化流程；其精确版本锁定经过测试的解析器与修复器配对，该配置不包含正确性规则或类型感知规则。
 
-`options.typeAware` 启用 `oxlint-tsgolint`。其后端始终按文件发现 TypeScript 项目；Oxlint 的 `--tsconfig` 覆盖项会影响导入解析，但类型感知 lint 会忽略它，因此本仓库不设置该选项。该配置显式载入迁移后的严格类型检查规则和仓库覆盖配置，而不启用内容可能发生变化的 Oxlint 宽泛类别。`typescript/no-unnecessary-condition` 仍从 Oxlint 的 nursery 规则集中启用，因为它在迁移前就是仓库强制执行的规则。
+`options.typeAware` 启用 `oxlint-tsgolint`。其后端按文件发现 TypeScript 项目：包源码使用各自的包项目，host 测试、示例和网站使用 `tsconfig.host.json`，client 测试及 `scripts/client-bundle-purity.spec.ts` 使用 `tsconfig.client.json`。不含程序的根解决方案绝不会被扁平化。Oxlint 的 `--tsconfig` 覆盖项会影响导入解析，但类型感知 lint 会忽略它，因此本仓库不设置该选项。该配置显式载入迁移后的严格类型检查规则和仓库覆盖配置，而不启用内容可能发生变化的 Oxlint 宽泛类别。`typescript/no-unnecessary-condition` 仍从 Oxlint 的 nursery 规则集中启用，因为它在迁移前就是仓库强制执行的规则。
 
-Oxlint 的 JavaScript 插件兼容层运行 `@stylistic/eslint-plugin` 和 `eslint-plugin-sonarjs`，从而继续强制执行现有的格式和文件内重复逻辑规则。兼容层会报告 `@stylistic` 违规，但不会执行其修复器，因此仅用于格式化的 ESLint 流程只负责相应的自动修复。自有源码中的抑制指令使用 `oxlint-*` 指令和 `typescript/*` 命名空间；vendor 源码保留其上游指令，因为 Oxlint 会排除 `vendor/**`。
+Oxlint 的 JavaScript 插件兼容层运行 `@stylistic/eslint-plugin` 和 `eslint-plugin-sonarjs`，从而继续强制执行现有的格式和文件内重复逻辑规则。兼容层会报告 `@stylistic` 违规，但不会执行其修复器，因此仅用于格式化的 ESLint 流程只负责相应的自动修复；一项可执行检查确保这些可修复规则定义保持一致，而 `max-len` 仅用于验证。自有源码中的抑制指令使用 `oxlint-*` 指令和 `typescript/*` 命名空间，未使用的指令仍作为警告报告；vendor 源码保留其上游指令，因为 Oxlint 会排除 `vendor/**`。
 
-CI 不恢复或保存 lint 结果缓存。`DSH_OXLINT_THREADS` 可以在门禁调度器中将同一上限传给 Oxlint 的 `--threads` 选项和类型感知后端的 `GOMAXPROCS` 环境变量；普通本地运行对两者均采用默认值。Pre-commit 应用仅用于格式化的 ESLint 修复，运行 Oxlint 验证和原生安全修复，并通过 lefthook 重新暂存结果。
+CI 不恢复或保存 lint 结果缓存。`DSH_OXLINT_THREADS` 使共享运行器将同一上限传给 Oxlint 的 `--threads` 选项和类型感知后端的 `GOMAXPROCS` 环境变量；普通本地运行对两者均采用默认值。Pre-commit 应用仅用于格式化的 ESLint 修复，运行 Oxlint 验证和原生安全修复，接受仅含已忽略文件的文件选择，并通过 lefthook 重新暂存结果。
 
 ## 验证
 
-解决两处分析器差异后，迁移后的配置报告与迁移前一致的自有源码无问题基线：移除了一项冗余测试断言，而 `tsc` 要求的一处结构性类型转换使用了窄范围的 Oxlint 抑制指令。一项已提交的指纹测试会对严重级别和规则名映射进行归一化，再以已删除 ESLint 配置的精确 blob 为基准，对每一项启用的规则及其选项进行深度比较：源码为 88 项对 88 项，示例为 87 项对 87 项，测试为 83 项对 83 项，不存在缺失、多余或发生变化的配对。对 `typescript-eslint@8.61.0` 的评估还确认，`strictTypeChecked` 并未启用 `@typescript-eslint/no-empty-function`；已删除、仅用于测试的 `off` 条目不起作用。
+解决两处分析器差异后，迁移后的配置报告与迁移前一致的自有源码无问题基线：移除了一项冗余测试断言，而 `tsc` 要求的一处结构性类型转换使用了窄范围的 Oxlint 抑制指令。以已删除 ESLint 配置的精确 blob 为基准进行的一次性审核在完成规则名映射后确认：源码为 88 项对 88 项，示例为 87 项对 87 项，测试为 83 项对 83 项。已提交的指纹锁定这些经审核的 Oxlint 规则配置及完整的覆盖结构；它既不执行已删除的配置，也不纳入后续的上游预设变更。对 `typescript-eslint@8.61.0` 的评估还确认，`strictTypeChecked` 并未启用 `@typescript-eslint/no-empty-function`；已删除、仅用于测试的 `off` 条目不起作用。
 
-一项可执行契约测试会在 host 包源码和测试、client 包源码和测试、脚本、示例以及网站代码中注入 `typescript/no-floating-promises` 违规，随后要求 Oxlint 单次调用报告全部七条诊断。它还让一个刻意格式错误的暂存文件依次通过 ESLint 格式化器和 Oxlint 验证器，并断言单次流程后的最终字节。门禁调度器测试锁定两项工作线程控制，仓库 lint 命令运行两个 JavaScript 兼容插件，类型检查则确认迁移引发的源码改动没有破坏 TypeScript 程序。
+可执行契约测试要求包、host 和 client 项目产生类型感知诊断，断言 client 专用脚本所用的项目，拒绝未匹配的回退分析，并检验 Stylistic、SonarJS 和 nursery 兼容路径。它们还锁定未使用抑制指令的报告行为、仅选择已忽略暂存文件的情况、格式化器与验证器之间的规则一致性，以及最终格式化后的字节。运行器测试锁定两项工作线程控制，类型检查则确认迁移引发的源码改动没有破坏 TypeScript 程序。
 
 ## 考虑过的替代方案
 
