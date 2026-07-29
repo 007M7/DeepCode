@@ -854,6 +854,9 @@ export function createTuiChat(
     overlayManager,
     // Optional and independently mounted: read at each use so config row order
     // cannot decide whether /resume works.
+    // The TUI and query provider are sibling Loader fibers. During a command
+    // callback Cordis may transiently mark the provider non-ACTIVE even though
+    // its init completed and its disposal is ordered after this consumer.
     sessionQuery: () => ctx.get('sessionQuery', false),
     ui,
     editor,
