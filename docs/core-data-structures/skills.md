@@ -10,7 +10,7 @@ Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/ind
 
 `ctx.skills` combines local, embedded, remote, or other providers. Registration is synchronous; remote initialization and discovery belong in awaited `list()`. Provider objects, options, and candidates are borrowed readonly, while semantic fields are validated.
 
-Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and omitted from an incomplete observation, while an explicit incomplete observation contributes usable candidates without making the result cacheable; malformed candidates fail fast. Each provider factory receives a registration-scoped control whose `invalidate()` clears completed catalogs only while that exact registration remains active and whose signal aborts on failed registration or disposal. An in-flight discovery retries when its provider generation changes. Provider and runtime mutations emit the unfiltered `skills/change` invalidation event; it carries no diff, so consumers refetch `snapshot()` with their own lookup options.
+Duplicate names resolve by rank, provider order, then local order; summaries sort by name. A rejected `list()` is logged and omitted from an incomplete observation, while an explicit incomplete observation contributes usable candidates without making the result cacheable; malformed candidates fail fast. Each provider factory receives a registration-scoped control whose `invalidate()` clears completed catalogs only while that exact registration remains active and whose signal aborts on failed registration or disposal. An in-flight discovery retries once when its provider generation changes; a second change returns the latest candidates incomplete and uncached. Provider and runtime mutations emit the unfiltered `skills/change` invalidation event; it carries no diff, so consumers refetch `snapshot()` with their own lookup options.
 
 An array returned by `SkillProvider.list()` is complete-discovery shorthand. `SkillProviderObservation` lets a provider expose candidates that remain directly loadable while reporting that the observation is not authoritative.
 
@@ -109,14 +109,14 @@ interface SkillSummary {
 }
 ```
 
-`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure. `skills` contains the sorted summaries collected in that observation; `complete` is true only when every registered provider completed. Incomplete snapshots are not cached, allowing a consumer to retain its last-good model catalog and retry.
+`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing a consumer to retain its last-good model catalog and retry.
 
 ```ts type-equiv
-/** One catalog observation plus whether every registered provider completed discovery. */
+/** One catalog observation plus whether discovery completed within a stable catalog revision. */
 interface SkillCatalogSnapshot {
   /** Sorted model-invocable summaries collected in this observation. */
   readonly skills: SkillSummary[]
-  /** Whether every registered provider completed discovery for this observation. */
+  /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
 }
 ```

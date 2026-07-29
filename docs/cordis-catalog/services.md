@@ -1660,11 +1660,11 @@ register(skill: SkillRegistration): () => void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 
 /**
- * Observe the current model-invocable catalog and whether all providers completed discovery.
+ * Observe the current model-invocable catalog and whether discovery completed within a stable revision.
  * Incomplete observations are never cached, allowing consumers to retain last-good state and
  * retry on their next request boundary.
  * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
- * @returns sorted summaries plus provider-completeness state.
+ * @returns sorted summaries plus discovery-completeness state.
  */
 async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 
@@ -1681,7 +1681,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:177`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:178`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 

@@ -748,6 +748,40 @@ describe('SkillService registry', () => {
     expect(provider.listCalls).toBe(2)
   })
 
+  it('bounds repeated in-flight invalidation and leaves the result uncached', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let listCalls = 0
+    ctx.skills.registerProvider(control => ({
+      name: 'self-invalidating',
+      async list() {
+        listCalls += 1
+        control.invalidate()
+        return [{
+          ...memorySkill('bounded-skill', `Attempt ${listCalls}`, 10),
+          provider: 'self-invalidating',
+        }]
+      },
+      async get() {
+        return undefined
+      },
+    }))
+
+    expect(await ctx.skills.snapshot()).toEqual({
+      skills: [{
+        name: 'bounded-skill',
+        description: 'Attempt 2',
+        provider: 'self-invalidating',
+        source: 'memory',
+      }],
+      complete: false,
+    })
+    expect(listCalls).toBe(2)
+
+    expect((await ctx.skills.snapshot()).skills[0]?.description).toBe('Attempt 4')
+    expect(listCalls).toBe(4)
+  })
+
   it('invalidates a provider whose loaded definition changed identity', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)

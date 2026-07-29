@@ -15,6 +15,7 @@ import type Schema from 'schemastery'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
+const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
 
@@ -87,11 +88,11 @@ export interface SkillLookupOptions {
   readonly signal?: AbortSignal | undefined
 }
 
-/** One catalog observation plus whether every registered provider completed discovery. */
+/** One catalog observation plus whether discovery completed within a stable catalog revision. */
 export interface SkillCatalogSnapshot {
   /** Sorted model-invocable summaries collected in this observation. */
   readonly skills: SkillSummary[]
-  /** Whether every registered provider completed discovery for this observation. */
+  /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
 }
 
@@ -286,11 +287,11 @@ export class SkillService extends Service {
   }
 
   /**
-   * Observe the current model-invocable catalog and whether all providers completed discovery.
+   * Observe the current model-invocable catalog and whether discovery completed within a stable revision.
    * Incomplete observations are never cached, allowing consumers to retain last-good state and
    * retry on their next request boundary.
    * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
-   * @returns sorted summaries plus provider-completeness state.
+   * @returns sorted summaries plus discovery-completeness state.
    */
   async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot> {
     const collected = await this.collect(options)
@@ -333,6 +334,7 @@ export class SkillService extends Service {
 
   private async collect(options: SkillLookupOptions): Promise<CollectResult> {
     throwIfAborted(options.signal)
+    let attempt = 1
     while (true) {
       const providerRevision = this.providerRevision
       const runtimeRevision = this.runtimeRevision
@@ -342,7 +344,13 @@ export class SkillService extends Service {
 
       const result = await this.collectFresh(options)
       throwIfAborted(options.signal)
-      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) continue
+      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) {
+        if (attempt < MAX_COLLECT_ATTEMPTS) {
+          attempt += 1
+          continue
+        }
+        return { entries: result.entries, cacheable: false }
+      }
       if (result.cacheable) {
         this.collectCache.set(key, result.entries)
         if (this.collectCache.size > this.collectCacheMaxEntries) {

@@ -10,7 +10,7 @@
 
 `ctx.skills` 组合本地、内嵌、远程或其他提供方。注册是同步的；远程初始化与发现属于 `list()` 的 await 阶段。提供方对象、选项与候选项以只读方式借用，语义字段会被校验。
 
-重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略；显式的不完整观测会提供可用候选项，但不会使结果变得可缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
+重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略；显式的不完整观测会提供可用候选项，但不会使结果变得可缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试一次；若再次变化，则返回最新候选项，并将结果标为不完整且不予缓存。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
 
 `SkillProvider.list()` 返回的数组是完整发现的简写形式。`SkillProviderObservation` 允许提供方公开仍可直接加载的候选项，同时报告该观测不具权威性。
 
@@ -109,14 +109,14 @@ interface SkillSummary {
 }
 ```
 
-`SkillCatalogSnapshot` 用于区分已确定的不存在和提供方的瞬时失败。`skills` 包含该次观测中收集并排序的摘要；只有每个已注册提供方都已完成发现，`complete` 才为 true。不完整快照不会缓存，因此消费方可以保留上一份可用模型目录并重试。
+`SkillCatalogSnapshot` 用于区分已确定的不存在与提供方的瞬时失败或发现期间持续变化的目录。`skills` 包含该次观测中收集并排序的摘要；只有每个已注册提供方都在没有并发目录修订时完成发现，`complete` 才为 true。不完整快照不会缓存，因此消费方可以保留上一份可用模型目录并重试。
 
 ```ts type-equiv
-/** One catalog observation plus whether every registered provider completed discovery. */
+/** One catalog observation plus whether discovery completed within a stable catalog revision. */
 interface SkillCatalogSnapshot {
   /** Sorted model-invocable summaries collected in this observation. */
   readonly skills: SkillSummary[]
-  /** Whether every registered provider completed discovery for this observation. */
+  /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
 }
 ```
