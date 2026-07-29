@@ -444,8 +444,8 @@ describe('tool-str-replace-editor', () => {
     expect(ownerless.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
   })
 
-  it('can preserve tabs outside the edited region', async () => {
-    const { ctx, root, owner } = await setup({ expandTabsOnMutation: false })
+  it('preserves tabs outside the edited region', async () => {
+    const { ctx, root, owner } = await setup()
     const path = join(root, 'Makefile')
     await writeFile(path, 'target:\n\told\nremove\n')
     await call(ctx, owner, {
@@ -487,9 +487,10 @@ describe('tool-str-replace-editor', () => {
     const { ctx, root, owner } = await setup()
     const path = join(root, 'backend-error.txt')
     await writeFile(path, 'old\n')
-    ctx.fs.writeText = async () => {
+    const failWrite = async (): Promise<never> => {
       throw new Error('backend write failed')
     }
+    ctx.fs.editText = failWrite
 
     const replace = await call(ctx, owner, {
       command: 'str_replace',
@@ -500,6 +501,7 @@ describe('tool-str-replace-editor', () => {
     expect(replace.isError).toBe(true)
     expect(text(replace)).toContain('backend write failed')
 
+    ctx.fs.writeText = failWrite
     const insert = await call(ctx, owner, {
       command: 'insert',
       path,
