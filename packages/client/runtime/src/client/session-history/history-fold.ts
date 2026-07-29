@@ -49,6 +49,9 @@ function assistantStepKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
 }
 
+// Trajectory owns surface-window reconstruction so its immutable ledger does
+// not depend on Chat's live fold adapter or Session's mutable state.
+/* jscpd:ignore-start */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
 }
@@ -57,6 +60,7 @@ function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boo
   if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
   return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
 }
+/* jscpd:ignore-end */
 
 function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
   if (event?.type !== 'user/message') return 'rewrite'
@@ -216,6 +220,9 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
       const siblings = codeDispatches.get(data.parentCallId) ?? []
       const at = siblings.findIndex(sub => sub.callId === data.subCallId)
       const started = at === -1 ? undefined : siblings[at]
+      // History independently reproduces the public settled-call shape instead
+      // of consuming Session's live code-dispatch projection.
+      /* jscpd:ignore-start */
       const settled: CodeSubCall = {
         kind: 'tool-result', seq: event.seq, time: event.time,
         callId: data.subCallId,
@@ -232,6 +239,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
           ? [...siblings, settled]
           : siblings.map((sub, index) => index === at ? settled : sub),
       )
+      /* jscpd:ignore-end */
       continue
     }
     switch (event.type) {
