@@ -102,6 +102,8 @@ export default defineConfig({
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        // Trajectory's compact Markdown projection retains deferred branch coverage.
+        'packages/client/ui-primitives/src/markdown/plain-text.ts',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/ui-primitives/src/Menu.tsx',
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',

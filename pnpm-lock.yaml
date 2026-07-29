@@ -1323,9 +1323,21 @@ importers:
       '@shikijs/langs':
         specifier: ^4.3.1
         version: 4.3.1
+      anser:
+        specifier: ^2.3.5
+        version: 2.3.5
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      mdast-util-from-markdown:
+        specifier: ^2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: ^3.1.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: ^3.0.0
+        version: 3.0.0
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1607,6 +1619,10 @@ importers:
         version: 18.3.1
 
   packages/client/ui-trajectory:
+    dependencies:
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
     devDependencies:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
@@ -1614,6 +1630,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -1919,6 +1938,34 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/context/tmux-context:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-bash':
+        specifier: workspace:^
+        version: link:../../bash/bash
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
@@ -5072,6 +5119,9 @@ importers:
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
@@ -8331,6 +8381,9 @@ packages:
   algoliasearch@5.55.2:
     resolution: {integrity: sha512-OyacJsaeuLUvGWOynNqYc6sx88XvyoG39wMT8SYqL3l9wwaorDW/LPRbUPfhzw0bWsUWzNCZTnFYOrWFBKsUaw==}
     engines: {node: '>= 14.0.0'}
+
+  anser@2.3.5:
+    resolution: {integrity: sha512-vcZjxvvVoxTeR5XBNJB38oTu/7eDCZlwdz32N1eNgpyPF7j/Z7Idf+CUwQOkKKpJ7RJyjxgLHCM7vdIK0iCNMQ==}
 
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
@@ -13315,6 +13368,8 @@ snapshots:
       '@algolia/requester-browser-xhr': 5.55.2
       '@algolia/requester-fetch': 5.55.2
       '@algolia/requester-node-http': 5.55.2
+
+  anser@2.3.5: {}
 
   ansi-regex@5.0.1: {}
 

@@ -37,6 +37,7 @@
     "packages/client/**",
     "packages/host/directory-picker-browse/**",
     "packages/host/directory-picker-native/**",
+    "scripts/client-bundle-css.spec.ts",
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
@@ -88,6 +89,7 @@
     { "path": "./packages/goal/goal-session" },
     { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/tmux-context" },
     { "path": "./packages/context/session-reference" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },

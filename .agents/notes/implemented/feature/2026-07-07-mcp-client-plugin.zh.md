@@ -149,7 +149,7 @@ MCP 仅保证工具名在[单个服务器内](https://modelcontextprotocol.io/sp
 
 ### 子进程环境（stdio 传输）
 
-复用 `dsh-subagent-acp` 的 `buildChildEnv` + `SENSITIVE_ENV_PATTERN` 清洗逻辑：过滤环境变量（剥离匹配 `/KEY|SECRET|TOKEN/i` 的凭证形变量），然后将 `config.env` 覆盖合并到顶层。显式配置的 env 不受清洗影响。
+以子进程服务边界共享的 `scrubbedParentEnv()` 为基础构建子进程环境；该基础环境会移除环境中匹配 `/KEY|PASSWORD|SECRET|TOKEN/i` 的名称以及 `DSH_*` 名称，然后在其上合并 `config.env`。显式配置的 env 覆盖在清洗后仍会保留。
 
 ### 断连 / 崩溃
 

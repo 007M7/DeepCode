@@ -1,60 +1,38 @@
-// TrajectoryCell: one step row in the trajectory list — index, kind tag,
-// ellipsis text, optional Message token metrics, and own-duration time.
+// Legacy standalone trajectory cell retained for direct consumers and specs.
 
-import type { HTMLAttributes } from 'react'
+import {
+  formatElapsedSeconds,
+  type TrajectoryCellKind,
+  type TrajectoryCellProps,
+} from './trajectory-record.ts'
 import css from './TrajectoryCell.module.css'
 
-/** Closed set of trajectory step kinds (call+result fold into Tool; no Think;
- *  subtool = one run_code sub-dispatch nested under its Tool cell). */
-export type TrajectoryCellKind = 'user' | 'message' | 'tool' | 'subtool'
+export { formatElapsedSeconds }
+export type {
+  AssistantMetricDetail,
+  TrajectoryCellKind,
+  TrajectoryCellProps,
+} from './trajectory-record.ts'
 
 /** Display label per kind (matches the design tags). */
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
+  system: 'System',
   user: 'User',
+  context: 'Context',
+  compacted: 'Compacted',
   message: 'Message',
   tool: 'Tool',
   subtool: 'Sub',
 }
 
 const TAG_CLASS: Record<TrajectoryCellKind, string | undefined> = {
+  system: css.tagSystem,
   user: css.tagUser,
+  context: css.tagContext,
+  compacted: css.tagSystem,
   message: css.tagMessage,
   tool: css.tagTool,
   subtool: css.tagSubtool,
-}
-
-export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
-  /** 1-based step index shown as `#N`. */
-  index: number
-  kind: TrajectoryCellKind
-  /** Single-line summary; CSS ellipsis when it overflows. */
-  text: string
-  /**
-   * Own duration in seconds. `null` means no duration to show (em dash) —
-   * used for in-flight tools and tools missing callTime.
-   */
-  timeSeconds: number | null
-  /** Message-only: prompt token count. */
-  input?: number
-  /** Message-only: completion token count. */
-  output?: number
-  /** Message-only: reasoning token count (usage column, not a Think cell). */
-  think?: number
-  /** Selected: 2px inset brand-primary-new-color ring (not wired to chat selection yet). */
-  selected?: boolean
-}
-
-/**
- * Format own-duration for the trailing time column: `—` when unknown, `+Ns`
- * or `+N.1s` otherwise.
- * @param seconds - duration seconds, or null when absent.
- * @returns display string.
- */
-export function formatElapsedSeconds(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds)) return '—'
-  const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `+${rounded}s`
-  return `+${rounded.toFixed(1)}s`
 }
 
 /**
@@ -66,7 +44,20 @@ export function TrajectoryCell({
   index,
   kind,
   text,
+  inputDetail: _inputDetail,
+  promptDetail: _promptDetail,
+  previousPromptDetail: _previousPromptDetail,
+  outputDetail: _outputDetail,
+  thinkingDetail: _thinkingDetail,
+  sourceBlocks: _sourceBlocks,
+  outputBlocks: _outputBlocks,
+  schemaDetail: _schemaDetail,
+  assistantMetrics: _assistantMetrics,
+  result: _result,
+  callId: _callId,
+  isError: _isError,
   timeSeconds,
+  startedAt: _startedAt,
   input,
   output,
   think,
