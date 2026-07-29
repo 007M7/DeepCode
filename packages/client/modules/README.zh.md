@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-客户端模块系统：Node 内部 ESM loader 的浏览器端对等实现，以惰性 CJS 表构建。web 外壳挂载 vendored cordis Loader 来治理配置项（fiber 生命周期、inject 等待、update/refresh），并把该包的 `ClientModuleLoader` 作为其 `internal` seam 注入；vendored 一侧唯一的消费点是 `EntryTree.import`，因此替换 `internal` 恰好只会替换「插件代码如何到达」，不会改变其他内容。
+客户端模块系统：Node 内部 ESM loader 的浏览器端对等实现，以惰性 CJS 表实现。web 外壳挂载 vendored cordis Loader 来治理配置项（fiber 生命周期、inject 等待、update/refresh），并把该包（package）的 `ClientModuleLoader` 作为其 `internal` seam 注入；vendored 一侧唯一的消费点是 `EntryTree.import`，因此替换 `internal` 恰好只会替换「插件代码如何到达」，不会改变其他内容。
 
-惰性 CJS 模型（web2）：执行插件组合包只会注册其 factory（`window.__ModuleLoader__.load({id, factory})`）；每个模块主体的副作用（包括 CSS 注入）都位于 factory 闭包中，在物化时运行（`factory(require)` → 导出表层，并在 `loadCache` 中记忆化），不会在脚本执行时运行。如果 factory 请求另一个已注册但尚未物化的模块，系统会递归物化它，因此加载顺序无需外部编排；require 循环会抛出异常（factory 形式的 CJS 无法交付部分导出）。`<id>/client` 与裸 id 指向同一表层（一个插件组合包就是其包的客户端侧）。
+惰性 CJS 模型（web2）：执行插件组合包只会注册其 factory（`window.__ModuleLoader__.load({id, factory})`）；每个模块主体的副作用（包括 CSS 注入）都位于 factory 闭包中，在物化时运行（`factory(require)` → 导出表层，并在 `loadCache` 中记忆化），不会在脚本执行时运行。如果 factory 依赖另一个已注册但尚未物化的模块，系统会递归物化它，因此加载顺序无需外部编排；require 循环会抛出异常（factory 形式的 CJS 无法提供部分导出）。`<id>/client` 与裸 id 指向同一表层（一个插件组合包就是其包的客户端侧）。
 
-解析分支顺序（`import(specifier)`）：平台种子词 → 外壳实例；记忆化记录 → 表层；外壳自身的静态注册表（`registerStatic`，app-shell）→ 模块；已注册 factory → 物化；图行（`window.__DSH_BOOT__`）→ 抓取 + 执行 + 物化；其他情况一律抛出异常。这是构建时组合包纯度门禁的运行时镜像。交给 factory 的同步 `require` 采用相同顺序，但不含抓取分支，并把观察到的边记录到模块记录中。`prefetch` 是第一阶段到达 hook（抓取 + 执行，只注册；并发调用共享一个进行中的 task）；`invalidate` 会丢弃 factory 与物化记录，使下一次 prefetch/import 重新抓取（HMR hook）。
+解析分支顺序（`import(specifier)`）：平台种子词 → 外壳实例；记忆化记录 → 表层；外壳自身的静态注册表（`registerStatic`，app-shell）→ 模块；已注册 factory → 物化；模块图记录（`window.__DSH_BOOT__`）→ 抓取 + 执行 + 物化；其他情况一律抛出异常。这是构建时组合包纯度门禁的运行时镜像。交给 factory 的同步 `require` 采用相同顺序，但不含抓取分支，并把观察到的边记录到模块记录中。`prefetch` 是第一阶段加载钩子（抓取 + 执行，只注册；并发调用共享一个进行中的任务）；`invalidate` 会丢弃 factory 与物化记录，使下一次 prefetch/import 重新抓取；它是 HMR（热模块替换）钩子。
 
 ## 模型体验
 
@@ -18,5 +18,5 @@
 
 ## 已知限制与暂缓事项
 
-- **有意采用扁平模块图**：每个组合包是一个模块节点，其边只指向表叶；接口（loadCache/edges/invalidate）按通用模块图塑形，因此可以改变 externalization 粒度而不更改接口。
-- **自身不记录卸载账目**：样式移除与 fiber 拆卸顺序属于 HMR 驱动器（`@deepseek-ai/dsh-client-hmr`）；loader 只逐记录清点自身拥有的样式标签 id。
+- **有意采用扁平模块图**：每个组合包是一个模块节点，其边只指向表中的叶节点；接口（loadCache/edges/invalidate）按通用模块图塑形，因此可以改变 externalization 粒度而不更改接口。
+- **自身不记录卸载账目**：样式移除与 fiber 拆卸顺序属于 HMR 驱动器（`@deepseek-ai/dsh-client-hmr`）；loader 只在每条记录中登记其拥有的样式标签 id。

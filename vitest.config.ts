@@ -138,6 +138,7 @@ export default defineConfig({
         'packages/client/ui-command/src/client/service.ts',
         'packages/client/ui-command/src/client/PopupSelectView.tsx',
         'packages/client/ui-model/src/index.ts',
+        'packages/client/ui-permission/src/index.ts',
         'packages/client/ui-model/src/client/ModelSelect.tsx',
         'packages/client/ui-model/src/client/directory.ts',
         'packages/client/ui-model/src/client/index.ts',

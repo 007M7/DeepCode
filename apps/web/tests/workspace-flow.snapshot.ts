@@ -40,11 +40,11 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   // Dual-face host package: its browser half fills the directory-flow holes
   // (the same composition row apps/cli mounts for the node-side backend).
   {
-    id: '@deepseek-ai/dsh-host-directory-picker-native',
-    dir: '../host/directory-picker-native',
-    url: '/plugins/directory-picker-native.js',
+    id: '@deepseek-ai/dsh-host-directory-picker-browse',
+    dir: '../host/directory-picker-browse',
+    url: '/plugins/directory-picker-browse.js',
     rev: 'fx',
-    inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-workspace'],
+    inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-locale'],
   },
 ]
 
@@ -183,7 +183,7 @@ it('locks the composer in the New Session view state until a Workspace is chosen
   `)
 })
 
-it('adopts a directory through the composed native flow and lands in its blank session', async () => {
+it('adopts a directory through the composed in-app browse flow and lands in its blank session', async () => {
   boot('?fixture=empty')
 
   await findLockedComposer()
@@ -194,9 +194,20 @@ it('adopts a directory through the composed native flow and lands in its blank s
   expect(within(menu).getAllByRole('menuitem').map(item => visibleText(item)))
     .toEqual(['Open local folder…', 'Create a new workspace'])
   fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open local folder…' }))
-  // The renderless native flow drives the fixture's deterministic pick and
-  // the owner adopts the returned path into a real Workspace.
-  await act(async () => {})
+  // The browse occupant renders the Select Workspace Directory dialog at the
+  // fixture home; select Documents, advance into project, and adopt it.
+  const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' }, { timeout: 10_000 })
+  // Row targeting goes through the visible label text: listitem accessible-name
+  // computation differs across dom-accessibility-api environments, while the
+  // row's name span is stable (clicks bubble to the row button).
+  fireEvent.click(await within(dialog).findByText('Documents', {}, { timeout: 10_000 }))
+  fireEvent.click(await within(dialog).findByText('project', {}, { timeout: 10_000 }))
+  // Open disables while the selection's child listing is in flight; wait for
+  // the enabled state or the click lands on a dead button on slow runners.
+  await waitFor(() => {
+    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: '打开' }).disabled).toBe(false)
+  }, { timeout: 10_000 })
+  fireEvent.click(within(dialog).getByRole('button', { name: '打开' }))
   await findHeroComposer()
   await waitFor(() => {
     expect(visibleText(screen.getByRole('tree', { name: 'Sessions' }))).toContain('project')

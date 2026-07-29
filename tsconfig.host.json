@@ -15,6 +15,7 @@
     "apps/web/tests/steering.e2e.ts",
     "apps/web/tests/navigation-panes.e2e.ts",
     "apps/web/tests/lifecycle-chrome.e2e.ts",
+    "apps/web/tests/details-session-lifecycle.e2e.ts",
     "apps/web/tests/settings-chrome.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
@@ -22,6 +23,7 @@
     "apps/web/tests/sidebar-scrollbar.e2e.ts",
     "apps/web/tests/code-mode-round.e2e.ts",
     "apps/web/tests/cordis-tool-round.e2e.ts",
+    "apps/web/tests/message-actions.e2e.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
@@ -33,6 +35,7 @@
   ],
   "exclude": [
     "packages/client/**",
+    "packages/host/directory-picker-browse/**",
     "packages/host/directory-picker-native/**",
     "scripts/client-bundle-purity.spec.ts"
   ],
@@ -169,7 +172,6 @@
     { "path": "./packages/mcp/mcp-client" },
     { "path": "./packages/host/apiproxy" },
     { "path": "./packages/host/directory-picker" },
-    { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/sdk-client" },
     { "path": "./packages/sdk/helper" },

@@ -12,7 +12,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 在 `packages/host/` 落一个三包能力 seam——`directory-picker`（接口）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一契约方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答。联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
 
-**client 侧靠 slot 组合，而非按广播分支。** ui-workspace 的两个触发表层各自声明一个 `single` 目录流洞（`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`；之所以是两个 key，是因为一个洞只有一个声明它的 slot entry——owner 契约相同、占用者相同）。后端包是**双面包**：browser half 把匹配的交互注册进两个洞——`-native` 在本 PR 随附驱动 `host.pickDirectory` 的无渲染占用者；`-browse` 的那一半（应用内浏览对话框）在栈中的后续 PR 落地，在那之前 `-browse` 组合不显示选目录入口（文档化的空洞默认行为）。洞的 owner 会话（`open`/`busy`/`onPicked`/`onCancel`/`onError`）承载整个交换：ui-workspace 保留触发（菜单入口仅在洞被占用时渲染）与接纳（`createWorkspace({path})`、冲突／错误对话框、重新选择），占用者持有从 `open` 到所选路径之间的一切。因此一行 `cordis.yml` 同时切换宿主能力与 client 流程；错配在构造上不可能，同时挂两个流程包会在 client 加载期失败（`single` 洞）。早先的 `host.describe.directoryPicker` 广播与客户端 kind 分支被删除——组合已经接好两侧后，供客户端分支用的 wire 事实不再有任何消费者。洞注册表（`ctx.slots.entries`）取而代之，成为每次打开菜单的占用读取。
+**client 侧靠 slot 组合，而非按广播分支。** ui-workspace 的两个触发表层各自声明一个 `single` 目录流洞（`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`；之所以是两个 key，是因为一个洞只有一个声明它的 slot entry——owner 契约相同、占用者相同）。后端包是**双面包**：browser half 把匹配的交互注册进两个洞——`-native` 是驱动 `host.pickDirectory` 的无渲染占用者，`-browse` 是应用内的选择工作区目录对话框。洞的 owner 会话（`open`/`busy`/`onPicked`/`onCancel`/`onError`）承载整个交换：ui-workspace 保留触发（菜单入口仅在洞被占用时渲染）与接纳（`createWorkspace({path})`、冲突／错误对话框、重新选择），占用者持有从 `open` 到所选路径之间的一切。因此一行 `cordis.yml` 同时切换宿主能力与 client 流程；错配在构造上不可能，同时挂两个流程包会在 client 加载期失败（`single` 洞）。早先的 `host.describe.directoryPicker` 广播与客户端 kind 分支被删除——组合已经接好两侧后，供客户端分支用的 wire 事实不再有任何消费者。洞注册表（`ctx.slots.entries`）取而代之，成为每次打开菜单的占用读取。
 
 并入本决策的位置与策略裁决：
 
@@ -33,7 +33,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 ## 后果
 
-- `cordis.yml` 决定交互形态；`apps/cli` 当前挂 `-native`（行为不变）。应用内浏览器 PR 只翻这一行到 `-browse`，后端与 UI 同时切换。
+- `cordis.yml` 决定交互形态；`apps/cli` 挂 `-browse`（随附默认——开箱即得可远程的选取），一行同时切换了后端与 UI；`-native` 仍是宿主屏幕方案。
 - 协议新增 `host.listDirectory`／`host.createDirectory` 与四个错误码；connection fixture 提供确定性浏览树与确定性 `pickDirectory` 路径供无密钥组装测试使用。
 - 未来的新交互（或提供 `native` 交互的 Electron 实现）只是一个双面后端包——无需网关手术，也不动 ui-workspace。
 - `ApiProxyDefaults.pickDirectory`（仅测试注入）删除；测试像提供其他服务一样提供 stub `ctx.directoryPicker`。
