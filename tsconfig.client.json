@@ -19,6 +19,8 @@
     "packages/client/*/src/css-modules.d.ts",
     "packages/client/*/tests/**/*.ts",
     "packages/client/*/tests/**/*.tsx",
+    "packages/host/directory-picker-browse/tests/**/*.ts",
+    "packages/host/directory-picker-browse/tests/**/*.tsx",
     "packages/host/directory-picker-native/tests/**/*.ts",
     "packages/host/directory-picker-native/tests/**/*.tsx",
     "packages/client/tsdown.client.ts",
@@ -33,6 +35,7 @@
     // browser half registers the picking flow into ui-workspace's slot —
     // client-side Context merges keep it out of the host program.
     { "path": "./packages/host/directory-picker-native" },
+    { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },

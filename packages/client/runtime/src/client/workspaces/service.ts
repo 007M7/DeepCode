@@ -195,10 +195,11 @@ export class WorkspacesService implements IWorkspaces {
   /**
    * List one directory level through the Host's `browse` capability.
    * @param path - absolute directory to list; absent lists the Host home directory.
+   * @param signal - aborts the wire request (and the Host's scan) when the caller supersedes it.
    * @returns the level's listing with breadcrumb ancestry.
    */
-  async listDirectory(path?: string): Promise<DirectoryListing> {
-    const response = await this.api.host.listDirectory(path === undefined ? {} : { path })
+  async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
+    const response = await this.api.host.listDirectory(path === undefined ? {} : { path }, signal)
     if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
     return response.result.value
   }

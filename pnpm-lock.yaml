@@ -227,6 +227,9 @@ importers:
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../packages/host/apiproxy
+      '@deepseek-ai/dsh-host-directory-picker-browse':
+        specifier: workspace:^
+        version: link:../../packages/host/directory-picker-browse
       '@deepseek-ai/dsh-host-directory-picker-native':
         specifier: workspace:^
         version: link:../../packages/host/directory-picker-native
@@ -2894,16 +2897,40 @@ importers:
       '@deepseek-ai/dsh-host-directory-picker':
         specifier: workspace:^
         version: link:../directory-picker
+      clsx:
+        specifier: ^2.0.0
+        version: 2.1.1
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
     devDependencies:
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../../client/locale
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../../client/runtime
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../../client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: workspace:^
+        version: link:../../client/ui-workspace
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
 
   packages/host/directory-picker-native:
     dependencies:

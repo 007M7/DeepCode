@@ -1,7 +1,7 @@
 /** Test-owned workspaces face: the renderer standard-kit observable plus recorded actions. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  IWorkspaces, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
+  DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { workspaceListState } from './fixtures.ts'
 import type { Stabilizer } from './fixtures.ts'
@@ -107,6 +107,48 @@ export class TestWorkspaces implements IWorkspaces {
     const stub = this.stubs.get('pickDirectory')
     if (stub !== undefined) return await (stub() as Promise<string | null>)
     return null
+  }
+
+  /**
+   * Browse listing (recorded). The default serves an empty home level; stub
+   * to shape a tree.
+   * @param path - absolute directory to list; absent lists the home level.
+   * @returns the level's listing.
+   */
+  async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
+    // The signal is recorded and forwarded like the production face passes
+    // it to the wire, so cancellation integration tests can observe or
+    // reject on a superseded scan.
+    this.calls.push({ method: 'listDirectory', args: [path, signal] })
+    const stub = this.stubs.get('listDirectory')
+    if (stub !== undefined) return await (stub(path, signal) as Promise<DirectoryListing>)
+    // The chain runs root-to-target inclusive, per the DirectoryListing
+    // contract — a bare root crumb would mislabel the level in browsers
+    // driven by this double.
+    return {
+      path: '/home/test',
+      home: '/home/test',
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'test', path: '/home/test', hidden: false },
+      ],
+      entries: [],
+      truncated: false,
+    }
+  }
+
+  /**
+   * Browse child creation (recorded). The default joins parent and name.
+   * @param path - absolute existing parent directory.
+   * @param name - single path segment.
+   * @returns the created directory's absolute path.
+   */
+  async createDirectory(path: string, name: string): Promise<string> {
+    this.calls.push({ method: 'createDirectory', args: [path, name] })
+    const stub = this.stubs.get('createDirectory')
+    if (stub !== undefined) return await (stub(path, name) as Promise<string>)
+    return `${path}/${name}`
   }
 
   /**
