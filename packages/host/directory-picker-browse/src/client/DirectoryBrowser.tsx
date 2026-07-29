@@ -262,11 +262,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // Focus parking (consumed by the refocus effect below): a pick — and a
   // parent-leg upgrade that displaces focused rows — parks on the
   // selection's row; every other displacing exit (Enter, Escape, a landing
-  // whose new level dropped the focused row, a failed pick or relist, and
-  // the nested create dialog closing) parks on the crumb edit zone, each
-  // only when focus actually fell to body. Pointer-out cancels never set
-  // (or clear) these — yanking focus back from wherever the user clicked
-  // would be worse than the fall.
+  // whose new level dropped the focused row, a failed pick, and every
+  // create-dialog exit, whose close-time parking is also what a failed
+  // relist inherits) parks on the crumb edit zone, each only when focus
+  // actually fell to body. Pointer-out cancels never set (or clear) these
+  // — yanking focus back from wherever the user clicked would be worse
+  // than the fall.
   const refocusPick = useRef(false)
   const refocusEditZone = useRef(false)
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
@@ -362,8 +363,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   /**
    * Close the nested create dialog. Its unmount drops focus to body (the
    * Modal has no focus trap), so every exit — Escape, mask, Cancel, and a
-   * successful create — arms the body-guarded edit-zone parking; a create
-   * landing's later select() re-parks on the created row instead.
+   * successful create — arms the body-guarded edit-zone parking. A
+   * successful create therefore parks in TWO stages: the edit zone on this
+   * close, then the relist's select() re-parks on the created row one RTT
+   * later — deliberately re-parking even focus the user moved during the
+   * relist window, and doubling as the parking a failed relist inherits.
    */
   const closeCreateDialog = useCallback(() => {
     setFolderDraft(null)
@@ -527,8 +531,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // has no focus trap): a pick lands on the selection's row — aria-current
   // in the freshly rendered left pane, which survives even a right-pane
   // advance or a create landing replacing the picked button's column —
-  // while Enter and an input-focused Escape land on the crumb edit zone
-  // that replaces the input.
+  // while the edit-zone exits enumerated at the flag declarations fall
+  // back to the crumb edit zone. The one window outside this invariant is
+  // the owner's adopt: busy inerts every control in the card (browsers
+  // blur disabled elements to body) and no parking applies — the owner
+  // closes the dialog either way.
   useEffect(() => {
     if (pathDraft !== null) return
     if (refocusPick.current) {

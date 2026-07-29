@@ -52,24 +52,6 @@
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
  * so the edit zone to the right never leaves the bar. */
-/* The Miller columns keep their own row so a status/error line below never
- * competes with the fixed column widths for horizontal space. */
-/* A narrow viewport shrinks the dialog below two fixed panes; the row
- * scrolls horizontally (the effect pins the child pane into view) so
- * descent never hides behind the Modal's clipping. */
-.millerRow {
-  display: flex;
-  align-items: stretch;
-  flex: 1 1 0;
-  min-height: 0;
-  /* 12px of row gap on each side of the divider; the left side reads wider
-   * by the column's trailing 8px scrollbar clearance, which is deliberate —
-   * the thumb needs that room, the right pane's rows do not. */
-  gap: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
 .crumbTrail {
   display: flex;
   align-items: center;
@@ -149,6 +131,24 @@
   /* Right inset is slimmer than the left: the trailing column's own 8px
    * scrollbar clearance makes up the optical difference. */
   padding: 16px 16px 16px 24px;
+}
+
+/* The Miller columns keep their own row so a status/error line below never
+ * competes with the fixed column widths for horizontal space. */
+/* A narrow viewport shrinks the dialog below two fixed panes; the row
+ * scrolls horizontally (the effect pins the child pane into view) so
+ * descent never hides behind the Modal's clipping. */
+.millerRow {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 0;
+  /* 12px of row gap on each side of the divider; the left side reads wider
+   * by the column's trailing 8px scrollbar clearance, which is deliberate —
+   * the thumb needs that room, the right pane's rows do not. */
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 /* Columns split the row evenly around the divider (a solo column takes the
