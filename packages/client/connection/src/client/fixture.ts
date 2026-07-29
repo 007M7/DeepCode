@@ -331,6 +331,44 @@ function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: b
 }
 
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+/** Fixture preset table (the host PermissionService defaults). */
+const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; description: string }> = {
+  'workspace-write': { sandbox: 'workspace-write', approval: 'ask', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+  'danger-full-access': { sandbox: 'danger-full-access', approval: 'never', description: 'Full file access without approval prompts.' },
+}
+
+/** Host permissions-unit parallel: fold the three knob events, derive the select over the fixture defaults. */
+function permissionSelectOf(
+  log: readonly SessionEvent[],
+): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
+  let preset: string | null = null
+  let sandbox = 'workspace-write'
+  let approval = 'ask'
+  for (const event of log) {
+    const item = event as { type: string; data: Record<string, unknown> }
+    if (item.type === 'permission/preset') preset = item.data['preset'] as string
+    else if (item.type === 'sandbox/mode') sandbox = item.data['mode'] as string
+    else if (item.type === 'approval/policy') approval = item.data['policy'] as string
+  }
+  const matches = (spec: { sandbox: string; approval: string }): boolean => spec.sandbox === sandbox && spec.approval === approval
+  let currentValue = 'custom'
+  const folded = preset === null ? undefined : PERMISSION_PRESETS[preset]
+  if (preset !== null && folded !== undefined && matches(folded)) {
+    currentValue = preset
+  } else {
+    for (const [name, spec] of Object.entries(PERMISSION_PRESETS)) {
+      if (matches(spec)) { currentValue = name; break }
+    }
+  }
+  return {
+    options: [
+      ...Object.entries(PERMISSION_PRESETS).map(([value, spec]) => ({ value, name: value, description: spec.description })),
+      ...currentValue === 'custom' ? [{ value: 'custom', name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' }] : [],
+    ],
+    currentValue,
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -339,6 +377,8 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (permission service composed): the whole select.
+  values['permissions'] = permissionSelectOf(log)
   // Always present (plan-mode unit composed): the {active, pending} view.
   values['plan'] = planViewOf(log)
   // Always present (GoalService unit composed): null before create / after clear.
@@ -370,6 +410,16 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'todos',
       value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // Knob fold: any of the three whole-value knob events advances the select.
+  if (type === 'permission/preset' || type === 'sandbox/mode' || type === 'approval/policy') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'permissions',
+      value: permissionSelectOf(log),
       seq: event.seq,
     }]
   }
@@ -607,8 +657,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     return crumbs
   }
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
-  /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
+  /** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingApprovalId = 'fx-approval-1' as Extract<MuxFrame, { type: 'approval/requested' }>['approvalId']
+  /** Cleared once answered through respond; replay stops and approval/resolved is broadcast. */
+  let approvalPending = true
   const pendingQuestionRpcId = mint()
   let questionPending = true
   const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
@@ -1148,6 +1201,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
             { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
             { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
@@ -1164,6 +1218,26 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        // /permission mirrors the host handler: switch through the knob
+        // events (each append pushes a permissions projection frame).
+        if (name === 'permission') {
+          const preset = args.trim()
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const spec = PERMISSION_PRESETS[preset]
+          if (preset === '') {
+            const current = permissionSelectOf(logOf(id)).currentValue
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+          } else if (spec === undefined) {
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+          } else {
+            if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
+            append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
+            append(id, { type: 'approval/policy', data: { policy: spec.approval } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+          }
+          return ok(request, { matched: true as const, commandId })
+        }
         if (name === 'goal') {
           // Host parallel: /goal with an objective creates (or reports) the
           // current goal; the command lifecycle pair brackets the mutation.
@@ -1298,14 +1372,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
           }
         }
-        conn.push({
-          rpcId: pendingApprovalRpcId,
-          payload: {
-            type: 'approval/requested', sessionId: sid('fx-alpha'),
-            approvalId: 'fx-approval-1' as MuxFrame extends never ? never : Extract<MuxFrame, { type: 'approval/requested' }>['approvalId'],
-            toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
-          },
-        })
+        if (approvalPending) {
+          conn.push({
+            rpcId: pendingApprovalRpcId,
+            payload: {
+              type: 'approval/requested', sessionId: sid('fx-alpha'),
+              approvalId: pendingApprovalId,
+              toolName: 'dangerous_tool', reason: 'fixture 常驻审批（可答：批准/拒绝后消失）',
+            },
+          })
+        }
         if (questionPending) {
           conn.push({
             rpcId: pendingQuestionRpcId,
@@ -1343,6 +1419,19 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Same routing discipline as the host: rpcId first, then the payload's
+      // audit correlation; a settled or unknown id is not-pending.
+      if (message.rpcId === pendingApprovalRpcId) {
+        if (!approvalPending) return Promise.resolve({ accepted: false, reason: 'not-pending' })
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const value = message.result.value as { approvalId?: unknown; outcome?: unknown }
+        if (value.approvalId !== pendingApprovalId || (value.outcome !== 'allowed-once' && value.outcome !== 'rejected')) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approvalPending = false
+        emitMux({ type: 'approval/resolved', sessionId: sid('fx-alpha'), approvalId: pendingApprovalId, outcome: value.outcome })
+        return Promise.resolve({ accepted: true })
+      }
       if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
         return Promise.resolve({ accepted: false, reason: 'not-pending' })
       }

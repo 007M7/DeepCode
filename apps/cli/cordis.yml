@@ -143,8 +143,45 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-- id: bash-local
-  name: '@deepseek-ai/dsh-bash-local'
+# The sandboxed product path (the acp-agent composition): per-platform
+# runner provider, the shared policy home, the confined bash executor, and
+# the approval seam its escalation asks through. The web deployment default
+# is danger-full-access + never (same behavior as the former bash-local
+# rows); DSH_PERMISSION_MODE opts a process into a confined default, and
+# per-session switches ride the /permission command's knob events.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'danger-full-access'
+    workspaceRoot: !!js process.cwd()
+
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') === 'danger-full-access' ? 'never' : 'ask'"
+
+# Presets over the two knobs (requires the confining executor + approval):
+# the web permission chip's table, served through the permissions projection
+# and switched through /permission.
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
@@ -156,9 +193,11 @@
   name: '@deepseek-ai/dsh-tool-tasks'
 
 # fs cwd stays the package default (process.cwd()) — the same value the
-# gateway injects into session.cwd, so paths and sessions agree.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
+# gateway injects into session.cwd, so paths and sessions agree. The
+# sandboxed backend rides the SAME policy as bash: write/edit fence by the
+# effective mode, so read/write/edit stay available under every mode.
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
 
 - id: fs-policy
   name: '@deepseek-ai/dsh-fs-policy'
@@ -365,6 +404,10 @@
 # Model selection: the /model popupSelect + composer seat over session.models.
 - id: ui-model
   name: '@deepseek-ai/dsh-client-ui-model'
+
+# The /permission popup picker (hostBacked over the host /permission command).
+- id: ui-permission
+  name: '@deepseek-ai/dsh-client-ui-permission'
 
 # Plan control: the composer plan seat over the plan projection + /plan channel.
 - id: ui-plan

@@ -23,7 +23,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `agent/status` | `emit` | [`packages/core/agent/src/types.ts:236`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emitAgentEvent`) | [`agent`](../packages/core/agent), `apiproxy`, [`goal-session`](../packages/goal/goal-session), [`tui`](../packages/ui/tui) |
 | `agent/step` | `serial` | [`packages/core/agent/src/types.ts:326`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic), [`plan-mode`](../packages/plan/plan-mode), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`time-context`](../packages/context/time-context), [`tool-skill`](../packages/skill/tool-skill), [`user-approval`](../packages/ui/user-approval), [`workspace-context`](../packages/context/workspace-context) |
 | `agent/turn-stopping` | `serial` | [`packages/core/agent/src/types.ts:373`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `approval/request` | `waterfall` | [`packages/ui/user-approval/src/index.ts:30`](../packages/ui/user-approval/src/index.ts) | [`user-approval`](../packages/ui/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp) |
+| `approval/request` | `waterfall` | [`packages/ui/user-approval/src/index.ts:30`](../packages/ui/user-approval/src/index.ts) | [`user-approval`](../packages/ui/user-approval) (`waterfall`) | [`acp`](../packages/acp/acp), `apiproxy` |
 | `commands/change` | `emit` | [`packages/ui/commands/src/index.ts:154`](../packages/ui/commands/src/index.ts) | [`commands`](../packages/ui/commands) (`events.dispatch`) | `apiproxy`, [`tui`](../packages/ui/tui) |
 | `domain/changed` | `emit` | [`packages/storage/storage-domain/src/events.ts:46`](../packages/storage/storage-domain/src/events.ts) | [`storage-domain`](../packages/storage/storage-domain) (`emit`) | `apiproxy`, [`storage-domain`](../packages/storage/storage-domain), [`workspace`](../packages/workspace/workspace) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:62`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
@@ -63,8 +63,8 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
-| `commands/changed` | `runtime` (`emit`) | - |
-| `connection/reset` | `runtime` (`emit`) | - |
+| `commands/changed` | `runtime` (`emit`) | `ui-command` |
+| `connection/reset` | `runtime` (`emit`) | `ui-command` |
 | `internal/dispatch` | - | [`commands`](../packages/ui/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `modules`, `webserver` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
