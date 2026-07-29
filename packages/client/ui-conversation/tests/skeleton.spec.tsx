@@ -18,7 +18,7 @@ import { ConversationSession } from '../src/client/skeleton/ConversationSession.
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
-  ComposerBarOwnerProps, ConversationSessionOwnerProps,
+  ComposerBarOwnerProps,
 } from '../src/client/contract/slots.ts'
 
 /** Machine-backed wiring over a sink spy. */
@@ -88,10 +88,8 @@ function mount(
     slotCalls.push(key)
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
     if (key === 'conversation.session') {
-      const sessionOwner = owner as ConversationSessionOwnerProps
       return (
         <ConversationSession
-          composer={sessionOwner.composer}
           sessionId={SID}
           SessionProvider={({ children }) => children(SID)}
           useSession={useSession}

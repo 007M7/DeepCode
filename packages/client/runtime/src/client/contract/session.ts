@@ -47,13 +47,6 @@ export interface ISession {
    */
   loadOlder(): Promise<void>
   /**
-   * Exhaust the available history for inspection features.
-   * An abort stops before the next page without abandoning an active request.
-   * @param signal - Consumer lifetime; abort is observed between pages.
-   * @returns completion when history is exhausted or paging stops making progress.
-   */
-  loadAllHistory(signal?: AbortSignal): Promise<void>
-  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).
    * @param line - the full command line, leading slash included.

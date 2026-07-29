@@ -1,55 +1,17 @@
 // FoldAdapter: core SurfaceManager wiring + node materialization cache.
-// Padding sentinels solve the paged-window seq offset (core fold asserts seq === index).
-// A replace that crosses the loaded window head uses a lenient linear scan until
-// paging reaches its range; unexpected fold failures report and use the same fallback.
+// Padding sentinels solve the paged-window seq offset (core fold asserts seq === index);
+// a cross-window replace throw degrades to a lenient linear scan (foldDegraded —
+// the degradation lives in one branch function in this file, zero scattered removal points).
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Subpath export (package.json exports "./surface", alias added for this): all value imports
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
-import {
-  SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
-} from '@deepseek-ai/dsh-session/surface'
+import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import type {
-  HistoryEntry, ToolCallView, ToolEventView, ToolResultView,
-} from '@deepseek-ai/dsh-client-connection/client'
-import type {
-  AssistantRequestConfig, AssistantTiming, CommandNode, ConversationNode,
-} from './conversation.ts'
+import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { CommandNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
-import type {
-  ConversationContext, ConversationContextOriginKind,
-} from './conversation-context.ts'
-import type { ConversationPromptSnapshot } from './request-inspection.ts'
-
-/** Lazy event-order and context-generation projection for history consumers. */
-export interface ConversationHistoryProjection {
-  eventNodes: readonly ConversationNode[]
-  contexts: readonly ConversationContext[]
-}
-
-/**
- * Project an immutable raw history window into event-order nodes and context
- * generations. Session's chat snapshot never computes this projection.
- * @param entries - Contiguous history entries in sequence order.
- * @returns Inspection-oriented conversation projections.
- */
-export function projectConversationHistory(
-  entries: readonly HistoryEntry[],
-): ConversationHistoryProjection {
-  const adapter = new FoldAdapter(true)
-  const events = entries.map(entry => entry.event)
-  adapter.reset(
-    events,
-    events[0]?.seq ?? 0,
-    entries.map(entry => entry.view),
-  )
-  return {
-    eventNodes: adapter.eventNodes(),
-    contexts: adapter.contexts(),
-  }
-}
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
 export interface CallIndexEntry {
@@ -71,70 +33,11 @@ function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
 }
 
-/**
- * Whether a valid replacement range begins before the loaded history window.
- * @param event - Candidate surface event in the current replay window.
- * @param baseSeq - Sequence at the loaded window head.
- * @returns True when strict folding requires an earlier page.
- */
-function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
-  if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
-  return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
-}
-
-/** Minimal generation projection owned by the inspection adapter, not the core live surface. */
-interface FoldedContext {
-  generation: number
-  nodes: readonly number[]
-  originSeq?: number
-}
-
-interface AssistantStepMetadata {
-  stepStartTime: number | null
-  firstTokenTime: number | null
-}
-
-function assistantStepKey(turn: number, step: number): string {
-  return `${turn}\u0000${step}`
-}
-
-/**
- * Replay surface replacements into frozen generations while keeping replacement
- * validation and mutation in the canonical core manager.
- */
-function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[] {
-  const replay: SessionEvent[] = []
-  const surface = new SurfaceManager(replay)
-  const contexts: FoldedContext[] = []
-  let generation = 0
-  let originSeq: number | undefined
-  for (const event of events) {
-    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
-      contexts.push({
-        generation,
-        nodes: [...surface.nodes],
-        ...(originSeq === undefined ? {} : { originSeq }),
-      })
-      generation++
-      originSeq = event.seq
-    }
-    replay.push(event)
-  }
-  contexts.push({
-    generation,
-    nodes: [...surface.nodes],
-    ...(originSeq === undefined ? {} : { originSeq }),
-  })
-  return contexts
-}
-
 /** One event -> UI node (pure function; the six-variant ConversationNode union). */
 function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
-  assistantTiming?: AssistantTiming,
-  requestConfig?: AssistantRequestConfig,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
@@ -155,12 +58,6 @@ function materializeNode(
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
-        provenance: {
-          provider: event.data.message.source.provider,
-          model: event.data.message.source.model,
-        },
-        ...(requestConfig === undefined ? {} : { requestConfig }),
-        ...(assistantTiming !== undefined ? { timing: assistantTiming } : {}),
       }
     case 'steering/message':
       return {
@@ -194,7 +91,7 @@ function materializeNode(
   }
 }
 
-/** Window fold over the core SurfaceManager with a lenient partial-history fallback. */
+/** Window fold over the core SurfaceManager (sentinel padding for the seq offset; degrades to a linear scan on cross-window replace). */
 export class FoldAdapter {
   /** padded = [sentinel x baseSeq, ...window events]; SurfaceManager borrows this reference for lazy incremental folding. */
   private padded: SessionEvent[] = []
@@ -219,23 +116,6 @@ export class FoldAdapter {
    *  reference-stability contract (§A.9.4) starts here. */
   private rev = 0
   private nodesResult: { rev: number; value: { nodes: ConversationNode[]; degraded: boolean } } | null = null
-  private eventNodesResult: { rev: number; value: readonly ConversationNode[] } | null = null
-  /** Revision of context structure or its request header; unrelated log-only events do not rebuild contexts. */
-  private contextRev = 0
-  private contextsResult: { rev: number; value: readonly ConversationContext[] } | null = null
-  private contextGeneration = 0
-  private activePrompt: ConversationPromptSnapshot | undefined
-  private promptsByContext = new Map<number, ConversationPromptSnapshot>()
-  private assistantSteps = new Map<string, AssistantStepMetadata>()
-  private assistantTimings = new Map<number, AssistantTiming>()
-  private activeRequestConfig: AssistantRequestConfig | undefined
-  private assistantRequestConfigs = new Map<number, AssistantRequestConfig>()
-
-  /**
-   * @param projectContexts - Whether to maintain context-generation indexes
-   * for a later history projection. The live chat fold leaves this disabled.
-   */
-  constructor(private readonly projectContexts = false) {}
 
   /** In-window tool/call index (Session uses it for runningCalls and result-card backfill). */
   get callIndex(): ReadonlyMap<string, CallIndexEntry> {
@@ -251,31 +131,21 @@ export class FoldAdapter {
    */
   reset(events: readonly SessionEvent[], baseSeq: number, views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
-    if (this.projectContexts) this.contextRev++
     this.baseSeq = baseSeq
     this.padded = []
     for (let i = 0; i < baseSeq; i++) this.padded.push(paddingEvent(i))
     for (const event of events) this.padded.push(event)
     this.surface = new SurfaceManager(this.padded)
     this.nodeCache.clear()
-    this.degraded = events.some(event => replacementCrossesWindowHead(event, baseSeq))
+    this.degraded = false
     this.callIdx = new Map()
     this.resultViews.clear()
-    this.contextGeneration = 0
-    this.activePrompt = undefined
-    this.promptsByContext = new Map()
-    this.assistantSteps = new Map()
-    this.assistantTimings = new Map()
-    this.activeRequestConfig = undefined
-    this.assistantRequestConfigs = new Map()
     this.commandIdx = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
       if (event !== undefined) {
         this.indexCall(event, views?.[i])
-        if (this.projectContexts) this.indexContextPrompt(event)
-        this.indexAssistantMetadata(event)
         this.indexCommand(event)
       }
     }
@@ -289,14 +159,8 @@ export class FoldAdapter {
    */
   append(event: SessionEvent, view?: ToolEventView): void {
     this.rev++
-    if (this.projectContexts && (isSurfaceEvent(event) || event.type === 'request/header')) {
-      this.contextRev++
-    }
-    if (replacementCrossesWindowHead(event, this.baseSeq)) this.degraded = true
     this.padded.push(event)
     this.indexCall(event, view)
-    if (this.projectContexts) this.indexContextPrompt(event)
-    this.indexAssistantMetadata(event)
     this.indexCommand(event)
   }
 
@@ -321,9 +185,17 @@ export class FoldAdapter {
     }
     const out: ConversationNode[] = []
     for (const seq of seqs) {
-      const node = this.materialize(seq)
-      /* v8 ignore next -- both seq sources only emit indexes present in padded. */
-      if (node !== undefined) out.push(node)
+      const cached = this.nodeCache.get(seq)
+      if (cached !== undefined) {
+        out.push(cached)
+        continue
+      }
+      const event = this.padded[seq]
+      /* v8 ignore next -- sparse guard: both seq sources (surface fold and degradedSeqs) only emit indexes present in padded. */
+      if (event === undefined) continue
+      const node = materializeNode(event, this.callIdx, this.resultViews.get(seq) ?? null)
+      this.nodeCache.set(seq, node)
+      out.push(node)
     }
     // Command nodes fold outside the surface (log-only events); merge by seq.
     // Both inputs are seq-ascending (surface order and run-index insertion
@@ -346,75 +218,6 @@ export class FoldAdapter {
     return value
   }
 
-  /**
-   * Every in-window message-producing event in original sequence order, without surface replacement folding.
-   * @returns append-only event projection for history inspection.
-   */
-  eventNodes(): readonly ConversationNode[] {
-    if (this.eventNodesResult !== null && this.eventNodesResult.rev === this.rev) {
-      return this.eventNodesResult.value
-    }
-    const nodes: ConversationNode[] = []
-    for (let seq = this.baseSeq; seq < this.padded.length; seq++) {
-      const event = this.padded[seq]
-      if (event === undefined || !isSurfaceEligibleType(event.type)) continue
-      const node = this.materialize(seq)
-      if (node !== undefined) nodes.push(node)
-    }
-    this.eventNodesResult = { rev: this.rev, value: nodes }
-    return nodes
-  }
-
-  /**
-   * Append-only context generations reconstructed from canonical surface replacements.
-   * @returns Frozen historical contexts followed by the current context.
-   */
-  contexts(): readonly ConversationContext[] {
-    if (!this.projectContexts) {
-      throw new Error('FoldAdapter context projection was not enabled')
-    }
-    if (this.contextsResult !== null && this.contextsResult.rev === this.contextRev) {
-      return this.contextsResult.value
-    }
-    const current = this.nodes()
-    if (current.degraded) {
-      const value: readonly ConversationContext[] = [{
-        id: 0,
-        ...(this.activePrompt === undefined ? {} : { prompt: this.activePrompt }),
-        nodes: current.nodes,
-      }]
-      this.contextsResult = { rev: this.contextRev, value }
-      return value
-    }
-    const value = foldContexts(this.padded).map((context): ConversationContext => {
-      const nodes: ConversationNode[] = []
-      for (const seq of context.nodes) {
-        const node = this.materialize(seq)
-        if (node !== undefined) nodes.push(node)
-      }
-      const prompt = this.promptsByContext.get(context.generation)
-      if (context.originSeq === undefined) {
-        return {
-          id: context.generation,
-          ...(prompt === undefined ? {} : { prompt }),
-          nodes,
-        }
-      }
-      const originEvent = this.padded[context.originSeq]
-      return {
-        id: context.generation,
-        parentId: context.generation - 1,
-        origin: contextOriginKind(originEvent),
-        originSeq: context.originSeq,
-        ...(originEvent === undefined ? {} : { createdAt: originEvent.time }),
-        ...(prompt === undefined ? {} : { prompt }),
-        nodes,
-      }
-    })
-    this.contextsResult = { rev: this.contextRev, value }
-    return value
-  }
-
   /** Degradation branch: lenient linear scan ignoring surfaceOp/replace (all surface-eligible events in append order). */
   private degradedSeqs(): number[] {
     const seqs: number[] = []
@@ -423,22 +226,6 @@ export class FoldAdapter {
       if (event !== undefined && isSurfaceEligibleType(event.type)) seqs.push(event.seq)
     }
     return seqs
-  }
-
-  private materialize(seq: number): ConversationNode | undefined {
-    const cached = this.nodeCache.get(seq)
-    if (cached !== undefined) return cached
-    const event = this.padded[seq]
-    if (event === undefined) return
-    const node = materializeNode(
-      event,
-      this.callIdx,
-      this.resultViews.get(seq) ?? null,
-      this.assistantTimings.get(seq),
-      this.assistantRequestConfigs.get(seq),
-    )
-    this.nodeCache.set(seq, node)
-    return node
   }
 
   /** Fold one command lifecycle event into its node (run mints, done settles in place; done-only soft-falls). */
@@ -484,87 +271,5 @@ export class FoldAdapter {
     })
     // No backfill into already-materialized tool-result nodes for this callId
     // (window order puts the call before its result; cannot happen on the normal path).
-  }
-
-  private indexAssistantMetadata(event: SessionEvent): void {
-    if (event.type === 'request/header') {
-      this.activeRequestConfig = event.data.header.config
-      return
-    }
-    if (event.type === 'step/start') {
-      this.assistantSteps.set(
-        assistantStepKey(event.data.turn, event.data.step),
-        { stepStartTime: event.time, firstTokenTime: null },
-      )
-      return
-    }
-    if (event.type === 'assistant/chunk') {
-      if (!isTokenDelta(event.data.chunk)) return
-      const key = assistantStepKey(event.data.turn, event.data.step)
-      const current = this.assistantSteps.get(key) ?? {
-        stepStartTime: null,
-        firstTokenTime: null,
-      }
-      if (current.firstTokenTime === null) {
-        this.assistantSteps.set(key, {
-          ...current,
-          firstTokenTime: event.time,
-        })
-      }
-      return
-    }
-    if (event.type !== 'assistant/message') return
-    const timing = this.assistantSteps.get(
-      assistantStepKey(event.data.turn, event.data.step),
-    ) ?? { stepStartTime: null, firstTokenTime: null }
-    this.assistantTimings.set(event.seq, {
-      ...timing,
-      completedTime: event.time,
-    })
-    if (this.activeRequestConfig !== undefined) {
-      this.assistantRequestConfigs.set(event.seq, this.activeRequestConfig)
-    }
-  }
-
-  private indexContextPrompt(event: SessionEvent): void {
-    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
-      this.contextGeneration++
-      if (this.activePrompt !== undefined) {
-        this.promptsByContext.set(this.contextGeneration, this.activePrompt)
-      }
-    }
-    if (event.type !== 'request/header') return
-    this.activePrompt = {
-      config: event.data.header.config,
-      system: event.data.header.system ?? '',
-      tools: event.data.header.tools ?? [],
-    }
-    this.promptsByContext.set(this.contextGeneration, this.activePrompt)
-  }
-}
-
-function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
-  if (event?.type !== 'user/message') return 'rewrite'
-  const source = event.data.source
-  if (
-    typeof source === 'object'
-    && 'kind' in source
-    && 'plugin' in source
-  ) {
-    if (source.plugin === 'compact') return 'compaction'
-    if (source.plugin === 'rewind') return 'rewind'
-  }
-  return 'rewrite'
-}
-
-function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
   }
 }

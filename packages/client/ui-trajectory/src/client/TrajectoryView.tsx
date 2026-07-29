@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  AssistantMessageNode, ConversationContext, ConversationNode, RequestView,
+  AssistantMessageNode, ConversationContext, RequestView,
+  SessionHistoryFace,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
@@ -28,6 +30,7 @@ const EMPTY_REQUESTS: readonly RequestView[] = []
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
+  hooks: { history: SessionHistoryFace }
   loadAllHistory: (signal: AbortSignal) => Promise<void>
 }
 
@@ -84,12 +87,6 @@ function searchableJson(value: unknown): string {
   }
 }
 
-function isInterruptedNode(node: ConversationNode): boolean {
-  return node.kind === 'assistant'
-    ? node.interrupted === true
-    : node.kind === 'tool-result' && node.error?.code === 'interrupted'
-}
-
 function searchMatches(
   turns: ReturnType<typeof deriveTrajectoryLayout>,
   query: string,
@@ -137,7 +134,9 @@ function searchMatches(
   return matches
 }
 
-export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & TrajectoryViewInjected) {
+export function TrajectoryView({
+  useHistory, loadAllHistory,
+}: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<number>>(EMPTY_IDS)
@@ -150,26 +149,22 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
   const ledgerRef = useRef<HTMLDivElement>(null)
-  const nodes = useSession(s => s.nodes)
-  const inspection = useSession(s => s.inspection)
-  const hasMore = useSession(s => s.hasMore)
-  const openState = useSession(s => s.openState)
-  const partial = useSession(s => s.partial)
-  const runningCalls = useSession(s => s.runningCalls)
-  const codeDispatches = useSession(s => s.codeDispatches)
+  const inspection = useHistory(snapshot => snapshot.inspection)
+  const nodes = inspection.eventNodes
+  const partial = inspection.partial
+  const runningCalls = inspection.runningCalls
+  const codeDispatches = inspection.codeDispatches
   const loadAllHistoryRef = useRef(loadAllHistory)
   loadAllHistoryRef.current = loadAllHistory
   useEffect(() => {
     const controller = new AbortController()
-    if (openState === 'open' && hasMore) {
-      void loadAllHistoryRef.current(controller.signal)
-    }
+    void loadAllHistoryRef.current(controller.signal)
     return () => { controller.abort() }
-  }, [hasMore, openState])
-  const requests = inspection?.requests ?? EMPTY_REQUESTS
-  const callSchemas = inspection?.callSchemas
+  }, [])
+  const requests = inspection.requests ?? EMPTY_REQUESTS
+  const callSchemas = inspection.callSchemas
   const contexts = useMemo<readonly ConversationContext[]>(
-    () => inspection === undefined || inspection.contexts.length === 0
+    () => inspection.contexts.length === 0
       ? [{ id: 0, nodes }]
       : inspection.contexts,
     [inspection, nodes],
@@ -182,11 +177,11 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
   const selectedNodes = useMemo(() => {
     const selected = new Map(currentBranch.nodes.map(node => [node.seq, node]))
-    for (const node of nodes) {
-      if (isInterruptedNode(node)) selected.set(node.seq, node)
+    for (const node of inspection.interruptedNodes) {
+      selected.set(node.seq, node)
     }
     return [...selected.values()].sort((left, right) => left.seq - right.seq)
-  }, [currentBranch, nodes])
+  }, [currentBranch, inspection])
   const selectedRequests = useMemo(
     () => requests.filter(request =>
       trajectoryBranchContainsRequest(currentBranch, request),

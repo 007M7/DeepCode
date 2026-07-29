@@ -7,9 +7,8 @@ import { createUserMessage, CallId, createMessage, createToolResultMessage } fro
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import {
-  FoldAdapter, projectConversationHistory,
-} from '../src/client/sessions/fold-adapter.ts'
+import { FoldAdapter } from '../src/client/sessions/fold-adapter.ts'
+import { projectConversationHistory } from '../src/client/session-history/history-fold.ts'
 import { ev, plainTurn } from './event-script.ts'
 
 const at = (seq: number, e: Record<string, unknown>): SessionEvent =>

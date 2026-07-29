@@ -1,6 +1,6 @@
 /** Strict per-session conversation content: header, view ring, and chat store bindings. */
 
-import { Fragment, useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,7 +24,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, open, composer,
+  renderSlot, views, bindDraftMirror, open,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -32,7 +32,6 @@ export function ConversationSession({
   const active = tabs.find(view => view.id === activeId) ?? tabs[0]
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
   const composerPhase = useSession(s => s.composerPhase)
-  const hasPending = useSession(s => s.pending.length > 0)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)
   const storedDraft = useStore(s => s.draft)
@@ -45,11 +44,11 @@ export function ConversationSession({
     // the machine mirror, not this seed effect.
   }, [inputActions])
 
-  const blankHero = blank && composerPhase === 'blank'
+  if (blank && composerPhase === 'blank') return null
 
   return (
     <>
-      {!blankHero && <header className={css.header}>
+      <header className={css.header}>
         <div className={css.crumbRow}>
           <nav className={css.crumbs} aria-label="Session hierarchy">
             {ancestry.map((summary, index) => {
@@ -87,13 +86,10 @@ export function ConversationSession({
             ))}
           </div>
         )}
-      </header>}
-      {!blankHero && <div className={css.viewArea}>
+      </header>
+      <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
-      </div>}
-      {(blankHero || active?.id === 'chat' || hasPending) && (
-        <Fragment key="composer">{composer}</Fragment>
-      )}
+      </div>
     </>
   )
 }

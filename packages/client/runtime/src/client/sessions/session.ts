@@ -12,12 +12,9 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionFace } from '../contract/session.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot,
-  OpenState, PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
+  PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
-import {
-  createHistoryInspection, type SessionHistoryInspection,
-} from './history.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
@@ -51,10 +48,6 @@ export interface SessionOptions {
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
 const QUEUE_PREVIEW_CHARS = 200
 
-function isAborted(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true
-}
-
 /** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
 interface QueuedEntry {
   row: QueuedMessage
@@ -73,11 +66,10 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
 }
 
 /**
- * Owns a session's event window, folded conversation, raw history inspection,
- * and observable snapshot. React bindings remain outside this data layer.
- * Features see only the {@link SessionFace} slice (ISession verbs + the
- * snapshot source); the remaining public members are manager/runtime entry
- * points.
+ * Owns a session's event window, derived conversation state, and observable
+ * snapshot. React bindings remain outside this data layer. Features see only
+ * the {@link SessionFace} slice (ISession verbs + the snapshot source); the
+ * remaining public members are manager/runtime entry points.
  */
 export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
@@ -122,13 +114,6 @@ export class Session implements SessionFace {
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
-  /** Raw history revision; inspection wrappers capture the exact array window and length. */
-  private historyRev = 0
-  private historyInspectionCache: {
-    rev: number
-    value: SessionHistoryInspection
-  } | null = null
-  private loadOlderPromise: Promise<void> | null = null
   private running = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
@@ -294,75 +279,40 @@ export class Session implements SessionFace {
     return promise
   }
 
-  /**
-   * Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2).
-   * Concurrent callers share the active page so complete-history readers can continue afterward.
-   * @returns When the active or newly started page request settles.
-   */
-  loadOlder(): Promise<void> {
-    if (this.loadOlderPromise !== null) return this.loadOlderPromise
-    if (this.openState !== 'open' || !this.hasMore) return Promise.resolve()
+  /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
+  async loadOlder(): Promise<void> {
+    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
     this.loadingOlder = true
     this.notifier.markDirty()
-    const generation = this.openGeneration
-    const operation = (async () => {
-      try {
-        const { result } = await this.api.sessions.history({
-          sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
-        })
-        if (generation !== this.openGeneration || this.openState !== 'open') return
-        if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
-        const older = result.value.events
-        if (older.length === 0) {
-          this.hasMore = result.value.hasMore
-          return
-        }
-        const tail = older[older.length - 1]
-        if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
-          // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-          console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
-          this.hasMore = false
-          return
-        }
-        this.events = [...older.map(e => e.event), ...this.events]
-        this.views = [...older.map(e => e.view), ...this.views]
-        this.historyRev++
-        /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
-        this.baseSeq = older[0]?.event.seq ?? this.baseSeq
+    try {
+      const { result } = await this.api.sessions.history({
+        sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
+      })
+      if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
+      const older = result.value.events
+      if (older.length === 0) {
         this.hasMore = result.value.hasMore
-        this.foldAdapter.reset(this.events, this.baseSeq, this.views) // prepend forces a rebuild (sentinel count changed)
-        this.rebuildDerivedFromWindow()
-      } catch (error) {
-        console.error('[web-runtime] loadOlder failed:', error)
+        return
       }
-    })()
-    const settled = operation.finally(() => {
-      if (this.loadOlderPromise !== settled) return
-      this.loadOlderPromise = null
+      const tail = older[older.length - 1]
+      if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
+        // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
+        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
+        this.hasMore = false
+        return
+      }
+      this.events = [...older.map(e => e.event), ...this.events]
+      this.views = [...older.map(e => e.view), ...this.views]
+      /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
+      this.baseSeq = older[0]?.event.seq ?? this.baseSeq
+      this.hasMore = result.value.hasMore
+      this.foldAdapter.reset(this.events, this.baseSeq, this.views) // prepend forces a rebuild (sentinel count changed)
+      this.rebuildDerivedFromWindow()
+    } catch (error) {
+      console.error('[web-runtime] loadOlder failed:', error)
+    } finally {
       this.loadingOlder = false
       this.notifier.markDirty()
-    })
-    this.loadOlderPromise = settled
-    return settled
-  }
-
-  /**
-   * Exhaust history paging for inspection surfaces that require a complete
-   * session ledger. Stops after a failed or non-advancing page so a transient
-   * backend failure cannot become an automatic retry loop, and observes
-   * cancellation between pages without abandoning an active unary request.
-   * @param signal - Mounted consumer lifetime; abort stops before the next page.
-   * @returns When the available history has been exhausted or paging stops making progress.
-   */
-  async loadAllHistory(signal?: AbortSignal): Promise<void> {
-    while (
-      !isAborted(signal)
-      && this.openState === 'open'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (isAborted(signal) || this.baseSeq === previousBaseSeq) return
     }
   }
 
@@ -379,13 +329,10 @@ export class Session implements SessionFace {
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
-    this.loadOlderPromise = null
-    this.loadingOlder = false
     this.openState = 'cold'
     this.openError = null
     this.events = []
     this.views = []
-    this.historyRev++
     this.baseSeq = 0
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
@@ -604,7 +551,6 @@ export class Session implements SessionFace {
   private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
-    this.historyRev++
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
@@ -622,7 +568,6 @@ export class Session implements SessionFace {
     if (tailSeq !== null && event.seq <= tailSeq) return // replay overlap, drop
     this.events.push(event)
     this.views.push(view)
-    if (event.type !== 'assistant/chunk') this.historyRev++
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
   }
@@ -874,7 +819,6 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
-      inspection: this.buildHistoryInspection(),
       foldDegraded: degraded,
       partial,
       runningCalls: this.callsCache.value,
@@ -898,32 +842,6 @@ export class Session implements SessionFace {
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
     }
-  }
-
-  /** Build a lazy inspection wrapper for the exact current history window. */
-  private buildHistoryInspection(): SessionHistoryInspection {
-    if (
-      this.historyInspectionCache === null
-      || this.historyInspectionCache.rev !== this.historyRev
-    ) {
-      const events = this.events
-      const views = this.views
-      const length = events.length
-      this.historyInspectionCache = {
-        rev: this.historyRev,
-        value: createHistoryInspection(() =>
-          Array.from({ length }, (_, index) => {
-            const event = events[index]
-            if (event === undefined) {
-              throw new Error('captured history window changed before inspection')
-            }
-            const view = views[index]
-            return view === undefined ? { event } : { event, view }
-          }),
-        ),
-      }
-    }
-    return this.historyInspectionCache.value
   }
 }
 

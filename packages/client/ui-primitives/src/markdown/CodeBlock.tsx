@@ -59,7 +59,6 @@ async function writeClipboard(text: string): Promise<boolean> {
 
 export function CodeBlock({ code, lang, className }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
-  const hasLanguage = lang !== undefined && lang !== ''
   const html = useMemo(() => highlightToHtml(trimmed, lang), [trimmed, lang])
   const rootRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
@@ -88,10 +87,7 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
     )
 
   return (
-    <div
-      ref={rootRef}
-      className={clsx(css.block, !hasLanguage && css.noLanguage, 'md-code-block', className)}
-    >
+    <div ref={rootRef} className={clsx(css.block, 'md-code-block', className)}>
       <div className={css.bannerWrap}>
         <div className={css.banner}>
           <div className={css.infostring}>{lang ?? ''}</div>

@@ -108,13 +108,6 @@ export class FixtureSession implements SessionFace {
     throw new Error(`test session "${this.sessionId}": loadOlder is not stubbed — supply it on the fixture's session face`)
   }
 
-  /**
-   * Fail-loud stub; supply `loadAllHistory` on the fixture's session face to exercise it.
-   * @returns never — always throws.
-   */
-  loadAllHistory(): never {
-    throw new Error(`test session "${this.sessionId}": loadAllHistory is not stubbed — supply it on the fixture's session face`)
-  }
 }
 
 /** One live test session: fixture-derived stores plus its minted scope state. */

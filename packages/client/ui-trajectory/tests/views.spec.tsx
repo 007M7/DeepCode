@@ -10,13 +10,14 @@
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createElement, type FC, type ReactNode } from 'react'
+import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, RequestView, SessionId, SessionListState, WorkspaceListState,
+  ConversationSnapshot, RequestView, SessionHistoryFace, SessionHistoryInspection,
+  SessionHistorySnapshot, SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
@@ -24,7 +25,9 @@ import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/cli
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
-import { TrajectoryView } from '../src/client/TrajectoryView.tsx'
+import {
+  TrajectoryView, type TrajectoryViewInjected,
+} from '../src/client/TrajectoryView.tsx'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
@@ -53,6 +56,38 @@ const NODES = [
     timing: { stepStartTime: 3_500, firstTokenTime: 3_700, completedTime: 4_000 },
   },
 ] as unknown as ConversationSnapshot['nodes']
+
+function historySnapshot(
+  nodes: ConversationSnapshot['nodes'],
+  inspection: Partial<SessionHistoryInspection> = {},
+): SessionHistorySnapshot {
+  return {
+    state: 'ready',
+    error: null,
+    hasMore: false,
+    inspection: {
+      eventNodes: nodes,
+      contexts: [{ id: 0, nodes }],
+      requests: [],
+      callSchemas: new Map(),
+      interruptedNodes: [],
+      partial: null,
+      runningCalls: [],
+      codeDispatches: new Map(),
+      ...inspection,
+    },
+  }
+}
+
+function standaloneHistory(
+  snapshot: SessionHistorySnapshot,
+): Pick<ComponentProps<typeof TrajectoryView>, 'useHistory' | 'loadAllHistory'> {
+  const store = createSnapshotStore(snapshot)
+  return {
+    useHistory: bindSnapshotSelector(store),
+    loadAllHistory: () => Promise.resolve(),
+  }
+}
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
@@ -93,6 +128,13 @@ async function bench() {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
   const loadAllHistory = vi.fn((_signal: AbortSignal) => Promise.resolve())
+  const historyStore = createSnapshotStore(historySnapshot(NODES))
+  const history: SessionHistoryFace = {
+    sessionId: SID,
+    getSnapshot: historyStore.getSnapshot,
+    subscribe: historyStore.subscribe,
+    loadAll: loadAllHistory,
+  }
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
     name: 'root',
@@ -104,11 +146,7 @@ async function bench() {
   // 'conversation' inject is an ordering edge; the bench declares the ring
   // itself, so a stub satisfies the wait.
   ctx.provide('conversation', {})
-  ctx.provide('sessions', {
-    binding: (sessionId: SessionId) => sessionId === SID
-      ? { session: { loadAllHistory } }
-      : undefined,
-  })
+  ctx.provide('sessionHistory', { source: () => history })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, slots, fiber, loadAllHistory }
@@ -141,9 +179,17 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
     const injected = injectEntry === undefined
       ? {}
       : injectEntry(SID)
+    const injectedProps = 'hooks' in injected
+      ? {
+          loadAllHistory: (injected as TrajectoryViewInjected).loadAllHistory,
+          useHistory: bindSnapshotSelector(
+            (injected as TrajectoryViewInjected).hooks.history,
+          ),
+        }
+      : injected
     return (
       <View
-        {...injected}
+        {...injectedProps}
         {...({ sessionId: SID, useSession, useSessions: emptySessions(), useWorkspaces: emptyWorkspaces() } as unknown as ConvViewProps)}
         key={key}
       />
@@ -151,7 +197,6 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   }) as unknown as ConversationSessionProps['renderSlot']
   return render(
     <ConversationSession
-      composer={null}
       sessionId={SID}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
@@ -345,7 +390,10 @@ describe('timeline projection', () => {
     expect(deriveTrajectoryTimeline([])).toBeNull()
     render(createElement(
       TrajectoryView,
-      { ...standaloneProps([]), loadAllHistory: () => Promise.resolve() },
+      {
+        ...standaloneProps([]),
+        ...standaloneHistory(historySnapshot([])),
+      },
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
@@ -386,9 +434,9 @@ describe('TrajectoryView branches', () => {
       completedAt: startSeq * 1_000 + 100,
       status: 'complete',
     })
-    const store = createSnapshotStore({
-      nodes: [retained, current],
-      inspection: {
+    const store = createSnapshotStore(historySnapshot(
+      [retained, abandoned, current],
+      {
         eventNodes: [retained, abandoned, current],
         contexts: [
           { id: 0, nodes: [retained, abandoned] },
@@ -403,17 +451,12 @@ describe('TrajectoryView branches', () => {
         requests: [request(2, 1), request(4, 2)],
         callSchemas: new Map(),
       },
-      openState: 'open' as const,
-      hasMore: false,
-      partial: null,
-      runningCalls: [] as ConversationSnapshot['runningCalls'],
-      codeDispatches: new Map(),
-    })
+    ))
 
     const view = render(
       <TrajectoryView
         {...standaloneProps([])}
-        useSession={bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>}
+        useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,
     )
@@ -441,25 +484,21 @@ describe('TrajectoryView branches', () => {
       error: { name: 'Interrupted', code: 'interrupted' },
       callView: null, resultView: null,
     } as unknown as ConversationSnapshot['nodes'][number]
-    const store = createSnapshotStore({
-      nodes: [retained, interruptedAssistant, interruptedTool],
-      inspection: {
+    const store = createSnapshotStore(historySnapshot(
+      [retained],
+      {
         eventNodes: [retained],
         contexts: [{ id: 0, nodes: [retained] }],
         requests: [],
         callSchemas: new Map(),
+        interruptedNodes: [interruptedAssistant, interruptedTool],
       },
-      openState: 'open' as const,
-      hasMore: false,
-      partial: null,
-      runningCalls: [] as ConversationSnapshot['runningCalls'],
-      codeDispatches: new Map(),
-    })
+    ))
 
     render(
       <TrajectoryView
         {...standaloneProps([])}
-        useSession={bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot>}
+        useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,
     )

@@ -83,8 +83,8 @@ export function apply(ctx: Context): void {
     },
   }), 'ui-conversation: input standard-kit provider')
 
-  // Resident current-session-optional shell. It constructs the stable
-  // composer frame; the strict session child decides whether Chat mounts it.
+  // Resident current-session-optional shell. It owns the stable Hero/composer
+  // frame while strict session slots fill only their session-bound regions.
   slots.register({
     name: 'conversation',
     children: {
@@ -114,8 +114,8 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session subtree owns the per-session store and view content;
-  // the resident parent supplies the composer node through owner props.
+  // The strict session subtree owns only per-session store and view content;
+  // the resident parent keeps Hero and composer layout identity stable.
   slots.register({
     name: 'conversation.session',
     children: { 'conversation.view': { kind: 'list', scope: 'session' } },

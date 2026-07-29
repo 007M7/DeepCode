@@ -16,7 +16,7 @@ import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.ts
  * into an undeclared slot throws — service waiting is what orders this
  * apply after the declaring one.
  */
-export const inject = ['slots', 'conversation', 'sessions']
+export const inject = ['slots', 'conversation', 'sessionHistory']
 
 /**
  * Client plugin body: register the trajectory view tab. The registration
@@ -30,12 +30,10 @@ export function apply(ctx: Context): void {
     order: 10,
     label: 'Trajectory',
     inject: (sessionId: SessionId): TrajectoryViewInjected => {
-      const session = ctx.sessions.binding(sessionId)?.session
-      if (session === undefined) {
-        throw new Error(`ui-trajectory: session "${sessionId}" resolved no binding`)
-      }
+      const history = ctx.sessionHistory.source(sessionId)
       return {
-        loadAllHistory: signal => session.loadAllHistory(signal),
+        hooks: { history },
+        loadAllHistory: signal => history.loadAll(signal),
       }
     },
   }, TrajectoryView)

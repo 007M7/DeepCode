@@ -161,21 +161,6 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
-  it('keeps a lazily inspected snapshot pinned to its original history window', async () => {
-    const { session } = await opened()
-    const before = session.getSnapshot()
-
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event',
-      sessionId: SID,
-      event: ev.user(6, 'later'),
-    })
-
-    expect(before.inspection?.eventNodes.map(node => node.seq)).toEqual([1, 3])
-    expect(session.getSnapshot().inspection?.eventNodes.map(node => node.seq))
-      .toEqual([1, 3, 6])
-  })
-
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -239,92 +224,6 @@ describe('paging', () => {
     expect(api.callsOf('session.history')).toMatchObject([{}, { beforeSeq: 6 }].map(p => ({ sessionId: SID, ...p })))
     expect(snapshot.hasMore).toBe(false)
     expect(snapshot.nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
-  })
-
-  it('loads every older page for complete-history inspection', async () => {
-    const pages = [
-      plainTurn(0, 0, '最早问', '最早答'),
-      plainTurn(6, 1, '中间问', '中间答'),
-      plainTurn(12, 2, '最新问', '最新答'),
-    ]
-    const { api, session } = makeSession()
-    api.onHistory = (payload) => {
-      if (payload.beforeSeq === undefined) return histResponse(pages[2]!, true)
-      if (payload.beforeSeq === 12) return histResponse(pages[1]!, true)
-      return histResponse(pages[0]!, false)
-    }
-
-    await session.open()
-    await session.loadAllHistory()
-
-    expect(api.callsOf('session.history')).toHaveLength(3)
-    expect(session.getSnapshot().hasMore).toBe(false)
-    expect(session.getSnapshot().inspection?.eventNodes.map(node => node.seq))
-      .toEqual([1, 3, 7, 9, 13, 15])
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9, 13, 15])
-  })
-
-  it('stops complete-history loading when a page makes no progress', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = payload => payload.beforeSeq === undefined
-      ? histResponse(plainTurn(6, 1, '新问', '新答'), true)
-      : Promise.resolve(err({ code: 'internal', message: 'page unavailable', details: {} }))
-
-    await session.open()
-    await session.loadAllHistory()
-
-    expect(api.callsOf('session.history')).toHaveLength(2)
-    expect(session.getSnapshot().hasMore).toBe(true)
-  })
-
-  it('continues complete-history loading after an already active page', async () => {
-    const pages = [
-      plainTurn(0, 0, '最早问', '最早答'),
-      plainTurn(6, 1, '中间问', '中间答'),
-      plainTurn(12, 2, '最新问', '最新答'),
-    ]
-    const middle = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    const { api, session } = makeSession()
-    api.onHistory = (payload) => {
-      if (payload.beforeSeq === undefined) return histResponse(pages[2]!, true)
-      if (payload.beforeSeq === 12) return middle.promise
-      return histResponse(pages[0]!, false)
-    }
-
-    await session.open()
-    const activePage = session.loadOlder()
-    const completeHistory = session.loadAllHistory()
-    middle.resolve(ok({
-      events: entries(pages[1]!) as never[],
-      hasMore: true,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    }))
-    await Promise.all([activePage, completeHistory])
-
-    expect(api.callsOf('session.history')).toHaveLength(3)
-    expect(session.getSnapshot().hasMore).toBe(false)
-    expect(session.getSnapshot().nodes.map(node => node.seq))
-      .toEqual([1, 3, 7, 9, 13, 15])
-  })
-
-  it('stops complete-history loading between pages after its consumer aborts', async () => {
-    const middle = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    const { api, session } = makeSession()
-    api.onHistory = payload => payload.beforeSeq === undefined
-      ? histResponse(plainTurn(12, 2, '最新问', '最新答'), true)
-      : middle.promise
-    await session.open()
-    const controller = new AbortController()
-    const completeHistory = session.loadAllHistory(controller.signal)
-    controller.abort()
-    middle.resolve(ok({
-      events: entries(plainTurn(6, 1, '中间问', '中间答')) as never[],
-      hasMore: true,
-    }))
-    await completeHistory
-
-    expect(api.callsOf('session.history')).toHaveLength(2)
-    expect(session.getSnapshot().hasMore).toBe(true)
   })
 
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {
@@ -803,31 +702,6 @@ describe('resync', () => {
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
   })
 
-  it('starts fresh paging while an older generation page is still pending', async () => {
-    const stalePage = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    const { api, session } = makeSession()
-    let call = 0
-    api.onHistory = () => {
-      call++
-      if (call === 1) return histResponse(plainTurn(6, 1, '新', '页'), true)
-      if (call === 2) return stalePage.promise
-      if (call === 3) return histResponse(plainTurn(6, 1, '新', '代'), true)
-      return histResponse(plainTurn(0, 0, '旧', '页'), false)
-    }
-    await session.open()
-    const stale = session.loadOlder()
-    await session.resync()
-    const fresh = session.loadAllHistory()
-    await vi.waitFor(() => { expect(call).toBe(4) })
-    stalePage.resolve(ok({
-      events: entries(plainTurn(0, 0, '废', '弃')) as never[],
-      hasMore: false,
-    }))
-    await Promise.all([stale, fresh])
-
-    expect(session.getSnapshot().hasMore).toBe(false)
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9])
-  })
 })
 
 describe('run_code sub-dispatch indexing', () => {

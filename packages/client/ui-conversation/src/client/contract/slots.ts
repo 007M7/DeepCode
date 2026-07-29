@@ -19,7 +19,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
-     * Trajectory from ui-trajectory), rendered one-at-a-time by
+     * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
      * ConversationRoot via `only: <active id>`. Declared by this package's
      * 'conversation' entry (declaring is claiming). Session scope: views read
      * the conversation snapshot through the standard kit.
@@ -117,8 +117,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
-  /** Composer chain assembled by the resident parent; only Chat mounts it. */
-  composer: ReactNode
 }
 
 /**
@@ -143,7 +141,7 @@ export interface ConvViewOwnerProps {}
 
 /**
  * Owner share of a per-view toolview slot: the call material the rendering
- * view supplies per row. Uniform across views — the Trajectory
+ * view supplies per row. Uniform across views — the trajectory/waterfall
  * toolview slots (same kind/scope/owner, names fixed by the slot-naming
  * discipline) land with their own row render sites; today only the chat slot
  * is declared (RendersCheck rejects a declaration nobody renders).

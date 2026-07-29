@@ -470,7 +470,6 @@ describe('fixture session face', () => {
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
     expect(() => bare.command()).toThrow(/command is not stubbed/)
     expect(() => bare.loadOlder()).toThrow(/loadOlder is not stubbed/)
-    expect(() => bare.loadAllHistory()).toThrow(/loadAllHistory is not stubbed/)
     await runtime.dispose()
   })
 

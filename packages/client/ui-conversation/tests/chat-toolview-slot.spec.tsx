@@ -59,7 +59,6 @@ async function bench(nodes: ToolResultNode[]) {
     snapshot: { nodes },
     session: {
       loadOlder: vi.fn<ISession['loadOlder']>(),
-      loadAllHistory: vi.fn<ISession['loadAllHistory']>(),
       prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
     },
   })
