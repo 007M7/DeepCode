@@ -66,6 +66,11 @@ export function apply(ctx: ClientContext): void {
           if (ref === undefined) return noCurrentGoal
           return settle((await goals.edit({ sessionId, ref, objective })).result)
         },
+        onPause: async () => {
+          const ref = refOf(sessionId)
+          if (ref === undefined) return noCurrentGoal
+          return settle((await goals.pause({ sessionId, ref })).result)
+        },
         onResume: async () => {
           const ref = refOf(sessionId)
           if (ref === undefined) return noCurrentGoal
