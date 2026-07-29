@@ -34,8 +34,6 @@
             name: '@deepseek-ai/dsh-fs-e2b'
           - id: code-runtime-subprocess
             name: '@deepseek-ai/dsh-code-runtime-subprocess'
-          - id: sandbox
-            name: '@deepseek-ai/dsh-sandbox-local'
           - id: sandbox-policy
             name: '@deepseek-ai/dsh-sandbox-policy'
             config:

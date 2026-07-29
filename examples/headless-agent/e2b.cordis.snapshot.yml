@@ -29,8 +29,6 @@
             name: '@deepseek-ai/dsh-code-runtime-subprocess'
           - id: tool-cordis
             name: '@deepseek-ai/dsh-tool-cordis'
-          - id: sandbox
-            name: '@deepseek-ai/dsh-sandbox-local'
           - id: sandbox-policy
             name: '@deepseek-ai/dsh-sandbox-policy'
             config:

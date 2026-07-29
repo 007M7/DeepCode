@@ -21,9 +21,6 @@
 - id: agents
   name: '@deepseek-ai/dsh-agent'
 
-- id: sandbox
-  name: '@deepseek-ai/dsh-sandbox-local'
-
 - id: sandbox-policy
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:
