@@ -89,9 +89,17 @@ export interface SkillLookupOptions {
 
 /** One catalog observation plus whether every registered provider completed discovery. */
 export interface SkillCatalogSnapshot {
-  /** Sorted model-invocable summaries from providers that completed. */
+  /** Sorted model-invocable summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed discovery for this observation. */
+  readonly complete: boolean
+}
+
+/** Provider candidates plus whether the current discovery is authoritative. */
+export interface SkillProviderObservation {
+  /** Candidates available from the current provider discovery. */
+  readonly candidates: readonly SkillCandidate[]
+  /** Whether discovery completed and these candidates may be cached. */
   readonly complete: boolean
 }
 
@@ -105,9 +113,10 @@ export interface SkillProvider {
    * authentication, and discovery are awaited inside this method. Implementations
    * should settle promptly when `options.signal` aborts.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
-   * @returns provider candidates with precedence ranks and opaque locators.
+   * @returns provider candidates as a complete-array shorthand, or an explicit
+   *   observation when usable candidates came from incomplete discovery.
    */
-  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
+  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[] | SkillProviderObservation>
   /**
    * Load a complete skill body for a previously listed candidate.
    * @param candidate - the winning candidate originally returned by this provider.
@@ -387,11 +396,9 @@ export class SkillService extends Service {
         this.ctx.logger.warn(`skill provider "${provider.name}" skipped: ${errorMessage(error)}`)
       }
       if (output === undefined) continue
-      if (!Array.isArray(output)) {
-        throw new TypeError(`skill provider "${provider.name}" list() must return an array`)
-      }
-      const listed = output as readonly SkillCandidate[]
-      for (const candidate of listed) {
+      const observation = normalizeProviderObservation(output, provider.name)
+      if (!observation.complete) cacheable = false
+      for (const candidate of observation.candidates) {
         validateCandidate(candidate, provider.name)
         candidates.push({ candidate, provider, providerOrder: order, localOrder })
         localOrder += 1
@@ -424,6 +431,24 @@ export class SkillService extends Service {
       }
     }
   }
+}
+
+function normalizeProviderObservation(output: unknown, providerName: string): SkillProviderObservation {
+  if (Array.isArray(output)) {
+    return { candidates: output as readonly SkillCandidate[], complete: true }
+  }
+  if (output === null || typeof output !== 'object') {
+    throw invalidProviderObservation(providerName)
+  }
+  const observation = output as Partial<SkillProviderObservation>
+  if (!Array.isArray(observation.candidates) || typeof observation.complete !== 'boolean') {
+    throw invalidProviderObservation(providerName)
+  }
+  return observation as SkillProviderObservation
+}
+
+function invalidProviderObservation(providerName: string): TypeError {
+  return new TypeError(`skill provider "${providerName}" list() must return an array or { candidates, complete } observation`)
 }
 
 const RUNTIME_SKILL_PROVIDER: SkillProvider = {

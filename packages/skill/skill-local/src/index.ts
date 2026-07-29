@@ -27,6 +27,7 @@ import {
   type SkillLookupOptions,
   type SkillProvider,
   type SkillProviderControl,
+  type SkillProviderObservation,
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
@@ -161,18 +162,25 @@ export class LocalSkillProvider implements SkillProvider {
   /**
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
-   * @returns local provider candidates with stable root ranks.
+   * @returns local provider candidates with stable root ranks; watcher startup
+   *   failure returns readable candidates as an incomplete observation.
    */
-  async list(options: SkillLookupOptions): Promise<SkillCandidate[]> {
+  async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
-    await this.watchManager.observeRoots(roots)
+    let complete = true
+    try {
+      await this.watchManager.observeRoots(roots)
+    } catch (error) {
+      if (this.disposal !== undefined) throw error
+      complete = false
+    }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
       for (const skill of await discoverRoot(root, this.ctx)) {
         candidates.push(skill)
       }
     }
-    return candidates
+    return complete ? candidates : { candidates, complete }
   }
 
   /**

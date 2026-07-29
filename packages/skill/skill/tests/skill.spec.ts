@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import SkillService, { type SkillCandidate, type SkillDefinition, type SkillLookupOptions, type SkillProvider } from '@deepseek-ai/dsh-skill'
+import SkillService, { type SkillCandidate, type SkillDefinition, type SkillLookupOptions, type SkillProvider, type SkillProviderObservation } from '@deepseek-ai/dsh-skill'
 
 function memorySkill(name: string, description: string, rank: number, body = `${name} body.`): SkillCandidate {
   return {
@@ -169,15 +169,18 @@ describe('SkillService registry', () => {
     await expect(badBoolean.skills.list()).rejects.toThrow('non-boolean disableModelInvocation')
   })
 
-  it('rejects non-array provider results and every malformed candidate scalar', async () => {
-    const badList = new Context()
-    await badList.plugin(SkillService)
-    registerProvider(badList, {
-      name: 'non-array-list',
-      list: () => Promise.resolve({} as unknown as SkillCandidate[]),
-      get: () => Promise.resolve(undefined),
-    })
-    await expect(badList.skills.list()).rejects.toThrow('list() must return an array')
+  it('rejects malformed provider results and every malformed candidate scalar', async () => {
+    const malformedOutputs: unknown[] = [null, 1, {}, { candidates: [], complete: 'yes' }]
+    for (const [index, output] of malformedOutputs.entries()) {
+      const badList = new Context()
+      await badList.plugin(SkillService)
+      registerProvider(badList, {
+        name: `malformed-list-${index}`,
+        list: () => Promise.resolve(output as readonly SkillCandidate[] | SkillProviderObservation),
+        get: () => Promise.resolve(undefined),
+      })
+      await expect(badList.skills.list()).rejects.toThrow('list() must return an array or { candidates, complete } observation')
+    }
 
     const cases: { patch: Partial<SkillCandidate>; expected: string }[] = [
       { patch: { name: { value: 'candidate' } as unknown as string }, expected: 'non-string skill name' },
@@ -598,6 +601,33 @@ describe('SkillService registry', () => {
     expect(flakyCalls).toBe(3)
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['flaky-skill', 'second-skill'])
     expect(flakyCalls).toBe(3)
+  })
+
+  it('keeps candidates from incomplete provider observations loadable without caching them', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let listCalls = 0
+    registerProvider(ctx, {
+      name: 'incomplete-candidates',
+      async list() {
+        listCalls += 1
+        return {
+          candidates: [{ ...memorySkill('available-skill', 'Available', 10), provider: 'incomplete-candidates' }],
+          complete: false,
+        }
+      },
+      async get(candidate) {
+        return { ...candidate, content: (candidate.locator as { content: string }).content }
+      },
+    })
+
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'available-skill' }],
+      complete: false,
+    })
+    expect((await ctx.skills.get('available-skill'))?.content).toBe('available-skill body.')
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['available-skill'])
+    expect(listCalls).toBe(3)
   })
 
   it('invalidates only the exact registered provider and ignores its late callbacks', async () => {

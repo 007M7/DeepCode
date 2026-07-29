@@ -117,11 +117,15 @@ describe('skill-local watcher failures', () => {
     await fiber.dispose()
   })
 
-  it('marks a startup failure incomplete and retries discovery without caching it', async () => {
+  it('keeps skills loadable across persistent watcher startup failures without caching them', async () => {
     const home = await tempDir('skill-watch-start-error')
     const root = join(home, '.dsh/skills')
     await writeSkill(root, 'retry-skill')
-    watcherHarness.startupErrors.push(new Error('watch failed'))
+    watcherHarness.startupErrors.push(
+      new Error('watch failed once'),
+      new Error('watch failed twice'),
+      new Error('watch failed three times'),
+    )
     watcherHarness.closeErrors = 1
     const ctx = new Context()
     await ctx.plugin(SkillService)
@@ -135,13 +139,17 @@ describe('skill-local watcher failures', () => {
       watchStabilityThresholdMs: 20,
     })
 
-    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
     expect(await ctx.skills.snapshot()).toMatchObject({
       skills: [{ name: 'retry-skill' }],
-      complete: true,
+      complete: false,
     })
-    expect(watcherHarness.watchers).toHaveLength(2)
-    expect(watcherHarness.watchers[1]?.options).toMatchObject({
+    expect((await ctx.skills.get('retry-skill'))?.content).toBe('Body.')
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'retry-skill' }],
+      complete: false,
+    })
+    expect(watcherHarness.watchers).toHaveLength(3)
+    expect(watcherHarness.watchers[0]?.options).toMatchObject({
       atomic: true,
       depth: 1,
       followSymlinks: false,

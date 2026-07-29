@@ -10,7 +10,19 @@
 
 `ctx.skills` 组合本地、内嵌、远程或其他提供方。注册是同步的；远程初始化与发现属于 `list()` 的 await 阶段。提供方对象、选项与候选项以只读方式借用，语义字段会被校验。
 
-重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略，且该观测不会缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
+重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时会记录日志并从不完整观测中省略；显式的不完整观测会提供可用候选项，但不会使结果变得可缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
+
+`SkillProvider.list()` 返回的数组是完整发现的简写形式。`SkillProviderObservation` 允许提供方公开仍可直接加载的候选项，同时报告该观测不具权威性。
+
+```ts type-equiv
+/** Provider candidates plus whether the current discovery is authoritative. */
+interface SkillProviderObservation {
+  /** Candidates available from the current provider discovery. */
+  readonly candidates: readonly SkillCandidate[]
+  /** Whether discovery completed and these candidates may be cached. */
+  readonly complete: boolean
+}
+```
 
 ```ts type-equiv
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -23,9 +35,10 @@ interface SkillProvider {
    * authentication, and discovery are awaited inside this method. Implementations
    * should settle promptly when `options.signal` aborts.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
-   * @returns provider candidates with precedence ranks and opaque locators.
+   * @returns provider candidates as a complete-array shorthand, or an explicit
+   *   observation when usable candidates came from incomplete discovery.
    */
-  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
+  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[] | SkillProviderObservation>
   /**
    * Load a complete skill body for a previously listed candidate.
    * @param candidate - the winning candidate originally returned by this provider.
@@ -61,7 +74,7 @@ interface SkillProviderControl {
 
 项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 DSH 根目录会跳过其 `.system` 子目录。本地提供方不附带内置系统 skill；部署方通过另一个提供方提供内置 skill。
 
-Chokidar 会监视现有根目录中直属 bundle 和平铺条目的添加与移除，以及直属 skill 条目的变更。缺失的根目录会从最近的现有祖先开始，逐个跟踪缺失路径段，直至 Chokidar 可以附加。bundle 下的资源文件变更不属于目录变更。面向模型的 `write` 和 `edit` 观测会在目标路径相关时同步使提供方目录失效，而宿主 watcher 覆盖 IDE、Git、shell 和外部进程产生的变更。watcher 失败会使当前观测不完整；项目作用域 watcher 使用按配置设限的 LRU。
+Chokidar 会监视现有根目录中直属 bundle 和平铺条目的添加与移除，以及直属 skill 条目的变更。缺失的根目录会从最近的现有祖先开始，逐个跟踪缺失路径段，直至 Chokidar 可以附加。bundle 下的资源文件变更不属于目录变更。面向模型的 `write` 和 `edit` 观测会在目标路径相关时同步使提供方目录失效，而宿主 watcher 覆盖 IDE、Git、shell 和外部进程产生的变更。watcher 失败会使当前观测不完整，但不会在直接加载时隐藏可读候选项；项目作用域 watcher 使用按配置设限的 LRU。
 
 ## Skill 身份
 
@@ -101,7 +114,7 @@ interface SkillSummary {
 ```ts type-equiv
 /** One catalog observation plus whether every registered provider completed discovery. */
 interface SkillCatalogSnapshot {
-  /** Sorted model-invocable summaries from providers that completed. */
+  /** Sorted model-invocable summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed discovery for this observation. */
   readonly complete: boolean

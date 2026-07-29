@@ -159,6 +159,7 @@ export const LINK_MAP: Record<string, string> = {
   SkillDefinition: 'skills.md',
   SkillLookupOptions: 'skills.md',
   SkillProvider: 'skills.md',
+  SkillProviderObservation: 'skills.md',
   SkillRegistration: 'skills.md',
   SkillSummary: 'skills.md',
   SaveTextSpill: 'spill.md',
