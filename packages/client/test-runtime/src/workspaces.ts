@@ -149,8 +149,11 @@ export class TestWorkspaces implements IWorkspaces {
     this.calls.push({ method: 'createDirectory', args: [path, name] })
     const stub = this.stubs.get('createDirectory')
     if (stub !== undefined) return await (stub(path, name) as Promise<string>)
-    // Canonical join: a bare-root parent must not double the separator.
-    return path.endsWith('/') ? `${path}${name}` : `${path}/${name}`
+    // Join in the parent's own separator flavor (a canonical parent ends
+    // with one only when it is a bare root), so the contract's verbatim
+    // equality holds for POSIX and Windows fixture trees alike.
+    const sep = path.includes('\\') ? '\\' : '/'
+    return path.endsWith(sep) ? `${path}${name}` : `${path}${sep}${name}`
   }
 
   /**

@@ -15,11 +15,7 @@ import { DirectoryBrowser } from './DirectoryBrowser.tsx'
 export interface BrowseFlowInjected {
   /** List one directory level (absent path = the Host home directory); the signal aborts a superseded scan. */
   listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
-  /**
-   * Create one child directory under an existing parent; returns the
-   * created path in the shape `IWorkspaces.createDirectory` contracts
-   * (verbatim equal to the child's next `entries[].path`).
-   */
+  /** Create one child directory under an existing parent; returns the created path in the shape `IWorkspaces.createDirectory` contracts. */
   createDirectory: (path: string, name: string) => Promise<string>
   /** Localized dialog copy (this package's namespace). */
   t: Translate

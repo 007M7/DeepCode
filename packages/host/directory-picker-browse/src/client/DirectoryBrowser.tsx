@@ -37,7 +37,7 @@ import css from './DirectoryBrowser.module.css'
 
 /** Owner-supplied browser props: browse calls, pick semantics, and copy. */
 export interface DirectoryBrowserProps {
-  /** Dialog visibility (owner-local; closed unmounts nothing but resets on reopen). */
+  /** Dialog visibility (owner-local; closing resets the per-open state, so a reopen starts clean on its first frame). */
   open: boolean
   /** List one directory level (absent path = the Host home directory); the signal aborts a superseded scan on the wire. */
   listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
@@ -258,7 +258,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [error, setError] = useState<string | null>(null)
   // Path-edit state: null = breadcrumb mode; a string = the draft being typed.
   const [pathDraft, setPathDraft] = useState<string | null>(null)
-  // Show-hidden toggle state (pure client-side filter, reset on each open).
+  // Show-hidden toggle state (pure client-side filter, reset on close).
   const [showHidden, setShowHidden] = useState(false)
   // Create-folder state: null = closed; a string = the nested dialog's draft.
   const [folderDraft, setFolderDraft] = useState<string | null>(null)
@@ -334,9 +334,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * show-hidden toggle's click to decide whether to reclaim the native
    * focus outcome. A probe only: it never gates its caller — a torn-down
    * ref in a landing's close race merely skips the parking, and
-   * committing the landing into a closing dialog is safe (the component
-   * already renders null, and the open effect resets parent/selected/child
-   * on the next open).
+   * committing the landing into a closing dialog is safe: the close edge's
+   * supersede() fences every later settlement, and the same close effect
+   * zeroes parent/selected/child for the one frame that can slip between
+   * the close render and its effect.
    * @returns true when `document.activeElement` is inside the miller row.
    */
   const focusInMillerRows = useCallback((): boolean => {
@@ -509,7 +510,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // dialog. The per-open state resets live on the CLOSE edge: resetting on
   // open would let the reopen's first commit paint one frame of the stale
   // view (revealed hidden rows, a pressed toggle) before this passive
-  // effect runs.
+  // effect runs. No automated gate observes that ordering (act() hides the
+  // frame in tests) — this comment is the guard; read it before moving
+  // these back.
   useEffect(() => {
     openGeneration.current += 1
     if (open) {
@@ -522,6 +525,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     setChild(null)
     setCreatingFolder(false)
     setShowHidden(false)
+    setLoading(false)
     setError(null)
     setPathDraft(null)
     setFolderDraft(null)

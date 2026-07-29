@@ -48,10 +48,10 @@ export interface IWorkspaces {
    * Create one child directory through the Host's `browse` capability.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment.
-   * @returns the created directory's absolute path, in the shape
-   * `DirectoryPickerBrowseCapability.createDirectory` contracts: verbatim
-   * equal to the child's `entries[].path` in the parent's next listing
-   * (the browser anchors a create landing's selection on that equality).
+   * @returns the created directory's absolute path, in the shape the wire
+   * `HostApi.createDirectory` contracts: verbatim equal to the child's
+   * `entries[].path` in the parent's next listing (the browser anchors a
+   * create landing's selection on that equality).
    */
   createDirectory(path: string, name: string): Promise<string>
   /**
