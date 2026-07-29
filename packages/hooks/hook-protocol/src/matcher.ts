@@ -3,8 +3,9 @@
  * pipe patterns as literal alternatives and other patterns as regex. Codex
  * uses the same literal fast path, then compiles regex patterns with Rust's
  * `regex` dialect. Missing, empty, and `*` match all. Runtime matching contains
- * invalid regexes as non-matches. A compiled config registry exposes the same
- * stable diagnostic without constructing a second native regex.
+ * invalid regexes as non-matches. Codex regexes are interned in a bounded pool
+ * shared across module reloads; a config registry leases those instances for
+ * diagnostics and runtime matching without reconstructing them.
  * @module @deepseek-ai/dsh-hook-protocol/matcher
  */
 
@@ -12,12 +13,32 @@ import { createRequire } from 'node:module'
 import type { RRegex as RustRegex } from 'rregex'
 import type { MatcherMode } from './types.ts'
 
+type CodexRegexPoolEntry =
+  | { regex: RustRegex; diagnostic?: never }
+  | { regex?: never; diagnostic: string }
+
+type RRegexModule = {
+  RRegex: new(pattern: string) => RustRegex
+} & Record<symbol, unknown>
+
+/** Process-wide ceiling for distinct non-literal Codex matcher patterns. */
+export const MAX_INTERNED_CODEX_REGEX_PATTERNS = 128
+
 // rregex's ESM entry initializes WASM with top-level await. Hook plugins are
 // discovered through Cordis Loader's synchronous module boundary, so use the
 // package's equivalent synchronous Node entry rather than making both bridge
-// modules async merely by importing this shared matcher.
-const { RRegex } = createRequire(import.meta.url)('rregex') as {
-  RRegex: new(pattern: string) => RustRegex
+// modules async merely by importing this shared matcher. The versioned symbol
+// lives on that CJS module instance: Cordis may reload this library module, but
+// Node retains the dependency module and therefore its bounded intern pool.
+const rregexModule = createRequire(import.meta.url)('rregex') as RRegexModule
+const { RRegex } = rregexModule
+const CODEX_REGEX_POOL_KEY = Symbol.for('@deepseek-ai/dsh-hook-protocol/rregex-pool/v1')
+const priorPool = rregexModule[CODEX_REGEX_POOL_KEY]
+const codexRegexPool = priorPool instanceof Map
+  ? priorPool as Map<string, CodexRegexPoolEntry>
+  : new Map<string, CodexRegexPoolEntry>()
+if (!(priorPool instanceof Map)) {
+  rregexModule[CODEX_REGEX_POOL_KEY] = codexRegexPool
 }
 
 /** True for an absent / empty / `'*'` pattern — the match-all sentinels. */
@@ -31,64 +52,81 @@ const EXACT_MATCHER = /^[A-Za-z0-9_|]+$/
 interface CompiledMatcher {
   matches(query: string): boolean
   diagnostic?: string
-  dispose(): void
 }
 
-/** A config-lifetime matcher set compiled once and explicitly released. */
+/** A config-lifetime matcher set compiled once and explicitly disconnected. */
 export interface CompiledMatchers {
   /** Match one of the patterns supplied to {@link compileMatchers}. */
   matches(matcher: string | undefined, query: string): boolean
   /** Diagnose one supplied pattern using the already-compiled instance. */
   diagnostic(matcher: string | undefined): string | undefined
-  /** Release every native matcher. Safe to call more than once. */
+  /** Release this registry's references. Safe to call more than once. */
   dispose(): void
 }
 
-/** Compile one dialect's unanchored regex; invalid patterns return `undefined`. */
-function compileRegex(pattern: string, mode: MatcherMode): RegExp | RustRegex | undefined {
+/** Intern one Codex regex or its diagnostic without exceeding the process budget. */
+function internCodexRegex(pattern: string): CodexRegexPoolEntry {
+  const existing = codexRegexPool.get(pattern)
+  if (existing !== undefined) return existing
+  if (codexRegexPool.size >= MAX_INTERNED_CODEX_REGEX_PATTERNS) {
+    return {
+      diagnostic: `codex regex matcher capacity exceeded (${MAX_INTERNED_CODEX_REGEX_PATTERNS} distinct patterns per process) for ${JSON.stringify(pattern)}`,
+    }
+  }
+
+  let entry: CodexRegexPoolEntry
   try {
-    return mode === 'codex' ? new RRegex(pattern) : new RegExp(pattern)
+    entry = { regex: new RRegex(pattern) }
   } catch (_syntaxError) {
     // Regex construction is the try's only operation, so malformed syntax in
-    // the selected dialect is the only expected failure.
-    return undefined
+    // Rust's dialect is the only expected failure. Cache failures too: a bad
+    // config repeatedly reloaded must not keep growing WASM memory.
+    entry = { diagnostic: `invalid codex regex matcher ${JSON.stringify(pattern)}` }
   }
+  codexRegexPool.set(pattern, entry)
+  return entry
 }
 
-/** Release a WASM-backed Codex regex when its owning matcher lifetime ends. */
-function disposeRegex(regex: RegExp | RustRegex): void {
-  if (regex instanceof RRegex) regex.free()
-}
-
-/** Compile one matcher into a reusable, explicitly disposable predicate. */
+/** Compile one matcher into a reusable predicate. */
 function compileMatcher(matcher: string | undefined, mode: MatcherMode): CompiledMatcher {
-  if (isMatchAll(matcher)) return { matches: () => true, dispose: () => {} }
+  if (isMatchAll(matcher)) return { matches: () => true }
   const pattern = matcher as string
   if (EXACT_MATCHER.test(pattern)) {
     const alternatives = new Set(pattern.split('|'))
-    return { matches: query => alternatives.has(query), dispose: () => {} }
+    return { matches: query => alternatives.has(query) }
   }
-  const regex = compileRegex(pattern, mode)
-  if (regex === undefined) {
+
+  if (mode === 'codex') {
+    const entry = internCodexRegex(pattern)
+    if (entry.regex !== undefined) {
+      const regex = entry.regex
+      return { matches: query => regex.isMatch(query) }
+    }
     return {
       matches: () => false,
-      diagnostic: `invalid ${mode} regex matcher ${JSON.stringify(pattern)}`,
-      dispose: () => {},
+      diagnostic: entry.diagnostic,
     }
   }
-  return {
-    matches: query => regex instanceof RRegex ? regex.isMatch(query) : regex.test(query),
-    dispose: () => { disposeRegex(regex) },
+
+  try {
+    const regex = new RegExp(pattern)
+    return { matches: query => regex.test(query) }
+  } catch (_syntaxError) {
+    return {
+      matches: () => false,
+      diagnostic: `invalid claude regex matcher ${JSON.stringify(pattern)}`,
+    }
   }
 }
 
 /**
  * Compile a finite config's unique matcher patterns for repeated evaluation.
- * The returned registry owns native Rust-regex allocations; its caller must
- * dispose it when the config/plugin lifetime ends.
+ * The returned registry owns one config's references. Codex native instances
+ * live in a bounded, reload-stable process pool; disposal disconnects this
+ * config but deliberately keeps interned instances for later reloads.
  * @param matchers - the complete finite set of patterns in one loaded config.
  * @param mode - the native regex dialect used for non-literal patterns.
- * @returns a reusable registry that owns and disposes its compiled regexes.
+ * @returns a reusable registry that disconnects its config-local lookups on disposal.
  */
 export function compileMatchers(matchers: Iterable<string | undefined>, mode: MatcherMode): CompiledMatchers {
   const compiled = new Map<string | undefined, CompiledMatcher>()
@@ -108,7 +146,6 @@ export function compileMatchers(matchers: Iterable<string | undefined>, mode: Ma
     dispose() {
       if (disposed) return
       disposed = true
-      for (const matcher of compiled.values()) matcher.dispose()
       compiled.clear()
     },
   }
@@ -121,12 +158,7 @@ export function compileMatchers(matchers: Iterable<string | undefined>, mode: Ma
  * @returns `undefined` for a valid matcher, otherwise a stable diagnostic.
  */
 export function matcherDiagnostic(matcher: string | undefined, mode: MatcherMode): string | undefined {
-  const compiled = compileMatcher(matcher, mode)
-  try {
-    return compiled.diagnostic
-  } finally {
-    compiled.dispose()
-  }
+  return compileMatcher(matcher, mode).diagnostic
 }
 
 /**
@@ -142,10 +174,5 @@ export function matcherDiagnostic(matcher: string | undefined, mode: MatcherMode
  *   regex.
  */
 export function matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean {
-  const compiled = compileMatcher(matcher, mode)
-  try {
-    return compiled.matches(query)
-  } finally {
-    compiled.dispose()
-  }
+  return compileMatcher(matcher, mode).matches(query)
 }
