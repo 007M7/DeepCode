@@ -4,7 +4,7 @@
 // The 'conversation.input.dock' SlotMap declaration lives in
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from 'cordis'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InboxItemId, QueueAction } from '@deepseek-ai/dsh-client-connection/client'
@@ -24,10 +24,7 @@ export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDock
 
 /** Queue strip: one preview line per queued message; renders null when the queue is empty. */
 export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
-  const inbox = useSession(s => s.queue)
-  // TODO(web-steer-ui): Give pending steering its own interaction before
-  // exposing it; QueueDock owns only independent queued turns.
-  const queue = useMemo(() => inbox.filter(row => row.placement === 'queued'), [inbox])
+  const queue = useSession(s => s.queue)
   const [editing, setEditing] = useState<{ id: InboxItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<InboxItemId | null>(null)
 

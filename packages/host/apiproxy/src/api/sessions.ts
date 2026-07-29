@@ -129,7 +129,6 @@ export interface SessionModels {
 export type QueueAction =
   | { kind: 'edit'; content: ContentBlock[] }
   | { kind: 'remove' }
-  | { kind: 'promote' }
 
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
@@ -237,9 +236,7 @@ export interface SessionsApi {
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /**
-   * Edits, removes, or promotes one pending inbox occurrence. Promotion means
-   * first in its current FIFO; a queued item is also made waking, so an idle
-   * agent starts it and a running agent takes it as the next independent turn.
+   * Edits or removes one pending queued occurrence.
    */
   updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>

@@ -50,7 +50,6 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     items: z.array(z.object({
       id: inboxItemIdSchema,
       message: messageSchema,
-      placement: z.union([z.literal('queued'), z.literal('steering')]),
     })),
   }),
   // value stays wide: it already passed its unit's own schema on the host,

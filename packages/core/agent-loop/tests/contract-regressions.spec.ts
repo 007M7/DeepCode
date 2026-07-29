@@ -60,10 +60,9 @@ function inboxText(item: InboxItem): string {
 }
 
 describe('addressable inbox operations', () => {
-  it('edits in place, removes exactly one item, and promotes the next independent turn', async () => {
+  it('edits in place and removes exactly one queued item', async () => {
     const adapter = new MockAdapter([
       textResponse('first reply'),
-      textResponse('promoted reply'),
       textResponse('edited reply'),
     ])
     const ctx = await harness(adapter)
@@ -79,13 +78,13 @@ describe('addressable inbox operations', () => {
     })
 
     const pending: InboxItem[] = []
-    const updates: { id: string; action: string; text: string }[] = []
+    const updates: { id: string; text: string }[] = []
     const discards: string[][] = []
     ctx.on('agent/inbox/enqueue', (subject, item) => {
       if (subject === agent && inboxText(item) !== 'first') pending.push(item)
     })
-    ctx.on('agent/inbox/update', (subject, item, action) => {
-      if (subject === agent) updates.push({ id: item.id, action, text: inboxText(item) })
+    ctx.on('agent/inbox/update', (subject, item) => {
+      if (subject === agent) updates.push({ id: item.id, text: inboxText(item) })
     })
     ctx.on('agent/inbox/discard', (subject, items) => {
       if (subject === agent) discards.push(items.map(item => item.id))
@@ -95,22 +94,16 @@ describe('addressable inbox operations', () => {
     await admission.promise
     send(agent, 'remove me')
     send(agent, 'edit me')
-    send(agent, 'promote me')
-    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me', 'promote me'])
+    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me'])
 
     const remove = pending[0]!
     const edit = pending[1]!
-    const promote = pending[2]!
     expect(agent.updateInbox(edit.id, {
       kind: 'edit',
       content: [{ type: 'text', text: 'edited' }],
     })).toBe('applied')
     expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
-    expect(agent.updateInbox(promote.id, { kind: 'promote' })).toBe('applied')
-    expect(updates).toEqual([
-      { id: edit.id, action: 'edit', text: 'edited' },
-      { id: promote.id, action: 'promote', text: 'promote me' },
-    ])
+    expect(updates).toEqual([{ id: edit.id, text: 'edited' }])
     expect(discards).toEqual([[remove.id]])
 
     const idle = waitForIdle(ctx, agent)
@@ -121,11 +114,11 @@ describe('addressable inbox operations', () => {
       .map(event => event.type === 'user/message'
         ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
         : ''))
-      .toEqual(['first', 'promote me', 'edited'])
-    expect(agent.updateInbox(promote.id, { kind: 'remove' })).toBe('not-found')
+      .toEqual(['first', 'edited'])
+    expect(agent.updateInbox(edit.id, { kind: 'remove' })).toBe('not-found')
   })
 
-  it('edits, removes, and promotes steering occurrences before admission commits', async () => {
+  it('does not mutate steering occurrences', async () => {
     const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('steering-inbox-actions'), { provider: 'mock', model: 'mock' })
@@ -137,40 +130,22 @@ describe('addressable inbox operations', () => {
     })
 
     const pending: InboxItem[] = []
-    const updates: { id: string; action: string; text: string }[] = []
-    const discards: string[][] = []
     ctx.on('agent/inbox/enqueue', (subject, item) => {
       if (subject === agent && item.placement === 'steering') pending.push(item)
-    })
-    ctx.on('agent/inbox/update', (subject, item, action) => {
-      if (subject === agent) updates.push({ id: item.id, action, text: inboxText(item) })
-    })
-    ctx.on('agent/inbox/discard', (subject, items) => {
-      if (subject === agent) discards.push(items.map(item => item.id))
     })
 
     const idle = waitForIdle(ctx, agent)
     send(agent, 'admitted prompt')
     await entered.promise
-    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'remove me' }], source: { kind: 'user' } }))
-    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'edit me' }], source: { kind: 'user' } }))
-    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'promote me' }], source: { kind: 'user' } }))
-    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me', 'promote me'])
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep me' }], source: { kind: 'user' } }))
+    expect(pending.map(inboxText)).toEqual(['keep me'])
 
-    const remove = pending[0]!
-    const edit = pending[1]!
-    const promote = pending[2]!
-    expect(agent.updateInbox(edit.id, {
+    const steering = pending[0]!
+    expect(agent.updateInbox(steering.id, {
       kind: 'edit',
       content: [{ type: 'text', text: 'edited' }],
-    })).toBe('applied')
-    expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
-    expect(agent.updateInbox(promote.id, { kind: 'promote' })).toBe('applied')
-    expect(updates).toEqual([
-      { id: edit.id, action: 'edit', text: 'edited' },
-      { id: promote.id, action: 'promote', text: 'promote me' },
-    ])
-    expect(discards).toEqual([[remove.id]])
+    })).toBe('not-found')
+    expect(agent.updateInbox(steering.id, { kind: 'remove' })).toBe('not-found')
 
     decision.resolve({ kind: 'allow' })
     await idle
@@ -179,7 +154,7 @@ describe('addressable inbox operations', () => {
       .map(event => event.type === 'steering/message'
         ? event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
         : ''))
-      .toEqual(['promote me', 'edited'])
+      .toEqual(['keep me'])
   })
 })
 

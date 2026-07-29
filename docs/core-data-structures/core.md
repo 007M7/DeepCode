@@ -445,11 +445,10 @@ interface InboxItem {
 ```
 
 ```ts type-equiv
-/** A user-requested mutation of one still-pending inbox item. */
+/** A user-requested mutation of one still-pending queued occurrence. */
 type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
-  | { readonly kind: 'promote' }
 ```
 
 ```ts type-equiv
@@ -549,13 +548,11 @@ interface Agent {
   send(message: UserMessage, options: SendOptions): void
 
   /**
-   * Mutate one still-pending inbox occurrence synchronously. Editing preserves
+   * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard; promotion moves it to the front of its current FIFO and makes a
-   * queued item waking. A driver-claimed item is no longer pending and returns
-   * `not-found`.
-   * @param id - independently addressable inbox occurrence.
-   * @param action - edit, remove, or promote operation.
+   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * @param id - independently addressable queued occurrence.
+   * @param action - edit or remove operation.
    * @returns whether the pending occurrence was found and updated.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult

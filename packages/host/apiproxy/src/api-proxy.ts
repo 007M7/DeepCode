@@ -508,9 +508,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
    * (the same refresh-recovery baseline as pending questions). Each terminal
-   * inbox event retires one matching occurrence, so repeated sends of the same
+   * queue event retires one matching occurrence, so repeated sends of the same
    * identified message remain visible until every occurrence is claimed.
    */
   const queuedMirror = new Map<SessionId, InboxItem[]>()
@@ -522,7 +522,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       items: items.map(item => ({
         id: item.id,
         message: item.message,
-        placement: item.placement,
       })),
     })
   }
@@ -531,12 +530,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
       const index = entries.findIndex(entry => entry.id === item.id)
-      if (index !== -1) entries.splice(index, 1)
+      if (index === -1) return
+      entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
       publishQueue(agent.id)
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
+        if (item.placement !== 'queued') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
@@ -545,18 +546,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         entries.push(item)
         publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem, action) => {
+      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
         const entries = queuedMirror.get(agent.id)
         if (entries === undefined) return
         const index = entries.findIndex(entry => entry.id === item.id)
         if (index === -1) return
-        entries.splice(index, 1)
-        if (action === 'promote') {
-          const first = entries.findIndex(entry => entry.placement === item.placement)
-          entries.splice(first === -1 ? entries.length : first, 0, item)
-        } else {
-          entries.splice(index, 0, item)
-        }
+        entries.splice(index, 1, item)
         publishQueue(agent.id)
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
@@ -567,6 +562,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (entries === undefined) return
         const ids = new Set(items.map(item => item.id))
         const kept = entries.filter(entry => !ids.has(entry.id))
+        if (kept.length === entries.length) return
         if (kept.length === 0) queuedMirror.delete(agent.id)
         else queuedMirror.set(agent.id, kept)
         publishQueue(agent.id)
@@ -1540,7 +1536,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             items: items.map(item => ({
               id: item.id,
               message: item.message,
-              placement: item.placement,
             })),
           }))
         }

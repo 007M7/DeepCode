@@ -50,11 +50,10 @@ export interface InboxItem {
   readonly placement: InboxPlacement
 }
 
-/** A user-requested mutation of one still-pending inbox item. */
+/** A user-requested mutation of one still-pending queued occurrence. */
 export type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
-  | { readonly kind: 'promote' }
 
 /** Result of applying an inbox action at the synchronous ownership boundary. */
 export type InboxActionResult = 'applied' | 'not-found'
@@ -180,13 +179,11 @@ export interface Agent {
   send(message: UserMessage, options: SendOptions): void
 
   /**
-   * Mutate one still-pending inbox occurrence synchronously. Editing preserves
+   * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard; promotion moves it to the front of its current FIFO and makes a
-   * queued item waking. A driver-claimed item is no longer pending and returns
-   * `not-found`.
-   * @param id - independently addressable inbox occurrence.
-   * @param action - edit, remove, or promote operation.
+   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * @param id - independently addressable queued occurrence.
+   * @param action - edit or remove operation.
    * @returns whether the pending occurrence was found and updated.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
@@ -280,21 +277,14 @@ declare module 'cordis' {
      */
     'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
     /**
-     * A still-pending inbox item changed content or position. The item id and
-     * placement remain stable; edit carries the replacement message, while
-     * promote makes this occurrence first in its current FIFO.
+     * A still-pending queued item changed content. The item id, placement, and
+     * position remain stable while the event carries the replacement message.
      * @param agent - the owning agent.
      * @param item - the complete post-update occurrence.
-     * @param action - the applied non-terminal operation.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/update'(
-      this: Scoped<Agent>,
-      agent: Agent,
-      item: InboxItem,
-      action: 'edit' | 'promote',
-    ): void
+    'agent/inbox/update'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
     /**
      * The driver claimed one item out of the inbox: a queued item at a turn
      * boundary, or steering drained between steps. Fires after the item leaves

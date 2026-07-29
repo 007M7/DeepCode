@@ -232,7 +232,7 @@ describe('sessions domain schemas', () => {
       sessionId: 's1', itemId: 'i1', action: { kind: 'remove' },
     }).action.kind).toBe('remove')
     expect(() => sessionUpdateQueueRequestSchema.parse({
-      sessionId: 's1', itemId: '', action: { kind: 'promote' },
+      sessionId: 's1', itemId: 'i1', action: { kind: 'promote' },
     })).toThrow()
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
@@ -380,8 +380,7 @@ describe('events frame schemas', () => {
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
       { type: 'session/queue', sessionId: 's', items: [
-        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } }, placement: 'queued' },
-        { id: 'i2', message: { id: 'm2', role: 'user', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } }, placement: 'steering' },
+        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } } },
       ] },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
@@ -402,8 +401,8 @@ describe('events frame schemas', () => {
 
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {}, placement: 'queued' }] })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} }, placement: 'later' }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} } }] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

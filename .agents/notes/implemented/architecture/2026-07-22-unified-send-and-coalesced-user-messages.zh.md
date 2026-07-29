@@ -22,7 +22,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **`send` 不返回标识。** 调用方已经持有完整消息及其不透明的 `MessageId`；消息的创建与冻结由[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)负责，而不是由路由负责。
 
-**Inbox 生命周期事件携带单次入队标识。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/update`（待处理项被编辑或前移）、`agent/inbox/dequeue`（驱动器认领一个项）和 `agent/inbox/discard`（待处理项被丢弃）都会携带一个 `InboxItem`：仅属于本次入队的 `InboxItemId`、已接受的 `UserMessage`，以及生产方在接受消息时捕获的已解析 `queued | steering` 放置方式。单次入队标识让观察方和重连镜像能够区分同一 `MessageId` 的多次发送，无需根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每次 FIFO 入队都会发布一个 enqueue，并且恰好发布一个终态 dequeue 或 discard；update 不是终态。`dsh-agent` 的不变量配套断言这种 FIFO 守恒。
+**Inbox 生命周期事件携带单次入队标识。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/update`（待处理的 queued 项被编辑）、`agent/inbox/dequeue`（驱动器认领一个项）和 `agent/inbox/discard`（待处理项被丢弃）都会携带一个 `InboxItem`：仅属于本次入队的 `InboxItemId`、已接受的 `UserMessage`，以及生产方在接受消息时捕获的已解析 `queued | steering` 放置方式。单次入队标识让观察方和重连镜像能够区分同一 `MessageId` 的多次发送，无需根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每次 FIFO 入队都会发布一个 enqueue，并且恰好发布一个终态 dequeue 或 discard；update 不是终态。`dsh-agent` 的不变量配套断言这种 FIFO 守恒。
 
 **准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入获准轮次。如果准入被阻止或失败，仅含调用方上下文的批次会采用空闲注入的立即追加行为，而 steering 及与其一同暂存的上下文仍可重试；两种路径都不会写入被拒绝的提示词。后续提示词获准时，保留在 outbox 中的输入会先于该提示词进入其轮次，而当前准入期间接受的输入则留在提示词之后。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
 

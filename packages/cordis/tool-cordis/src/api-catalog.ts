@@ -1171,9 +1171,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/inbox/update',
     mode: 'emit',
-    signature: '\'agent/inbox/update\'( this: Scoped<Agent>, agent: Agent, item: InboxItem, action: \'edit\' | \'promote\', ): void',
-    jsDoc: '/**\n * A still-pending inbox item changed content or position. The item id and\n * placement remain stable; edit carries the replacement message, while\n * promote makes this occurrence first in its current FIFO.\n * @param agent - the owning agent.\n * @param item - the complete post-update occurrence.\n * @param action - the applied non-terminal operation.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'A still-pending inbox item changed content or position.',
+    signature: '\'agent/inbox/update\'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void',
+    jsDoc: '/**\n * A still-pending queued item changed content. The item id, placement, and\n * position remain stable while the event carries the replacement message.\n * @param agent - the owning agent.\n * @param item - the complete post-update occurrence.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'A still-pending queued item changed content.',
   },
   {
     name: 'agent/prompt-submit',
@@ -1857,7 +1857,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InboxAction',
-    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'promote\';\n};',
+    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n};',
   },
   {
     name: 'InboxActionResult',

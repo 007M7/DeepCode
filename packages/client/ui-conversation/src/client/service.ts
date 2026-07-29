@@ -34,7 +34,7 @@ export interface IConversation {
   /**
    * Apply one operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit, remove, or promote operation.
+   * @param action - edit or remove operation.
    * @returns completion; business failures reject.
    */
   updateQueue(itemId: InboxItemId, action: QueueAction): Promise<void>

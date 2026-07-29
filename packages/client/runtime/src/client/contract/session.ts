@@ -41,7 +41,7 @@ export interface ISession {
   /**
    * Apply one mutation to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit, remove, or promote operation.
+   * @param action - edit or remove operation.
    * @returns acceptance, or a business/transport error.
    */
   updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>

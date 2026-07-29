@@ -21,7 +21,6 @@ const iid = (id: string): InboxItemId => id as InboxItemId
 interface QueueFixture {
   id: string
   body: string
-  placement?: 'queued' | 'steering'
   content?: ContentBlock[]
 }
 
@@ -36,7 +35,6 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
         content: item.content ?? text(item.body),
         source: { kind: 'user', rpcId: rid(`rpc-${item.id}`) } as never,
       }),
-      placement: item.placement ?? 'queued',
     })),
   }
 }
@@ -46,15 +44,13 @@ function makeSession(): Session {
 }
 
 describe('queue snapshot intake', () => {
-  it('projects stable ids, flat previews, complete text, and placement', () => {
+  it('projects stable ids, flat previews, and complete text', () => {
     const session = makeSession()
     session.handleMuxEnvelope(rid('env-1'), queueFrame([
       { id: 'q-1', body: '第一条  排队\n消息' },
-      { id: 'q-2', body: '插话', placement: 'steering' },
     ]))
     expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-1', preview: '第一条 排队 消息', text: '第一条  排队\n消息', placement: 'queued' },
-      { id: 'q-2', preview: '插话', text: '插话', placement: 'steering' },
+      { id: 'q-1', preview: '第一条 排队 消息', text: '第一条  排队\n消息' },
     ])
   })
 
@@ -66,7 +62,7 @@ describe('queue snapshot intake', () => {
       content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
     }]))
     expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-image', preview: 'hi [image]', text: null, placement: 'queued' },
+      { id: 'q-image', preview: 'hi [image]', text: null },
     ])
   })
 
@@ -90,7 +86,7 @@ describe('queue snapshot intake', () => {
       { id: 'q-2', body: 'two edited' },
     ]))
     expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-2', preview: 'two edited', text: 'two edited', placement: 'queued' },
+      { id: 'q-2', preview: 'two edited', text: 'two edited' },
     ])
     session.handleMuxEnvelope(rid('env-6'), queueFrame([]))
     expect(session.getSnapshot().queue).toEqual([])
@@ -112,12 +108,12 @@ describe('queue operation transport', () => {
     session.handleMuxEnvelope(rid('env-op'), queueFrame([{ id: 'q-op', body: 'pending' }]))
     const before = session.getSnapshot().queue
 
-    await expect(session.updateQueue(iid('q-op'), { kind: 'promote' }))
+    await expect(session.updateQueue(iid('q-op'), { kind: 'edit', content: text('next') }))
       .resolves.toEqual({ ok: true, value: { accepted: true } })
     expect(api.callsOf('session.updateQueue')).toEqual([{
       sessionId: SID,
       itemId: 'q-op',
-      action: { kind: 'promote' },
+      action: { kind: 'edit', content: text('next') },
     }])
     expect(session.getSnapshot().queue).toBe(before)
   })

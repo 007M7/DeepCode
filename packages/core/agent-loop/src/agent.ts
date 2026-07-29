@@ -137,19 +137,14 @@ export class ReactLoopAgent implements Agent {
     emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', item)
   }
 
-  /** Apply one synchronous mutation to a still-pending inbox occurrence. */
+  /** Apply one synchronous mutation to a still-pending queued occurrence. */
   updateInbox(id: InboxItemIdType, action: InboxAction): InboxActionResult {
     const queuedIndex = this.queued.findIndex(candidate => candidate.item.id === id)
-    const outboxIndex = queuedIndex === -1
-      ? this.outbox.findIndex(candidate => candidate.item?.id === id)
-      : -1
-    if (queuedIndex === -1 && outboxIndex === -1) return 'not-found'
+    if (queuedIndex === -1) return 'not-found'
 
-    const pending = queuedIndex === -1 ? this.outbox[outboxIndex] : this.queued[queuedIndex]
-    /* v8 ignore next 2 -- indices are derived from these arrays in this synchronous method. */
-    if (pending === undefined || pending.item === undefined) {
-      throw new Error(`agent "${this.id}" inbox index changed during synchronous update`)
-    }
+    const pending = this.queued[queuedIndex]
+    /* v8 ignore next -- the index was resolved from this array without an async boundary. */
+    if (pending === undefined) throw new Error(`agent "${this.id}" queued item disappeared during update`)
 
     /* v8 ignore next -- InboxAction is a closed discriminated union; all variants are covered below. */
     switch (action.kind) {
@@ -158,40 +153,13 @@ export class ReactLoopAgent implements Agent {
           ...pending.item,
           message: freezeMessage({ ...pending.item.message, content: action.content }),
         })
-        if (queuedIndex !== -1) {
-          const queued = this.queued[queuedIndex]
-          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
-          if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during edit`)
-          this.queued[queuedIndex] = { ...queued, item }
-        } else {
-          const outbox = this.outbox[outboxIndex]
-          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
-          if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during edit`)
-          this.outbox[outboxIndex] = { ...outbox, message: item.message, item }
-        }
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/update', item, 'edit')
+        this.queued[queuedIndex] = { ...pending, item }
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/update', item)
         return 'applied'
       }
       case 'remove': {
-        if (queuedIndex !== -1) this.queued.splice(queuedIndex, 1)
-        else this.outbox.splice(outboxIndex, 1)
+        this.queued.splice(queuedIndex, 1)
         emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
-        return 'applied'
-      }
-      case 'promote': {
-        if (queuedIndex !== -1) {
-          const queued = this.queued.splice(queuedIndex, 1)[0]
-          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
-          if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during promotion`)
-          this.queued.unshift({ item: queued.item, wakeup: true })
-          this.scheduleKick()
-        } else {
-          const outbox = this.outbox.splice(outboxIndex, 1)[0]
-          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
-          if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during promotion`)
-          this.outbox.unshift(outbox)
-        }
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/update', pending.item, 'promote')
         return 'applied'
       }
       default:

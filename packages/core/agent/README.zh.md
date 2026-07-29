@@ -61,7 +61,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 每个插件面向的 handle：
 
 - `agent.send(message, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`message` 是已有标识且已冻结的 `UserMessage`；调用方通常会在开始路由前使用 `createUserMessage()` 创建它。`SendOptions` 只持有 `target` 与 `wakeup` 策略。每次获准进入 FIFO 的项都会获得独立的 `InboxItemId`，即使调用方复用了同一个 `MessageId`；`agent/inbox/enqueue`／`update` 及终态 `dequeue` 或 `discard` 都会携带这一完整 `InboxItem`。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
-- `agent.updateInbox(itemId, action)`：同步编辑、移除或前移一个仍处于待处理状态的项。编辑会替换已冻结的内容，同时保留其 `MessageId`、`InboxItemId`、来源、放置方式与 FIFO 位置。移除会发出该项的终态 discard。前移会把它移至当前 FIFO 的队首，并使普通 queued 项能够唤醒驱动器。已被认领的项已经跨越所有权边界，因此返回 `not-found`。
+- `agent.updateInbox(itemId, action)`：同步编辑或移除一个仍处于待处理状态的 queued 入队项。编辑会替换已冻结的内容，同时保留其 `MessageId`、`InboxItemId`、来源与 FIFO 位置；移除会发出该项的终态 discard。steering 项和已被认领的项会返回 `not-found`。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
 - `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。
 - `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。提示词接纳期间或轮次打开时，注入会在 outbox 中等待下一个安全边界。该接收窗口之外，它会立即追加而不开启轮次；如果接纳结束却未开启轮次，仅含上下文的接纳批次会采用这一回退，而与 steering 一同暂存的上下文则会随其继续待处理。持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。

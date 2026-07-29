@@ -225,7 +225,6 @@ export const sessionUpdateQueueRequestSchema = z.object({
   action: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
     z.object({ kind: z.literal('remove') }),
-    z.object({ kind: z.literal('promote') }),
   ]),
 }) as unknown as z.ZodType<RequestPayload<'session.updateQueue'>>
 

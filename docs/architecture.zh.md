@@ -79,7 +79,7 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for queued occurrence
-  claim (edit/remove/promote end) -> emit agent/status(running) if starting an interval
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
   open the next-step acceptance window
   -> agent/prompt-submit
     blocked or failed prompt -> close the window without opening a turn

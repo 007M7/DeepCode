@@ -222,7 +222,6 @@ export interface QueuedMessage {
   readonly preview: string
   /** Complete editable text; null when the message contains non-text blocks. */
   readonly text: string | null
-  readonly placement: 'queued' | 'steering'
 }
 
 /** In-progress assistant output (chunk accumulator product). */

@@ -20,7 +20,7 @@ const SID = 's1' as SessionId
 const iid = (id: string): InboxItemId => id as InboxItemId
 
 function row(id: string, text: string | null, preview = text ?? '[image]'): QueuedMessage {
-  return { id: iid(id), preview, text, placement: 'queued' }
+  return { id: iid(id), preview, text }
 }
 
 function snapshotWith(queue: QueuedMessage[]): ConversationSnapshot {
@@ -76,19 +76,6 @@ describe('QueueDock', () => {
     const source = liveSession(snap)
     const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
     expect(container.innerHTML).toBe('')
-  })
-
-  it('hides pending steering until it has a dedicated Web interaction', () => {
-    const steering = { ...row('i-steer', 'steer separately'), placement: 'steering' as const }
-    const snap = snapshotWith([steering])
-    const source = liveSession(snap)
-    const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
-    expect(container.innerHTML).toBe('')
-
-    act(() => { source.push(snapshotWith([steering, row('i-queue', 'queue visibly')])) })
-    expect(container.textContent).toContain('queue visibly')
-    expect(container.textContent).not.toContain('steer separately')
-    expect(container.querySelectorAll('button')).toHaveLength(2)
   })
 
   it('renders active actions and disables editing for mixed-content rows', () => {

@@ -407,7 +407,6 @@ export class Session implements SessionFace {
           id: item.id,
           preview: queuePreviewOf(item.message.content),
           text: queueTextOf(item.message.content),
-          placement: item.placement,
         }))
         this.queueRev++
         this.notifier.markDirty()

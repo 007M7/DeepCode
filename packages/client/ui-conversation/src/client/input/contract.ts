@@ -105,7 +105,6 @@ export interface QueuedMessage {
   readonly id: InboxItemId
   readonly preview: string
   readonly text: string | null
-  readonly placement: 'queued' | 'steering'
 }
 
 /** Guard union of the scoped consume-token event, checked by the machine. */
