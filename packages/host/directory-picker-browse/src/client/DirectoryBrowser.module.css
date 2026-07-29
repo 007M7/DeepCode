@@ -131,8 +131,8 @@
 }
 
 /* Miller content: symmetric 16px vertical padding so the divider clears the
- * header and footer rules evenly; columns are 256 wide (or full width solo)
- * with the hairline divider centered between them; each column scrolls alone. */
+ * header and footer rules evenly; each column scrolls alone (column widths
+ * live at .column). */
 .content {
   display: flex;
   flex-direction: column;
@@ -143,9 +143,10 @@
   padding: 16px 16px 16px 24px;
 }
 
-/* Two-pane columns split the row evenly around the divider; 256px is the
- * floor below which the row scrolls (scrollbar hidden, the effect pins the
- * child pane into view) instead of squeezing the panes. */
+/* Columns split the row evenly around the divider (a solo column takes the
+ * whole row); 256px is the floor below which the row scrolls (scrollbar
+ * hidden, the effect pins the child pane into view) instead of squeezing
+ * the panes. */
 .column {
   display: flex;
   flex-direction: column;
@@ -156,10 +157,6 @@
   /* The overlay scrollbar paints at the column's edge; keep the row pills
    * clear of the thumb. */
   padding-right: 8px;
-}
-
-.columnWide {
-  width: 100%;
 }
 
 .divider {

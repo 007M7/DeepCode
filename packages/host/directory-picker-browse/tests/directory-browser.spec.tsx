@@ -107,9 +107,11 @@ describe('DirectoryBrowser', () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     expect(screen.queryByText('.config')).toBeNull()
-    // The fixed-label toggle reports its state through aria-pressed.
+    // The fixed-label toggle reports its state through aria-pressed. Its
+    // mousedown never steals focus (so it composes with the path editor).
     const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.mouseDown(toggle)
     fireEvent.click(toggle)
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('.config')).toBeTruthy()
@@ -241,6 +243,58 @@ describe('DirectoryBrowser', () => {
     // A draft naming some other directory (or none) leaves the level whole.
     fireEvent.change(input, { target: { value: 'no-separator' } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
+  })
+
+  it('filters the child pane in two-pane mode and follows the draft back up a level', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The seed comes from the selection, so the draft tail addresses the
+    // RIGHT pane (the selection's children).
+    expect(input.value).toBe(`${DOCS}/`)
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    fireEvent.change(input, { target: { value: `${DOCS}/zzz` } })
+    expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    // Erasing back into the parent's own path moves the filter to the LEFT
+    // pane and releases the right one.
+    fireEvent.change(input, { target: { value: `${HOME}/zz` } })
+    expect(within(columns()[0]!).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+  })
+
+  it('keeps the path editor open when blur comes from window focus loss', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // A blur while the document itself lost focus (window switch, dev-tools
+    // focus) must not discard the draft.
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    fireEvent.blur(input)
+    expect(screen.getByLabelText('browser.editPath', { selector: 'input' })).toBeTruthy()
+    hasFocus.mockRestore()
+  })
+
+  it('picking a filtered row adopts it and closes the path editor', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    // The row suppresses focus steal on mousedown (no blur-cancel unmounts
+    // the filtered rows mid-gesture), then the click both selects the row
+    // and closes the editor.
+    const row = rowButton(screen.getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
   })
 
   it('seeds and filters with backslashes on a Windows-rooted listing', async () => {

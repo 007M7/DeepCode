@@ -1,10 +1,11 @@
 /**
  * The in-app workspace-directory browser (figma Harness 813-23126 family): a
- * 600×420 dialog (clamped to short/narrow viewports — the Miller row scrolls
+ * 680×500 dialog (clamped to short/narrow viewports — the Miller row scrolls
  * sideways, the columns scroll down) whose header carries the title, the selection-path
  * breadcrumb, and a click-to-edit path zone; below it a Miller view — one
- * full-width level until a row is selected, then two 256px columns (level |
- * selected folder's children) around a hairline divider. Selecting in the
+ * full-width level until a row is selected, then two columns splitting the
+ * row evenly (256px floor; level | selected folder's children) around a
+ * hairline divider. Selecting in the
  * right column shifts the view one level deeper. "New folder" opens a nested
  * create dialog targeting the selected folder (or the level itself) and
  * selects the created folder. Open adopts the selected folder, falling back
@@ -63,20 +64,26 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
 }
 
-/** The separator a Host path's own platform uses (Windows listings carry backslashes). */
-function separatorOf(path: string): string {
-  return path.includes('\\') ? '\\' : '/'
+/**
+ * The listing's platform separator, read from the host-stamped home path —
+ * never sniffed from typed text or entry paths, where a backslash is a legal
+ * POSIX name character rather than a platform fact.
+ */
+function separatorOf(listing: DirectoryListing): '\\' | '/' {
+  return listing.home.includes('\\') ? '\\' : '/'
 }
 
 /**
  * The path draft's final segment, when its directory part is exactly the
  * level `listing` lists — the segment the level prefix-filters on while the
  * user types. Any other draft (no separator yet, or naming some other
- * directory) leaves the level unfiltered.
+ * directory) leaves the level unfiltered. The directory part compares
+ * exactly (it is the host's own path text, reached by seeding or erasing);
+ * only the name filter downstream is case-insensitive.
  */
 function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
   if (draft === null) return null
-  const sep = separatorOf(draft)
+  const sep = separatorOf(listing)
   const cut = draft.lastIndexOf(sep)
   if (cut === -1) return null
   const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
@@ -84,12 +91,11 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
-function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden, filterPrefix }: {
+function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPrefix }: {
   entries: readonly DirectoryEntry[]
   selectedPath: string | null
   busy: boolean
   onPick: (entry: DirectoryEntry) => void
-  wide: boolean
   showHidden: boolean
   filterPrefix: string | null
 }) {
@@ -100,7 +106,7 @@ function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden, fi
     return showHidden || !entry.hidden || filterPrefix?.startsWith('.') === true
   })
   return (
-    <div className={clsx(css.column, wide && css.columnWide)} role="list">
+    <div className={css.column} role="list">
       {visible.map((entry) => {
         const selected = entry.path === selectedPath
         return (
@@ -112,6 +118,10 @@ function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden, fi
               aria-current={selected || undefined}
               className={clsx(css.row, selected && css.rowSelected)}
               disabled={busy}
+              // Keep focus where it is (the path editor, notably): a focus
+              // steal on mousedown would blur-cancel the editor, unmount the
+              // filtered rows mid-gesture, and drop this very click.
+              onMouseDown={(event) => { event.preventDefault() }}
               onClick={() => { onPick(entry) }}
             >
               {selected
@@ -142,7 +152,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [error, setError] = useState<string | null>(null)
   // Path-edit state: null = breadcrumb mode; a string = the draft being typed.
   const [pathDraft, setPathDraft] = useState<string | null>(null)
-  // Show-hidden toggle state (pure client-side filter, reset on close).
+  // Show-hidden toggle state (pure client-side filter, reset on each open).
   const [showHidden, setShowHidden] = useState(false)
   // Create-folder state: null = closed; a string = the nested dialog's draft.
   const [folderDraft, setFolderDraft] = useState<string | null>(null)
@@ -212,6 +222,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
     const { seq, scan } = launchListing(entry.path)
+    // A pick while the path editor is open adopts the (filtered) row and
+    // closes the editor — the draft served its purpose.
+    setPathDraft(null)
     setSelected(entry)
     setChild(null)
     setLoading(true)
@@ -402,9 +415,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     setLoading(false)
                     // Seed with a trailing separator so typing immediately
                     // continues into child names (and prefix-filters below).
-                    const base = selected?.path ?? parent?.path ?? ''
-                    const sep = separatorOf(base)
-                    setPathDraft(base === '' || base.endsWith(sep) ? base : `${base}${sep}`)
+                    // No listed level means nothing to seed from (the editor
+                    // is the recovery path for a failed home listing).
+                    if (parent === null) {
+                      setPathDraft('')
+                      return
+                    }
+                    const base = selected?.path ?? parent.path
+                    const sep = separatorOf(parent)
+                    setPathDraft(base.endsWith(sep) ? base : `${base}${sep}`)
                   }}
                 />
               </>
@@ -441,8 +460,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 // Clicking anywhere outside the editor reads as leaving it:
                 // focus loss cancels the edit like Escape. Enter keeps focus
                 // in the input while its navigation is in flight, so a
-                // submitted path is never withdrawn by this handler.
-                onBlur={cancelPathEdit}
+                // submitted path is never withdrawn by this handler; rows and
+                // the show-hidden toggle suppress focus steal on mousedown so
+                // a click on them lands before any cancel. Window/tab focus
+                // loss also fires blur in some engines — only a focus move
+                // within a focused document reads as leaving the editor.
+                onBlur={() => {
+                  if (!document.hasFocus()) return
+                  cancelPathEdit()
+                }}
               />
             )}
         </div>
@@ -455,7 +481,6 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               selectedPath={selected?.path ?? null}
               busy={parentInert}
               onPick={select}
-              wide={!twoPane}
               showHidden={showHidden}
               filterPrefix={draftPrefixFor(parent, pathDraft)}
             />
@@ -467,7 +492,6 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               selectedPath={null}
               busy={parentInert}
               onPick={advance}
-              wide={false}
               showHidden={showHidden}
               filterPrefix={draftPrefixFor(child, pathDraft)}
             />
@@ -498,6 +522,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
           aria-pressed={showHidden}
           disabled={parentInert}
+          // The toggle composes with the path editor (dot-led prefixes and
+          // this filter interleave): don't steal focus, so toggling never
+          // blur-cancels a draft mid-thought.
+          onMouseDown={(event) => { event.preventDefault() }}
           onClick={() => { setShowHidden(prev => !prev) }}
         >
           {showHidden && <IconCheckOutline16 size={14} />}
