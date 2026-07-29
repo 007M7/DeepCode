@@ -41,7 +41,12 @@ export interface DirectoryBrowserProps {
   open: boolean
   /** List one directory level (absent path = the Host home directory); the signal aborts a superseded scan on the wire. */
   listDirectory: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
-  /** Create one child directory under an existing parent. */
+  /**
+   * Create one child directory under an existing parent; the returned path
+   * is verbatim the child's `entries[].path` in the parent's next listing
+   * (`IWorkspaces.createDirectory`'s contract) — the create landing anchors
+   * its selection and focus on that equality.
+   */
   createDirectory: (path: string, name: string) => Promise<string>
   /** The operator confirmed a directory (the selection, else the listed level). */
   onOpen: (path: string) => void
@@ -500,19 +505,23 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [child, select])
 
   // Every open starts fresh at the Host home directory; closing invalidates
-  // any in-flight response so a late arrival cannot repopulate a closed dialog.
+  // any in-flight response so a late arrival cannot repopulate a closed
+  // dialog. The per-open state resets live on the CLOSE edge: resetting on
+  // open would let the reopen's first commit paint one frame of the stale
+  // view (revealed hidden rows, a pressed toggle) before this passive
+  // effect runs.
   useEffect(() => {
     openGeneration.current += 1
     if (open) {
-      setParent(null)
-      setSelected(null)
-      setChild(null)
-      setCreatingFolder(false)
-      setShowHidden(false)
       navigate()
       return
     }
     supersede()
+    setParent(null)
+    setSelected(null)
+    setChild(null)
+    setCreatingFolder(false)
+    setShowHidden(false)
     setError(null)
     setPathDraft(null)
     setFolderDraft(null)

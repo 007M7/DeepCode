@@ -143,14 +143,14 @@ export class TestWorkspaces implements IWorkspaces {
    * @param path - absolute existing parent directory.
    * @param name - single path segment.
    * @returns the created directory's absolute path, in the shape
-   * `DirectoryPickerBrowseCapability.createDirectory` contracts (verbatim
-   * equal to the child's `entries[].path` in the parent's next listing).
+   * `IWorkspaces.createDirectory` contracts.
    */
   async createDirectory(path: string, name: string): Promise<string> {
     this.calls.push({ method: 'createDirectory', args: [path, name] })
     const stub = this.stubs.get('createDirectory')
     if (stub !== undefined) return await (stub(path, name) as Promise<string>)
-    return `${path}/${name}`
+    // Canonical join: a bare-root parent must not double the separator.
+    return path.endsWith('/') ? `${path}${name}` : `${path}/${name}`
   }
 
   /**

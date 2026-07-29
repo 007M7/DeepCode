@@ -203,14 +203,18 @@ describe('BrowseDirectoryPicker', () => {
   })
 
   it('creates one child directory and surfaces it in the next listing', async () => {
-    const created = await capability.createDirectory(root, 'fresh')
-    expect(created).toBe(join(root, 'fresh'))
+    // The composed-form name (U+00E9) doubles as the name-rewriting
+    // tripwire: a volume that stores names NFD-decomposed hands back a
+    // different dirent.name and the equality below goes red — the README's
+    // documented boundary.
+    const created = await capability.createDirectory(root, 'café')
+    expect(created).toBe(join(root, 'café'))
     const listing = await capability.list(root)
-    expect(listing.entries.map(entry => entry.name)).toContain('fresh')
+    expect(listing.entries.map(entry => entry.name)).toContain('café')
     // The contract's cross-method equality: the returned path is verbatim
     // the child's entries[].path (clients anchor the create landing's
     // selection and focus on it).
-    expect(listing.entries.find(entry => entry.name === 'fresh')!.path).toBe(created)
+    expect(listing.entries.find(entry => entry.name === 'café')!.path).toBe(created)
   })
 
   it('refuses an existing child with directory-exists', async () => {

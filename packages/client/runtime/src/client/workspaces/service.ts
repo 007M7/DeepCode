@@ -208,7 +208,8 @@ export class WorkspacesService implements IWorkspaces {
    * Create one child directory through the Host's `browse` capability.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment.
-   * @returns the created directory's absolute path.
+   * @returns the created directory's absolute path, in the shape
+   * `IWorkspaces.createDirectory` contracts.
    */
   async createDirectory(path: string, name: string): Promise<string> {
     const response = await this.api.host.createDirectory({ path, name })

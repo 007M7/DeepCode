@@ -329,12 +329,16 @@ describe('workspaces', () => {
     await expect(runtime.workspaces.listDirectory()).resolves.toMatchObject({ path: '/home/test', entries: [] })
     await expect(runtime.workspaces.listDirectory('/home/test')).resolves.toMatchObject({ path: '/home/test' })
     await expect(runtime.workspaces.createDirectory('/home/test', 'fresh')).resolves.toBe('/home/test/fresh')
+    // Canonical join: a bare-root parent yields /top, not //top (the
+    // IWorkspaces contract's verbatim entries[].path equality).
+    await expect(runtime.workspaces.createDirectory('/', 'top')).resolves.toBe('/top')
     // The recorded signal seat mirrors the production face (undefined here;
     // cancellation tests pass and observe a real one).
     expect(runtime.workspaces.calls).toEqual([
       { method: 'listDirectory', args: [undefined, undefined] },
       { method: 'listDirectory', args: ['/home/test', undefined] },
       { method: 'createDirectory', args: ['/home/test', 'fresh'] },
+      { method: 'createDirectory', args: ['/', 'top'] },
     ])
     // Stubs replace the defaults like every sibling method.
     const listing = { path: '/x', home: '/x', crumbs: [], entries: [] }
