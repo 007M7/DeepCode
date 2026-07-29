@@ -12,7 +12,10 @@
  * panes away from the display root. Selecting in the
  * right column shifts the view one level deeper. "New folder" opens a nested
  * create dialog targeting the selected folder (or the level itself) and
- * selects the created folder. Open adopts the selected folder, falling back
+ * selects the created folder — unless a newer pick or crumb jump supersedes
+ * the post-create relist, in which case neither the level nor the selection
+ * refreshes (see closeCreateDialog's two-stage parking for the matching
+ * focus story). Open adopts the selected folder, falling back
  * to the listed level. Pure consumer of the injected browse calls — the
  * owning flow decides what "Open" means and owns the workspace-creation
  * error surface. Hidden entries are host-flagged and hidden by default; the
@@ -275,8 +278,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   /**
    * Whether the focused element sits among the miller rows — probed before
    * a landing replaces the row nodes, to decide focus parking. A probe
-   * only: it never gates the landing itself (a torn-down ref in a close
-   * race merely skips the parking).
+   * only: it never gates the landing itself — a torn-down ref in a close
+   * race merely skips the parking, and committing the landing into a
+   * closing dialog is safe (the component already renders null, and the
+   * open effect resets parent/selected/child on the next open).
    * @returns true when `document.activeElement` is inside the miller row.
    */
   const focusInMillerRows = useCallback((): boolean => {

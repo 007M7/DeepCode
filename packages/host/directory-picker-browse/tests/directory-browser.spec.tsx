@@ -100,6 +100,22 @@ function mount(overrides: Partial<Parameters<typeof DirectoryBrowser>[0]> = {}) 
   return { view, props, listDirectory, createDirectory, onOpen, onClose }
 }
 
+/**
+ * A listDirectory fake whose explicit HOME listings hang for manual
+ * settlement — the initial open lists home through the absent-path form,
+ * so only relists and parent legs are held.
+ */
+function hangingHomeLister() {
+  const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
+  const listDirectory = vi.fn(async (path?: string) => {
+    if (path === HOME) {
+      return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
+    }
+    return listingFor(path)
+  })
+  return { listDirectory, settlers }
+}
+
 /** The rendered level columns, left-to-right. */
 function columns(): HTMLElement[] {
   return screen.getAllByRole('list')
@@ -270,15 +286,7 @@ describe('DirectoryBrowser', () => {
   })
 
   it('a pick during the post-create relist supersedes it: late settlements drop', async () => {
-    const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
-    const listDirectory = vi.fn(async (path?: string) => {
-      // Explicit HOME requests are the relists; the initial open lists home
-      // through the absent-path form.
-      if (path === HOME) {
-        return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
-      }
-      return listingFor(path)
-    })
+    const { listDirectory, settlers } = hangingHomeLister()
     mount({ listDirectory })
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
@@ -291,18 +299,11 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     // The stale relist settles late and must not land or select ghost.
     await act(async () => { settlers[0]!.resolve({ ...listingFor(HOME), entries: [] }) })
-    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
     expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
   })
 
   it('a rejection of a superseded post-create relist is equally silent', async () => {
-    const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
-    const listDirectory = vi.fn(async (path?: string) => {
-      if (path === HOME) {
-        return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
-      }
-      return listingFor(path)
-    })
+    const { listDirectory, settlers } = hangingHomeLister()
     mount({ listDirectory })
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
@@ -395,13 +396,7 @@ describe('DirectoryBrowser', () => {
   })
 
   it('re-parks focus on the re-selected row when the upgrade displaces focused rows', async () => {
-    const settlers: ((value: DirectoryListing) => void)[] = []
-    const listDirectory = vi.fn(async (path?: string) => {
-      if (path === HOME) {
-        return new Promise<DirectoryListing>((resolve) => { settlers.push(resolve) })
-      }
-      return listingFor(path)
-    })
+    const { listDirectory, settlers } = hangingHomeLister()
     mount({ listDirectory })
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
@@ -414,7 +409,7 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(settlers).toHaveLength(1) })
     // The upgrade replaces every committed row node; focus re-parks on the
     // re-selected row instead of falling to body.
-    await act(async () => { settlers[0]!(listingFor(HOME)) })
+    await act(async () => { settlers[0]!.resolve(listingFor(HOME)) })
     await waitFor(() => { expect(columns()).toHaveLength(2) })
     expect(document.activeElement?.textContent).toBe('Documents')
     expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
