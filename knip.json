@@ -385,6 +385,7 @@
     },
     "packages/code-runtime/code-runtime-subprocess": {
       "entry": [
+        "src/runner.ts",
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
       ],

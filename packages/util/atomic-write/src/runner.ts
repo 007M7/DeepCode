@@ -94,6 +94,16 @@ function validWorkerFailure(value: unknown): value is RuntimeFailure {
     && (value.kind === 'exception' || value.kind === 'invalid-output' || value.kind === 'output-limit')
 }
 
+function doneMessage(
+  message: Record<string, unknown>,
+  acceptsFailure: (value: unknown) => value is RuntimeFailure,
+): RuntimeMessage | undefined {
+  if (message.error !== undefined) {
+    return acceptsFailure(message.error) ? { type: 'done', error: message.error } : undefined
+  }
+  return { type: 'done', ...message.value === undefined ? {} : { value: transportWireOrNull(message.value) } }
+}
+
 function runtimeBoot(value: unknown): RuntimeBootData | undefined {
   const record = recordOf(value)
   if (record === undefined
@@ -214,11 +224,8 @@ function runLauncher(): void {
       } else if (message.type === 'output-limit') {
         finish({ type: 'output-limit' })
       } else if (message.type === 'done') {
-        if (message.error !== undefined) {
-          if (validFailure(message.error)) finish({ type: 'done', error: message.error })
-        } else {
-          finish({ type: 'done', ...message.value === undefined ? {} : { value: transportWireOrNull(message.value) } })
-        }
+        const done = doneMessage(message, validFailure)
+        if (done !== undefined) finish(done)
       }
     })
     current.on('error', (error: Error) => {
@@ -348,11 +355,8 @@ function runController(): void {
         } else if (message.type === 'output-limit') {
           finish({ type: 'output-limit' })
         } else if (message.type === 'done') {
-          if (message.error !== undefined) {
-            if (validWorkerFailure(message.error)) finish({ type: 'done', error: message.error })
-          } else {
-            finish({ type: 'done', ...message.value === undefined ? {} : { value: transportWireOrNull(message.value) } })
-          }
+          const done = doneMessage(message, validWorkerFailure)
+          if (done !== undefined) finish(done)
         }
       })
       current.on('error', (error: Error) => {
