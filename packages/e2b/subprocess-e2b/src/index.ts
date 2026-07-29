@@ -67,7 +67,10 @@ export class E2BSubprocessService extends SubprocessService {
       for (const cleanup of failedTerminalSetupCleanups) {
         pending.push(cleanup().then(() => { this.failedTerminalSetupCleanups.delete(cleanup) }))
       }
-      await Promise.all(pending)
+      const outcomes = await Promise.allSettled(pending)
+      for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') throw outcome.reason
+      }
     }, 'e2b subprocess teardown')
   }
 

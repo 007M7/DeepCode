@@ -524,10 +524,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           throw new Error(`subprocess-e2b: remote wrapper published invalid exit code ${JSON.stringify(rawStatus)}`)
         }
         if (this.spec.stdio.stdout === 'pipe' || this.spec.stdio.stderr === 'pipe') {
-          return this.commandOutcome(await settlement)
+          return this.commandOutcome(await settlement, exitCode)
         }
         const completed = await withinMs(settlement, this.spec.graceMs)
-        if (completed !== undefined) return this.commandOutcome(completed)
+        if (completed !== undefined) return this.commandOutcome(completed, exitCode)
         this.outputDrainExpired = true
         this.stdoutReader?.invalidateSpill()
         this.stderrReader?.invalidateSpill()
@@ -539,9 +539,12 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     }
   }
 
-  private commandOutcome(settlement: CommandSettlement): SubprocessOutcome {
-    if (settlement.kind === 'result') return { exitCode: settlement.result.exitCode, signal: null }
+  private commandOutcome(settlement: CommandSettlement, publishedExitCode?: number): SubprocessOutcome {
+    if (settlement.kind === 'result') {
+      return { exitCode: publishedExitCode ?? settlement.result.exitCode, signal: null }
+    }
     if (settlement.error instanceof CommandExitError) {
+      if (publishedExitCode !== undefined) return { exitCode: publishedExitCode, signal: null }
       return this.terminationSignal === null
         ? { exitCode: settlement.error.exitCode, signal: null }
         : { exitCode: null, signal: this.terminationSignal }

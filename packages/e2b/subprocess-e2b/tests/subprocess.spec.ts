@@ -547,6 +547,20 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
+  it('preserves a published nonzero exit code when termination settles the SDK inside the drain grace', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 100 }), '/runtime/drain-signal-settled')
+    await flush()
+    fake.exitStatus = '7\n'
+    fake.afterStatusRead = () => {
+      fake.afterStatusRead = undefined
+      handle.terminate()
+    }
+
+    await expect(handle.done).resolves.toEqual({ exitCode: 7, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
   it('rejects an invalid direct-command exit status', async () => {
     const fake = new FakeSandbox()
     const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/invalid-status')
@@ -1334,6 +1348,35 @@ describe('E2BSubprocessService', () => {
     handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+  })
+
+  it('waits for every owned cleanup before reporting a disposal failure', async () => {
+    const { ctx, fiber } = await service()
+    const failed = {
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw new Error('cleanup failed') }),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+    } as unknown as E2BSubprocessHandle
+    let finishCleanup!: () => void
+    const cleanup = new Promise<boolean>((resolve) => {
+      finishCleanup = () => { resolve(true) }
+    })
+    const draining = {
+      terminate: vi.fn(),
+      waitForExit: vi.fn(() => cleanup),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+    } as unknown as E2BSubprocessHandle
+    const live = (ctx.subprocess as unknown as { live: Set<E2BSubprocessHandle> }).live
+    live.add(failed)
+    live.add(draining)
+
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await flush()
+    expect(disposed).toBe(false)
+    finishCleanup()
+    await disposing
+    expect(live).toEqual(new Set([failed]))
   })
 
   it('releases naturally settled handles before later service disposal', async () => {
