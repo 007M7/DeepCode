@@ -60,7 +60,7 @@ function spec(command: string, overrides: SpecOverrides = {}) {
   }
 }
 
-/** Poll until a pid no longer exists (kill(pid, 0) throws ESRCH). */
+/** Poll until a pid no longer exists, or is only a zombie on Linux. */
 async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -68,6 +68,16 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
       process.kill(pid, 0)
     } catch {
       return
+    }
+    if (process.platform === 'linux') {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+        const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+        if (state === 'Z' || state === 'X') return
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw error
+      }
     }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
