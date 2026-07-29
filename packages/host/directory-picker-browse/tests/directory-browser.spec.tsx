@@ -412,8 +412,9 @@ describe('DirectoryBrowser', () => {
     const listing: DirectoryListing = {
       path: `${SHARE}\\x`,
       // USERPROFILE ships verbatim; win32.resolve keeps \\server\share as
-      // the unpoppable root, so this normalizes to \\server\share\x.
-      home: `${SHARE}\\..\\x`,
+      // the unpoppable root and folds the doubled separator, so this
+      // normalizes to \\server\share\x.
+      home: '\\\\server\\\\share\\..\\x',
       crumbs: [
         { name: `${SHARE}\\`, path: `${SHARE}\\`, hidden: false },
         { name: 'x', path: `${SHARE}\\x`, hidden: false },
@@ -536,6 +537,10 @@ describe('DirectoryBrowser', () => {
     expect(within(columns()[1]!).getByText('Alpha')).toBeTruthy()
     fireEvent.change(input, { target: { value: 'C:\\Users\\z' } })
     expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
+    // Forward-slash drafts are equally legal on win32 (Enter navigates
+    // them); the filter folds them instead of going silent.
+    fireEvent.change(input, { target: { value: 'C:/Users/a' } })
+    expect(within(columns()[1]!).getByText('Alpha')).toBeTruthy()
   })
 
   it('re-parks focus on the edit zone when a failed pick unmounts a dot-revealed row', async () => {
@@ -1421,6 +1426,59 @@ describe('DirectoryBrowser', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
     expect(screen.getByText('browser.createIn:/srv/data')).toBeTruthy()
+  })
+
+  it('a crumb-less Windows level still seeds the editor with a backslash', async () => {
+    // The empty chain degrades separatorOf to the home-text read; the
+    // backslash side of that fallback is the Windows shape.
+    const bare: DirectoryListing = { path: 'C:\\srv', home: 'C:\\Users\\u', crumbs: [], entries: [], truncated: false }
+    mount({ listDirectory: vi.fn(async () => bare) })
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.editPath' }).disabled).toBe(false)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath').value).toBe('C:\\srv\\')
+  })
+
+  it('a POSIX home whose name contains a backslash still reads as the display root', async () => {
+    const WEIRD = '/home/we\\ird'
+    const listing: DirectoryListing = {
+      path: WEIRD,
+      home: WEIRD,
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'we\\ird', path: WEIRD, hidden: false },
+      ],
+      entries: [{ name: 'notes', path: `${WEIRD}/notes`, hidden: false }],
+      truncated: false,
+    }
+    const listDirectory = vi.fn(async () => listing)
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // The root crumb ('/') decides the platform: the backslash in the name
+    // neither flips the fold nor breaks the Home collapse.
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+    expect(listDirectory).toHaveBeenCalledTimes(1)
+  })
+
+  it('pointer-toggling hidden off keeps focus on the toggle as the focused row re-hides', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    // Tab parked focus on the revealed hidden row; the pointer click below
+    // would unmount it (toggle off + empty seeded prefix hides it again).
+    const hiddenRow = within(columns()[0]!).getByText('.config').closest('button')!
+    hiddenRow.focus()
+    fireEvent.mouseDown(toggle)
+    fireEvent.click(toggle)
+    expect(screen.queryByText('.config')).toBeNull()
+    expect(document.activeElement).toBe(toggle)
+    // The editor survives the whole exchange.
+    expect(screen.getByLabelText('browser.editPath', { selector: 'input' })).toBeTruthy()
   })
 
   it('refuses to close the nested dialog while the creation is in flight', async () => {

@@ -82,13 +82,26 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
  * backend's own paths arrive already resolved. A lexical mirror only:
  * symlinks are the backend's business.
  */
+/**
+ * Folds separators to the platform's canonical one: win32 treats a forward
+ * slash as a separator too (resolve() folds them the same way), while
+ * POSIX must not — a backslash there is a name character.
+ */
+function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
+  return value => (sep === '\\' ? value.replaceAll('/', sep) : value)
+}
+
 function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
+  const foldSeparators = foldSeparatorsFor(sep)
   return (raw) => {
-    // win32 treats a forward slash as a separator too (resolve() folds
-    // them); POSIX must not — a backslash there is a name character.
-    const value = sep === '\\' ? raw.replaceAll('/', sep) : raw
+    const value = foldSeparators(raw)
     const unc = sep === '\\' && value.startsWith(`${sep}${sep}`)
-    const segments = (unc ? value.slice(2) : value).split(sep)
+    const rawSegments = (unc ? value.slice(2) : value).split(sep)
+    // Empty segments are separator noise everywhere except POSIX's leading
+    // root marker, which must survive as the first segment; scrubbing them
+    // up front keeps a doubled separator from being locked into the UNC
+    // server + share root below.
+    const segments = unc ? rawSegments.filter(segment => segment !== '') : rawSegments
     // The unpoppable root: POSIX's leading empty segment / the drive
     // segment, or UNC's server + share pair.
     const rootLength = unc ? 2 : 1
@@ -136,8 +149,10 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
  */
 function separatorOf(listing: DirectoryListing): '\\' | '/' {
   const rootCrumb = listing.crumbs.at(0)
-  // Home is the honest fallback for an impossible empty chain.
-  /* v8 ignore next -- narrowing guard: the wire chain is root-to-target inclusive. */
+  // The seam type allows an empty chain (this backend never emits one, but
+  // create-target naming supports it, see targetName): degrade to a
+  // best-effort read of the home text — the pre-root-crumb heuristic, with
+  // its backslash-in-a-POSIX-name blind spot.
   if (rootCrumb === undefined) return listing.home.includes('\\') ? '\\' : '/'
   return rootCrumb.path.includes('\\') ? '\\' : '/'
 }
@@ -149,17 +164,19 @@ function separatorOf(listing: DirectoryListing): '\\' | '/' {
  * leaves the level unfiltered. The directory part compares under the
  * platform fold (exact on slash platforms; Windows folds case, since an
  * upgraded selection may carry the actual entry's case while the level
- * below still carries the typed one); the name filter downstream is
- * case-insensitive everywhere.
+ * below still carries the typed one — and folds forward slashes, which
+ * win32 and the backend both accept in typed paths); the name filter
+ * downstream is case-insensitive everywhere.
  */
 function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
   if (draft === null) return null
   const sep = separatorOf(listing)
-  const cut = draft.lastIndexOf(sep)
+  const folded = foldSeparatorsFor(sep)(draft)
+  const cut = folded.lastIndexOf(sep)
   if (cut === -1) return null
   const fold = foldPathFor(sep)
   const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
-  return fold(draft.slice(0, cut + 1)) === fold(level) ? draft.slice(cut + 1) : null
+  return fold(folded.slice(0, cut + 1)) === fold(level) ? folded.slice(cut + 1) : null
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
@@ -824,7 +841,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             // toggling never blur-cancels a draft mid-thought. Outside editing
             // it keeps native focus behavior.
             onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
-            onClick={() => { setShowHidden(prev => !prev) }}
+            onClick={(event) => {
+              // The suppression above exists to protect the INPUT's focus;
+              // when focus is instead on a row that this very toggle may
+              // re-hide, restore the native outcome — the clicked toggle
+              // keeps focus in the card (the editing-time refocus effect
+              // deliberately stays out of the way).
+              if (focusInMillerRows()) event.currentTarget.focus()
+              setShowHidden(prev => !prev)
+            }}
           >
             {t('browser.showHidden')}
             {showHidden && <IconCheckOutline16 size={14} className={css.toggleCheck} />}
