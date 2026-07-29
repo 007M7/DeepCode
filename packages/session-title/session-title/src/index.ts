@@ -7,7 +7,7 @@ import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import { z as zod } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import { deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { assertNever, deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {
   Session,
@@ -51,6 +51,10 @@ export type SessionTitleSource =
     readonly kind: 'provider'
     readonly provider: SessionTitleProviderId
     readonly model?: SessionTitleModelProvenance
+  }
+  | {
+    /** Explicit user rename: pins the title — automatic generation stops scheduling. */
+    readonly kind: 'user'
   }
 
 /** Payload of the log-only `session/title` event. */
@@ -180,18 +184,24 @@ export function foldSessionTitle(events: readonly SessionEvent[]): SessionTitleS
   return deepFreeze({
     title: event.data.title,
     messageSeqs: [...event.data.messageSeqs],
-    source: event.data.source.kind === 'fallback'
-      ? { kind: 'fallback' }
-      : {
-        kind: 'provider',
-        provider: event.data.source.provider,
-        ...(event.data.source.model === undefined
-          ? {}
-          : { model: { ...event.data.source.model } }),
-      },
+    source: copySessionTitleSource(event.data.source),
     eventSeq: event.seq,
     updatedAt: event.time,
   })
+}
+
+/** Defensive copy of a logged title source (the snapshot must not alias log-owned objects). */
+function copySessionTitleSource(source: SessionTitleSource): SessionTitleSource {
+  switch (source.kind) {
+    case 'fallback': return { kind: 'fallback' }
+    case 'provider': return {
+      kind: 'provider',
+      provider: source.provider,
+      ...(source.model === undefined ? {} : { model: { ...source.model } }),
+    }
+    case 'user': return { kind: 'user' }
+    default: return assertNever(source, 'SessionTitleSource')
+  }
 }
 
 /** Service-owned resolved limits. */
@@ -329,6 +339,38 @@ export class SessionTitleService extends Service {
   }
 
   /**
+   * Accept an explicit user title. Appends a `session/title` event with the
+   * `user` source, which pins the title: in-flight automatic generation is
+   * superseded and later user messages schedule none (an explicit
+   * {@link SessionTitleService.refresh} remains the deliberate unpin).
+   * @param session - exact live session to rename.
+   * @param title - raw user input; normalized before acceptance.
+   * @returns the accepted title snapshot.
+   * @throws {Error} when the session is not live or the title normalizes to empty.
+   */
+  rename(session: Session, title: string): SessionTitleSnapshot {
+    this.assertServiceActive()
+    if (this.ctx.sessions.get(session.id) !== session) {
+      throw new Error(`session "${session.id}" is not live in this store`)
+    }
+    const normalized = normalizeSessionTitle(title, this.config.maxTitleBytes)
+    if (normalized.length === 0) {
+      throw new Error('session title must contain visible characters')
+    }
+    const state = this.stateFor(session)
+    this.supersede(state, 'user rename superseded automatic title generation')
+    session.append('session/title', {
+      title: normalized,
+      messageSeqs: [],
+      source: { kind: 'user' },
+    })
+    const snapshot = this.get(session)
+    /* v8 ignore next -- unreachable: the append above just committed a session/title event. */
+    if (snapshot === undefined) throw new Error('renamed title failed to fold')
+    return snapshot
+  }
+
+  /**
    * Explicitly retry the registered provider, or materialize the built-in
    * fallback when no provider is registered.
    * @param session - exact live session to refresh.
@@ -345,6 +387,23 @@ export class SessionTitleService extends Service {
     const messages = collectSessionTitleMessages(session.events)
     const latest = messages.at(-1)
     if (registration === undefined || registration.closing || latest === undefined) {
+      // Explicit refresh is the unpin even without a provider: a standing
+      // user title must not short-circuit ensureFallback into a no-op, so
+      // re-derive and append the fallback over it when one is derivable.
+      const current = this.get(session)
+      const [first] = messages
+      if (current?.source.kind === 'user' && first !== undefined) {
+        const title = fallbackSessionTitle(first.text, this.config.fallbackMaxWords, this.config.fallbackMaxBytes)
+        if (title.length > 0) {
+          session.append('session/title', {
+            title,
+            messageSeqs: [first.seq],
+            source: { kind: 'fallback' },
+          })
+        }
+        signal?.throwIfAborted()
+        return this.get(session)
+      }
       const fallback = await this.ensureFallback(session)
       signal?.throwIfAborted()
       return fallback
@@ -398,6 +457,8 @@ export class SessionTitleService extends Service {
   private onUserMessage(session: Session, event: Extract<SessionEvent, { type: 'user/message' }>): void {
     if (!this.serviceActive()) return
     if (event.data.source.kind !== 'user' || collectSessionTitleMessages([event]).length === 0) return
+    // A user rename pins the title: no automatic revision may override it.
+    if (this.get(session)?.source.kind === 'user') return
     const registration = this.registration
     if (registration !== undefined && !registration.closing) {
       const messages = collectSessionTitleMessages(session.events, event.seq)

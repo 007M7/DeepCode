@@ -34,6 +34,10 @@ type SessionTitleSource =
     readonly provider: SessionTitleProviderId
     readonly model?: SessionTitleModelProvenance
   }
+  | {
+    /** Explicit user rename: pins the title — automatic generation stops scheduling. */
+    readonly kind: 'user'
+  }
 ```
 
 ```ts type-equiv
