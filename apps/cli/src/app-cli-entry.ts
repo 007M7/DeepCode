@@ -11,13 +11,11 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import type { FiberState } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include, { type PatchOptions } from '@cordisjs/plugin-include'
+import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { assertEntriesLoaded, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
+import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -230,12 +228,8 @@ export class AppCLIEntry {
     })
   }
 
-  /** Loader include boot; the dev HMR row mounts before await so the fail-loud triple covers it. */
+  /** Shared Loader boot; the dev HMR row mounts before await so the fail-loud sweep covers it. */
   private async bootTree(): Promise<void> {
-    const ctx = new Context()
-    ctx.baseUrl = pathToFileURL(join(resolve(this.options.configPath), '..')).href + '/'
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would
     // silently stop reaching base rows. The surface overlay applies first, then
@@ -247,28 +241,18 @@ export class AppCLIEntry {
         : loadOverlayPatches('dsh', this.options.extraOverlayPath),
       ...this.patches,
     ]
-    await ctx.loader.create({
-      name: 'cordis:include',
-      config: {
-        path: pathToFileURL(resolve(this.options.configPath)).href,
-        ...patches.length > 0 ? { patches } : {},
-      },
+    this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
+      if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })
-    if (this.options.dev) {
-      await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
-    }
-    this.ctx = ctx
-    await ctx.loader.await()
   }
 
   /**
-   * Fail-loud triple: assertEntriesLoaded catches import failures,
-   * installFailLoud catches late apply rejections, and the all-ACTIVE sweep
+   * Shared boot catches import failures, installFailLoud catches late apply
+   * rejections, and the all-ACTIVE sweep
    * below catches PENDING fibers (cordis inject waiting has no timeout).
    */
   private assertBoot(): void {
     installFailLoud('dsh')
-    assertEntriesLoaded(this.ctx, 'dsh')
     const failures: string[] = []
     for (const entry of this.ctx.loader.entries()) {
       if (entry.fiber === undefined || entry.disabled) continue
