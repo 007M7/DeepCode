@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, resolveConfigPath, type FailLoudProcess,
+  installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -154,6 +154,25 @@ describe('assertEntriesLoaded', () => {
       { options: { name: 'broken-a' } },
       { options: { name: 'broken-b' } },
     ]), NAME) }).toThrow(`${NAME}: plugin(s) failed to load: broken-a, broken-b`)
+  })
+})
+
+describe('loadOverlayPatches', () => {
+  it('loads expressions and rejects missing, malformed, non-array, and non-mapping overlays', () => {
+    const dir = tmp()
+    const valid = join(dir, 'valid.yml')
+    writeFileSync(valid, '- id: target\n  config:\n    value: !!js process.env.VALUE\n')
+    expect(loadOverlayPatches(NAME, valid)).toEqual([{ id: 'target', config: { value: { __jsExpr: 'process.env.VALUE' } } }])
+    expect(() => loadOverlayPatches(NAME, join(dir, 'missing.yml'))).toThrow(`${NAME}: failed to read overlay`)
+    const malformed = join(dir, 'malformed.yml')
+    writeFileSync(malformed, ': bad')
+    expect(() => loadOverlayPatches(NAME, malformed)).toThrow(`${NAME}: failed to parse overlay`)
+    const mapping = join(dir, 'mapping.yml')
+    writeFileSync(mapping, 'id: target\n')
+    expect(() => loadOverlayPatches(NAME, mapping)).toThrow('must be a top-level YAML array')
+    const scalar = join(dir, 'scalar.yml')
+    writeFileSync(scalar, '- scalar\n')
+    expect(() => loadOverlayPatches(NAME, scalar)).toThrow('entry 1')
   })
 })
 
