@@ -6,14 +6,12 @@
 // the turn-level loading dots live in the chat view's tail, not here.
 // Finalized nodes append IconActions (copy / branch / clock) once streaming ends.
 
-import { memo, useCallback } from 'react'
+import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  IconBranchOutline16, IconCopyOutline16, IconThinkOutline14,
-  JsonBlock, MarkdownText, Tooltip,
+  IconThinkOutline14, JsonBlock, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { formatMessageClock, writeClipboard } from './message-chrome.ts'
-import { useCalendarDay } from './use-calendar-day.ts'
+import { MessageIconActions } from './MessageIconActions.tsx'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -55,29 +53,6 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
   )
 }
 
-/** Finalized assistant IconActions (figma 43:32997): copy live; branch stub; clock. */
-function AssistantActions({ text, time }: { text: string; time: number }) {
-  const day = useCalendarDay()
-  const onCopy = useCallback(() => {
-    void writeClipboard(text)
-  }, [text])
-  return (
-    <div className={css.actions}>
-      <Tooltip label="复制" side="bottom">
-        <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
-          <IconCopyOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="在新对话中分支" side="bottom">
-        <button type="button" className={css.action} aria-label="在新对话中分支">
-          <IconBranchOutline16 />
-        </button>
-      </Tooltip>
-      <span className={css.time}>{formatMessageClock(time, day)}</span>
-    </div>
-  )
-}
-
 export const AssistantMarkdown = memo(function AssistantMarkdown({
   blocks, streaming, interrupted, time,
 }: AssistantMarkdownProps) {
@@ -105,7 +80,14 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         })}
         {interrupted && <span className={css.stopped}>已停止</span>}
       </div>
-      {showActions && <AssistantActions text={copyText(blocks)} time={time} />}
+      {showActions && (
+        <MessageIconActions
+          text={copyText(blocks)}
+          time={time}
+          clock="end"
+          className={css.actions}
+        />
+      )}
     </div>
   )
 })

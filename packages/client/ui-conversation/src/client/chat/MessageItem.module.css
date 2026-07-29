@@ -20,53 +20,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 28px;
-}
-
-/* Clock before the icon buttons (figma 388:20051); pr 12 separates it from copy. */
-.time {
-  padding-right: 12px;
-  font-size: 14px;
-  line-height: 24px;
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-}
-
-/* Hover-capable pointers: hide until the row is hovered/focused. Touch /
-   hover:none keeps actions visible (opacity:0 still hit-tests). */
+/* Hover-capable pointers: reveal shared MessageIconActions on row hover/focus. */
 @media (hover: hover) {
-  .actions {
-    opacity: 0;
-    transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
-  }
-
   .userRow:hover .actions,
   .userRow:focus-within .actions {
     opacity: 1;
   }
-}
-
-.action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 6px;
-  border: none;
-  border-radius: 28px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.action:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
 }
 
 .badge {

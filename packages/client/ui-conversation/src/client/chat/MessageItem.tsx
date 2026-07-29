@@ -4,17 +4,13 @@
 // the snapshot cache; memo holds across streaming because unchanged nodes
 // keep their references.
 
-import { memo, useCallback } from 'react'
+import { memo } from 'react'
 import type { ReactNode } from 'react'
 import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  IconBranchOutline16, IconCopyOutline16, IconEditOutline16,
-  JsonBlock, MessageText, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-import { formatMessageClock, writeClipboard } from './message-chrome.ts'
-import { useCalendarDay } from './use-calendar-day.ts'
+import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
@@ -64,34 +60,6 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** User-bubble IconActions (figma 388:20051): clock + copy live; branch/edit stubs. */
-function UserActions({ text, time }: { text: string; time: number }) {
-  const day = useCalendarDay()
-  const onCopy = useCallback(() => {
-    void writeClipboard(text)
-  }, [text])
-  return (
-    <div className={css.actions}>
-      <span className={css.time}>{formatMessageClock(time, day)}</span>
-      <Tooltip label="复制" side="bottom">
-        <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
-          <IconCopyOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="在新对话中分支" side="bottom">
-        <button type="button" className={css.action} aria-label="在新对话中分支">
-          <IconBranchOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="编辑" side="bottom">
-        <button type="button" className={css.action} aria-label="编辑">
-          <IconEditOutline16 />
-        </button>
-      </Tooltip>
-    </div>
-  )
-}
-
 export const MessageItem = memo(function MessageItem({ node }: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
@@ -102,7 +70,13 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
             {projectUserText(text)}
             {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
           </div>
-          <UserActions text={text} time={node.time} />
+          <MessageIconActions
+            text={text}
+            time={node.time}
+            clock="start"
+            edit
+            className={css.actions}
+          />
         </div>
       )
     }
