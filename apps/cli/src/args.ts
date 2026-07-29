@@ -29,15 +29,9 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/**
- * Interactive TUI over this harness checkout: `dsh meta`. Identical to
- * {@link TuiInvocation} except the workspace is the launcher's own source tree
- * rather than the invoking directory. No `--config`: booting a foreign tree
- * against the harness workspace is the `--config` case, not this one.
- */
+/** Interactive fresh TUI over this harness checkout; accepts no default-surface options. */
 interface MetaInvocation {
   mode: 'meta'
-  resume?: string
 }
 
 /**
@@ -168,13 +162,13 @@ Examples:
 
   // Commander parses the parent (default-surface) options on either side of a
   // subcommand into `program.opts()`. For a subcommand that shares none of them,
-  // a leaked `--config`/`-p`/`--resume` is a mistyped invocation that must fail
+  // a leaked config/prompt/resume option is a mistyped invocation that must fail
   // loud rather than silently run and drop the input.
   const rejectParentOptions = (command: string): void => {
     const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
     if (parent.config !== undefined || parent.configReplace !== undefined
       || parent.prompt !== undefined || parent.resume !== undefined) {
-      program.error(`error: ${command} takes none of --config, -p/--prompt, or --resume`)
+      program.error(`error: ${command} takes none of --config, --config-replace, -p/--prompt, or --resume`)
     }
   }
 
