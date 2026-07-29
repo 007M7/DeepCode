@@ -43,6 +43,7 @@ interface RetainedOutput {
 interface CapturedOutput {
   text: string
   incomplete: boolean
+  exitCode?: number
 }
 
 interface PersistentShells {
@@ -94,11 +95,13 @@ function commandOutput(
 ): CapturedOutput {
   const text = snapshot.text
   const end = text.lastIndexOf(marker.end)
+  const exitCode = Number.parseInt(text.slice(end + marker.end.length), 10)
   const startMarker = text.lastIndexOf(marker.start, end)
   const start = startMarker < 0 ? 0 : startMarker + marker.start.length
   return {
     text: stripPrompt(text.slice(start, end).replace(/^\r?\n/, '')),
     incomplete: startMarker < 0,
+    exitCode,
   }
 }
 
@@ -165,9 +168,24 @@ function retainedScrollback(
 
 function renderCaptured(output: CapturedOutput, maxOutputChars: number): string {
   const rendered = maybeTruncate(output.text, maxOutputChars, output.incomplete)
-  return output.incomplete && output.text.length > 0
+  const withPrefix = output.incomplete && output.text.length > 0
     ? LOST_PREFIX_MESSAGE + rendered
     : rendered
+  return renderExitStatus(withPrefix, output.exitCode ?? 0, null)
+}
+
+function renderExitStatus(
+  content: string,
+  exitCode: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  const marker = signal !== null
+    ? `[killed by signal: ${signal}]`
+    : exitCode !== null && exitCode !== 0
+      ? `[exit code: ${exitCode}]`
+      : undefined
+  if (marker === undefined) return content
+  return content.length === 0 ? marker : `${content}\n${marker}`
 }
 
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
@@ -299,7 +317,11 @@ async function executeCommand(
       const snapshot = retainedScrollback(ctx, owner, id, latest)
       await shells.reset(owner, 'persistent bash shell exited')
       return [
-        renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
+        renderExitStatus(
+          renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
+          result.sessionStatus.exitCode,
+          result.sessionStatus.signal,
+        ),
         SHELL_RESET_MESSAGE,
       ].filter(part => part.length > 0).join('\n')
     }

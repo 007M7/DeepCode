@@ -78,9 +78,11 @@ type StubMode =
   | 'empty-read'
   | 'stalled-read'
   | 'exit'
+  | 'signal-exit'
   | 'wait-for-abort'
   | 'idle-then-normal'
   | 'large'
+  | 'nonzero'
   | 'end-only'
   | 'init-exit'
   | 'init-timeout'
@@ -157,13 +159,18 @@ class StubPtySession implements PtyBackendSession {
       this.scrollback += output
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
-    const commandOutput = this.mode === 'large' ? 'x'.repeat(100) : 'hello from stub'
-    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}0\n${this.motd}`
+    const commandOutput = this.mode === 'large'
+      ? 'x'.repeat(100)
+      : this.mode === 'nonzero' ? '' : 'hello from stub'
+    const exitCode = this.mode === 'nonzero' ? 7 : 0
+    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
     this.scrollback += output
-    if (this.mode === 'exit') {
+    if (this.mode === 'exit' || this.mode === 'signal-exit') {
       const exitedOutput = `${start ?? ''}\nhello from stub\n`
       this.scrollback = this.scrollback.slice(0, -output.length) + exitedOutput
-      this.statusValue = { kind: 'exited', exitCode: 0, signal: null }
+      this.statusValue = this.mode === 'signal-exit'
+        ? { kind: 'exited', exitCode: null, signal: 'SIGTERM' }
+        : { kind: 'exited', exitCode: 9, signal: null }
       return this.operation(Promise.resolve(this.result(exitedOutput, 'session_exit')))
     }
     return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
@@ -303,19 +310,29 @@ describe('tool-bash-persistent', () => {
     session.mode = 'large'
     expect(text(await call(ctx, owner, 'large'))).toContain('<response clipped>')
 
+    session.mode = 'nonzero'
+    expect(text(await call(ctx, owner, 'false'))).toBe('[exit code: 7]')
+
     session.mode = 'exit'
     const exited = text(await call(ctx, owner, 'exit'))
     expect(exited).toContain('hello from')
+    expect(exited).toContain('[exit code: 9]')
     expect(exited).toContain('next bash call starts from the workspace')
     expect(session.closed).toContain('persistent bash shell exited')
 
     await call(ctx, owner, 'new shell')
     expect(stub.sessions).toHaveLength(2)
+    const replacement = stub.sessions[1]!
+    replacement.mode = 'signal-exit'
+    expect(text(await call(ctx, owner, 'kill shell'))).toContain('[killed by signal: SIGTERM]')
+
+    await call(ctx, owner, 'another shell')
+    expect(stub.sessions).toHaveLength(3)
     const externallyClosed = ctx.pty.list(owner)[0]?.sessionId
     expect(externallyClosed).toBeDefined()
     await ctx.pty.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
-    expect(stub.sessions[1]?.closed).toEqual(['external cleanup'])
+    expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
   })
 
   it('marks a short missing-prefix result and tolerates exhausted scrollback pages', async () => {
