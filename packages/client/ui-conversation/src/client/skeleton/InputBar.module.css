@@ -125,20 +125,18 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  color: transparent;
+  color: var(--dsw-alias-label-primary);
   pointer-events: none;
 }
 
 .hlToken {
-  border-radius: 4px;
-  /* GOAL 稿 amber token emphasis (state warn pair; glyphs stay the textarea's). */
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: transparent;
+  background-color: transparent;
+  color: var(--dsw-alias-state-warn-label);
 }
 
 .hlSegment {
   border-radius: 4px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  background-color: transparent;
   color: transparent;
 }
 
@@ -170,7 +168,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: transparent;
   /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
   caret-color: var(--dsw-alias-state-business-primary);
 }
@@ -348,25 +346,13 @@
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {
-  color: transparent;
   background-color: transparent;
+  color: var(--dsw-alias-state-business-primary);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  position: relative;
 }
 .textRef:after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-
-  width: 100%;
-  height: 100%;
-
-  border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
-  transform: translate(-2px, -1px);
-  padding: 2px 4px;
+  display: none;
 }
 
 /* Reference chip: rendered in the backdrop at the placeholder offset. Hard

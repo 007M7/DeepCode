@@ -39,13 +39,10 @@
   display: inline-flex;
   align-items: center;
   color: var(--dsw-alias-label-caption);
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
 .chip:hover .close,
 .chip:focus-visible .close {
-  opacity: 1;
   color: var(--dsw-alias-label-secondary);
 }
 

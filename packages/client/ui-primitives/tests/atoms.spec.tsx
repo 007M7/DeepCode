@@ -123,6 +123,7 @@ describe('Menu', () => {
     render(
       <Menu
         open
+        compact
         anchor={<span>trigger</span>}
         items={[
           { id: 'a', label: 'Alpha', icon: <svg data-testid="ic" /> },
@@ -186,6 +187,7 @@ describe('Menu', () => {
     render(
       <Menu
         open
+        compact
         anchor={<span>trigger</span>}
         items={[
           { id: 'plain', label: 'Plain' },

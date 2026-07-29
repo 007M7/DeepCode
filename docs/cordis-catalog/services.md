@@ -1605,6 +1605,19 @@ Log-backed title fold plus asynchronous fallback generation.
 get(session: Session): SessionTitleSnapshot | undefined
 
 /**
+ * Accept an explicit user title. Appends a `session/title` event with the
+ * `user` source, which pins the title: in-flight automatic generation is
+ * superseded and later user messages schedule none (an explicit
+ * {@link SessionTitleService.refresh} remains the deliberate unpin).
+ * @param session - exact live session to rename.
+ * @param title - raw user input; normalized before acceptance.
+ * @returns the accepted title snapshot.
+ * @throws {SessionTitleInvalidError} when the title normalizes to empty.
+ * @throws {Error} when the session is not live or the service is disposed.
+ */
+rename(session: Session, title: string): SessionTitleSnapshot
+
+/**
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
@@ -1624,40 +1637,50 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
-Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 /**
  * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
  * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
  * the provider and invalidates catalog caches.
- * @param provider - the provider to register by `provider.name`.
+ * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
  * @returns the exact Cordis effect disposer that unregisters this provider;
  *   composite effects may yield it directly to preserve teardown ordering.
  */
-registerProvider(provider: SkillProvider): () => void
+registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void
 
 /**
  * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
  * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
  * receives a no-op disposer so it cannot remove the winner.
- * @param skill - the complete skill definition to expose for discovery.
+ * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
  * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
  */
 register(skill: SkillRegistration): () => void
 
 /**
- * List model-invocable skill summaries for a workspace. Lookup options and
- * provider candidates are readonly same-process values borrowed throughout
- * discovery.
+ * List invocation-neutral skill summaries for a workspace. Consumers apply
+ * model or user invocation policy at their operational boundary. Lookup
+ * options and provider candidates are readonly same-process values borrowed
+ * throughout discovery.
  * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
- * @returns sorted summaries, excluding skills disabled for model invocation.
+ * @returns all sorted winning summaries.
  */
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+
+/**
+ * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+ * Incomplete observations are never cached, allowing consumers to retain last-good state and
+ * retry on their next request boundary.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns sorted summaries plus discovery-completeness state.
+ */
+async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 
 /**
  * Load and validate the winning candidate, passing its opaque discovery locator back to the
@@ -1670,9 +1693,9 @@ async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Types: [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
+Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:141`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:209`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 

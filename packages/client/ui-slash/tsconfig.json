@@ -12,7 +12,13 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../runtime"
+    },
+    {
+      "path": "../ui-primitives"
     },
     {
       "path": "../ui-slots"

@@ -42,6 +42,13 @@ export interface ISession {
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>
   /**
+   * Rename this session (explicit user title; pins it against automatic
+   * regeneration).
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the normalized accepted title and its event seq, or the business error.
+   */
+  rename(title: string): Promise<RpcResult<{ title: string; seq: number }>>
+  /**
    * Extend the history window backwards (older messages pagination).
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
