@@ -264,7 +264,7 @@ it('the fallback row reaches the same card through its expand control', async ()
       ],
       "prompt": [
         "fixture ls -la",
-        "fixture echo done",
+        "$ echo done",
       ],
       "runState": "done",
       "runStateLabel": "已完成",

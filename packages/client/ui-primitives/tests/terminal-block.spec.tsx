@@ -212,6 +212,14 @@ describe('TerminalBlock run-state dot', () => {
     expect([...row!.children].map(node => node.textContent)).toEqual(['', 'app', 'ls'])
   })
 
+  // The cwd labels the call, not each line: a `cd` in the command moves later
+  // lines elsewhere, so repeating the label would state a directory per line
+  // that the view does not know.
+  it('labels only the first row with the cwd, leaving later rows a bare $', () => {
+    const view = render(<TerminalBlock command={'cd ~\nls'} cwd="/srv/app" output="a" exitCode={0} />)
+    expect(promptRows(view.container)).toEqual(['appcd ~', '$ls'])
+  })
+
   it('gives a multi-line command one row per line', () => {
     const view = render(<TerminalBlock command={'echo one\necho two'} output="a" exitCode={0} />)
     expect(promptRows(view.container)).toEqual(['$echo one', '$echo two'])

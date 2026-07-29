@@ -174,7 +174,15 @@ export function TerminalBlock({
                   per-command status, so a dot per row would assert a
                   per-line outcome nothing here knows. */}
               {index === 0 && <StateDot state={state.state} className={css.runState} />}
-              <span className={css.cwd}>{cwd === undefined ? '$' : promptLabel(cwd, home)}</span>
+              {/* The cwd labels the CALL, so only its first row carries it. The
+                  view knows one working directory — where the call started —
+                  and a later line may well run somewhere else (a `cd` in the
+                  command is enough), so repeating the label down the rows would
+                  assert a directory per line that nothing here knows. Later
+                  rows keep a bare `$` to stay aligned as prompts. */}
+              <span className={css.cwd}>
+                {index > 0 || cwd === undefined ? '$' : promptLabel(cwd, home)}
+              </span>
               <span className={css.command}>{line}</span>
             </div>
           ))}
