@@ -1605,6 +1605,19 @@ Log-backed title fold plus asynchronous fallback generation.
 get(session: Session): SessionTitleSnapshot | undefined
 
 /**
+ * Accept an explicit user title. Appends a `session/title` event with the
+ * `user` source, which pins the title: in-flight automatic generation is
+ * superseded and later user messages schedule none (an explicit
+ * {@link SessionTitleService.refresh} remains the deliberate unpin).
+ * @param session - exact live session to rename.
+ * @param title - raw user input; normalized before acceptance.
+ * @returns the accepted title snapshot.
+ * @throws {SessionTitleInvalidError} when the title normalizes to empty.
+ * @throws {Error} when the session is not live or the service is disposed.
+ */
+rename(session: Session, title: string): SessionTitleSnapshot
+
+/**
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
@@ -1624,7 +1637,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
