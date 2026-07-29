@@ -146,6 +146,15 @@ describe('TerminalBlock states', () => {
     expect(outputLines(view.container)).toEqual(['a', 'b'])
   })
 
+  it('drops the output terminator even when a reset follows the final newline', () => {
+    // `line\n\x1b[0m` does not end in a newline as a string, yet its last parsed
+    // line holds nothing visible — a common shape, since tools close their color
+    // after the last line. Judging the terminator on the raw text added a blank
+    // row and inflated both the card height and the collapse count.
+    const view = render(<TerminalBlock command="ls" output={`a\nb\n${ESC}[0m`} />)
+    expect(outputLines(view.container)).toEqual(['a', 'b'])
+  })
+
   it('keeps a genuinely blank final line when the output ends with two newlines', () => {
     const view = render(<TerminalBlock command="ls" output={'a\nb\n\n'} />)
     expect(outputLines(view.container)).toEqual(['a', 'b', ''])

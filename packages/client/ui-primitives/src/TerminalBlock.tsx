@@ -126,9 +126,19 @@ export function TerminalBlock({
 }: TerminalBlockProps) {
   const text = output ?? ''
   // A command's output ends with a newline; that terminator is not an extra
-  // blank line to draw or to count against the height cap. The copy control
-  // still copies `text` untouched.
-  const lines = useMemo(() => parseAnsiLines(text.endsWith('\n') ? text.slice(0, -1) : text), [text])
+  // blank line to draw or to count against the height cap. The check runs on the
+  // PARSED lines rather than on the raw text, because a reset after the final
+  // newline (`line\n\x1b[0m`) leaves the string not ending in one while still
+  // producing a last line with nothing visible in it. A genuinely blank final
+  // line — the double newline — survives, since it has a real empty line before
+  // the terminator. The copy control still copies `text` untouched.
+  const lines = useMemo(() => {
+    const parsed = parseAnsiLines(text)
+    const last = parsed[parsed.length - 1]
+    const terminated = parsed.length > 1 && last !== undefined
+      && last.every(span => span.text === '')
+    return terminated ? parsed.slice(0, -1) : parsed
+  }, [text])
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
 

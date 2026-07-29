@@ -182,14 +182,16 @@ button.leading {
    also replaces each primitive's own standalone vertical spacing with the
    flow's row rhythm. */
 .codeBody,
-/* Indented to the terminal body's own column, so the description reads as the
-   card's heading rather than as another summary row. */
+.terminalBody {
+  margin: 4px 0 4px 22px;
+}
+
+/* Indented to the body's own column so the description reads as the card's
+   heading rather than as another summary row, and sits tight against the card
+   below it. Its own rule: grouping it with a body would put description
+   typography on a `CodeBlock` wrapper and change that body's spacing. */
 .terminalDescription {
   margin: 4px 0 0 22px;
   color: var(--dsw-alias-label-secondary);
   font: var(--dsw-font-xs-13);
-}
-
-.terminalBody {
-  margin: 4px 0 4px 22px;
 }

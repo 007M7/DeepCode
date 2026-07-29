@@ -6,10 +6,12 @@
 //
 // A bash call declares the terminal render intent, so this row also renders
 // the command's own output through TerminalBlock. This row has no expand
-// control (a click goes to the details panel), so its terminal body is
-// resident rather than expand-gated as in ToolRow; the block's own height cap
-// (CHAT_TERMINAL_MAX_LINES) and internal expander keep a long output from
-// taking over the message flow.
+// control and is not a details-panel target either (tool rows stopped being
+// one), so its terminal body is resident rather than expand-gated as in
+// ToolRow, and the card's own copy and expand controls are the row's only
+// interactions. CHAT_TERMINAL_MAX_LINES is passed as `maxLines` — the chat
+// flow's tighter cap over the block's own default of 16 — and the block's
+// internal expander keeps a long output from taking over the message flow.
 
 import type { Context } from 'cordis'
 import { IconApiOutline14, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'

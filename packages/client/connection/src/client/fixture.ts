@@ -284,8 +284,10 @@ function buildAlphaLog(): SessionEvent[] {
   ]
   // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
   // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
-  // whose prompt label is its last segment, and a non-zero exit recovered from
-  // the trailing marker the bash tool appends. Named `bash`, so it also covers
+  // whose prompt label is its last segment, and a non-zero exit authored beside
+  // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
+  // `[exit code: N]` marker, since the real presenter consumes that one out of
+  // the body. Named `bash`, so it also covers
   // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
   // row) — the two chat-row shapes the terminal card renders in.
   //

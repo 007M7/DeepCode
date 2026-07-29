@@ -357,6 +357,75 @@ describe('parseAnsiLines: line-end state and column widths', () => {
   })
 })
 
+describe('parseAnsiLines: bounded state and true widths', () => {
+  it('emits one canonical sequence per boundary however the state was reached', () => {
+    // Colors that never fully reset used to accumulate raw sequence history per
+    // cell, so every boundary re-emitted the whole chain: 3200 such cells
+    // produced 25 MB and eventually a RangeError. The state is normalized now,
+    // so the emitted text stays linear in the number of cells.
+    let input = ''
+    for (let index = 0; index < 2000; index += 1) input += `${ESC}[3${index % 6 + 1}mx`
+    const emitted = parseAnsiLines(`${input}\rz`)[0] ?? []
+    expect(emitted.reduce((total, span) => total + span.text.length, 0)).toBe(2000)
+  })
+
+  it('closes an attribute with its closer instead of appending to the state', () => {
+    // `1` then `22` is bold then not-bold, which every chalk-based tool writes;
+    // appending both left the cell bold and grew the chain.
+    // Verified in a real terminal: the `22` closes the bold, so the `x` written
+    // after the redraw is PLAIN. Appending both left it bold and grew the chain.
+    expect(parseAnsiLines(`${ESC}[1mbold${ESC}[22mplain\r${ESC}[Kx`)).toEqual([[
+      { text: 'x', style: undefined },
+    ]])
+    expect(parseAnsiLines(`${ESC}[1mA${ESC}[22mB`)).toEqual([[
+      { text: 'A', style: { fontWeight: 700 } },
+      { text: 'B', style: undefined },
+    ]])
+  })
+
+  it('folds extended colors, backgrounds and every attribute closer', () => {
+    // The 256-palette and truecolor forms consume their own arguments, so the
+    // fold has to take them whole rather than as separate codes.
+    expect(parseAnsiLines(`${ESC}[38;5;208mA\r${ESC}[KB`)).toEqual([[
+      { text: 'B', style: { color: 'rgb(255, 135, 0)' } },
+    ]])
+    expect(parseAnsiLines(`${ESC}[38;2;10;20;30mA\r${ESC}[KB`)).toEqual([[
+      { text: 'B', style: { color: 'rgb(10, 20, 30)' } },
+    ]])
+    // A background survives the same way, and `49` closes it.
+    expect(parseAnsiLines(`${ESC}[41mA${ESC}[49mB\r${ESC}[KC`)).toEqual([[
+      { text: 'C', style: undefined },
+    ]])
+    // Each closer drops only its own attribute: `4` underline closed by `24`
+    // while the italic opened before it stays in force.
+    expect(parseAnsiLines(`${ESC}[3;4mA${ESC}[24mB\r${ESC}[KC`)).toEqual([[
+      { text: 'C', style: { fontStyle: 'italic' } },
+    ]])
+    // `39` closes a foreground without touching the background.
+    expect(parseAnsiLines(`${ESC}[31;42mA${ESC}[39mB\r${ESC}[KC`)).toEqual([[
+      { text: 'C', style: { backgroundColor: 'rgb(0, 187, 0)' } },
+    ]])
+  })
+
+  it('treats a text-presentation symbol as one column', () => {
+    // Verified in a real terminal: `A✓B` redrawn with `XY` shows `XYB`, so the
+    // check mark is ONE column. Taking the whole U+2600-U+27BF block as wide
+    // misaligned exactly the progress output this card exists to show.
+    expect(onlySpan('A\u2713B\rXY')).toEqual({ text: 'XYB', style: undefined })
+    // An emoji-presentation character is two, so the same redraw leaves a blank.
+    expect(onlySpan('A\u{1f600}B\rXY')).toEqual({ text: 'XY B', style: undefined })
+  })
+
+  it('blanks both halves of a wide pair when either is overwritten', () => {
+    // A terminal cannot leave one cell of a two-cell glyph standing, so writing
+    // over the spacer clears the lead as well.
+    // Verified in a real terminal: two wide chars, CR, then `A` shows `A ` and
+    // the second glyph — writing the lead cell blanks its spacer, so the column
+    // stays occupied rather than collapsing.
+    expect(onlySpan('\u4e2d\u4e2d\rA')).toEqual({ text: 'A \u4e2d', style: undefined })
+  })
+})
+
 describe('parseAnsiLines: SGR across lines', () => {
   it('carries active state past a newline, as a terminal does', () => {
     // Verified in a real terminal: `\x1b[31mabc\rX\nnext` paints BOTH lines red.
