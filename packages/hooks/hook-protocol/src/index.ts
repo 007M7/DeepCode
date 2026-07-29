@@ -13,7 +13,8 @@ export type {
   MatcherGroup,
   MatcherMode,
 } from './types.ts'
-export { matcherDiagnostic, matchesMatcher } from './matcher.ts'
+export { compileMatchers, matcherDiagnostic, matchesMatcher } from './matcher.ts'
+export type { CompiledMatchers } from './matcher.ts'
 export { parseHookOutput } from './codec.ts'
 export { DEFAULT_HOOK_TIMEOUT_MS, runHook } from './runner.ts'
 export type { RunHookOptions, RunHookResult } from './runner.ts'

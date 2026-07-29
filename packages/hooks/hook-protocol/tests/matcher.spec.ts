@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
+import { compileMatchers, matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('matchesMatcher — match-all sentinels (both dialects)', () => {
   for (const mode of ['claude', 'codex'] as const) {
@@ -80,5 +80,30 @@ describe('matcherDiagnostic — parse-time diagnostics', () => {
     expect(matcherDiagnostic('(', 'claude')).toBe('invalid claude regex matcher "("')
     expect(matcherDiagnostic('[', 'codex')).toBe('invalid codex regex matcher "["')
     expect(matcherDiagnostic('(?=Bash)', 'codex')).toBe('invalid codex regex matcher "(?=Bash)"')
+  })
+})
+
+describe('compileMatchers — config-lifetime reuse', () => {
+  it('compiles a finite set, contains unknown patterns, and stops after disposal', () => {
+    const matchers = compileMatchers([undefined, 'Edit|Write', '(?i)^bash$', '['], 'codex')
+
+    expect(matchers.matches(undefined, 'anything')).toBe(true)
+    expect(matchers.matches('Edit|Write', 'Write')).toBe(true)
+    expect(matchers.matches('Edit|Write', 'WriteFile')).toBe(false)
+    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
+    expect(matchers.matches('[', 'anything')).toBe(false)
+    expect(matchers.matches('not-compiled', 'not-compiled')).toBe(false)
+
+    matchers.dispose()
+    expect(matchers.matches(undefined, 'anything')).toBe(false)
+    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(false)
+    expect(() => { matchers.dispose() }).not.toThrow()
+  })
+
+  it('reuses JavaScript regexes too', () => {
+    const matchers = compileMatchers(['^Bash$', '^Bash$'], 'claude')
+    expect(matchers.matches('^Bash$', 'Bash')).toBe(true)
+    expect(matchers.matches('^Bash$', 'BashOutput')).toBe(false)
+    matchers.dispose()
   })
 })

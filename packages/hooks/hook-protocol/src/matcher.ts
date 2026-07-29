@@ -28,6 +28,19 @@ function isMatchAll(matcher: string | undefined): boolean {
 /** An exact pattern is purely word chars + `|` (the regex-vs-literal discriminator). */
 const EXACT_MATCHER = /^[A-Za-z0-9_|]+$/
 
+interface CompiledMatcher {
+  matches(query: string): boolean
+  dispose(): void
+}
+
+/** A config-lifetime matcher set compiled once and explicitly released. */
+export interface CompiledMatchers {
+  /** Match one of the patterns supplied to {@link compileMatchers}. */
+  matches(matcher: string | undefined, query: string): boolean
+  /** Release every native matcher. Safe to call more than once. */
+  dispose(): void
+}
+
 /** Compile one dialect's unanchored regex; invalid patterns return `undefined`. */
 function compileRegex(pattern: string, mode: MatcherMode): RegExp | RustRegex | undefined {
   try {
@@ -39,9 +52,53 @@ function compileRegex(pattern: string, mode: MatcherMode): RegExp | RustRegex | 
   }
 }
 
-/** Release the WASM-backed Codex regex once a one-shot validation or match is done. */
+/** Release a WASM-backed Codex regex when its owning matcher lifetime ends. */
 function disposeRegex(regex: RegExp | RustRegex): void {
   if (regex instanceof RRegex) regex.free()
+}
+
+/** Compile one matcher into a reusable, explicitly disposable predicate. */
+function compileMatcher(matcher: string | undefined, mode: MatcherMode): CompiledMatcher {
+  if (isMatchAll(matcher)) return { matches: () => true, dispose: () => {} }
+  const pattern = matcher as string
+  if (EXACT_MATCHER.test(pattern)) {
+    const alternatives = new Set(pattern.split('|'))
+    return { matches: query => alternatives.has(query), dispose: () => {} }
+  }
+  const regex = compileRegex(pattern, mode)
+  if (regex === undefined) return { matches: () => false, dispose: () => {} }
+  return {
+    matches: query => regex instanceof RRegex ? regex.isMatch(query) : regex.test(query),
+    dispose: () => { disposeRegex(regex) },
+  }
+}
+
+/**
+ * Compile a finite config's unique matcher patterns for repeated evaluation.
+ * The returned registry owns native Rust-regex allocations; its caller must
+ * dispose it when the config/plugin lifetime ends.
+ * @param matchers - the complete finite set of patterns in one loaded config.
+ * @param mode - the native regex dialect used for non-literal patterns.
+ * @returns a reusable registry that owns and disposes its compiled regexes.
+ */
+export function compileMatchers(matchers: Iterable<string | undefined>, mode: MatcherMode): CompiledMatchers {
+  const compiled = new Map<string | undefined, CompiledMatcher>()
+  for (const matcher of matchers) {
+    if (!compiled.has(matcher)) compiled.set(matcher, compileMatcher(matcher, mode))
+  }
+  let disposed = false
+  return {
+    matches(matcher, query) {
+      if (disposed) return false
+      return compiled.get(matcher)?.matches(query) ?? false
+    },
+    dispose() {
+      if (disposed) return
+      disposed = true
+      for (const matcher of compiled.values()) matcher.dispose()
+      compiled.clear()
+    },
+  }
 }
 
 /**
@@ -73,17 +130,10 @@ export function matcherDiagnostic(matcher: string | undefined, mode: MatcherMode
  *   regex.
  */
 export function matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean {
-  if (isMatchAll(matcher)) return true
-  // matcher is a non-empty string past the match-all guard.
-  const pattern = matcher as string
-  if (EXACT_MATCHER.test(pattern)) {
-    return pattern.split('|').includes(query)
-  }
-  const regex = compileRegex(pattern, mode)
-  if (regex === undefined) return false
+  const compiled = compileMatcher(matcher, mode)
   try {
-    return regex instanceof RRegex ? regex.isMatch(query) : regex.test(query)
+    return compiled.matches(query)
   } finally {
-    disposeRegex(regex)
+    compiled.dispose()
   }
 }

@@ -21,10 +21,10 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  compileMatchers,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
-  matchesMatcher,
   mergeHookOutputs,
   runHook,
   type HookOutput,
@@ -116,10 +116,21 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
 
+  const matchers = compileMatchers(
+    Object.values(parsed).flatMap(groups => groups.map(group => group.matcher)),
+    'claude',
+  )
+
   // Emit-shaped points run detached, so track their chains; disposal aborts
-  // active hooks and drains continuations before resolving.
+  // active hooks and drains continuations before releasing matchers.
   const detached = createDetachedRuns()
-  ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
+  ctx.effect(() => async () => {
+    try {
+      await detached.drain()
+    } finally {
+      matchers.dispose()
+    }
+  }, 'hooks-claude: drain detached hook runs and dispose matchers')
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -147,7 +158,7 @@ export function apply(ctx: Context, config: Config): void {
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
     for (const group of groups) {
-      if (!matchesMatcher(group.matcher, matchQuery, 'claude')) continue
+      if (!matchers.matches(group.matcher, matchQuery)) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session

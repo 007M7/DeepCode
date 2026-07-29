@@ -25,10 +25,10 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  compileMatchers,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
-  matchesMatcher,
   mergeHookOutputs,
   runHook,
   type HookOutput,
@@ -99,11 +99,26 @@ export function apply(ctx: Context, config: Config): void {
 
   const model = config.model ?? ''
 
+  // Compile each distinct config matcher once. In particular, rebuilding an
+  // rregex WASM value on every hook point permanently raises the module's WASM
+  // memory high-water mark even when each value is freed.
+  const matchers = compileMatchers(
+    Object.values(parsed).flatMap(groups => groups.map(group => group.matcher)),
+    'codex',
+  )
+
   // SessionStart is the one emit-shaped (detached) point Codex has: track its
   // run chains so disposal aborts a still-running hook process and drains the
-  // continuation (docs/defensive-patterns.md: dispose must reach quiescence).
+  // continuation before releasing matchers (docs/defensive-patterns.md:
+  // dispose must reach quiescence).
   const detached = createDetachedRuns()
-  ctx.effect(() => () => detached.drain(), 'hooks-codex: drain detached hook runs')
+  ctx.effect(() => async () => {
+    try {
+      await detached.drain()
+    } finally {
+      matchers.dispose()
+    }
+  }, 'hooks-codex: drain detached hook runs and dispose matchers')
 
   /**
    * Run and fold one configured Codex hook point.
@@ -127,9 +142,11 @@ export function apply(ctx: Context, config: Config): void {
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
+    // Keep each dialect's audit stamping readable beside its payload mapping.
+    /* jscpd:ignore-start */
     for (const group of groups) {
       // The protocol library owns Codex's exact-literal/Rust-regex split.
-      if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
+      if (!matchers.matches(group.matcher, matchQuery)) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
@@ -139,6 +156,7 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
+        /* jscpd:ignore-end */
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
           defaultTimeoutMs,
