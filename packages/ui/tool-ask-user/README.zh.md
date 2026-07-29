@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型侧 `ask_user_question` 工具，基于 `ctx.userInteraction` 实现。当模型需要确认、选择或缺失信息才能继续时，它可以借此向用户提出简明问题。
+模型侧 `ask_user_question` 工具，基于 `ctx.userInteraction` 实现。当模型需要确认、选择结果或缺失的信息才能继续时，它可以借此向用户提出简明问题。
 
 ## 工具
 
@@ -15,7 +15,7 @@
 - `options`：可选选项，包含 `label` 和 `description`。如需推荐某个选项，请将其置于首位，并在该标签末尾追加 `(Recommended)`。
 - `multi_select`：该问题是否可以返回多个选中的选项。
 
-工具调用 `ctx.userInteraction.ask()`，并返回规范的 `{ answers: [{ id, selected, custom? }] }`。`selected` 包含选项标签；仅当用户自由填写回答时才会出现 `custom`，并覆盖选中的选项。Native renderer 会保留紧凑的 JSON 文本形式 `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`。
+工具调用 `ctx.userInteraction.ask()`，并返回规范的 `{ answers: [{ id, selected, custom? }] }`。`selected` 包含选项标签；仅当用户自由填写回答时才会出现 `custom`，并覆盖选中的选项。Native 渲染器会保留紧凑的 JSON 文本形式 `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`。
 
 ## 职责
 
@@ -31,17 +31,17 @@
 
 #### Token 影响
 
-工具可见的每个请求都会产生固定的 schema 开销。
+工具可见时，每个请求都会产生固定的 schema token 开销。
 
 #### KV Cache 影响
 
-只要定义和可见性保持不变，前缀即可稳定复用。插件生命周期变化或作用域限制可能从此 schema 开始使复用失效。
+只要定义和可见性保持不变，前缀即可稳定复用。插件生命周期变化或作用域限制可能会使从此 schema 起的缓存复用失效。
 
 ### 工具调用历史与结果
 
 #### 模型看到的内容
 
-模型提出的完整问题保留在 assistant 工具调用参数中。用户回答后，下一步骤会看到精确采用 `{"answers":[{"id":"<id>","selected":["<label>"],"custom":"<text>"}]}` 形式的紧凑 JSON；不使用 `custom` 时会省略该字段，`selected` 可以包含零个、一个或多个标签。调用等待期间的 UI 交互不属于模型上下文。
+模型提出的完整问题保留在 assistant 工具调用参数中。用户回答后，下一步会看到精确采用 `{"answers":[{"id":"<id>","selected":["<label>"],"custom":"<text>"}]}` 形式的紧凑 JSON；不使用 `custom` 时会省略该字段，`selected` 可以包含零个、一个或多个标签。调用等待期间的 UI 交互不属于模型上下文。
 
 #### Token 影响
 
@@ -51,7 +51,7 @@
 
 仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **待处理问题会阻塞工具调用，直至用户作答**：该工具未声明 `timeout-policy` 预算；取消仅沿用当前轮次的 `exec.signal`。
 - **Native 回答渲染为 JSON 文本**：规范值仍为结构化数据，但模型侧结果使用紧凑 JSON，而非更丰富的内容块词汇。
