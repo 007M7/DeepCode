@@ -1,17 +1,14 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned, with copy /
-// branch / edit IconActions), steering (badged bubble), context injection,
-// retry disclosure and unknown-surface JSON rows. Props are frozen node slices
-// off the snapshot cache; memo holds across streaming because unchanged nodes
-// keep their references.
+// MessageItem: simple chat nodes — user bubble (right-aligned, with
+// clock + copy / branch / edit IconActions), steering (badged bubble), context
+// injection, retry disclosure, and unknown-surface JSON rows.
 
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import type {
   ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  IconBranchOutline16, IconCopyOutline16, IconEditOutline16,
-  JsonBlock, MessageText, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
@@ -93,43 +90,6 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
     </details>
   )
 }
-
-/** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
-async function writeClipboard(text: string): Promise<void> {
-  // lib.dom types clipboard non-optional, but insecure contexts omit it —
-  // that runtime gap is exactly what this guard detects.
-  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Denied permissions / iframe policy.
-    }
-    return
-  }
-  // execCommand('copy') is the only clipboard fallback where the async API
-  // is missing (insecure contexts); deprecated but deliberately retained.
-  /* eslint-disable @typescript-eslint/no-deprecated */
-  const exec = typeof document.execCommand === 'function'
-    ? document.execCommand.bind(document)
-    : undefined
-  if (exec === undefined) return
-  const el = document.createElement('textarea')
-  el.value = text
-  el.setAttribute('readonly', '')
-  el.style.position = 'fixed'
-  el.style.left = '-9999px'
-  document.body.appendChild(el)
-  el.select()
-  try {
-    exec('copy')
-  } catch {
-    // Clipboard unavailable; the button stays idle.
-  }
-  /* eslint-enable @typescript-eslint/no-deprecated */
-  el.remove()
-}
-
 /**
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
@@ -162,32 +122,6 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** User-bubble IconActions (figma 659:38820): copy is live; branch/edit are chrome stubs. */
-function UserActions({ text }: { text: string }) {
-  const onCopy = useCallback(() => {
-    void writeClipboard(text)
-  }, [text])
-  return (
-    <div className={css.actions}>
-      <Tooltip label="复制" side="bottom">
-        <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
-          <IconCopyOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="在新对话中分支" side="bottom">
-        <button type="button" className={css.action} aria-label="在新对话中分支">
-          <IconBranchOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="编辑" side="bottom">
-        <button type="button" className={css.action} aria-label="编辑">
-          <IconEditOutline16 />
-        </button>
-      </Tooltip>
-    </div>
-  )
-}
-
 export const MessageItem = memo(function MessageItem({ node, retryActive = false }: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
@@ -198,7 +132,13 @@ export const MessageItem = memo(function MessageItem({ node, retryActive = false
             {projectUserText(text)}
             {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
           </div>
-          <UserActions text={text} />
+          <MessageIconActions
+            text={text}
+            time={node.time}
+            clock="start"
+            edit
+            className={css.actions}
+          />
         </div>
       )
     }

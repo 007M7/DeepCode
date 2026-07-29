@@ -126,7 +126,9 @@ export async function compactSurfaceRegion(
     }
     const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
     const summarizationInput = buildSummarizationInput(session, shadowedSeqs)
-    const { summary, provider, model, maxTokens } = await dependencies.summarize(summarizationInput, agent, signal)
+    const {
+      summary, rawOutput, provider, model, maxTokens, usage,
+    } = await dependencies.summarize(summarizationInput, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
     if (!isDeepStrictEqual(currentMeasurement.nodes, lockedMeasurement.nodes)) {
@@ -146,12 +148,14 @@ export async function compactSurfaceRegion(
 
     const summaryEvent = session.append('compact/summary', {
       summary,
+      ...rawOutput === undefined ? {} : { rawOutput },
       shadowedRange: { start, end },
       shadowedSeqs,
       shadowedTokenCount,
       provider,
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
+      ...usage === undefined ? {} : { usage },
     })
     session.append('user/message', checkpointMessage, {
       surfaceOp: { op: 'replace', start, end },

@@ -16,11 +16,11 @@ afterEach(cleanup)
 describe('formatElapsedSeconds', () => {
   it('formats known durations and uses an em dash when absent', () => {
     expect(formatElapsedSeconds(null)).toBe('—')
-    expect(formatElapsedSeconds(235)).toBe('+235s')
-    expect(formatElapsedSeconds(235.0)).toBe('+235s')
-    expect(formatElapsedSeconds(235.2)).toBe('+235.2s')
-    expect(formatElapsedSeconds(235.25)).toBe('+235.3s')
-    expect(formatElapsedSeconds(0)).toBe('+0s')
+    expect(formatElapsedSeconds(235)).toBe('235 s')
+    expect(formatElapsedSeconds(235.0)).toBe('235 s')
+    expect(formatElapsedSeconds(235.2)).toBe('235.2 s')
+    expect(formatElapsedSeconds(235.25)).toBe('235.3 s')
+    expect(formatElapsedSeconds(0)).toBe('0 s')
     expect(formatElapsedSeconds(Number.NaN)).toBe('—')
   })
 })
@@ -38,7 +38,7 @@ describe('TrajectoryCell', () => {
     expect(screen.getByText('#6')).toBeTruthy()
     expect(screen.getByText('Tool')).toBeTruthy()
     expect(screen.getByText('bash · Read src/index.ts')).toBeTruthy()
-    expect(screen.getByText('+5s')).toBeTruthy()
+    expect(screen.getByText('5 s')).toBeTruthy()
   })
 
   it('Message rows expose Input / Output / Think metric columns before time', () => {
@@ -57,11 +57,11 @@ describe('TrajectoryCell', () => {
     expect(screen.getByText('136')).toBeTruthy()
     expect(screen.getByText('381')).toBeTruthy()
     expect(screen.getByText('155')).toBeTruthy()
-    expect(screen.getByText('+235.2s')).toBeTruthy()
+    expect(screen.getByText('235.2 s')).toBeTruthy()
     const texts = [...container.querySelectorAll('span')].map(el => el.textContent)
     expect(texts.indexOf('136')).toBeLessThan(texts.indexOf('381'))
     expect(texts.indexOf('381')).toBeLessThan(texts.indexOf('155'))
-    expect(texts.indexOf('155')).toBeLessThan(texts.indexOf('+235.2s'))
+    expect(texts.indexOf('155')).toBeLessThan(texts.indexOf('235.2 s'))
   })
 
   it('selected marks the row for the brand-primary inset ring', () => {

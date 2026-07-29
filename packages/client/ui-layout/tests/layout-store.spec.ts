@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * createLayoutStore unit account: init shape, the action write set (clamp
- * inside actions), and the persist key round-trip over jsdom localStorage.
- * Uses the test-sanctioned path: factory self-call + .create() gives the
+ * inside actions), and the absence of browser persistence. Uses the
+ * test-sanctioned path: factory self-call + .create() gives the
  * real engine instance (same create path as production).
  */
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -17,9 +17,9 @@ const PERSIST_KEY = 'dsh.layout.panels'
 beforeEach(() => { localStorage.clear() })
 
 describe('createLayoutStore', () => {
-  it('initializes with sidebar open at default and details closed', () => {
+  it('initializes both panels at their default widths', () => {
     const { store } = createLayoutStore().create()
-    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0 })
+    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: DETAILS_DEFAULT })
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {
@@ -52,6 +52,7 @@ describe('createLayoutStore', () => {
 
   it('openDetails is a no-op when already open; closeDetails zeroes', () => {
     const { store, actions } = createLayoutStore().create()
+    actions.closeDetails()
     actions.openDetails()
     expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
     actions.setDetails(500)
@@ -61,13 +62,16 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().details).toBe(0)
   })
 
-  it('persists under dsh.layout.panels and rehydrates on the next create', () => {
+  it('does not persist panel geometry', () => {
     const first = createLayoutStore().create()
-    first.actions.setSidebar(320)
-    first.actions.openDetails()
-    expect(JSON.parse(localStorage.getItem(PERSIST_KEY) ?? '{}')).toEqual({ sidebar: 320, details: DETAILS_DEFAULT })
+    first.actions.setSidebar(400)
+    first.actions.closeDetails()
+    expect(localStorage.getItem(PERSIST_KEY)).toBeNull()
 
     const second = createLayoutStore().create()
-    expect(second.store.getSnapshot()).toEqual({ sidebar: 320, details: DETAILS_DEFAULT })
+    expect(second.store.getSnapshot()).toEqual({
+      sidebar: SIDEBAR_DEFAULT,
+      details: DETAILS_DEFAULT,
+    })
   })
 })

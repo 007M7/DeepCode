@@ -13,7 +13,7 @@
 | 事件 | 载荷 | 作用 |
 |---|---|---|
 | `compact/start` | `{ turn }` | 获取日志记录的锁 |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens? }` | provenance：摘要块、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note） |
+| `compact/summary` | `{ summary, rawOutput?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | provenance：安全摘要投影、可选的完整 provider 输出与 usage、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note） |
 | `compact/end` | `{ turn, error? }` | 释放锁（摘要调用抛出异常时设置 `error`） |
 
 锁括住**整个**操作：先追加 `compact/start`，然后执行摘要生成、写入 `compact/summary` 来源记录与 `user/message` 替换，最后才追加 `compact/end`。最后释放锁意味着操作中途崩溃会表现为可检测的遗留锁（有 `compact/start` 而无匹配的 `compact/end`），而非一个虚假声称压缩已完成的 `compact/end`。
@@ -22,7 +22,7 @@
 
 ## `CompactionResult`
 
-成功压缩向调用方返回：记账事件 seq、原始摘要、被遮蔽的范围与 seq，以及估算 token 数。
+成功压缩向调用方返回：记账事件 seq、安全摘要投影、被遮蔽的范围与 seq，以及估算 token 数。
 
 ```ts type-equiv
 /** Result of a successful compaction operation. */

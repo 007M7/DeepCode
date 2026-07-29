@@ -11,8 +11,10 @@
   z-index: 100;
   min-width: 260px;
   max-width: 537px;
+  /* Height cap: the 320px design maximum, clamped at runtime to the space
+   * above the composer (inline max-height set in MenuView.tsx). */
   max-height: 320px;
-  overflow-y: auto;
+  overflow: hidden;
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens
      (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
@@ -24,6 +26,13 @@
   border-radius: 12px;
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
+}
+
+.viewport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .item {
@@ -72,6 +81,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Heading row above a source group: non-interactive small grey text,
+ * padding aligned with items (mirrors ui-primitives Menu .label). */
+.groupTitle {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
 

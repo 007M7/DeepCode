@@ -1,0 +1,3 @@
+- text: 已完成 {{workspace}} echo NAVIGATION_OK
+- button "复制"
+- text: NAVIGATION_OK

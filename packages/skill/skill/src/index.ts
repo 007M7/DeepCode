@@ -15,6 +15,7 @@ import type Schema from 'schemastery'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
+const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
 
@@ -36,16 +37,24 @@ export type SkillResourceBase =
   | { readonly kind: 'url'; readonly url: string }
   | { readonly kind: 'opaque'; readonly description: string }
 
-/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
+/** Invocation controls shared by skill discovery consumers. */
+export interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders include this skill. */
+  readonly modelInvocable: boolean
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  readonly userInvocable: boolean
+}
+
+/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
 export interface SkillSummary {
-  /** Kebab-case identifier used with the `skill` tool. */
+  /** Kebab-case identifier used to address the skill. */
   readonly name: string
-  /** Short routing description shown to the model. */
+  /** Short routing description shown by discovery consumers. */
   readonly description: string
-  /** Optional extra routing guidance shown to the model. */
+  /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
-  readonly disableModelInvocation?: boolean
+  /** Resolved model and user invocation controls. */
+  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -77,7 +86,12 @@ export interface SkillDefinition extends SkillSummary {
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-export type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
+export type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
+  /** Invocation controls; omission permits both model and user surfaces. */
+  readonly invocation?: SkillInvocationPolicy
+  /** Provider label; omission uses the registry-owned runtime provider. */
+  readonly provider?: string
+}
 
 /** Caller context used for cwd-sensitive and abortable provider work. */
 export interface SkillLookupOptions {
@@ -85,6 +99,40 @@ export interface SkillLookupOptions {
   readonly cwd?: string | undefined
   /** Abort discovery or loading work for the current caller. */
   readonly signal?: AbortSignal | undefined
+}
+
+/**
+ * Return whether a skill may be advertised to and loaded by a model.
+ * @param skill - skill metadata carrying resolved invocation controls.
+ * @returns whether the policy permits model invocation.
+ */
+export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
+  return skill.invocation.modelInvocable
+}
+
+/**
+ * Return whether a skill may be advertised to and loaded by a human-facing command.
+ * @param skill - skill metadata carrying resolved invocation controls.
+ * @returns whether the policy permits user invocation.
+ */
+export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
+  return skill.invocation.userInvocable
+}
+
+/** One catalog observation plus whether discovery completed within a stable catalog revision. */
+export interface SkillCatalogSnapshot {
+  /** Sorted invocation-neutral summaries collected in this observation. */
+  readonly skills: SkillSummary[]
+  /** Whether every registered provider completed without a concurrent catalog revision. */
+  readonly complete: boolean
+}
+
+/** Provider candidates plus whether the current discovery is authoritative. */
+export interface SkillProviderObservation {
+  /** Candidates available from the current provider discovery. */
+  readonly candidates: readonly SkillCandidate[]
+  /** Whether discovery completed and these candidates may be cached. */
+  readonly complete: boolean
 }
 
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -97,9 +145,10 @@ export interface SkillProvider {
    * authentication, and discovery are awaited inside this method. Implementations
    * should settle promptly when `options.signal` aborts.
    * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
-   * @returns provider candidates with precedence ranks and opaque locators.
+   * @returns provider candidates as a complete-array shorthand, or an explicit
+   *   observation when usable candidates came from incomplete discovery.
    */
-  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
+  readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[] | SkillProviderObservation>
   /**
    * Load a complete skill body for a previously listed candidate.
    * @param candidate - the winning candidate originally returned by this provider.
@@ -107,6 +156,14 @@ export interface SkillProvider {
    * @returns the full skill body, or `undefined` if it is no longer loadable.
    */
   readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
+}
+
+/** Registration-scoped lifecycle and invalidation capability borrowed by one provider. */
+export interface SkillProviderControl {
+  /** Aborts if registration fails or when the exact provider registration is disposed. */
+  readonly signal: AbortSignal
+  /** Invalidate completed catalogs and notify consumers only while the exact registration remains active. */
+  readonly invalidate: () => void
 }
 
 /** Skill registry configuration. */
@@ -118,6 +175,17 @@ export interface Config {
 declare module 'cordis' {
   interface Context {
     skills: SkillService
+  }
+
+  interface Events {
+    /**
+     * A skill provider, runtime contribution, or provider-backed catalog may
+     * have changed. This is an unfiltered invalidation notification; consumers
+     * refetch the catalog for their own lookup options. Listener failures are
+     * contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'skills/change'(): void
   }
 }
 
@@ -135,7 +203,7 @@ interface CollectResult {
 
 /**
  * Registry of skill providers. It merges provider catalogs with stable
- * first-wins duplicate handling, exposes sorted model-visible summaries, and
+ * first-wins duplicate handling, exposes sorted invocation-neutral summaries, and
  * loads full skill bodies on demand.
  */
 export class SkillService extends Service {
@@ -145,7 +213,7 @@ export class SkillService extends Service {
 
   private readonly collectCacheMaxEntries: number
   private readonly providers = new Map<string, { provider: SkillProvider; order: number }>()
-  private readonly runtime = new Map<string, SkillRegistration>()
+  private readonly runtime = new Map<string, SkillDefinition>()
   private readonly collectCache = new Map<string, IndexedCandidate[]>()
   private providerRevision = 0
   private nextProviderOrder = 0
@@ -161,39 +229,57 @@ export class SkillService extends Service {
    * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
    * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
    * the provider and invalidates catalog caches.
-   * @param provider - the provider to register by `provider.name`.
+   * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
-  registerProvider(provider: SkillProvider): () => void {
-    const name = provider.name
-    if (name === RUNTIME_PROVIDER) {
-      throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
+  registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void {
+    const lifecycle = new AbortController()
+    let active = false
+    let provider: SkillProvider
+    const control: SkillProviderControl = {
+      signal: lifecycle.signal,
+      invalidate: () => {
+        if (active) this.invalidateProvider(provider)
+      },
     }
-    if (this.providers.has(name)) {
-      throw new Error(`a skill provider named "${name}" is already registered`)
-    }
-    const providers = this.providers
-    const order = this.nextProviderOrder
-    const invalidateCache = (): void => { this.invalidateCache() }
-    this.nextProviderOrder += 1
-    const dispose = this.ctx.effect(function* () {
-      providers.set(name, { provider, order })
-      invalidateCache()
-      yield () => {
-        providers.delete(name)
-        invalidateCache()
+    try {
+      provider = create(control)
+      const name = provider.name
+      if (name === RUNTIME_PROVIDER) {
+        throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
       }
-    }, 'skills.registerProvider()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+      if (this.providers.has(name)) {
+        throw new Error(`a skill provider named "${name}" is already registered`)
+      }
+      const providers = this.providers
+      const order = this.nextProviderOrder
+      const invalidateCache = (): void => { this.invalidateCache() }
+      this.nextProviderOrder += 1
+      const dispose = this.ctx.effect(function* () {
+        active = true
+        providers.set(name, { provider, order })
+        invalidateCache()
+        yield () => {
+          active = false
+          providers.delete(name)
+          lifecycle.abort(new Error(`skill provider "${name}" disposed`))
+          invalidateCache()
+        }
+      }, 'skills.registerProvider()')
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; preserve exact disposer identity
+      return dispose
+    } catch (error) {
+      lifecycle.abort(error)
+      throw error
+    }
   }
 
   /**
    * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
    * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
    * receives a no-op disposer so it cannot remove the winner.
-   * @param skill - the complete skill definition to expose for discovery.
+   * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
    * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
@@ -203,15 +289,20 @@ export class SkillService extends Service {
       this.ctx.logger.warn(`runtime skill "${skill.name}" ignored because it is already registered`)
       return () => {}
     }
+    const definition: SkillDefinition = {
+      ...skill,
+      invocation: skill.invocation ?? { modelInvocable: true, userInvocable: true },
+      provider: skill.provider ?? RUNTIME_PROVIDER,
+    }
     const runtime = this.runtime
     const updateRevision = (): void => { this.runtimeRevision += 1 }
     const invalidateCache = (): void => { this.invalidateCache() }
     const dispose = this.ctx.effect(function* () {
-      runtime.set(skill.name, skill)
+      runtime.set(definition.name, definition)
       updateRevision()
       invalidateCache()
       yield () => {
-        runtime.delete(skill.name)
+        runtime.delete(definition.name)
         updateRevision()
         invalidateCache()
       }
@@ -221,18 +312,33 @@ export class SkillService extends Service {
   }
 
   /**
-   * List model-invocable skill summaries for a workspace. Lookup options and
-   * provider candidates are readonly same-process values borrowed throughout
-   * discovery.
+   * List invocation-neutral skill summaries for a workspace. Consumers apply
+   * model or user invocation policy at their operational boundary. Lookup
+   * options and provider candidates are readonly same-process values borrowed
+   * throughout discovery.
    * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
-   * @returns sorted summaries, excluding skills disabled for model invocation.
+   * @returns all sorted winning summaries.
    */
   async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
-    return (await this.collect(options))
-      .map(entry => entry.candidate)
-      .filter(skill => skill.disableModelInvocation !== true)
-      .map(toSummary)
-      .sort(compareSkillSummary)
+    return (await this.snapshot(options)).skills
+  }
+
+  /**
+   * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+   * Incomplete observations are never cached, allowing consumers to retain last-good state and
+   * retry on their next request boundary.
+   * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+   * @returns sorted summaries plus discovery-completeness state.
+   */
+  async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot> {
+    const collected = await this.collect(options)
+    return {
+      skills: collected.entries
+        .map(entry => entry.candidate)
+        .map(toSummary)
+        .sort(compareSkillSummary),
+      complete: collected.cacheable,
+    }
   }
 
   /**
@@ -247,7 +353,7 @@ export class SkillService extends Service {
     if (!isSkillName(name)) return undefined
     const collected = await this.collect(options)
     throwIfAborted(options.signal)
-    const match = collected.find(entry => entry.candidate.name === name)
+    const match = collected.entries.find(entry => entry.candidate.name === name)
     if (match === undefined) return undefined
     const definition = await waitWithAbort(
       match.provider.get(match.candidate, options),
@@ -255,21 +361,32 @@ export class SkillService extends Service {
     )
     if (definition === undefined) return undefined
     validateDefinition(definition)
+    if (definition.name !== match.candidate.name) {
+      this.invalidateProvider(match.provider)
+      return undefined
+    }
     return definition
   }
 
-  private async collect(options: SkillLookupOptions): Promise<IndexedCandidate[]> {
+  private async collect(options: SkillLookupOptions): Promise<CollectResult> {
     throwIfAborted(options.signal)
+    let attempt = 1
     while (true) {
       const providerRevision = this.providerRevision
       const runtimeRevision = this.runtimeRevision
       const key = collectCacheKey(options, providerRevision, runtimeRevision)
       const cached = this.collectCache.get(key)
-      if (cached !== undefined) return cached
+      if (cached !== undefined) return { entries: cached, cacheable: true }
 
       const result = await this.collectFresh(options)
       throwIfAborted(options.signal)
-      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) continue
+      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) {
+        if (attempt < MAX_COLLECT_ATTEMPTS) {
+          attempt += 1
+          continue
+        }
+        return { entries: result.entries, cacheable: false }
+      }
       if (result.cacheable) {
         this.collectCache.set(key, result.entries)
         if (this.collectCache.size > this.collectCacheMaxEntries) {
@@ -277,7 +394,7 @@ export class SkillService extends Service {
           this.collectCache.delete(oldest.value)
         }
       }
-      return result.entries
+      return result
     }
   }
 
@@ -323,11 +440,9 @@ export class SkillService extends Service {
         this.ctx.logger.warn(`skill provider "${provider.name}" skipped: ${errorMessage(error)}`)
       }
       if (output === undefined) continue
-      if (!Array.isArray(output)) {
-        throw new TypeError(`skill provider "${provider.name}" list() must return an array`)
-      }
-      const listed = output as readonly SkillCandidate[]
-      for (const candidate of listed) {
+      const observation = normalizeProviderObservation(output, provider.name)
+      if (!observation.complete) cacheable = false
+      for (const candidate of observation.candidates) {
         validateCandidate(candidate, provider.name)
         candidates.push({ candidate, provider, providerOrder: order, localOrder })
         localOrder += 1
@@ -339,7 +454,45 @@ export class SkillService extends Service {
   private invalidateCache(): void {
     this.providerRevision += 1
     this.collectCache.clear()
+    this.notifyChange()
   }
+
+  private invalidateProvider(provider: SkillProvider): void {
+    /* v8 ignore else -- A definition load can outlive the exact provider registration it selected. */
+    if (this.providers.get(provider.name)?.provider === provider) this.invalidateCache()
+  }
+
+  /** Notify catalog observers without making their refresh work load-bearing. */
+  private notifyChange(): void {
+    for (const callback of this.ctx.events.dispatch('emit', ['skills/change'])) {
+      try {
+        const returned: unknown = callback()
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.ctx.logger.warn(`skills/change listener rejected: ${errorMessage(error)}`)
+        })
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`skills/change listener threw: ${errorMessage(error)}`)
+      }
+    }
+  }
+}
+
+function normalizeProviderObservation(output: unknown, providerName: string): SkillProviderObservation {
+  if (Array.isArray(output)) {
+    return { candidates: output as readonly SkillCandidate[], complete: true }
+  }
+  if (output === null || typeof output !== 'object') {
+    throw invalidProviderObservation(providerName)
+  }
+  const observation = output as Partial<SkillProviderObservation>
+  if (!Array.isArray(observation.candidates) || typeof observation.complete !== 'boolean') {
+    throw invalidProviderObservation(providerName)
+  }
+  return observation as SkillProviderObservation
+}
+
+function invalidProviderObservation(providerName: string): TypeError {
+  return new TypeError(`skill provider "${providerName}" list() must return an array or { candidates, complete } observation`)
 }
 
 const RUNTIME_SKILL_PROVIDER: SkillProvider = {
@@ -349,19 +502,18 @@ const RUNTIME_SKILL_PROVIDER: SkillProvider = {
     return Promise.resolve([])
   },
   get(candidate) {
-    const skill = candidate.locator as SkillRegistration
-    return Promise.resolve({ ...skill, provider: skill.provider ?? RUNTIME_PROVIDER })
+    return Promise.resolve(candidate.locator as SkillDefinition)
   },
 }
 
-function runtimeCandidate(skill: SkillRegistration): SkillCandidate {
+function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
   return {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
-    ...skill.disableModelInvocation !== undefined ? { disableModelInvocation: skill.disableModelInvocation } : {},
+    invocation: skill.invocation,
     source: skill.source,
-    provider: skill.provider ?? RUNTIME_PROVIDER,
+    provider: skill.provider,
     ...skill.resourceBase !== undefined ? { resourceBase: skill.resourceBase } : {},
     rank: RUNTIME_RANK,
     locator: skill,
@@ -383,9 +535,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (candidate.description.length === 0) {
     throw new Error(`skill provider "${providerName}" returned skill "${candidate.name}" without a description`)
   }
-  if (candidate.disableModelInvocation !== undefined && typeof candidate.disableModelInvocation !== 'boolean') {
-    throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-boolean disableModelInvocation`)
-  }
+  validateInvocation(candidate.invocation, `skill provider "${providerName}" returned skill "${candidate.name}"`)
   if (candidate.whenToUse !== undefined && typeof candidate.whenToUse !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned skill "${candidate.name}" with a non-string whenToUse`)
   }
@@ -409,6 +559,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
 function validateRuntimeSkill(skill: SkillRegistration): void {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
+  validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
 }
 
 /** Validate a definition loaded from a provider-controlled parser or remote source. */
@@ -416,7 +567,7 @@ function validateDefinition(skill: SkillDefinition): void {
   const name = skill.name
   const description = skill.description
   const whenToUse = skill.whenToUse
-  const disableModelInvocation = skill.disableModelInvocation
+  const invocation = skill.invocation
   const source = skill.source
   const provider = skill.provider
   const content = skill.content
@@ -425,9 +576,7 @@ function validateDefinition(skill: SkillDefinition): void {
   if (!SKILL_NAME.test(name)) throw new Error(`loaded skill has invalid name "${name}"`)
   if (typeof description !== 'string') throw new TypeError(`loaded skill "${name}" description must be a string`)
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
-  if (disableModelInvocation !== undefined && typeof disableModelInvocation !== 'boolean') {
-    throw new TypeError(`loaded skill "${name}" disableModelInvocation must be a boolean`)
-  }
+  validateInvocation(invocation, `loaded skill "${name}"`)
   if (whenToUse !== undefined && typeof whenToUse !== 'string') throw new TypeError(`loaded skill "${name}" whenToUse must be a string`)
   if (typeof source !== 'string') throw new TypeError(`loaded skill "${name}" source must be a string`)
   if (typeof provider !== 'string') throw new TypeError(`loaded skill "${name}" provider must be a string`)
@@ -436,15 +585,29 @@ function validateDefinition(skill: SkillDefinition): void {
 }
 
 function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
-  const { name, description, whenToUse, disableModelInvocation, source, provider, resourceBase } = skill
+  const { name, description, whenToUse, invocation, source, provider, resourceBase } = skill
   return {
     name,
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
-    ...disableModelInvocation !== undefined ? { disableModelInvocation } : {},
+    invocation,
     source,
     provider,
     ...resourceBase !== undefined ? { resourceBase } : {},
+  }
+}
+
+function validateInvocation(invocation: unknown, subject: string): void {
+  if (invocation === undefined) return
+  if (typeof invocation !== 'object' || invocation === null || Array.isArray(invocation)) {
+    throw new TypeError(`${subject} with a non-object invocation policy`)
+  }
+  const policy = invocation as Record<string, unknown>
+  if (typeof policy.modelInvocable !== 'boolean') {
+    throw new TypeError(`${subject} with a non-boolean invocation.modelInvocable`)
+  }
+  if (typeof policy.userInvocable !== 'boolean') {
+    throw new TypeError(`${subject} with a non-boolean invocation.userInvocable`)
   }
 }
 

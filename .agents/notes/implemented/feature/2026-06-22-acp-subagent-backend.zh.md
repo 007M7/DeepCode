@@ -34,7 +34,7 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ### 安全：清洗子进程环境
 
-子 agent 是独立进程，因此会继承环境变量。形如凭证的环境变量（`/KEY|SECRET|TOKEN/i`）默认不转发——父 harness 自身的密钥不得隐式泄露到派生进程中（与 bash 执行器采用的策略相同）。子 agent 自己的凭证（它需要模型密钥）通过 `config.env` 显式提供，在清洗之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留，而偶然存在的 `AWS_SECRET_ACCESS_KEY` 则不会。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令解析为 `error` 而非以未处理错误崩溃父进程。
+子 agent 是独立进程，因此会继承环境变量。形如凭证的环境变量（`/KEY|PASSWORD|SECRET|TOKEN/i`）默认不转发——父 harness 自身的密钥不得隐式泄露到派生进程中（与 bash 执行器采用的策略相同）。子 agent 自己的凭证（它需要模型密钥）通过 `config.env` 显式提供，在清洗之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留，而偶然存在的 `AWS_SECRET_ACCESS_KEY` 则不会。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令解析为 `error` 而非以未处理错误崩溃父进程。
 
 ## 测试
 
