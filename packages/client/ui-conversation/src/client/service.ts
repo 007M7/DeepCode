@@ -123,7 +123,6 @@ export class ConversationService extends Service implements IConversation {
     mode: 'queue' | 'steer',
     images: readonly File[],
   ): Promise<void> {
-    this.validateImages(images, [])
     const uploaded = await this.serializeImages(images)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
     const result = await session.prompt(content, mode)
@@ -133,14 +132,10 @@ export class ConversationService extends Service implements IConversation {
   /**
    * Create runtime-only draft attachments and their object URLs.
    * @param files - browser-owned image files.
-   * @param current - images already present in the same composer.
    * @returns ordered attachment descriptors whose ids may enter the input state.
    */
-  createDraftImages(
-    files: readonly File[],
-    current: readonly ComposerAttachment[] = [],
-  ): readonly ComposerAttachment[] {
-    this.validateImages(files, current)
+  createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
+    for (const file of files) imageMediaType(file.type)
     return files.map((file) => {
       const attachment = browserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
@@ -274,36 +269,6 @@ export class ConversationService extends Service implements IConversation {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
-  }
-
-  /** Apply host-advertised fast-path checks before any object URL or base64 allocation. */
-  private validateImages(
-    files: readonly File[],
-    current: readonly ComposerAttachment[],
-  ): void {
-    if (files.length === 0 && current.length === 0) return
-    // Model capability is checked only by the host against the session's
-    // current target; the client owns deployment upload limits.
-    const description = this.requireSessions().hostDescription()
-    const limits = description?.imageLimits
-    const all = [...current.map(attachment => attachment.file), ...files]
-    if (limits !== undefined && all.length > limits.maxImagesPerMessage) {
-      throw new Error(`每条消息最多添加 ${limits.maxImagesPerMessage} 张图片`)
-    }
-    let totalBytes = 0
-    for (const file of all) {
-      const mediaType = imageMediaType(file.type)
-      if (limits !== undefined && !limits.mediaTypes.includes(mediaType)) {
-        throw new Error(`当前部署不支持 ${mediaType} 图片`)
-      }
-      if (limits !== undefined && file.size > limits.maxImageBytes) {
-        throw new Error(`图片 ${file.name || '未命名图片'} 超过单张大小限制`)
-      }
-      totalBytes += file.size
-    }
-    if (limits !== undefined && totalBytes > limits.maxMessageImageBytes) {
-      throw new Error('图片总大小超过单条消息限制')
-    }
   }
 
   /** Convert browser files to the prompt wire's canonical base64 image parts. */

@@ -7,12 +7,6 @@ import { RpcId } from '../src/api/rpc.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
 import { AbstractApiClient, InProcessApiClient } from '../src/fetch/client.ts'
 
-declare module '@deepseek-ai/dsh-llm' {
-  interface ModelModalityMap {
-    audio: 'audio'
-  }
-}
-
 /** Minimal in-memory ApiProxy: echoes rpcIds, scripts one frame per stream. */
 function fakeApi(overrides: Partial<{
   muxFrames: MuxFrame[]
@@ -257,26 +251,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
-  })
-
-  it('round-trips a declaration-merged model modality through host.describe', async () => {
-    const c = client(fakeApi({
-      hostDescription: {
-        version: 'v',
-        cwd: '/w',
-        attachedSessions: 0,
-      },
-    }))
-
-    const response = await c.host.describe({})
-    expect(response.result).toEqual({
-      ok: true,
-      value: {
-        version: 'v',
-        cwd: '/w',
-        attachedSessions: 0,
-      },
-    })
   })
 
   it('round-trips the native picker without the default unary timeout', async () => {

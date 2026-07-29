@@ -234,7 +234,7 @@ export function InputBar({
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
     if (files.length > 0) {
-      setDropError(addImages(files, attachments))
+      setDropError(addImages(files))
     }
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
@@ -290,7 +290,7 @@ export function InputBar({
     if (locked || machineBusy) return
     const dropped = [...event.dataTransfer.files]
     if (dropped.length === 0) return
-    setDropError(addImages(dropped, attachments))
+    setDropError(addImages(dropped))
   }
 
   const closePreview = useCallback(() => { setPreview(null) }, [])

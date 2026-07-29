@@ -11,10 +11,10 @@
 ### 公开 API
 
 - `ctx.skills.registerProvider(create): () => void` 调用同步提供方工厂并向其传入 `{ signal, invalidate }`，随后使用唯一 `provider.name` 注册其只读结果。重复提供方名称会抛错，`runtime` 为保留名称；注册失败会中止信号。精确的 Cordis disposer 会注销提供方、中止信号，并保持有序组合拆卸。
-- `ctx.skills.snapshot({ cwd?, signal? })` 返回 `{ skills, complete }`。任一提供方调用被拒绝或显式报告发现不完整，或有界重试期间又发生目录修订时，`complete` 为 false；该次观测提供的候选项仍保留在此结果中，但该结果绝不缓存。
-- `ctx.skills.list({ cwd?, signal? })` 借用只读查找选项，然后返回当前工作区中模型可调用的摘要；这些摘要跨提供方合并，并按名称排序。
-- `ctx.skills.get(name, { cwd?, signal? })` 在发现和加载中使用同一组只读选项和胜出候选项；在发现或缓存命中后重新检查取消，让提供方加载与信号竞速，验证已加载定义，然后将其返回，包括已对模型禁用的 skill。
-- `ctx.skills.register(skill): () => void` 注册只读运行时嵌入式 skill，省略时添加 `provider: "runtime"`。同名运行时注册使用先到先得：重复项会记录警告，并获得无操作 disposer。成功注册会返回精确的 Cordis disposer，以供有序组合拆卸。
+- `ctx.skills.snapshot({ cwd?, signal? })` 返回与调用策略无关的 `{ skills, complete }` 观测。任一提供方调用被拒绝或显式报告发现不完整，或有界重试期间又发生目录修订时，`complete` 为 false；该次观测提供的候选项仍保留在此结果中，但该结果绝不缓存。
+- `ctx.skills.list({ cwd?, signal? })` 借用只读查找选项，然后返回当前工作区中的全部胜出摘要；这些摘要跨提供方合并，并按名称排序。消费方在自身边界调用 `isModelInvocable(skill)` 或 `isUserInvocable(skill)`。
+- `ctx.skills.get(name, { cwd?, signal? })` 在发现和加载中使用同一组只读选项和胜出候选项；在发现或缓存命中后重新检查取消，让提供方加载与信号竞速，验证已加载定义，然后无论调用策略如何都将其返回。
+- `ctx.skills.register(skill): () => void` 注册只读运行时嵌入式 skill，省略时添加允许模型和用户调用的策略以及 `provider: "runtime"`。同名运行时注册使用先到先得：重复项会记录警告，并获得无操作 disposer。成功注册会返回精确的 Cordis disposer，以供有序组合拆卸。
 
 ### 事件
 
@@ -25,6 +25,19 @@
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `collectCacheMaxEntries` | `128` | 内存中保留的最大已完成 cwd/提供方目录数。 |
+
+### 调用策略
+
+`SkillSummary.invocation` 是一个必填的类型化策略对象，其正向布尔字段 `modelInvocable` 和 `userInvocable` 分别描述两个接口。提供方会在每个候选项和定义中返回这一已解析形状；只有 `SkillRegistration` 输入可以省略它，此时 `register()` 会补入 `{ modelInvocable: true, userInvocable: true }`。注册表保留全部四种组合，使一次发现结果可以同时服务面向模型的工具、面向用户的命令和受信内部调用方，而不会混淆各自的目录。
+
+| 策略 | 模型 | 用户 |
+|---|---|---|
+| `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
+| `{ modelInvocable: true, userInvocable: false }` | 包含 | 排除 |
+| `{ modelInvocable: false, userInvocable: true }` | 排除 | 包含 |
+| `{ modelInvocable: false, userInvocable: false }` | 排除 | 排除 |
+
+`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别直接读取对应的正向字段。`ctx.skills.get()` 仍是受信且与策略无关的加载原语，因此每个面向用户或模型的消费方都必须先执行与自身接口匹配的判定，再暴露或加载 skill。
 
 ## 提供方契约
 
@@ -38,7 +51,7 @@
 
 ## 运行时 skill
 
-`ctx.skills.register(...)` 是嵌入式运行时 skill 的便利接口。运行时 skill 使用 rank `250`：项目提供方可覆盖它们，它们则覆盖已发布本地提供方的自定义根目录和用户根目录。运行时定义和嵌套资源元数据均以只读方式借用；服务只物化提供默认 `provider` 所需的顶层定义。运行时贡献内的注册使用先到先得，因此重复贡献无法通过其 disposer 移除当前生效的贡献。
+`ctx.skills.register(...)` 是嵌入式运行时 skill 的便利接口。运行时 skill 使用 rank `250`：项目提供方可覆盖它们，它们则覆盖已发布本地提供方的自定义根目录和用户根目录。运行时定义和嵌套资源元数据均以只读方式借用；服务只物化补入默认调用策略和 `provider` 所需的顶层定义。运行时贡献内的注册使用先到先得，因此重复贡献无法通过其 disposer 移除当前生效的贡献。
 
 ## 消费方边界
 

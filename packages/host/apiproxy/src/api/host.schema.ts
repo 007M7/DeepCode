@@ -6,7 +6,6 @@ import { z } from 'zod'
 import type { DirectoryEntry } from './host.ts'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import { imageMediaTypeSchema } from './sessions.schema.ts'
 
 /** host.describe request payload (empty object literal). */
 export const hostDescribeRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'host.describe'>>>
@@ -17,13 +16,6 @@ export const hostDescribeValueSchema = z.object({
   cwd: z.string(),
   provider: z.string().optional(),
   model: z.string().optional(),
-  imageLimits: z.object({
-    maxImageBytes: z.number().int().positive(),
-    maxImagesPerMessage: z.number().int().positive(),
-    maxMessageImageBytes: z.number().int().positive(),
-    maxImagePixels: z.number().int().positive(),
-    mediaTypes: z.array(imageMediaTypeSchema),
-  }).optional(),
   attachedSessions: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 

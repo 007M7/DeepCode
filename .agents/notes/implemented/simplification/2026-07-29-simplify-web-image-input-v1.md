@@ -10,9 +10,9 @@ The first durable Web image-input slice introduced required ordered multi-image 
 
 ## Decision
 
-Version one accepts ordered image batches bounded by configurable per-message count and aggregate-byte limits plus per-image byte and pixel limits. The client gives immediate feedback, while the host authoritatively decodes the complete batch, checks its bounds, validates every image without storage writes, and only then saves every image while preserving submitted order in the resulting durable blocks. Request buffering derives from the aggregate image-byte limit. This preserves validation atomicity without adding a batch transaction or rollback protocol.
+Version one accepts ordered image batches bounded by configurable per-message count and aggregate-byte limits plus per-image byte and pixel limits. The browser rejects unsupported declared formats before preview allocation, while the host authoritatively decodes the complete batch, checks current deployment bounds, validates every image without storage writes, and only then saves every image while preserving submitted order in the resulting durable blocks. Request buffering derives directly from the attachment service's aggregate image-byte limit. This preserves validation atomicity without adding a batch transaction, rollback protocol, or policy snapshot in `host.describe`.
 
-The CLI only patches the selected provider and model. The boot composition must already register the route, as it does for the shipped DeepSeek, OpenAI, and Anthropic routes; the CLI does not inspect the yml provider roster or dynamically mount an adapter.
+Provider/model selection remains configuration and profile state. The boot composition registers the shipped DeepSeek, OpenAI, and Anthropic routes; the CLI does not add image-specific selection flags, inspect the yml provider roster, or dynamically mount an adapter.
 
 Exact-model metadata carries only the input modalities that current admission decisions consume. `ImageBlock` carries the durable attachment reference; its optional display name supplies accessible UI text, so the core block has no separate alternative-text field. Provider-neutral token estimation does not apply one provider's visual pricing formula to other routes.
 
@@ -28,10 +28,10 @@ The attachment seam exposes its limits plus storage-free `validateImage`, `saveI
 
 **Estimate every image with one tile formula.** Visual pricing varies by provider, model, detail mode, and preprocessing. A hard-coded provider-neutral estimate would look authoritative while being wrong; provider usage is the authoritative accounting source.
 
-**Mount any CLI-selected provider dynamically.** Configuration already owns plugin composition and credentials. Making selection also mutate composition duplicates that responsibility and requires parsing the config tree outside the loader.
+**Add CLI provider/model selection or dynamic mounting.** Configuration already owns route selection, plugin composition, and credentials. Duplicating those choices in image-input flags would require parsing or mutating the config tree outside the loader.
 
 ## Consequences
 
-The feature retains the two batch limits and one storage-free validation method required by multi-image prompts, while removing unrelated public fields, lifecycle operations, and route-assembly branches. A provider absent from the composition cannot be selected solely with CLI flags. Pre-request token pressure may undercount visual input until a provider-aware estimator is designed, while reported usage remains exact.
+The feature retains the two batch limits and one storage-free validation method required by multi-image prompts, while removing unrelated public fields, lifecycle operations, policy snapshots, and route-assembly branches. Provider/model selection remains composition or profile configuration. Pre-request token pressure may undercount visual input until a provider-aware estimator is designed, while reported usage remains exact.
 
 Reintroducing any removed surface requires a concrete consumer and its failure, lifecycle, replay, and testing contract rather than compatibility with this pre-release shape.

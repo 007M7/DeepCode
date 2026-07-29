@@ -242,7 +242,7 @@ describe('sessions domain schemas', () => {
 })
 
 describe('host domain schemas', () => {
-  it('validates describe request/value and preserves merge-extensible modalities', () => {
+  it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
     const value = hostDescribeValueSchema.parse({
       version: '1',

@@ -49,7 +49,7 @@ interface BenchOptions {
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
-  addImages?: (files: readonly File[], current: readonly ComposerAttachment[]) => string | null
+  addImages?: (files: readonly File[]) => string | null
 }
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
@@ -464,7 +464,7 @@ describe('image draft rail', () => {
         getData: () => '同时粘贴的文字',
       },
     })
-    expect(addImages).toHaveBeenCalledWith([image], [])
+    expect(addImages).toHaveBeenCalledWith([image])
     expect(shell.snapshot.draft).toBe('同时粘贴的文字')
 
     const video = new File([Uint8Array.of(1)], 'clip.mp4', { type: 'video/mp4' })
@@ -494,7 +494,7 @@ describe('image draft rail', () => {
     expect(dataTransfer.dropEffect).toBe('copy')
     expect(fireEvent.drop(card, { dataTransfer })).toBe(false)
     expect(view.queryByRole('status')).toBeNull()
-    expect(addImages).toHaveBeenCalledWith([image], [])
+    expect(addImages).toHaveBeenCalledWith([image])
   })
 
   it('ignores unsupported dropped files and refuses drops while locked', () => {
@@ -507,7 +507,7 @@ describe('image draft rail', () => {
       dataTransfer: { types: ['Files'], files: [documentFile], dropEffect: 'none' },
     })
     expect(view.getByText(/不支持的图片格式/)).toBeTruthy()
-    expect(addImages).toHaveBeenCalledWith([documentFile], [])
+    expect(addImages).toHaveBeenCalledWith([documentFile])
 
     const image = new File([Uint8Array.of(1)], 'locked.png', { type: 'image/png' })
     const locked = bench({ disabled: true, addImages })

@@ -115,10 +115,6 @@ export interface AppCLIEntryOptions {
   port?: number
   /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
   workspaceRoot?: string
-  /** Host default provider override; the shipped tree must register the route. */
-  provider?: string
-  /** Host default model override. */
-  model?: string
   /** Extra authorities for the /api browser-trust fence (`host` or `host:port`), appended to the derived LAN IP literals. */
   trustedHosts?: string[]
 }
@@ -201,8 +197,6 @@ export class AppCLIEntry {
     if (this.options.host !== undefined) put('webserver', 'host', this.options.host)
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
     if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
-    if (this.options.provider !== undefined) put('api-gateway', 'provider', this.options.provider)
-    if (this.options.model !== undefined) put('api-gateway', 'model', this.options.model)
 
     // Source 2b: authorities for the /api browser-trust fence (rationale on
     // resolveLanTrust).

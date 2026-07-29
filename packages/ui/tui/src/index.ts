@@ -1043,11 +1043,10 @@ export function createTuiChat(
     requestRender()
   }
 
-  // Skill listing is async while `createTuiChat` is synchronous, so the
-  // TUI retains the last complete catalog for synchronous editor completion
-  // and refreshes it after registry invalidation. Disabled-for-model skills are
-  // absent from snapshots, so they never appear as completions; a user can
-  // still invoke one by typing its exact name.
+  // Skill listing is async while `createTuiChat` is synchronous, so the TUI
+  // retains the last complete invocation-neutral catalog for synchronous
+  // editor completion, filters it for user invocation, and refreshes it after
+  // registry invalidation.
   let skillCommands: SlashCommand[] = []
   let skillCommandScan = 0
   const refreshCommandAutocomplete = (): void => {
@@ -1088,12 +1087,13 @@ export function createTuiChat(
     service.snapshot({ cwd, signal: skillAbort.signal }).then(
       (snapshot) => {
         if (disposed || scan !== skillCommandScan || !snapshot.complete) return
+        const invocable = snapshot.skills.filter(skill => skill.invocation.userInvocable)
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
         // instructions placeholder. `SkillSource` is open-ended; every
         // non-project source (user, custom, bundled, runtime, …) collapses
         // to `(user)`.
-        skillCommands = snapshot.skills.map(skill => ({
+        skillCommands = invocable.map(skill => ({
           name: `skill:${skill.name}`,
           description: skill.description,
           argumentHint: skill.source.startsWith('project-') ? '(project)' : '(user)',
@@ -1278,19 +1278,40 @@ export function createTuiChat(
       appendNotice('Skills are not available in this session.', 'warning')
       return
     }
-    skills.get(name, { cwd, signal: skillAbort.signal }).then(
-      (skill) => {
+    const lookup = { cwd, signal: skillAbort.signal }
+    const reportFailure = (error: unknown): void => {
+      if (disposed) return
+      appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+    }
+    skills.list(lookup).then(
+      (summaries) => {
         if (disposed) return
-        if (skill === undefined) {
+        const summary = summaries.find(skill => skill.name === name)
+        if (summary === undefined) {
           appendNotice(`Unknown skill: ${name}`, 'warning')
           return
         }
-        deliver(renderSkillInvocation(skill, instructions))
+        if (!summary.invocation.userInvocable) {
+          appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+          return
+        }
+        skills.get(name, lookup).then(
+          (skill) => {
+            if (disposed) return
+            if (skill === undefined) {
+              appendNotice(`Unknown skill: ${name}`, 'warning')
+              return
+            }
+            if (!skill.invocation.userInvocable) {
+              appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+              return
+            }
+            deliver(renderSkillInvocation(skill, instructions))
+          },
+          reportFailure,
+        )
       },
-      (error: unknown) => {
-        if (disposed) return
-        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
-      },
+      reportFailure,
     )
   }
 

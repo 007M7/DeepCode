@@ -49,47 +49,6 @@ describe('ConversationService', () => {
     await b.runtime.dispose()
   })
 
-  it('accepts ordered batches and preflights their advertised count and aggregate limits', async () => {
-    const b = await bench()
-    const described = vi.spyOn(b.runtime.sessions, 'hostDescription').mockReturnValue({
-      version: 'test',
-      cwd: '/tmp',
-      imageLimits: {
-        maxImageBytes: 3,
-        maxImagesPerMessage: 2,
-        maxMessageImageBytes: 3,
-        maxImagePixels: 4,
-        mediaTypes: ['image/png'],
-      },
-      attachedSessions: 1,
-    })
-    const created = vi.spyOn(URL, 'createObjectURL')
-      .mockReturnValueOnce('blob:first')
-      .mockReturnValueOnce('blob:second')
-    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
-    try {
-      const attachments = b.root.createDraftImages([
-        new File([Uint8Array.of(1)], 'first.png', { type: 'image/png' }),
-        new File([Uint8Array.of(2)], 'second.png', { type: 'image/png' }),
-      ])
-      expect(attachments.map(attachment => attachment.file.name)).toEqual(['first.png', 'second.png'])
-      expect(() => b.root.createDraftImages([
-        new File([Uint8Array.of(3)], 'third.png', { type: 'image/png' }),
-      ], attachments)).toThrow('每条消息最多添加 2 张图片')
-      const first = attachments[0]
-      if (first === undefined) throw new Error('first draft attachment missing')
-      expect(() => b.root.createDraftImages([
-        new File([Uint8Array.of(3, 4, 5)], 'large.png', { type: 'image/png' }),
-      ], [first])).toThrow('图片总大小超过单条消息限制')
-      expect(created).toHaveBeenCalledTimes(2)
-    } finally {
-      await b.runtime.dispose()
-      described.mockRestore()
-      created.mockRestore()
-      revoked.mockRestore()
-    }
-  })
-
   it('releases draft images when the session scope is disposed', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-1')
@@ -106,6 +65,31 @@ describe('ConversationService', () => {
     } finally {
       created.mockRestore()
       revoked.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('checks media type before preview allocation and leaves deployment limits to the host', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockImplementation(file => `blob:${(file as File).name}`)
+    try {
+      const files = Array.from(
+        { length: 11 },
+        (_, index) => new File([Uint8Array.of(index)], `${index}.png`, { type: 'image/png' }),
+      )
+      expect(b.root.createDraftImages(files)).toHaveLength(11)
+      expect(created).toHaveBeenCalledTimes(11)
+
+      const beforeRejectedBatch = created.mock.calls.length
+      expect(() => {
+        b.root.createDraftImages([
+          new File([Uint8Array.of(1)], 'valid.png', { type: 'image/png' }),
+          new File([Uint8Array.of(2)], 'invalid.svg', { type: 'image/svg+xml' }),
+        ])
+      }).toThrow('不支持的图片格式：image/svg+xml')
+      expect(created).toHaveBeenCalledTimes(beforeRejectedBatch)
+    } finally {
+      created.mockRestore()
     }
     await b.runtime.dispose()
   })

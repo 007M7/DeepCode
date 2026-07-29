@@ -22,8 +22,6 @@ const LOOPBACK_HOST = '127.0.0.1'
  * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
  * @param dev - mount the client HMR driver and watch plugin bundles for rebuilds.
  * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
- * @param provider - provider override, or `undefined` to keep the profile/config route.
- * @param model - model override, or `undefined` to keep the profile/config route.
  * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
  */
 export async function runWeb(
@@ -31,8 +29,6 @@ export async function runWeb(
   port: number | undefined,
   dev: boolean,
   workspaceRoot: string | undefined,
-  provider: string | undefined,
-  model: string | undefined,
   trustedHosts: string[] | undefined,
 ): Promise<void> {
   const entry = new AppCLIEntry({
@@ -41,8 +37,6 @@ export async function runWeb(
     ...host !== undefined && { host },
     ...port !== undefined && { port },
     ...workspaceRoot !== undefined && { workspaceRoot },
-    ...provider !== undefined && { provider },
-    ...model !== undefined && { model },
     ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()

@@ -1425,10 +1425,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           cwd: defaults.cwd,
           provider: defaults.provider,
           model: defaults.model,
-          imageLimits: {
-            ...ctx.attachments.imageLimits,
-            mediaTypes: [...ctx.attachments.imageLimits.mediaTypes],
-          },
           attachedSessions: ctx.agents.list().length,
         }))
       },
@@ -1642,7 +1638,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = await skillRegistry.list({ cwd })
+          const skills = (await skillRegistry.list({ cwd }))
+            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,

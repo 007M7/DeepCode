@@ -196,9 +196,9 @@ export function apply(ctx: Context): void {
       const shell = inputHub.shell(sessionId)
       return {
         keyboard: shell,
-        addImages: (files, current) => {
+        addImages: (files) => {
           try {
-            const images = conversation.createDraftImages(files, current)
+            const images = conversation.createDraftImages(files)
             shell.addImages(images.map(image => image.id))
             return null
           } catch (error: unknown) {

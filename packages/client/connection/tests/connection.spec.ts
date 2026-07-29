@@ -23,11 +23,9 @@ describe('connection lifecycle', () => {
   it('announces connected after describe + both streams open, then pumps frames to sinks', async () => {
     const api = new FakeApiClient()
     const muxSeen: string[] = []
-    const descriptions: string[] = []
     let connected = 0
     const controller = new ConnectionController(api, {
       onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
-      onDescription: description => descriptions.push(description.version),
       onConnected: () => { connected++ },
     }, FAST)
     controller.start()
@@ -36,7 +34,6 @@ describe('connection lifecycle', () => {
       api.pushMux(subscribedFrame())
       await vi.waitFor(() => { expect(muxSeen).toEqual(['session/subscribed']) })
       expect(api.callsOf('host.describe')).toHaveLength(1)
-      expect(descriptions).toEqual(['0-fake'])
     } finally {
       controller.stop()
     }
