@@ -474,12 +474,15 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     if (target.write(data)) return
     await new Promise<void>((resolve, reject) => {
       const onDrain = (): void => { cleanup(); resolve() }
+      const onClose = (): void => { cleanup(); resolve() }
       const onError = (error: Error): void => { cleanup(); reject(error) }
       const cleanup = (): void => {
         target.removeListener('drain', onDrain)
+        target.removeListener('close', onClose)
         target.removeListener('error', onError)
       }
       target.once('drain', onDrain)
+      target.once('close', onClose)
       target.once('error', onError)
     })
   }
@@ -671,14 +674,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async groupAlive(sandbox: Sandbox, pid: number, signal?: AbortSignal): Promise<boolean> {
-    try {
-      await sandbox.commands.run(`kill -0 -- -${pid}`, signalOpts(signal))
-      return true
-    } catch (error: unknown) {
-      if (signal?.aborted === true) return false
-      if (error instanceof CommandExitError) return false
+    const result = await sandbox.commands.run(
+      `set -o pipefail; ps -eo pgid=,stat= | awk '$1 == ${pid} && $2 !~ /^[ZXx]/ { live=1 } END { if (live) print "live" }'`,
+      signalOpts(signal),
+    ).catch((error: unknown) => {
+      if (signal?.aborted === true) return undefined
       throw error
-    }
+    })
+    return result?.stdout.trim() === 'live'
   }
 
   private async finalizeSpills(sandbox: Sandbox): Promise<void> {

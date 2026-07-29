@@ -120,6 +120,7 @@ export class E2BSandboxService extends Service {
 
   private readonly config: ResolvedConfig
   private readonly ready: Promise<Sandbox>
+  private failedSetupSandbox: Sandbox | undefined
   private disposed = false
 
   constructor(ctx: Context, config: Config) {
@@ -155,8 +156,16 @@ export class E2BSandboxService extends Service {
       try {
         sandbox = await this.ready
       } catch {
-        // Connection creation already failed and is exposed by getSandbox();
-        // there is no remote resource for teardown to own.
+        const failedSetupSandbox = this.failedSetupSandbox
+        if (failedSetupSandbox === undefined) return
+        sandbox = failedSetupSandbox
+        try {
+          await sandbox.kill()
+          this.failedSetupSandbox = undefined
+        } catch (error: unknown) {
+          if (!(error instanceof SandboxNotFoundError)) throw error
+          this.failedSetupSandbox = undefined
+        }
         return
       }
       try {
@@ -243,7 +252,9 @@ export class E2BSandboxService extends Service {
         try {
           await sandbox.kill()
         } catch (_cleanupFailure) {
-          // The setup failure remains authoritative; E2B will still apply the configured lifetime.
+          // Preserve the setup failure as the public error while retaining the
+          // created handle for the service disposer to retry this rollback.
+          this.failedSetupSandbox = sandbox
         }
       }
       throw error

@@ -170,7 +170,7 @@ async function waitUntilReady(
 
 async function sessionProcessGroups(sandbox: Sandbox, sessionId: number): Promise<number[]> {
   const result = await sandbox.commands.run(
-    `ps -eo sid=,pgid= | awk '$1 == ${sessionId} { print $2 }'`,
+    `set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == ${sessionId} && $3 !~ /^[ZXx]/ { print $2 }'`,
   )
   const groups = new Set<number>()
   for (const raw of result.stdout.trim().split(/\s+/)) {

@@ -95,6 +95,7 @@ class FakeTerminalSandbox {
   sessionId = '123\n'
   foreground = '456\n'
   groups = [123]
+  zombieGroups: number[] = []
   createError: unknown
   writeError: unknown
   sendError: unknown
@@ -160,9 +161,12 @@ class FakeTerminalSandbox {
           if (this.foregroundFailure !== undefined) throw this.foregroundFailure
           return { exitCode: 0, stdout: this.foreground, stderr: '' }
         }
-        if (command.startsWith('ps -eo sid=')) {
+        if (command.startsWith('set -o pipefail; ps -eo sid=')) {
           if (this.sessionGroupsFailure !== undefined) throw this.sessionGroupsFailure
-          return { exitCode: 0, stdout: this.groups.map(group => `${group}\n`).join(''), stderr: '' }
+          const groups = command.includes('stat=') && command.includes('$3 !~ /^[ZXx]/')
+            ? this.groups
+            : [...this.groups, ...this.zombieGroups]
+          return { exitCode: 0, stdout: groups.map(group => `${group}\n`).join(''), stderr: '' }
         }
         if (command.startsWith('kill -TERM -- ')) {
           if (this.termFailure !== undefined) throw this.termFailure
@@ -506,6 +510,20 @@ describe('E2B terminal lifecycle', () => {
     fake.handle.crash(new Error('transport failed'))
     await expect(terminal.done).rejects.toThrow('transport failed')
     await expect(quiescence).resolves.toBe(true)
+  })
+
+  it('treats a terminal session containing only zombies as quiescent', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.groups = []
+    fake.zombieGroups = [123]
+    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/zombie-session')
+
+    fake.handle.succeed(0)
+    await expect(terminal.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(terminal.waitForExit()).resolves.toBe(true)
+    expect(fake.commands).toContain(
+      "set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == 123 && $3 !~ /^[ZXx]/ { print $2 }'",
+    )
   })
 
   it('rejects killing the terminal shell and propagates live foreground failures', async () => {

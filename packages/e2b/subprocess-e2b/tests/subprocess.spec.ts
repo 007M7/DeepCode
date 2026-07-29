@@ -107,6 +107,7 @@ class FakeSandbox {
   delaysKillCompletion = false
   sdkKillStops = true
   alive = true
+  zombieOnly = false
   ambient = 'PATH=/ambient/bin\0KEEP=safe\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   processGroupId = '4242\n'
   exitStatus = ''
@@ -235,7 +236,7 @@ class FakeSandbox {
           if (this.envError !== undefined) throw this.envError
           return { exitCode: 0, stdout: this.ambient, stderr: '' }
         }
-        if (command.startsWith('kill -0 ')) {
+        if (command.startsWith('set -o pipefail; ps -eo pgid=,stat=')) {
           this.beforeProbe?.()
           if (options?.signal?.aborted === true) throw new DOMException('aborted', 'AbortError')
           if (this.probeError !== undefined) {
@@ -243,9 +244,9 @@ class FakeSandbox {
             this.probeError = undefined
             throw error
           }
-          if (!this.alive) throw commandError(1)
+          const stdout = this.alive && !this.zombieOnly ? 'live\n' : ''
           this.afterProbe?.()
-          return { exitCode: 0, stdout: '', stderr: '' }
+          return { exitCode: 0, stdout, stderr: '' }
         }
         if (command.startsWith('kill -TERM ')) {
           await this.signalGate
@@ -699,6 +700,20 @@ describe('E2BSubprocessHandle', () => {
     await flush()
     expect(fake.alive).toBe(true)
     expect(fake.commandsSeen.filter(command => command.startsWith('kill -'))).toHaveLength(signals)
+  })
+
+  it('treats a zombie-only process group as quiescent', async () => {
+    const fake = new FakeSandbox()
+    fake.zombieOnly = true
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/zombie-quiescence')
+    await flush()
+
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(fake.commandsSeen).toContain(
+      'set -o pipefail; ps -eo pgid=,stat= | awk \'$1 == 4242 && $2 !~ /^[ZXx]/ { live=1 } END { if (live) print "live" }\'',
+    )
+    fake.finish()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })
 
   it('keeps proven quiescence after a concurrent termination transport fails', async () => {
@@ -1182,6 +1197,23 @@ describe('E2BSubprocessHandle', () => {
     queueMicrotask(() => { handle.stderr!.emit('error', new Error('sink failed')) })
     await stderrPending
     stderrWrite.mockRestore()
+
+    fake.finish()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+  })
+
+  it('settles output backpressure when the consumer closes the pipe', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 4 } },
+    }), '/runtime/backpressure-close')
+    await flush()
+
+    const stdoutWrite = vi.spyOn(handle.stdout!, 'write').mockReturnValueOnce(false)
+    const pending = fake.stdout('discarded')
+    queueMicrotask(() => { handle.stdout!.destroy() })
+    await pending
+    stdoutWrite.mockRestore()
 
     fake.finish()
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
