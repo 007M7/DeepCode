@@ -3,17 +3,17 @@
  * between the independently implemented skeleton and chat domains; `apply.ts`
  * owns their slot assembly.
  */
-import type { ConversationService } from './service.ts'
-
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
+export type { IConversation } from './service.ts'
 
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,
 } from './contract/views.ts'
 export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type {
-  ChatStore, ChatViewInjected, ChatViewSlotProps, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
+  ComposerChainProps, ConversationInjected,
   ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
   EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
 } from './contract/slots.ts'
@@ -21,6 +21,7 @@ export type {
 
 declare module 'cordis' {
   interface Context {
-    conversation: ConversationService
+    /** The outward face only; the concrete service stays inside this plugin. */
+    conversation: import('./service.ts').IConversation
   }
 }

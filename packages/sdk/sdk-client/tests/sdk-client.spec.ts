@@ -85,7 +85,8 @@ describe('DeepSeekHarness', () => {
     // TurnResult.events is the root session's typed stream; descendants retain
     // their session ids in the raw notification stream above.
     expect(result.events.every(event => event.type !== 'assistant/message'
-      || (event.data as { content: { type: string; text?: string }[] }).content[0]?.text !== 'child says hi')).toBe(true)
+      || event.data.message.content[0]?.type !== 'text'
+      || event.data.message.content[0].text !== 'child says hi')).toBe(true)
     await harness.close()
   })
 
@@ -105,7 +106,7 @@ describe('DeepSeekHarness', () => {
     await harness.close()
   })
 
-  it('sends the configured cwd/provider/model in the handshake exactly once', async () => {
+  it('sends the configured cwd/provider/model/maxTokens in the handshake exactly once', async () => {
     const dir = await tempDir('sdk-client-init-')
     const recordFile = join(dir, 'init.jsonl')
     const harness = new DeepSeekHarness({
@@ -113,13 +114,19 @@ describe('DeepSeekHarness', () => {
       cwd: dir,
       provider: 'custom-provider',
       model: 'custom-model',
+      maxTokens: 4096,
     })
     cleanups.push(() => harness.close())
     await harness.run('one')
     await harness.run('two')
     await harness.close()
     const records = (await readFile(recordFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as object)
-    expect(records).toEqual([{ cwd: dir, provider: 'custom-provider', model: 'custom-model' }])
+    expect(records).toEqual([{
+      cwd: dir,
+      provider: 'custom-provider',
+      model: 'custom-model',
+      maxTokens: 4096,
+    }])
   })
 
   it('resolves a relative launch cwd to an absolute workspace before the handshake', async () => {
@@ -471,8 +478,8 @@ describe('pure helpers', () => {
     expect(finalResponse([])).toBe('')
     expect(finalResponse([{ type: 'turn/start', seq: 0, time: 0, data: { turn: 0 } } as never])).toBe('')
     expect(finalResponse([
-      { type: 'assistant/message', seq: 0, time: 0, data: { content: [{ type: 'text', text: 'first' }] } } as never,
-      { type: 'assistant/message', seq: 1, time: 0, data: { content: [{ type: 'text', text: 'a' }, { type: 'tool-call' }, { type: 'text', text: 'b' }] } } as never,
+      { type: 'assistant/message', seq: 0, time: 0, data: { message: { content: [{ type: 'text', text: 'first' }] } } } as never,
+      { type: 'assistant/message', seq: 1, time: 0, data: { message: { content: [{ type: 'text', text: 'a' }, { type: 'tool-call' }, { type: 'text', text: 'b' }] } } } as never,
     ])).toBe('ab')
   })
 })

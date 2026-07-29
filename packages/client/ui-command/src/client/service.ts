@@ -9,10 +9,10 @@
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
-  SlashServiceContract, SubmitOutcome,
+  SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandContribution, CommandServiceContract } from './contract.ts'
 import type { CommandDescriptor } from './directory.ts'
@@ -46,7 +46,7 @@ export class CommandService extends Service implements CommandServiceContract {
       if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
       return result.value.commands
     })
-    const slash = ctx.get('slash') as SlashServiceContract | undefined
+    const slash = ctx.get('slash')
     if (slash === undefined) throw new Error('ui-command: slash service unavailable')
     ctx.effect(() => slash.registerSource({
       trigger: '/',
@@ -227,7 +227,15 @@ export class CommandService extends Service implements CommandServiceContract {
     }
   }
 
-  /** The command.execute transaction, addressed to the session's agent. */
+  /**
+   * The command.execute transaction, addressed to the session's agent — pure
+   * admission semantics. An unmatched line reports an error outcome (the
+   * composer's immediate admission feedback); an admitted command reports
+   * plain success regardless of its handler outcome, because the host
+   * executor durably logged the lifecycle (`command/run`/`command/done`) and
+   * the outcome renders as a persistent flow node — the composer never
+   * echoes it. Transport failures throw.
+   */
   private async execute(
     session: ClientSessionContext,
     line: string,
@@ -236,25 +244,25 @@ export class CommandService extends Service implements CommandServiceContract {
     const { result } = await connection.api.commands.execute({ sessionId: session.sessionId, line })
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (!result.value.matched) return { kind: 'error', text: `unknown or malformed command: ${line}` }
-    const detached = result.value.result
-    return detached === undefined
-      ? { kind: 'success' }
-      : { kind: detached.kind, ...(detached.text !== undefined ? { text: detached.text } : {}) }
+    return { kind: 'success' }
   }
 
   /**
-   * Fire-and-forget execute for the internal ('handled') paths. The detached
-   * result surfaces as a notice routed to the triggering session's composer,
-   * so a late result lands on its own session after a switch.
+   * Fire-and-forget execute for the internal ('handled') paths. Outcomes are
+   * NOT surfaced here: the host executor durably logs the command lifecycle
+   * (`command/run`/`command/done`), and the mux-broadcast events render as a
+   * persistent flow node on every tab. Only a transport/admission failure —
+   * which never entered a handler and therefore never logged — falls back to
+   * the composer notice as immediate feedback.
    */
   private runDetached(desc: CommandDescriptor, session: ClientSessionContext, line: string): void {
     void this.execute(session, line).then(
       (outcome) => {
-        if (outcome.kind === 'error') this.noticeFor(session.sessionId, desc.name, 'error', outcome.text ?? `/${desc.name} failed`)
-        else if (outcome.text !== undefined) this.noticeFor(session.sessionId, desc.name, 'info', outcome.text)
+        // matched:false maps to an error outcome with no logged lifecycle.
+        if (outcome.kind === 'error') this.noticeFor(session.sessionId, 'error', outcome.text ?? `/${desc.name} failed`)
       },
       (error: unknown) => {
-        this.noticeFor(session.sessionId, desc.name, 'error', error instanceof Error ? error.message : String(error))
+        this.noticeFor(session.sessionId, 'error', error instanceof Error ? error.message : String(error))
       },
     )
   }
@@ -270,8 +278,8 @@ export class CommandService extends Service implements CommandServiceContract {
     })
   }
 
-  /** Route a detached result to the session's composer notice channel (scope gone = attempt died with it). */
-  private noticeFor(id: SessionId, _name: string, level: 'info' | 'error', text: string): void {
+  /** Route an admission/transport failure to the session's composer notice channel (scope gone = attempt died with it). */
+  private noticeFor(id: SessionId, level: 'info' | 'error', text: string): void {
     const actx = this.scopeFor(id)
     if (actx === undefined) return
     const conversation = actx.get('conversation')
@@ -284,7 +292,7 @@ export class CommandService extends Service implements CommandServiceContract {
     return this.sessions().scope(id)
   }
 
-  private sessions(): SessionsService {
+  private sessions(): ISessions {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('ui-command: sessions service unavailable')
     return sessions

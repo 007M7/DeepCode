@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,7 +42,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
       sessionId: SESSION_ID,
       agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
     })).agent
-    first.followup({ content: [{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }], source: { kind: 'user' } })
+    first.followup(createUserMessage({ content: [{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }], source: { kind: 'user' } }))
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()
     ctx = undefined
@@ -58,7 +59,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // The prior user turn is in the rehydrated log before the model is asked.
     expect(JSON.stringify(resumed.session.deriveMessages())).toContain(SECRET)
 
-    resumed.followup({ content: [{ type: 'text', text: 'What was the code I asked you to remember? Reply with just the code.' }], source: { kind: 'user' } })
+    resumed.followup(createUserMessage({ content: [{ type: 'text', text: 'What was the code I asked you to remember? Reply with just the code.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, resumed)
 
     // The model recalls it — only possible from the resumed history.

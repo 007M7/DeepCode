@@ -6,12 +6,12 @@
 
 import type { ReactNode } from 'react'
 import {
-  IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconThinkOutline14,
+  IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
+  IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
-import { IconSparkle16 } from './IconSparkle16.tsx'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
@@ -25,8 +25,9 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   others: <IconSparkle16 size={14} />,
 }
 
-export function GenericToolCard({ toolName, block, cwd, openDetails }: ToolRowOwnerProps) {
+export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
+  const singleFile = model.filePath !== undefined
   return (
     <ToolRow
       variant={model.variant}
@@ -34,9 +35,11 @@ export function GenericToolCard({ toolName, block, cwd, openDetails }: ToolRowOw
       icon={VARIANT_ICONS[model.variant]}
       title={model.title}
       summary={model.summary}
-      body={model.body}
+      // Single-file tools never expose an args body — the path link is the only action.
+      body={singleFile ? null : model.body}
       state={model.state}
-      onOpenDetails={openDetails}
+      filePath={model.filePath}
+      onOpenFile={singleFile ? openFile : undefined}
     />
   )
 }

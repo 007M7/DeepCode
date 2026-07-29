@@ -18,7 +18,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 `inject()` 是调用方交付补充模型输入的唯一操作，而轮次表示一次模型循环执行。
 
-`SendOptions` 只包含 `target` 和 `wakeup`。拥有上下文的调用方通过 `inject()` 交付 `UserMessageData`，再独立使用 `send()` 或 `steer()` 提交直接消息。
+`SendOptions` 只包含 `target` 和 `wakeup`。拥有上下文的调用方通过 `inject()` 交付带标识且冻结的 `UserMessage`，再独立使用 `send()` 或 `steer()` 提交直接消息。
 
 提示词和工具扩展点仍可返回 `additionalContexts`。这些值是扩展点的输出，而不是从调用方收件箱条目捕获的附件。提示词准入在 `run()` 打开轮次之前执行。获准的提示词及其返回的额外上下文会作为独立消息进入新轮次；提示词被阻止时，两者都不写入，也不打开轮次。工具产生的额外上下文则在对应工具结果之后进入 outbox。
 
@@ -59,7 +59,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 ## 验证
 
 - `SendOptions` 与 steering 收件箱记录不包含附加上下文；`agent/inbox/enqueue` 只报告消息及其已解析的 queued 或 steering 放置方式。
-- `UserMessageData` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的形状。
+- `UserMessage` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的带标识且冻结的形状。
 - 公共类型、持久事件、投影和 UI 回放中均不存在 prompt-prefix 放置方式、提示词封套与 `context/message`。
 - 空闲 `inject()` 在不产生轮次或模型调用的情况下，追加一条带来源的 `user/message`。
 - 准入期间和活跃轮次中的注入会在完整工具结果批次之后的安全边界排空，并在消费它们的请求之前进入日志。

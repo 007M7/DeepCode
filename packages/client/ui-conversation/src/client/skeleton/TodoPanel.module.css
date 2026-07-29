@@ -11,6 +11,13 @@
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 14px;
   background: var(--dsw-specific-tip);
+  /* Elevated surface: `--dsw-specific-tip` is the same dark rung as the menu
+     surface, and `.list` scrolls inside this card, so the thumb takes the l2
+     elevation tokens. Declared here because the elevation belongs to the
+     surface, and the custom properties inherit down to `.list` (see ui-theme
+     styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .body {

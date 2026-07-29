@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * The `telemetry/record` waterfall contract: pass-through when no listener is
  * mounted, listener stacking and replacement, ops-record coverage, the
@@ -39,7 +40,9 @@ describe('telemetry/record waterfall', () => {
   it('passes records through unchanged when no listener is mounted', async () => {
     const { ctx, backend } = await setup()
     const session = ctx.sessions.create(SessionId('w'))
-    session.append('user/message', { content: [{ type: 'text', text: `key ${FIXTURE_SECRET}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `key ${FIXTURE_SECRET}` }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const body = backend.records[0]!.body as { content: { text: string }[] }
     expect(body.content[0]!.text).toBe(`key ${FIXTURE_SECRET}`)
   })
@@ -51,7 +54,9 @@ describe('telemetry/record waterfall', () => {
       return { ...record, body: { scrubbed: true } }
     })
     const session = ctx.sessions.create(SessionId('rule'))
-    session.append('user/message', { content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     expect(backend.records[0]!.body).toEqual({ scrubbed: true })
     // The dispose-time shutdown ops record passes through the same waterfall.
     await fiber.dispose()
@@ -64,7 +69,9 @@ describe('telemetry/record waterfall', () => {
     const { ctx } = await setup()
     ctx.on('telemetry/record', (_record, next) => ({ ...next(), body: null }))
     const session = ctx.sessions.create(SessionId('log'))
-    session.append('user/message', { content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: FIXTURE_SECRET }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const logged = session.events[0]!.data as { content: { text: string }[] }
     expect(logged.content[0]!.text).toBe(FIXTURE_SECRET)
   })
@@ -84,7 +91,9 @@ describe('telemetry/record waterfall', () => {
       return { ...record, attributes: { ...record.attributes, inner: 1 } }
     })
     const session = ctx.sessions.create(SessionId('stack'))
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     expect(order).toEqual(['outer-before', 'inner', 'outer-after'])
     expect(backend.records[0]!.attributes).toMatchObject({ outer: 1, inner: 1 })
   })
@@ -98,7 +107,9 @@ describe('telemetry/record waterfall', () => {
       return next()
     })
     const session = ctx.sessions.create(SessionId('veto'))
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     expect(backend.records[0]!.body).toBe('replaced')
     expect(inner.called).toBe(false)
   })
@@ -109,7 +120,9 @@ describe('telemetry/record waterfall', () => {
       throw new Error('rule exploded')
     })
     const session = ctx.sessions.create(SessionId('closed'))
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     expect(backend.records).toHaveLength(0)
     expect(session.events).toHaveLength(1)
   })

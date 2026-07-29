@@ -6,7 +6,8 @@ import type {
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
-import type { SessionsService } from '../sessions/service.ts'
+import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+import type { IWorkspaces } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -30,7 +31,7 @@ export class WorkspaceCreateError extends Error {
 }
 
 /** Real Workspace object layer and Host actions. */
-export class WorkspacesService {
+export class WorkspacesService implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
@@ -43,9 +44,9 @@ export class WorkspacesService {
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
-   * @param sessions - lower-level Session service used for recency and blank-session reuse.
+   * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
    */
-  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsService) {
+  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
       items: [], state: 'idle', phase: 'pending', error: null,
@@ -183,6 +184,17 @@ export class WorkspacesService {
   }
 
   /**
+   * Open a filesystem path with the Host operating system's default application.
+   * @param path - absolute or host-resolvable path.
+   */
+  async openPath(path: string): Promise<void> {
+    const response = await this.api.host.openPath({ path })
+    if (!response.result.ok) {
+      throw new Error(`path open failed: ${response.result.error.message}`)
+    }
+  }
+
+  /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.
    * @param title - new display title (trimmed non-empty by the Host).
@@ -260,7 +272,7 @@ export class WorkspacesService {
 /** Stable tie-breaking follows Host Workspace order. */
 function recentWorkspace(
   workspaces: readonly WorkspaceView[],
-  sessions: ReturnType<SessionsService['list']['getSnapshot']>['byId'],
+  sessions: SessionsPortList['byId'],
 ): WorkspaceId | undefined {
   let selected: WorkspaceId | undefined
   let selectedTime = Number.NEGATIVE_INFINITY

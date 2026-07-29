@@ -8,7 +8,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmService, { LlmAdapter, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmAdapter, LlmError, resolveRetryPolicy  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -105,7 +105,7 @@ describe('real Loader composition', () => {
     const adapter = new TransientOnceAdapter()
     loaded.llm.registerAdapter(['mock'], adapter)
     const agent = loaded.agentLoop.create(SessionId('loader-retry'), { provider: 'mock', model: 'mock' })
-    agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
     expect(adapter.requests).toBe(2)

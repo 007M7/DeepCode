@@ -5,7 +5,6 @@
 // durable list itself renders in the TodoPanel above the composer, so the
 // row stays one line. Chrome matches ToolRow (figma 780:53675).
 
-import type { KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
 import { IconChecklistOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
@@ -51,29 +50,18 @@ function leadingFor(state: ToolRowState) {
   }
 }
 
-/** One-line plan update row (click opens the raw args in details). Non-ok
- *  execution states keep the generic row's dot semantics — a cancelled call
- *  wrote no todo/write, so it must not read as a completed update. */
-export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
+/** One-line plan update row. Non-ok execution states keep the generic row's
+ *  dot semantics — a cancelled call wrote no todo/write, so it must not read
+ *  as a completed update. */
+export function TodoRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
-  // Button semantics, not a <button>: the row carries inline spans a button
-  // would flatten, and ToolRow takes the same role/tabIndex/Enter-Space route.
-  const openFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    event.preventDefault()
-    openDetails()
-  }
   return (
     <div
       className={css.row}
       data-sample="todo-row"
       data-state={model.state}
-      role="button"
-      tabIndex={0}
-      onClick={openDetails}
-      onKeyDown={openFromKeyboard}
     >
       <span className={css.leading} aria-hidden>{leadingFor(model.state)}</span>
       <span className={css.title}>更新任务清单</span>

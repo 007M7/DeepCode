@@ -1,14 +1,16 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
+import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
+import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
@@ -23,8 +25,8 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
-/** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
-function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
+/** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
+function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   const scoped = sessions.scope(id)
   if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
   const conversation = scoped.get('conversation')
@@ -128,8 +130,9 @@ export function apply(ctx: Context): void {
   // verbs ride this inject (package-internal — hub and bar are one plugin).
   slots.register({
     name: 'conversation.composer.bar',
-    // The two named control seats in the bar's tool row (plan left, model
-    // right); empty until their owning plugins register (B ruling).
+    // The two named control seats in the bar's tool row (plan beside the
+    // access control, model right); empty until their owning plugins
+    // register (B ruling).
     children: {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
@@ -158,7 +161,10 @@ export function apply(ctx: Context): void {
     id: 'chat',
     order: 0,
     label: 'Chat',
-    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+    children: {
+      'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const scoped = scopedConversation(sessions, sessionId)
@@ -166,6 +172,13 @@ export function apply(ctx: Context): void {
         openDetails: (target) => {
           actions.select(target)
           layout.openDetails()
+        },
+        openFile: (path) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+            // Host/OS open failures stay silent in the chat row; the native
+            // app surfaces its own error dialog when the path is unusable.
+          })
         },
         loadOlder: () => { void scoped.loadOlder() },
       }

@@ -344,8 +344,8 @@ export class TokenMeterService extends Service {
       }
       assembler.push(sourceEvent.data.chunk)
     }
-    const providerMessage = assembler.message()
-    return providerMessage.content.length === 0 ? 0 : this.estimateMessage(providerMessage)
+    const providerContent = assembler.blocks()
+    return providerContent.length === 0 ? 0 : this._estimateContent(providerContent) + ROLE_OVERHEAD
   }
 
   /** Price content blocks recursively under the fixed density heuristic. */

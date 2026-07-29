@@ -64,6 +64,9 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
  * @returns the header, absent optional fields omitted.
  */
 export function fromHeaderLine(line: HeaderLine): SessionHeader {
+  if (Object.hasOwn(line, 'sandboxMode') || Object.hasOwn(line, 'approvalPolicy')) {
+    throw new Error('session header uses retired policy baseline fields')
+  }
   return {
     version: line.version,
     id: line.id,
