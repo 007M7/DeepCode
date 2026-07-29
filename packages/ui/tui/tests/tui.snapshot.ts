@@ -44,6 +44,7 @@ const CHECKPOINTS = [
   'cordis-tools-pending',
   'advanced-cards-collapsed',
   'advanced-cards-expanded',
+  'tool-cards-hidden-folded',
   'untrusted-controls',
   'question-dialog',
   'question-dialog-single-option',
@@ -606,6 +607,31 @@ describe('TUI terminal-state snapshots', () => {
 
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await checkpoint('advanced-cards-expanded', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins the hidden phase folding a multi-step turn into one assistant message', async () => {
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      config: { maxToolOutputLines: 3 },
+    }, { columns: 100, rows: 40 })
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Refactor the renderer.')
+      appendAssistant(harness.session, [{ type: 'text', text: 'Inspecting the renderer first.' }])
+      appendToolCalls(harness.session, [
+        { id: 'fold-1', name: 'bash', arguments: { command: 'pnpm run test' } },
+      ])
+      appendToolResult(harness.session, 'fold-1', [{ type: 'text', text: 'all tests pass' }])
+      harness.session.append('step/end', { turn: 1, step: 1 })
+      harness.session.append('step/start', { turn: 1, step: 2 })
+      appendAssistant(harness.session, [{ type: 'text', text: 'The renderer is sound; no refactor needed.' }], undefined, { turn: 1, step: 2 })
+      harness.session.append('step/end', { turn: 1, step: 2 })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    // collapsed -> expanded -> hidden: one Assistant header, no tool card.
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await checkpoint('tool-cards-hidden-folded', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 

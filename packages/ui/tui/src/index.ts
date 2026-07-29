@@ -335,6 +335,10 @@ export function createTuiChat(
   let toolsVisibility: ToolCardVisibility = 'collapsed'
   let streaming: StreamingAssistantComponent | undefined
   let completedStreaming: StreamingAssistantComponent | undefined
+  // Assistant step components in model order per turn, for hidden-mode folding:
+  // with tool cards hidden, a turn keeps one Assistant header and later steps
+  // render as headerless continuations (see applyTurnFolding).
+  const assistantSteps = new Map<number, StreamingAssistantComponent[]>()
   let runningStatus: RunningStatus | undefined
   let fadingStatus: FadingStatus | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
@@ -614,6 +618,35 @@ export function createTuiChat(
     return card
   }
 
+  /**
+   * Re-derive hidden-mode folding for one turn: the first step with a visible
+   * body owns the turn's single Assistant header, every other step renders as a
+   * headerless continuation (empty ones render nothing). Any other visibility
+   * restores the per-step headers.
+   */
+  const applyTurnFolding = (turn: number): void => {
+    const steps = assistantSteps.get(turn)
+    if (steps === undefined) return
+    let headerSeen = false
+    for (const step of steps) {
+      if (toolsVisibility !== 'hidden') {
+        step.setFoldedContinuation(false)
+      } else if (!headerSeen && step.hasVisibleBody()) {
+        headerSeen = true
+        step.setFoldedContinuation(false)
+      } else {
+        step.setFoldedContinuation(true)
+      }
+    }
+  }
+
+  const registerAssistantStep = (component: StreamingAssistantComponent): void => {
+    const steps = assistantSteps.get(component.position.turn) ?? []
+    steps.push(component)
+    assistantSteps.set(component.position.turn, steps)
+    applyTurnFolding(component.position.turn)
+  }
+
   const removeStreaming = (current: StreamingAssistantComponent | undefined): void => {
     if (current === undefined) return
     for (const child of [current, current.timing]) {
@@ -621,6 +654,15 @@ export function createTuiChat(
       /* v8 ignore next -- streaming components and their timing footers are retained only while attached to the chat. */
       if (index >= 0) chat.children.splice(index, 1)
     }
+    const steps = assistantSteps.get(current.position.turn)
+    /* v8 ignore next -- every attached streaming component is registered in the fold map. */
+    if (steps === undefined) return
+    const index = steps.indexOf(current)
+    /* v8 ignore next -- registration precedes attachment, so the component is present until this removal. */
+    if (index < 0) return
+    steps.splice(index, 1)
+    // A retracted step may have owned the turn's hidden-mode header.
+    applyTurnFolding(current.position.turn)
   }
 
   /**
@@ -659,6 +701,7 @@ export function createTuiChat(
       palette,
       mdTheme,
     )
+    registerAssistantStep(streaming)
     chat.addChild(streaming)
     chat.addChild(streaming.timing)
   }
@@ -722,12 +765,20 @@ export function createTuiChat(
         startAssistantStep(event.data)
         break
       case 'assistant/chunk':
-        if (options.renderChunks) streaming?.update(event.data.chunk)
+        if (options.renderChunks && streaming !== undefined) {
+          streaming.update(event.data.chunk)
+          // The first streamed text/reasoning may make this step the turn's
+          // hidden-mode header owner (or a continuation with a visible body).
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'assistant/message':
         completedStreaming = undefined
         if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
-        streaming?.settle(event.data.message.content)
+        if (streaming !== undefined) {
+          streaming.settle(event.data.message.content)
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'llm/retry': {
         retractFailedStreaming()
@@ -838,6 +889,7 @@ export function createTuiChat(
     toolCards.clear()
     allToolCards.clear()
     contextCards.clear()
+    assistantSteps.clear()
     streaming = undefined
     todo.update([])
     const transcriptCalls = transcriptToolCallIds(agent.session)
@@ -956,6 +1008,9 @@ export function createTuiChat(
     // Context cards carry injected instructions rather than tool traffic, so
     // they never hide: the hidden phase reads as their collapsed preview.
     for (const card of contextCards) card.setExpanded(toolsVisibility === 'expanded')
+    // Hidden mode folds each turn's steps into one assistant message; other
+    // modes restore the per-step Assistant headers.
+    for (const turn of assistantSteps.keys()) applyTurnFolding(turn)
     appendNotice(toolsVisibility === 'hidden' ? 'Tool cards hidden.' : `Tool and context cards ${toolsVisibility}.`)
   }
 
@@ -967,6 +1022,7 @@ export function createTuiChat(
     if (activeStreaming !== undefined) {
       streaming = activeStreaming
       streaming.setShowReasoning(showReasoning)
+      registerAssistantStep(activeStreaming)
       chat.addChild(activeStreaming)
       chat.addChild(activeStreaming.timing)
     }
