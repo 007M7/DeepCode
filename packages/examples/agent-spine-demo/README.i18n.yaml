@@ -2,10 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/examples/agent-spine-demo/README.md
-<<<<<<< HEAD
-README.md: 359e7153be2f480ba3fea4b06782acdc9f89ebb9
-README.zh.md: acd8c06940b03e90e368314cd725846a2b92b656
-=======
 README.md: 6fde5c64052e369541787f90c12c33a7b0b8f9eb
 README.zh.md: d5b0e2b50707750132bdeae9d7e56d513b0f40a7
->>>>>>> a1c6a2c3f (refactor(cli)!: one shared base config with per-surface overlays)
