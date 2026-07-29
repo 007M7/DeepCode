@@ -45,6 +45,7 @@ export class FakeApiClient implements IApiClient {
   // Programmable slots (defaults answer OK-empty); reassign per case.
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
+  onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
   => Promise<RpcResponse<{ events: never[]; hasMore: boolean; modelTarget: ModelTarget }>> =
     () => Promise.resolve(ok({
@@ -96,6 +97,7 @@ export class FakeApiClient implements IApiClient {
     models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
     selectModel: (payload: ModelTarget & { sessionId: SessionId }) =>
       this.record('session.selectModel', payload, this.onSelectModel(payload)),
+    rename: (payload: unknown) => this.record('session.rename', payload, this.onRename(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }

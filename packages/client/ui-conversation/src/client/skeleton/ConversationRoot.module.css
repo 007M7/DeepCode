@@ -17,6 +17,12 @@
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
+/* Blank hero/settling: keep the header node mounted (stable Session tree for
+   the wrapActiveBody composer) without taking column space. */
+.headerHidden {
+  display: none;
+}
+
 .crumbRow {
   display: flex;
   align-items: center;
@@ -127,6 +133,46 @@
   flex-direction: column;
 }
 
+/* Common seat for the composer chain (fallback + elected overlay siblings). */
+.composerSeat {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+/* Active phase: header is ordinary column chrome above the scrollport (not
+   sticky). The scroll body holds the transcript and the sticky composer seat
+   so wheel over the footer moves the flow. */
+.root[data-phase='active'] {
+  overflow: hidden;
+}
+
+.root[data-phase='active'] .header {
+  flex: none;
+}
+
+.scrollBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.root[data-phase='active'] .viewArea {
+  flex: 1 0 auto;
+  min-height: auto;
+}
+
+.root[data-phase='active'] .composerSeat {
+  position: sticky;
+  bottom: 0;
+  /* Above markdown CodeBlock sticky banners (z-index 6) so the footer never
+     paints under a sticking code header while scrolling. */
+  z-index: 7;
+  background: var(--dsw-alias-bg-base);
+}
+
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is
    flex-centered in the column; composer phase docks it at the bottom. Flex,
    NOT absolute+transform: a transform would make this box the containing
@@ -165,12 +211,15 @@
   padding-left: 8px;
 }
 
-.root[data-phase='hero'] {
+/* Hero: the composer sits inside the session scroll body; center there so
+   the tree seat matches active (sticky footer) without a Root remount. */
+.root[data-phase='hero'] .scrollBody {
   justify-content: center;
+  overflow-y: auto;
 }
 
-/* Settling (session replaying, hero/docked unknown): keep the composer
+/* Settling (session replaying, hero/docked unknown): keep the composer seat
    mounted but invisible so no wrong layout flashes before the phase lands. */
-.root[data-phase='settling'] .composerStack {
+.root[data-phase='settling'] .composerSeat {
   visibility: hidden;
 }

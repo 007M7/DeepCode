@@ -6,7 +6,7 @@
 
 分层：`src/core/`（T2）是纯内核——`detectTrigger`、`menuReduce`／`seedGroups`／`MENU_CLOSED`、`exactMatch`，零 React／DOM／cordis；`src/client/service.ts` 是壳层，把内核接到菜单快照 store、逐 hit 候选拉取（以 generation 把关、后继请求经 `AbortSignal` 取代旧请求、失败的 source 静默丢弃并留一条 console 记录）和三条 pick 路径上。`src/types.ts` 与两个 `contract.ts` 文件是冻结的跨包契约（设计 v4 §5.1）；变更需经主线程仲裁。
 
-MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类，会话 scope），菜单关闭期间渲染 null。该 slot 由 ui-conversation 的组合器条目拥有（锚点、children 声明、生命周期）；其 SlotMap 类型合并放在本包的 `src/client/slots.ts`，因为依赖方向（ui-conversation → ui-slash）不允许反向的类型导入。combobox 模式：焦点始终留在 textarea，行在 mousedown 时完成 pick，高亮由 `aria-activedescendant` 承载。
+MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类，会话 scope），菜单关闭期间渲染 null。分组按可选的 `SlashSource.order` 排序（越小越靠前，默认 0，同值保持注册序），组标题行经 `slash.menu` locale 命名空间本地化（未知 source 显示其原名）；列表高度收敛到 composer 上方的可用空间，指针落在菜单与所在 composer 卡片之外即关闭菜单。该 slot 由 ui-conversation 的组合器条目拥有（锚点、children 声明、生命周期）；其 SlotMap 类型合并放在本包的 `src/client/slots.ts`，因为依赖方向（ui-conversation → ui-slash）不允许反向的类型导入。combobox 模式：焦点始终留在 textarea，行在 mousedown 时完成 pick，高亮由 `aria-activedescendant` 承载。
 
 `/client` 导出表层是插件主体（`apply`／`inject`）、`SlashService`、`MenuViewInjected` 与契约类型。MenuView 本身是内部实现——slot 注册以闭包持有它。
 
@@ -23,4 +23,3 @@ MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类
 - **只有全局 source 层**：会话 scope 的 source 注册（逐会话遮蔽、类 ScopedLayers 机制）已有设计但未启用；台账记录着触发条件（出现真实的逐会话 source 需求）。
 - **`SlashCandidate.icon` 以文本渲染**：MenuView 把该字符串原样放进图标位；与设计系统图标枚举（iconFile 五变体家族）的接入将在该枚举交付后完成。
 - **overlay 的 SlotMap 合并归属与 slot 所有权分离**：`conversation.input.overlay` 的合并放在本包（唯一副本），而该 slot 的 owner 语义（锚点、children 声明、生命周期）留在 ui-conversation；依赖方向（ui-conversation → ui-slash）迫使这一拆分，未来依赖关系调整时应重新审视。
-- **菜单组顺序即注册顺序**：source 之间没有显式排序 seam；roster 还是 command／skill（技能）／subagent 时可以接受，业务 source 加入后需重新审视。

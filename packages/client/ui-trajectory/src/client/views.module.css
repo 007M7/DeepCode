@@ -13,6 +13,13 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
+/* Under the active conversation column (`[data-conversation-scroll]`) the
+ * parent owns overflow so the sticky composer stays in the same scrollport. */
+:global([data-conversation-scroll]) .root {
+  overflow: visible;
+  height: auto;
+}
+
 .ledger {
   display: flex;
   flex: 1;

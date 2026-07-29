@@ -336,8 +336,9 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 
       terminal.send('\x03')
       await settleTerminal(terminal)
+      const skillContext = ctx
       const skillTurnEnded = new Promise<void>((resolve) => {
-        const detach = ctx.on('session/event', (session, event) => {
+        const detach = skillContext.on('session/event', (session, event) => {
           if (session !== agent.session || event.type !== 'turn/end') return
           detach()
           resolve()

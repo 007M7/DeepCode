@@ -18,7 +18,7 @@ import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeM
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
-import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -3866,6 +3866,135 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
+  it('refreshes slash completions after runtime skill additions and complete removals', async () => {
+    let skills: SkillService | undefined
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        await ctx.plugin(SkillService)
+        skills = ctx.get('skills')
+      },
+    })
+    if (skills === undefined) throw new Error('skills service not mounted')
+
+    result.terminal.send('/skill:dynamic')
+    await tick()
+    result.terminal.output = ''
+    const disposeSkill = skills.register({
+      name: 'dynamic-skill',
+      description: 'DYNAMIC_COMPLETION_MARKER',
+      source: 'runtime',
+      content: 'Dynamic body.',
+    })
+    await tick()
+    expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+
+    result.terminal.send('\x03')
+    disposeSkill()
+    await tick()
+    result.terminal.output = ''
+    result.terminal.send('/skill:dynamic')
+    await tick()
+    expect(result.terminal.output).not.toContain('DYNAMIC_COMPLETION_MARKER')
+    await dispose(result)
+  })
+
+  it('retains last-good slash completions across incomplete snapshots', async () => {
+    let skills: SkillService | undefined
+    let provider: SkillProvider | undefined
+    let invalidate = (): void => {}
+    let fail = false
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        await ctx.plugin(SkillService)
+        skills = ctx.get('skills')
+        provider = {
+          name: 'flaky-completion',
+          async list() {
+            if (fail) throw new Error('transient completion failure')
+            return [{
+              name: 'stable-skill',
+              description: 'STABLE_COMPLETION_MARKER',
+              invocation: { modelInvocable: true, userInvocable: true },
+              source: 'test',
+              provider: 'flaky-completion',
+              rank: 1,
+              locator: 'stable',
+            }]
+          },
+          async get() {
+            return undefined
+          },
+        }
+        skills?.registerProvider((control) => {
+          invalidate = control.invalidate
+          return provider as SkillProvider
+        })
+      },
+    })
+    if (skills === undefined || provider === undefined) throw new Error('skills provider not mounted')
+
+    fail = true
+    invalidate()
+    await tick()
+    result.terminal.output = ''
+    result.terminal.send('/skill:stable')
+    await tick()
+    expect(result.terminal.output).toContain('STABLE_COMPLETION_MARKER')
+    await dispose(result)
+  })
+
+  it('keeps the latest slash catalog when asynchronous refreshes settle out of order', async () => {
+    const pendingSnapshots: Array<PromiseWithResolvers<SkillCatalogSnapshot>> = []
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          snapshot: () => {
+            const pending = Promise.withResolvers<SkillCatalogSnapshot>()
+            pendingSnapshots.push(pending)
+            return pending.promise
+          },
+          get: () => Promise.resolve(undefined),
+        } as never)
+      },
+    })
+    expect(pendingSnapshots).toHaveLength(1)
+
+    result.ctx.emit('skills/change')
+    result.ctx.emit('skills/change')
+    expect(pendingSnapshots).toHaveLength(3)
+    pendingSnapshots[2]?.resolve({
+      skills: [{
+        name: 'latest-skill',
+        description: 'LATEST_COMPLETION_MARKER',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'runtime',
+        provider: 'runtime',
+      }],
+      complete: true,
+    })
+    await tick()
+    pendingSnapshots[0]?.resolve({
+      skills: [{ name: 'stale-first', description: 'STALE_FIRST', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
+      complete: true,
+    })
+    pendingSnapshots[1]?.resolve({
+      skills: [{ name: 'stale-second', description: 'STALE_SECOND', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
+      complete: true,
+    })
+    await tick()
+
+    result.terminal.output = ''
+    result.terminal.send('/skill:latest')
+    await tick()
+    expect(result.terminal.output).toContain('LATEST_COMPLETION_MARKER')
+    expect(result.terminal.output).not.toContain('STALE_FIRST')
+    expect(result.terminal.output).not.toContain('STALE_SECOND')
+    await dispose(result)
+  })
+
   it('loads a skill as a user turn, appending typed instructions', async () => {
     const result = await setup({ configureContext: withSkills })
     result.terminal.send('/skill:demo-skill')
@@ -3891,6 +4020,22 @@ describe('skill slash command', () => {
   })
 
   it('checks user policy before loading and rechecks the loaded definition', async () => {
+    const summaries: SkillSummary[] = [
+      {
+        name: 'model-only-skill',
+        description: 'Model-only skill',
+        invocation: { modelInvocable: true, userInvocable: false },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+      {
+        name: 'policy-race-skill',
+        description: 'Policy race skill',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+    ]
     const get = vi.fn((name: string) => Promise.resolve<SkillDefinition | undefined>({
       name,
       description: 'Policy race skill',
@@ -3903,22 +4048,8 @@ describe('skill slash command', () => {
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
-          list: () => Promise.resolve<SkillSummary[]>([
-            {
-              name: 'model-only-skill',
-              description: 'Model-only skill',
-              invocation: { modelInvocable: true, userInvocable: false },
-              source: 'runtime',
-              provider: 'runtime',
-            },
-            {
-              name: 'policy-race-skill',
-              description: 'Policy race skill',
-              invocation: { modelInvocable: true, userInvocable: true },
-              source: 'runtime',
-              provider: 'runtime',
-            },
-          ]),
+          snapshot: () => Promise.resolve({ skills: summaries, complete: true }),
+          list: () => Promise.resolve(summaries),
           get,
         } as never)
       },
@@ -3989,6 +4120,7 @@ describe('skill slash command', () => {
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
+          snapshot: () => Promise.reject(new Error('list boom')),
           list: () => Promise.reject(new Error('list boom')),
           get: () => Promise.reject(new Error('get boom')),
         } as never)
@@ -4005,16 +4137,17 @@ describe('skill slash command', () => {
   it('drops skill list and lookup results that settle after disposal', async () => {
     let listCalls = 0
     let resolvePendingList: ((value: SkillSummary[]) => void) | undefined
+    const pendingSnapshots: Array<(value: SkillCatalogSnapshot) => void> = []
     const pendingGet: Array<{ resolve: (value: SkillDefinition | undefined) => void; reject: (error: unknown) => void }> = []
     const result = await setup({
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
+          snapshot: () => new Promise<SkillCatalogSnapshot>((resolve) => { pendingSnapshots.push(resolve) }),
           list: () => {
             listCalls += 1
-            if (listCalls === 1) return Promise.resolve<SkillSummary[]>([])
-            if (listCalls === 2 || listCalls === 3) {
-              const name = listCalls === 2 ? 'demo-skill' : 'error-skill'
+            if (listCalls === 1 || listCalls === 2) {
+              const name = listCalls === 1 ? 'demo-skill' : 'error-skill'
               return Promise.resolve<SkillSummary[]>([{
                 name,
                 description: 'demo',
@@ -4041,6 +4174,20 @@ describe('skill slash command', () => {
     await tick()
     await dispose(result)
 
+    result.ctx.emit('skills/change')
+    expect(pendingSnapshots).toHaveLength(1)
+    for (const resolve of pendingSnapshots) {
+      resolve({
+        skills: [{
+          name: 'late',
+          description: 'late',
+          invocation: { modelInvocable: true, userInvocable: true },
+          source: 'runtime',
+          provider: 'runtime',
+        }],
+        complete: true,
+      })
+    }
     resolvePendingList?.([{
       name: 'other-skill',
       description: 'late',
