@@ -46,6 +46,7 @@ function scriptedApi(overrides: {
       selectModel: r => ok(r, {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),
+      rename: r => ok(r, { title: 'renamed', seq: 0 }),
       prompt: r => ok(r, { accepted: true as const }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },

@@ -214,6 +214,16 @@ export interface SessionsApi {
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /**
+   * Renames a session: appends a `session/title` event with the `user`
+   * source, which pins the title against automatic regeneration. The
+   * normalized accepted title and the title event's seq return so the caller
+   * can settle its projection cell without waiting for the push frame. A
+   * title that normalizes to empty fails with `title-invalid`.
+   */
+  rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
+  Promise<RpcResponse<{ title: string; seq: number }>>
+
+  /**
    * Sends text plus temporary base64 image uploads; the host persists images before calling the agent.
    * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
    * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
