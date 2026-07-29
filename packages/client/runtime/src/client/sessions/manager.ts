@@ -66,6 +66,12 @@ export class SessionManager {
    * cannot be backfilled when get() lazily creates the Session.
    */
   private readonly modelRequests = new Map<SessionId, ModelRequestTelemetry>()
+  /**
+   * Host-lifecycle tombstones. Host and mux use independent SSE streams, so a
+   * frame emitted before removal can arrive after host/session-removed. Keep
+   * the id fenced until a later authoritative host/session-added.
+   */
+  private readonly removedSessions = new Set<SessionId>()
   /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
    *  replays of the same requested frame). Manager-owned rather than read off Session instances
    *  because the sidebar must light up for sessions never instantiated. Cleared per connection
@@ -348,6 +354,7 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
+    if (this.removedSessions.has(frame.sessionId)) return
     if (frame.type === 'session/projection') {
       // Finished host-computed value: land it in the resident store whether or
       // not the Session is instantiated (list rows read the 'title' key). The
@@ -431,6 +438,7 @@ export class SessionManager {
     const frame = envelope.payload
     switch (frame.type) {
       case 'host/session-added': {
+        this.removedSessions.delete(frame.sessionId)
         this.mergeSummary({
           sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
@@ -440,6 +448,7 @@ export class SessionManager {
         return
       }
       case 'host/session-removed': {
+        this.removedSessions.add(frame.sessionId)
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation

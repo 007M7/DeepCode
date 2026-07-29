@@ -822,6 +822,33 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
+  it('settles an in-flight open when its connection generation dies', async () => {
+    const { api, session } = makeSession()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const opening = session.open()
+    expect(session.getSnapshot().openState).toBe('loading')
+
+    session.handleReconnecting()
+    expect(session.getSnapshot()).toMatchObject({
+      openState: 'error',
+      openError: {
+        code: 'internal',
+        message: 'connection lost while loading session history',
+      },
+    })
+
+    stale.reject(new Error('dead generation failed'))
+    await opening
+    expect(session.getSnapshot()).toMatchObject({
+      openState: 'error',
+      openError: {
+        code: 'internal',
+        message: 'connection lost while loading session history',
+      },
+    })
+  })
+
   it('clears request telemetry on reconnect and drops a stale in-flight history response', async () => {
     const { api, session } = makeSession()
     const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()

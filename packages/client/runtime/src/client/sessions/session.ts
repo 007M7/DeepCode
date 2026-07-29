@@ -504,9 +504,24 @@ export class Session implements SessionFace {
   /** Connection-loss boundary: clear values that are not replayed before the next stream starts. */
   handleReconnecting(): void {
     this.openGeneration++
-    if (this.modelRequest === null) return
-    this.modelRequest = null
-    this.notifier.markDirty()
+    let changed = false
+    if (this.openState === 'loading') {
+      // The in-flight history request belongs to the dead generation. Its
+      // eventual success or failure is fenced below, so settle the visible
+      // pane now instead of leaving it loading throughout an outage.
+      this.openState = 'error'
+      this.openError = {
+        code: 'internal',
+        message: 'connection lost while loading session history',
+        details: { sessionId: this.sessionId },
+      }
+      changed = true
+    }
+    if (this.modelRequest !== null) {
+      this.modelRequest = null
+      changed = true
+    }
+    if (changed) this.notifier.markDirty()
   }
 
   /** host/session-removed relay: flag the resident snapshot and clear request telemetry. */

@@ -365,7 +365,7 @@ describe('events frame schemas', () => {
         type: 'session/model-request',
         sessionId: 's',
         turn: 2,
-        step: 0,
+        step: 1,
         provider: 'deepseek',
         model: 'deepseek-chat',
         contextTokens: 8_000,
@@ -392,7 +392,7 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     for (const invalid of [
       { type: 'session/model-request', sessionId: 's', turn: 0, step: 1, provider: 'p', model: 'm' },
-      { type: 'session/model-request', sessionId: 's', turn: 1, step: -1, provider: 'p', model: 'm' },
+      { type: 'session/model-request', sessionId: 's', turn: 1, step: 0, provider: 'p', model: 'm' },
       { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextTokens: -1 },
       { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextWindow: 0 },
       { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },

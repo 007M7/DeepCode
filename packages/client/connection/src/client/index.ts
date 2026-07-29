@@ -5,7 +5,7 @@
  */
 import type { Context } from 'cordis'
 import type { IApiClient } from './api.ts'
-import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
+import { ConnectionController, type ConnectionConfig, type ConnectionSinks } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 
@@ -27,7 +27,7 @@ export { RpcId, AbstractApiClient, transportError } from './api.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
-export type { ConnectionConfig, ConnectionSinks, ConnectionState }
+export type { ConnectionConfig, ConnectionSinks }
 
 
 /** Required services (none — this is the wire root). */

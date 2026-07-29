@@ -156,6 +156,19 @@ describe('instances', () => {
       payload: { type: 'host/session-removed', sessionId: S1 },
     })
     expect(session.getSnapshot().modelRequest).toBeNull()
+    manager.handleMuxEnvelope({
+      rpcId: 'late-resident-request' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 2,
+        step: 1,
+        provider: 'test',
+        model: 'late',
+        contextWindow: 512_000,
+      },
+    })
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
     manager.handleMuxEnvelope({
       rpcId: 'request-before-lazy-removal' as never,
@@ -172,6 +185,18 @@ describe('instances', () => {
     manager.handleHostEnvelope({
       rpcId: 'lazy-removed' as never,
       payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'late-lazy-request' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S2,
+        turn: 2,
+        step: 1,
+        provider: 'test',
+        model: 'late-lazy',
+        contextWindow: 512_000,
+      },
     })
     expect(manager.get(S2).getSnapshot().modelRequest).toBeNull()
   })

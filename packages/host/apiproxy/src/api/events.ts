@@ -33,6 +33,12 @@ export type ToolEventView =
 
 /** Atomic telemetry captured at one observed model-request boundary. */
 export interface ModelRequestTelemetry {
+  /**
+   * Agent request identity and resolved route. The current StatsLine consumes
+   * only occupancy, while the complete snapshot preserves provenance for
+   * diagnostics and later request-bound consumers without consulting mutable
+   * selected-model state.
+   */
   turn: number
   step: number
   provider: string

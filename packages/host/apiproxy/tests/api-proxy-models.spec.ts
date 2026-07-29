@@ -13,7 +13,8 @@ import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
   LlmResolvedModelInfo, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -51,7 +52,6 @@ class CatalogAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      context: { contextWindow: model === 'private-preview' ? 128_000 : 64_000 },
       ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
     })
   }
@@ -70,7 +70,15 @@ const REASONING: LlmModelReasoningInfo = {
   defaultEffort: ReasoningEffortId('high'),
 }
 
-async function hostContext(): Promise<Context> {
+async function harness(logged?: {
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffortId
+}): Promise<{
+  ctx: Context
+  agent: Agent
+  sessionId: SessionId
+}> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
@@ -90,19 +98,6 @@ async function hostContext(): Promise<Context> {
     { provider: 'duplicate', id: 'same', name: 'Same' },
     { provider: 'duplicate', id: 'same', name: 'Same Again' },
   ]))
-  return ctx
-}
-
-async function harness(logged?: {
-  provider: string
-  model: string
-  reasoningEffort?: ReasoningEffortId
-}): Promise<{
-  ctx: Context
-  agent: Agent
-  sessionId: SessionId
-}> {
-  const ctx = await hostContext()
   const session = ctx.sessions.create()
   if (logged !== undefined) {
     session.append('request/header', { header: { config: logged }, reason: 'initial' })
@@ -129,12 +124,7 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, {
-      provider: 'deepseek',
-      model: 'deepseek-chat',
-      cwd: '/tmp',
-      workspaceRoot: '/tmp',
-    })
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
@@ -175,12 +165,7 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, {
-      provider: 'deepseek',
-      model: 'deepseek-chat',
-      cwd: '/tmp',
-      workspaceRoot: '/tmp',
-    })
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 

@@ -1143,7 +1143,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           // The fixture's durable transcript is historically zero-based, while
           // the real Agent's request telemetry opens turns at one.
           turn: turn + 1,
-          step: 0,
+          step: 1,
           provider: target.provider,
           model: target.model,
           // No fixture token-meter is composed, so omit the request-pressure

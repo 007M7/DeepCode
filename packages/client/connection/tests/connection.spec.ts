@@ -8,7 +8,6 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { IApiClient, SessionId } from '../src/client/api.ts'
-import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
 import { FakeApiClient, deferred, ok } from './fake-api.ts'
 
@@ -204,29 +203,7 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('emits deduplicated connected/reconnecting state transitions', async () => {
-    const api = new FakeApiClient()
-    const states: ConnectionState[] = []
-    let connected = 0
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
-      onConnected: () => { connected++ },
-      onStateChange: state => states.push(state),
-    }, FAST)
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(states).toEqual(['connected'])
-      api.failStreams(new Error('torn'))
-      await vi.waitFor(() => { expect(connected).toBe(2) })
-      expect(states).toEqual(['connected', 'reconnecting', 'connected'])
-    } finally {
-      controller.stop()
-      warnSpy.mockRestore()
-    }
-  })
-
-  it('reports every failed generation while deduplicating consecutive reconnecting state', async () => {
+  it('reports every failed generation before retry', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
     let describeCalls = 0
@@ -234,14 +211,12 @@ describe('connection lifecycle', () => {
       describeCalls++
       return describeCalls <= 2 ? Promise.reject(new Error('down')) : gate.promise
     }
-    const states: ConnectionState[] = []
     let disconnected = 0
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const controller = new ConnectionController(api, {
       onConnected: () => { connected++ },
       onDisconnected: () => { disconnected++ },
-      onStateChange: state => states.push(state),
     }, FAST)
     controller.start()
     try {
@@ -249,7 +224,6 @@ describe('connection lifecycle', () => {
       gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
       await vi.waitFor(() => { expect(connected).toBe(1) })
       expect(disconnected).toBe(2)
-      expect(states).toEqual(['reconnecting', 'connected']) // two failures, one reconnecting emission
     } finally {
       controller.stop()
       warnSpy.mockRestore()

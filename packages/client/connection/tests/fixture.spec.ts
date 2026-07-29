@@ -198,7 +198,7 @@ describe('createFixtureApi', () => {
       type: 'session/model-request',
       sessionId: id,
       turn: 1,
-      step: 0,
+      step: 1,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       contextWindow: 128_000,
