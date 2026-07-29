@@ -518,13 +518,16 @@ export class LocalPtySession implements PtyBackendSession {
     if (!quiescent) {
       throw new Error(`PTY cleanup failed (${reason}); terminal session did not reach quiescence`)
     }
+    // Quiescence is the active send's terminal outcome. Detach its abort
+    // listener before snapshotting provider operations so no late interrupt
+    // can enter the owned set after the drain starts.
+    this.settleActive('session_exit')
     await Promise.all(this.terminalOperations)
     // Whole-session cleanup can fail before the top-level process exits. Wait
     // for it first so that failure is reported instead of blocking forever on
     // `done`; successful quiescence guarantees `done` can now settle status and
     // drain the terminal output.
     await this.completion
-    this.settleActive('session_exit')
     this.terminal.output.off('data', this.onTerminalData)
     this.terminal.output.off('end', this.onTerminalEnd)
     this.terminal.output.off('error', this.onTerminalError)

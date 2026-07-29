@@ -954,4 +954,26 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     expect((await operation.done).waitReason).toBe('session_exit')
   })
 
+  it('detaches active cancellation before draining terminal operations', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const signalForeground = vi.spyOn(terminal, 'signalForeground')
+    const controller = new AbortController()
+    const operation = session.startSend({ text: 'pending inspection', submit: true, signal: controller.signal })
+    const closing = session.close('pending cancellation')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    controller.abort('late cancellation')
+    expect(signalForeground).not.toHaveBeenCalled()
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await closing
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
 })
