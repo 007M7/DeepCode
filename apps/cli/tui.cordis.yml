@@ -59,13 +59,6 @@
 # ── TUI-only rows ───────────────────────────────────────────────────────────
 
 - insert:
-    # Development-only hot reload; it depends on Loader internals, so it stays a
-    # surface row rather than joining the shared base.
-    - id: hmr
-      name: '@cordisjs/plugin-hmr'
-      config:
-        root: ['.']
-
     # Relational runtime checks over the authoritative event streams; each
     # companion registers the assertions its own package owns.
     - id: invariants

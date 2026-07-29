@@ -10,6 +10,8 @@ flowchart LR
   cfg["apps/cli (dsh)<br/>base.cordis.yml + tui.cordis.yml"]
   plugin_tui_timer["timer<br/>@cordisjs/plugin-timer"]
   cfg --> plugin_tui_timer
+  plugin_tui_hmr["hmr<br/>@cordisjs/plugin-hmr"]
+  cfg --> plugin_tui_hmr
   plugin_tui_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_tui_llm
   plugin_tui_session["session<br/>@deepseek-ai/dsh-session"]
@@ -96,8 +98,6 @@ flowchart LR
   cfg --> plugin_tui_fs_local
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
-  plugin_tui_hmr["hmr<br/>@cordisjs/plugin-hmr"]
-  cfg --> plugin_tui_hmr
   plugin_tui_invariants["invariants<br/>@deepseek-ai/dsh-invariants"]
   cfg --> plugin_tui_invariants
   plugin_tui_session_invariant["session-invariant<br/>@deepseek-ai/dsh-session/invariant"]
@@ -131,6 +131,7 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `timer` | `@cordisjs/plugin-timer` |
+| `hmr` | `@cordisjs/plugin-hmr` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `session-title` | `@deepseek-ai/dsh-session-title` |
@@ -174,7 +175,6 @@ flowchart LR
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
-| `hmr` | `@cordisjs/plugin-hmr` |
 | `invariants` | `@deepseek-ai/dsh-invariants` |
 | `session-invariant` | `@deepseek-ai/dsh-session/invariant` |
 | `agent-invariant` | `@deepseek-ai/dsh-agent/invariant` |
