@@ -195,7 +195,10 @@ interface CompactionRange {
 
 /**
  * Append one prompt / tool-call / tool-result step, the history a compaction
- * shadows on the model surface and the transcript must keep showing.
+ * shadows on the model surface and the transcript must keep showing. The prompt
+ * text is rendered verbatim; the tool card's body comes from `bash`'s static
+ * presenter, so the fixtures pin that the shadowed step's card survives rather
+ * than the result content below.
  */
 function appendPreCompactionLog(session: Session): CompactionRange {
   const user = session.append('user/message', createUserMessage({
@@ -220,7 +223,7 @@ function appendPreCompactionLog(session: Session): CompactionRange {
     step: 1,
     message: createToolResultMessage({
       callId: CallId('old-tool'),
-      content: [{ type: 'text', text: 'tool output that stays readable after compaction' }],
+      content: [{ type: 'text', text: 'shadowed step tool output' }],
       isError: false,
     }),
   }, { surfaceOp: 'append' })

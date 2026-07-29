@@ -110,11 +110,9 @@ export function transcriptToolCallIds(session: Session): Set<string> {
  * `tool/result`, a regenerated `assistant/message`) rewrite one node for the
  * model and mark no boundary in the conversation.
  *
- * The replacement check is redundant at both current call sites, because a
- * surface-eligible non-append event is a replacement: the marker is mandatory,
- * so `Session.append` and the replay fold reject an event that carries none.
- * The check keeps the exported predicate true to its name for a third caller,
- * rather than making that caller repeat it.
+ * Both current call sites already test the replacement themselves. The check
+ * keeps the exported predicate true to its name for a third caller, rather than
+ * making that caller repeat it.
  * @param event - event to test.
  * @returns true when the event compacted a surface range.
  */
