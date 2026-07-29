@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline14, IconChevronLeftOutline14, IconChevronRightOutline14,
@@ -149,6 +149,23 @@ function QuestionFlow({ pending, t, useLocale }: {
     submitDrafts(drafts)
   }
 
+  // Shared by the inline custom input and the optionless textarea: typing a
+  // custom draft clears any selection, and Enter continues the flow
+  // (Shift+Enter stays a newline in the textarea; on the single-line input it
+  // is inert either way).
+  const draftCustom = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
+    const value = event.target.value
+    updateDraft(current => ({
+      ...current, selected: [], custom: value, skipped: false,
+    }))
+  }
+
+  const continueFromCustom = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
+    if (event.key !== 'Enter' || event.shiftKey || isComposing(event)) return
+    event.preventDefault()
+    continueFlow()
+  }
+
   const skipQuestion = (): void => {
     const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index
       ? { selected: [], custom: '', skipped: true }
@@ -247,18 +264,8 @@ function QuestionFlow({ pending, t, useLocale }: {
                     value={draft.custom}
                     disabled={busy !== null}
                     placeholder={t('custom.placeholder')}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      updateDraft(current => ({
-                        ...current, selected: [], custom: value, skipped: false,
-                      }))
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !isComposing(event)) {
-                        event.preventDefault()
-                        continueFlow()
-                      }
-                    }}
+                    onChange={draftCustom}
+                    onKeyDown={continueFromCustom}
                   />
                 </div>
               )
@@ -270,18 +277,8 @@ function QuestionFlow({ pending, t, useLocale }: {
                   disabled={busy !== null}
                   rows={2}
                   placeholder={t('custom.placeholder')}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    updateDraft(current => ({
-                      ...current, selected: [], custom: value, skipped: false,
-                    }))
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
-                      event.preventDefault()
-                      continueFlow()
-                    }
-                  }}
+                  onChange={draftCustom}
+                  onKeyDown={continueFromCustom}
                 />
               )}
           </div>
