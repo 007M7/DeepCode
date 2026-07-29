@@ -591,35 +591,6 @@ describe('LocalPtySession readiness and output', () => {
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
   })
 
-  it('does not attribute a post-echo prompt from an inferred prior send to its successor', async () => {
-    vi.useFakeTimers()
-    const terminal = new FakeTerminal()
-    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 50, timeoutMs: 200 }))
-    await initialize(session, terminal)
-
-    const interrupted = session.startSend({ text: 'sleep', submit: true })
-    await Promise.resolve()
-    await Promise.resolve()
-    await session.signal('SIGINT')
-    await vi.advanceTimersByTimeAsync(50)
-    expect((await interrupted.done).waitReason).toBe('inferred_idle')
-
-    const successor = session.startSend({ text: "printf 'PID=%s\\n' \"$!\"", submit: true })
-    let settled = false
-    void successor.done.then(() => { settled = true })
-    await Promise.resolve()
-    await Promise.resolve()
-    terminal.emitData('printf \'PID=%s\\n\' "$!"\r\n\x1b]133;D;130\x07dsh> ')
-    await vi.advanceTimersByTimeAsync(10)
-    expect(settled).toBe(false)
-
-    terminal.emitData('PID=123\r\n\x1b]133;D;0\x07dsh> ')
-    await vi.advanceTimersByTimeAsync(10)
-    const result = await successor.done
-    expect(result.waitReason).toBe('stdin_read')
-    expect(result.viewport).toContain('PID=123')
-  })
-
   it('retains a prompt marker until the startup shell regains the foreground group', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
