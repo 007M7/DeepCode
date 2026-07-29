@@ -80,9 +80,10 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
           events: live.events.map(event => structuredClone(event)),
         }
       } else {
-        /* v8 ignore next -- caller checks the optional service before mapping records */
         const readQuery = sessionQuery()
+        /* v8 ignore start -- caller proves the optional service before mapping records */
         if (readQuery === undefined) throw new Error('session query is unavailable')
+        /* v8 ignore stop */
         snapshot = await readQuery.readSession(record.header.id)
       }
       return summarizeResumeCandidate(
@@ -111,9 +112,10 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
    * resolve the exact identity and workspace the host will re-exec into.
    */
   const preflightResume = async (sessionId: SessionId): Promise<{ id: SessionId; cwd: string }> => {
-    /* v8 ignore next -- only showResume can call this closure, after proving the optional service exists */
     const query = sessionQuery()
+    /* v8 ignore start -- showResume alone calls this after proving the optional service exists */
     if (query === undefined) throw new Error('Resume is unavailable: session query is not mounted.')
+    /* v8 ignore stop */
     const initialStatus = deps.agentStatus()
     if (initialStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${initialStatus}).`)
     const record = (await query.listSessions()).find(candidate => candidate.header.id === sessionId)
