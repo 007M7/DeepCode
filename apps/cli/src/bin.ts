@@ -48,7 +48,6 @@ switch (invocation.mode) {
     await runMeta()
     break
   }
-  case 'migrate':
   case 'upgrade': {
     const { runSkillSession } = await import('./tui.ts')
     await runSkillSession(`dsh-${invocation.mode}`)

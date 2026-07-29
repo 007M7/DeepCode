@@ -35,13 +35,13 @@ interface MetaInvocation {
 }
 
 /**
- * Guided fresh-session entries: `dsh migrate` seeds the first turn with the
- * `dsh-migrate` skill, `dsh upgrade` with `dsh-upgrade`. Each always mints a
+ * Guided fresh-session entry: `dsh upgrade` seeds the first turn with the
+ * `dsh-upgrade` skill. It always mints a
  * fresh session in the invoking directory and takes no options — `--resume`,
  * `--config`, and `-p` are rejected as mistyped, so there is nothing to carry.
  */
 interface SkillSessionInvocation {
-  mode: 'migrate' | 'upgrade'
+  mode: 'upgrade'
 }
 
 /**
@@ -174,22 +174,15 @@ Examples:
 
   // Registration order is the rendered help order, so daily use comes first
   // and the harness-development surfaces (`web --dev`, `meta`) come last.
-  // `migrate` and `upgrade` are guided fresh-session entries: they take no
-  // options and always mint a fresh session, so nothing is left to carry. Each
-  // description names the outcome, not the skill the first turn invokes.
-  const guided = {
-    migrate: 'import settings from another coding agent (Claude Code, Codex, opencode)',
-    upgrade: 'update this dsh installation to the latest version',
-  } as const
-  for (const mode of ['migrate', 'upgrade'] as const) {
-    program
-      .command(mode)
-      .description(guided[mode])
-      .action(() => {
-        rejectParentOptions(mode)
-        resolved = { mode }
-      })
-  }
+  // `upgrade` is a guided fresh-session entry: it takes no options and always
+  // mints a fresh session, so nothing is left to carry.
+  program
+    .command('upgrade')
+    .description('update this dsh installation to the latest version')
+    .action(() => {
+      rejectParentOptions('upgrade')
+      resolved = { mode: 'upgrade' }
+    })
 
   // Host and port name no default: the CLI passes neither through when the flag
   // is absent, so the shipped `cordis.yml` value stands and restating it here

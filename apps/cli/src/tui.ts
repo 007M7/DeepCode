@@ -10,7 +10,7 @@
  * workspace, and an in-place resume enters the selected session's own directory.
  * `dsh meta`
  * ({@link runMeta}) is the one exception — it makes this harness checkout the
- * workspace. `dsh migrate`/`dsh upgrade` ({@link runSkillSession}) are fresh
+ * workspace. `dsh upgrade` ({@link runSkillSession}) are fresh
  * sessions whose first turn auto-invokes a bundled skill. After boot, the
  * agent's system prompt is told the path to this harness checkout so it can
  * find its own source.
@@ -91,7 +91,7 @@ export async function runMeta(): Promise<void> {
 
 /**
  * Run the interactive TUI as a guided fresh session whose first turn invokes a
- * bundled skill (`dsh migrate` → `dsh-migrate`, `dsh upgrade` → `dsh-upgrade`).
+ * bundled skill (`dsh upgrade` → `dsh-upgrade`).
  * Always mints a fresh session in the invoking directory; the skill is seeded
  * only on this first launch, so a later `--resume` of the session is an ordinary
  * TUI session with no re-injection.

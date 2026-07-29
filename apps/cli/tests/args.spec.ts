@@ -40,7 +40,6 @@ describe('parseDshArgs', () => {
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
       .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w' })
     // Guided fresh-session entries carry nothing: bare mode discriminant only.
-    expect(parse(['migrate'])).toEqual({ mode: 'migrate' })
     expect(parse(['upgrade'])).toEqual({ mode: 'upgrade' })
     // --trusted-host is variadic and repeatable; authorities pass through unvalidated.
     expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
@@ -73,12 +72,8 @@ describe('parseDshArgs', () => {
     expect(exitCode(['meta', '--config', 'c.yml'])).toBe(1)
     expect(exitCode(['meta', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['meta', '-p', 'task'])).toBe(1)
-    // `migrate`/`upgrade` take no options: any leaked default-surface flag is a
+    // `upgrade` take no options: any leaked default-surface flag is a
     // mistyped invocation, not a silently-dropped input.
-    expect(exitCode(['migrate', '--resume', 's'])).toBe(1)
-    expect(exitCode(['migrate', '--config', 'c.yml'])).toBe(1)
-    expect(exitCode(['migrate', '--config-replace', 'tree.yml'])).toBe(1)
-    expect(exitCode(['migrate', '-p', 'task'])).toBe(1)
     expect(exitCode(['upgrade', '--resume', 's'])).toBe(1)
     expect(exitCode(['upgrade', '--config', 'c.yml'])).toBe(1)
     expect(exitCode(['-p', 'task', 'upgrade'])).toBe(1)

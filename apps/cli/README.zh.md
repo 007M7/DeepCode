@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 
-Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`），`meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`migrate`/`upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`migrate`、`upgrade`、`web`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 `cordis.yml` 值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
+Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`），`meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`migrate`、`upgrade`、`web`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 `cordis.yml` 值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
 
 TUI 界面：
 
@@ -15,7 +15,7 @@ TUI 界面：
 
 `dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在两层 `.env` 都加载之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
 
-`dsh migrate` 与 `dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：各自在调用目录中创建一个全新会话，并以一个内置 skill 播种其首轮（`dsh-migrate` 用于从其他编码 agent 迁移——opencode、pi、Claude Code、Codex；`dsh-upgrade` 用于升级本 checkout），效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
+`dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
 
 Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`；`dsh web --config <path>` 会在 Web 界面默认值之后追加一个覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
