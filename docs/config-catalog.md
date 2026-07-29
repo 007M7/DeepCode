@@ -1593,7 +1593,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/pty/tool-bash-persistent/src/index.ts:395`](../packages/pty/tool-bash-persistent/src/index.ts)
+Source: [`packages/pty/tool-bash-persistent/src/index.ts:397`](../packages/pty/tool-bash-persistent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
