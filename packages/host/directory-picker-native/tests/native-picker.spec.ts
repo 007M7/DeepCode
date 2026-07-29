@@ -15,7 +15,7 @@ const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn<ExecFileMock>()
 vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 
 import { describe, expect, it, vi } from 'vitest'
-import { pickNativeDirectory, type DirectoryPickerRunner } from '../src/native-directory-picker.ts'
+import { pickNativeDirectory, type DirectoryPickerRunner } from '../src/native-picker.ts'
 
 function failure(code: string | number, stderr = ''): Error {
   return Object.assign(new Error(`command failed: ${String(code)}`), { code, stderr })

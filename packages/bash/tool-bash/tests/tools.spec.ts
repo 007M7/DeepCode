@@ -911,22 +911,32 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
   it('bash presentResult: a terminal result carries RAW output (newlines intact) + parsed exit code', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
-      { command: 'echo hi', description: 'echo' },
-      { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
+      { command: 'printf "hi\\n\\n"', description: 'echo' },
+      // A clean run renders no exit marker at all, so the body is the raw bytes.
+      { content: [{ type: 'text', text: 'hi\n\n' }], isError: false },
     )
     // A terminal result keeps the RAW bytes (newlines intact) a terminal renderer
-    // needs; the bridge derives the fenced fallback. exitCode is parsed back from
-    // the [exit code: N] marker.
-    expect(present).toEqual({ card: 'terminal', output: 'hi\n[exit code: 0]\n\n', exitCode: 0 })
+    // needs; the bridge derives the fenced fallback.
+    expect(present).toEqual({ card: 'terminal', output: 'hi\n\n', exitCode: 0 })
   })
 
   it('bash presentResult: a non-zero exit and a signal kill parse into exitCode / signal', async () => {
     const ctx = await setup()
     const args = { command: 'x', description: 'x' }
     const nonzero = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'oops\n[exit code: 3]' }], isError: false })
-    expect(nonzero).toEqual({ card: 'terminal', output: 'oops\n[exit code: 3]', exitCode: 3 })
+    expect(nonzero).toEqual({ card: 'terminal', output: 'oops', exitCode: 3 })
     const killed = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'gone\n[killed by signal: SIGKILL]' }], isError: false })
-    expect(killed).toEqual({ card: 'terminal', output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
+    expect(killed).toEqual({ card: 'terminal', output: 'gone', signal: 'SIGKILL' })
+  })
+
+  it('bash presentResult: markers a pill CANNOT show (timeout, sandbox denial) stay in the terminal output', async () => {
+    const ctx = await setup()
+    const args = { command: 'x', description: 'x' }
+    const timedOut = ctx.tools.get('bash')!.presentResult!(
+      args,
+      { content: [{ type: 'text', text: 'slow\n[timed out after 100ms]\n[exit code: 143]' }], isError: false },
+    )
+    expect(timedOut).toEqual({ card: 'terminal', output: 'slow\n[timed out after 100ms]', exitCode: 143 })
   })
 
   it('bash presentResult exit parse is the inverse of renderResult markers (round-trip)', async () => {
@@ -952,8 +962,11 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
       const rendered = renderResult(c.result)
       const out = present.presentResult!({ command: 'x', description: 'x' }, { content: [{ type: 'text', text: rendered }], isError: false })
       // Drop card + output; the remaining fields are the parsed exit.
-      const { card: _c, output: _o, ...exit } = out as { card: string; output?: string; exitCode?: number; signal?: string }
+      const { card: _c, output, ...exit } = out as { card: string; output?: string; exitCode?: number; signal?: string }
       expect(exit).toEqual(c.expect)
+      // Whatever the parse consumed is gone from the body, so a card with an exit
+      // pill never shows the same status twice.
+      expect(output).not.toMatch(/\[exit code: \d+\]|\[killed by signal: /)
     }
   })
 
@@ -964,6 +977,7 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // newline; parsing requires the leading newline emitted for real markers, so this stays exit 0.
     const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
     expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
+    // Unparsed marker-like text is real output, so it is NOT stripped from the body.
     // Same for a fake signal marker with no leading newline.
     const sig = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
     expect(sig).toEqual({ card: 'terminal', output: '[killed by signal: SIGKILL]', exitCode: 0 })
