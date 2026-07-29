@@ -42,6 +42,30 @@ async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
 }
 
 describe('request-level dynamic profiles', () => {
+  it('mounts bare and dormant, then registers routes the moment settings supply providers', async () => {
+    vi.stubEnv('PI_DYNAMIC_KEY', '')
+    const dir = await home()
+    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-from-settings\n')
+    const server = await mockServer([{ events: textEvents }])
+    // The exact product posture: `- id: llm-pi-ai` with no config at all.
+    const ctx = await boot(dir, {})
+
+    expect(ctx.llm.listProviders()).toEqual([])
+    await ctx.settings.update(NS, {
+      providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
+    })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
+    await expect(ctx.llm.listModels('deepseek')).resolves.not.toHaveLength(0)
+
+    const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.headers[0]?.authorization).toBe('Bearer pk-from-settings')
+
+    // Emptying the user layer returns the adapter to its dormant state.
+    await ctx.settings.replace(NS, {})
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
   it('adds a provider route from settings and drops it when the user layer resets', async () => {
     const dir = await home()
     const server = await mockServer([{ events: textEvents }])

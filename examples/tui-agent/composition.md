@@ -16,6 +16,8 @@ flowchart LR
   cfg --> plugin_tui_credentials
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
+  plugin_tui_llm_pi_ai["llm-pi-ai<br/>@deepseek-ai/dsh-llm-pi-ai"]
+  cfg --> plugin_tui_llm_pi_ai
   plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
   cfg --> plugin_tui_subprocess
   plugin_tui_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
@@ -77,6 +79,7 @@ flowchart LR
 | `settings` | `@deepseek-ai/dsh-settings-local` |
 | `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
+| `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `tui-agent` | `@deepseek-ai/dsh-tui-demo` |

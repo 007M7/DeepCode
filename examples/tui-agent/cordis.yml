@@ -30,19 +30,14 @@
     thinking: enabled
     reasoningEffort: max
 
-# The pi-ai multi-provider twin beside the direct adapter: openai + anthropic
-# routes register keyless (the catalog stays browsable; a request needs a
-# key). Keys resolve per request through the apiKeyEnv references, and a
-# `llm-pi-ai:` settings section overrides per provider — proxy baseURL, added
-# routes — without a restart.
+# The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
+# models in the picker) until a `llm-pi-ai:` settings section supplies
+# provider profiles — then those routes register live, keys resolving per
+# request through their apiKeyEnv references, and drop again when the
+# section empties. Which adapters exist is composition; which providers run
+# is the user's settings document.
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
-  config:
-    providers:
-      openai:
-        apiKeyEnv: OPENAI_API_KEY
-      anthropic:
-        apiKeyEnv: ANTHROPIC_API_KEY
 
 # Local executor for the app bundle's bash tool.
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).

@@ -630,10 +630,14 @@ Source: [`packages/llm/llm-deepseek/src/index.ts:49`](../packages/llm/llm-deepse
 Requires: `llm`
 
 ```ts config-catalog
-/** Plugin configuration: the non-empty provider routes this instance owns. */
+/** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
-  /** Non-empty dict of pi-ai provider routes, keyed by provider. */
-  providers: Record<string, PiAiProviderProfile>
+  /**
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
+   * the dormant settings-driven posture: the adapter mounts with no routes
+   * and registers them the moment a settings section supplies profiles.
+   */
+  providers?: Record<string, PiAiProviderProfile>
 }
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */

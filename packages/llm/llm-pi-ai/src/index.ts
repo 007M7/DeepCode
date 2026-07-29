@@ -91,19 +91,24 @@ export function apply(ctx: Context, config: Config): void {
 
   const adapter = new PiAiAdapter({ profiles, resolveApiKey })
   // Route effects bind to this apply fiber via the stable `ctx` reference,
-  // even when a swap runs inside the scoped settings callback below.
-  let disposeRoutes = ctx.llm.registerAdapter([...profiles().keys()], adapter)
-  let registeredFacts = registrationFacts(profiles())
+  // even when a swap runs inside the scoped settings callback below. A bare
+  // mount (zero routes) is the dormant posture: nothing registers until a
+  // settings section supplies profiles, and routes drop when it empties.
+  let disposeRoutes: (() => void) | undefined
+  let registeredFacts: unknown
   const ensureRegistrationFacts = (): void => {
     const facts = registrationFacts(profiles())
     if (deepEqualJson(facts, registeredFacts)) return
     // The registry captures the route set and each route's retry policy at
     // registration: swap the registration in one synchronous section (same
     // adapter instance, no NO_ADAPTER window).
-    disposeRoutes()
-    disposeRoutes = ctx.llm.registerAdapter([...profiles().keys()], adapter)
+    disposeRoutes?.()
+    disposeRoutes = undefined
+    const routes = [...profiles().keys()]
+    if (routes.length > 0) disposeRoutes = ctx.llm.registerAdapter(routes, adapter)
     registeredFacts = facts
   }
+  ensureRegistrationFacts()
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {

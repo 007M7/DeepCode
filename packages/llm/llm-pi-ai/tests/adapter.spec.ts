@@ -395,7 +395,9 @@ describe('provider profile lifecycle', () => {
   })
 
   it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
-    expect(() => resolveProfiles({})).toThrow(/at least one/)
+    // Empty and omitted dicts are the dormant zero-route posture, not errors.
+    expect(resolveProfiles({}).size).toBe(0)
+    expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
     expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
     // The pre-release array shape and its per-profile provider field fail

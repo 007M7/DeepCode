@@ -16,7 +16,7 @@ Status: implemented
 
 **机密是引用，值藏在 `ctx.credentials` 背后。**配置（两个面）携带 `apiKeyEnv: DEEPSEEK_API_KEY`；三包凭据 seam 按操作解析它。`credentials-local` 把活跃进程环境（只读、优先——启动时覆盖是操作者意图，必须*可见地*只读，因此被遮蔽的写入直接拒绝而不是表面成功）叠加在 `$DSH_HOME/.env` 之上（可写、保字节行级编辑、dotenv 能逐字读回的引号阶梯、重载时整体替换快照使删除的条目绝不滞留——来自 Claude Code 增量重放（additive reapply）的教训）。适配器内的解析顺序为：字面 `apiKey` 优先（保留历史 `config.apiKey ?? env` 的可观察语义），然后是 seam，最后——仅在未挂载 seam 时——原始环境变量。
 
-**按插件划分 namespace，schema ≡ `Config`。**每个适配器注册自己的 namespace（`llm-deepseek`、`llm-pi-ai`），schema 用其插件 `Config` schema，组合 `base` 用其 `cordis.yml` 条目——settings 分节与 entry 配置是同一种 YAML 形状，`resolveAdapterOptions`/`resolveProfiles` 对两者仍是唯一的显式 resolve 步骤。存活快照若违反 schema 之外的约束，则保留最后可用事实（seam 的最后可用值哲学向上延伸一层）；entry 配置本身仍会加载失败。pi-ai 的 `providers` 改为以路由为键的字典，base 层与用户层因此按提供方合并，路由集合也由结构直接表达；数组形状响亮失败并给出迁移指引。
+**按插件划分 namespace，schema ≡ `Config`。**每个适配器注册自己的 namespace（`llm-deepseek`、`llm-pi-ai`），schema 用其插件 `Config` schema，组合 `base` 用其 `cordis.yml` 条目——settings 分节与 entry 配置是同一种 YAML 形状，`resolveAdapterOptions`/`resolveProfiles` 对两者仍是唯一的显式 resolve 步骤。存活快照若违反 schema 之外的约束，则保留最后可用事实（seam 的最后可用值哲学向上延伸一层）；entry 配置本身仍会加载失败。pi-ai 的 `providers` 改为以路由为键的字典，base 层与用户层因此按提供方合并，路由集合也由结构直接表达；数组形状响亮失败并给出迁移指引，而空字典是合法的休眠姿态——组合可以裸挂该适配器，把每一条路由都留给用户面决定。
 
 ## 曾考虑的替代方案
 
