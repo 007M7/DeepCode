@@ -448,6 +448,21 @@ describe('parseAnsiLines: bounded state and true widths', () => {
     expect(onlySpan(`\u4e2dx${ESC}[1K|`)).toEqual({ text: '   |', style: undefined })
   })
 
+  it('clears the lead when the write lands on the spacer itself', () => {
+    // Two backspaces from after `中x` stop ON the wide glyph's second cell;
+    // writing there blanks the lead through the spacer side of the pair clear,
+    // so the glyph cannot survive as half a character.
+    expect(onlySpan(`中x${BS}${BS}A`)).toEqual({ text: ' Ax', style: undefined })
+  })
+
+  it('keeps a surviving spacer as a blank when its lead was replaced by a spacer', () => {
+    // `好` written over the first glyph's spacer puts its own spacer on the
+    // second glyph's lead cell — a write that goes down without a pair clear.
+    // The second glyph's spacer survives with a dead lead and must emit a
+    // blank, or everything after it shifts one column left.
+    expect(onlySpan(`中中${BS}${BS}${BS}好`)).toEqual({ text: ' 好 ', style: undefined })
+  })
+
   it('blanks both halves of a wide pair when either is overwritten', () => {
     // A terminal cannot leave one cell of a two-cell glyph standing, so writing
     // over the spacer clears the lead as well.
