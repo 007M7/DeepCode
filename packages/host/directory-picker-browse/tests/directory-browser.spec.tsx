@@ -541,6 +541,9 @@ describe('DirectoryBrowser', () => {
     // them); the filter folds them instead of going silent.
     fireEvent.change(input, { target: { value: 'C:/Users/a' } })
     expect(within(columns()[1]!).getByText('Alpha')).toBeTruthy()
+    // Dot segments normalize on win32 too.
+    fireEvent.change(input, { target: { value: 'C:\\Users\\.\\a' } })
+    expect(within(columns()[1]!).getByText('Alpha')).toBeTruthy()
   })
 
   it('re-parks focus on the edit zone when a failed pick unmounts a dot-revealed row', async () => {
@@ -672,6 +675,12 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByRole('listitem')).toBeNull()
     // A draft naming some other directory (or none) leaves the level whole.
     fireEvent.change(input, { target: { value: 'no-separator' } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // Dot segments and repeated separators are legal for Enter, so the
+    // filter's directory comparison normalizes them the same way.
+    fireEvent.change(input, { target: { value: `${HOME}/./do` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    fireEvent.change(input, { target: { value: `${HOME}//do` } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
   })
 

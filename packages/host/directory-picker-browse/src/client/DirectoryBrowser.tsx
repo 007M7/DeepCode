@@ -73,6 +73,15 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
 }
 
 /**
+ * Folds separators to the platform's canonical one: win32 treats a forward
+ * slash as a separator too (resolve() folds them the same way), while
+ * POSIX must not — a backslash there is a name character.
+ */
+function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
+  return value => (sep === '\\' ? value.replaceAll('/', sep) : value)
+}
+
+/**
  * Lexically normalizes an absolute host path for comparisons: folds
  * forward slashes on Windows (win32 accepts either), collapses repeated
  * and trailing separators, drops `.` segments, and applies `..` without
@@ -82,15 +91,6 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
  * backend's own paths arrive already resolved. A lexical mirror only:
  * symlinks are the backend's business.
  */
-/**
- * Folds separators to the platform's canonical one: win32 treats a forward
- * slash as a separator too (resolve() folds them the same way), while
- * POSIX must not — a backslash there is a name character.
- */
-function foldSeparatorsFor(sep: '\\' | '/'): (value: string) => string {
-  return value => (sep === '\\' ? value.replaceAll('/', sep) : value)
-}
-
 function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
   const foldSeparators = foldSeparatorsFor(sep)
   return (raw) => {
@@ -161,12 +161,13 @@ function separatorOf(listing: DirectoryListing): '\\' | '/' {
  * The path draft's final segment, when its directory part names the level
  * `listing` lists — the segment the level prefix-filters on while the user
  * types. Any other draft (no separator yet, or naming some other directory)
- * leaves the level unfiltered. The directory part compares under the
- * platform fold (exact on slash platforms; Windows folds case, since an
- * upgraded selection may carry the actual entry's case while the level
- * below still carries the typed one — and folds forward slashes, which
- * win32 and the backend both accept in typed paths); the name filter
- * downstream is case-insensitive everywhere.
+ * leaves the level unfiltered. The directory part compares lexically
+ * normalized (dot segments, repeated separators, and win32 forward
+ * slashes all match what Enter would navigate to) and under the platform
+ * case fold (exact on slash platforms; Windows folds, since an upgraded
+ * selection may carry the actual entry's case while the level below still
+ * carries the typed one); the name filter downstream is case-insensitive
+ * everywhere.
  */
 function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
   if (draft === null) return null
@@ -175,8 +176,10 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
   const cut = folded.lastIndexOf(sep)
   if (cut === -1) return null
   const fold = foldPathFor(sep)
-  const level = listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
-  return fold(folded.slice(0, cut + 1)) === fold(level) ? folded.slice(cut + 1) : null
+  const normalize = normalizePathFor(sep)
+  return fold(normalize(folded.slice(0, cut + 1))) === fold(normalize(listing.path))
+    ? folded.slice(cut + 1)
+    : null
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
@@ -312,25 +315,31 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // whose new level dropped the focused row, a failed pick, and every
   // create-dialog exit, whose close-time parking is also what a failed
   // relist inherits) parks on the crumb edit zone, each only when focus
-  // actually fell to body. Pointer-out cancels never set (or clear) these
-  // — yanking focus back from wherever the user clicked would be worse
-  // than the fall.
+  // actually fell to body. One parking bypasses both flags: the
+  // show-hidden toggle's click reclaims focus onto itself, synchronously,
+  // when the click finds focus among the rows. Pointer-out cancels never
+  // set (or clear) these — yanking focus back from wherever the user
+  // clicked would be worse than the fall.
   const refocusPick = useRef(false)
   const refocusEditZone = useRef(false)
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
   /**
    * Whether the focused element sits among the miller rows — probed before
-   * a landing replaces the row nodes, to decide focus parking. A probe
-   * only: it never gates the landing itself — a torn-down ref in a close
-   * race merely skips the parking, and committing the landing into a
-   * closing dialog is safe (the component already renders null, and the
-   * open effect resets parent/selected/child on the next open).
+   * a landing replaces the row nodes to decide focus parking, and by the
+   * show-hidden toggle's click to decide whether to reclaim the native
+   * focus outcome. A probe only: it never gates its caller — a torn-down
+   * ref in a landing's close race merely skips the parking, and
+   * committing the landing into a closing dialog is safe (the component
+   * already renders null, and the open effect resets parent/selected/child
+   * on the next open).
    * @returns true when `document.activeElement` is inside the miller row.
    */
   const focusInMillerRows = useCallback((): boolean => {
     const rowHost = millerRowRef.current
-    /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
+    // Only the landing callers can race a close (commit precedes the reset
+    // effect); the toggle's click caller always finds the host mounted.
+    /* v8 ignore next -- close-race guard: not deterministically reproducible. */
     if (rowHost === null) return false
     return rowHost.contains(document.activeElement)
   }, [])
@@ -843,10 +852,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
             onClick={(event) => {
               // The suppression above exists to protect the INPUT's focus;
-              // when focus is instead on a row that this very toggle may
-              // re-hide, restore the native outcome — the clicked toggle
-              // keeps focus in the card (the editing-time refocus effect
-              // deliberately stays out of the way).
+              // with focus among the rows instead, hand back the native
+              // click outcome wholesale — the clicked toggle takes focus
+              // and stays in the card. Accepted cost: this also moves
+              // focus off a row the toggle would NOT have hidden; tracking
+              // which rows a direction change unmounts is not worth it.
               if (focusInMillerRows()) event.currentTarget.focus()
               setShowHidden(prev => !prev)
             }}
