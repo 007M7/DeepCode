@@ -57,10 +57,30 @@ describe('canonicalizeWorkspace', () => {
     await expect(canonicalizeWorkspace(fs, join(root, 'nope'))).rejects.toThrow(/not a directory/)
   })
 
+  it('wraps a provider failure while resolving the workspace', async () => {
+    fs.resolve = async () => { throw 'raw workspace resolve failure' }
+    await expect(canonicalizeWorkspace(fs, ws))
+      .rejects.toThrow(`workspace root "${ws}" cannot be resolved: raw workspace resolve failure`)
+  })
+
   it('rejects a non-directory workspace', async () => {
     const file = join(root, 'file.txt')
     await writeFile(file, 'x')
     await expect(canonicalizeWorkspace(fs, file)).rejects.toThrow(/not a directory/)
+  })
+
+  it('normalizes workspace metadata cancellation and preserves other provider failures', async () => {
+    const providerFailure = new Error('workspace metadata failed')
+    fs.stat = async () => { throw providerFailure }
+    await expect(canonicalizeWorkspace(fs, ws)).rejects.toBe(providerFailure)
+
+    const controller = new AbortController()
+    fs.stat = async () => {
+      controller.abort(new Error('workspace metadata cancelled'))
+      throw providerFailure
+    }
+    await expect(canonicalizeWorkspace(fs, ws, controller.signal))
+      .rejects.toThrow('workspace metadata cancelled')
   })
 })
 

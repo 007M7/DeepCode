@@ -42,7 +42,10 @@ export async function canonicalizeWorkspace(
     throw new Error(`workspace root "${workspaceRoot}" cannot be resolved: ${messageOf(error)}`, { cause: error })
   }
   throwIfAborted(signal)
-  const info = await fs.stat(target, signal)
+  const info = await fs.stat(target, signal).catch((error: unknown) => {
+    throwIfAborted(signal)
+    throw error
+  })
   throwIfAborted(signal)
   if (info?.type !== 'directory') {
     throw new Error(`workspace root "${workspaceRoot}" is not a directory`)
