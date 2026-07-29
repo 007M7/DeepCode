@@ -38,27 +38,28 @@ function ensureReference(ref: ImageAttachmentRef): string {
   return match[1]
 }
 
-function inspectMetadata(data: Uint8Array, declaredMediaType: ImageAttachmentRef['mediaType']): Omit<ImageAttachmentRef, 'attachmentId' | 'name'> {
+async function inspectMetadata(
+  data: Uint8Array,
+  declaredMediaType: ImageAttachmentRef['mediaType'],
+  maxPixels?: number,
+): Promise<Omit<ImageAttachmentRef, 'attachmentId' | 'name'>> {
   if (data.byteLength === 0) throw new AttachmentError('Image is empty.', 'INVALID_IMAGE')
-  const detected = detectImage(data)
+  const detected = await detectImage(data, maxPixels)
   if (detected.mediaType !== declaredMediaType) throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')
   return { ...detected, bytes: data.byteLength }
-}
-
-function validateAdmission(metadata: Omit<ImageAttachmentRef, 'attachmentId' | 'name'>, limits: ImageAttachmentLimits): void {
-  if (metadata.bytes > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
-  if (metadata.width * metadata.height > limits.maxImagePixels) {
-    throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')
-  }
 }
 
 /**
  * Run the full admission policy for one image without touching storage.
  * @param input - encoded bytes and declared metadata.
  * @param limits - resolved storage policy.
+ * @returns completion after the encoded raster has been fully decoded.
  */
-export function validateImageFile(input: SaveImageAttachment, limits: ImageAttachmentLimits): void {
-  validateAdmission(inspectMetadata(input.data, input.mediaType), limits)
+export async function validateImageFile(input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<void> {
+  if (input.data.byteLength > limits.maxImageBytes) {
+    throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
+  }
+  await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
 }
 
 /**
@@ -112,8 +113,8 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
  * @returns durable content-addressed reference.
  */
 export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
-  const metadata = inspectMetadata(input.data, input.mediaType)
-  validateAdmission(metadata, limits)
+  if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
+  const metadata = await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
@@ -187,7 +188,7 @@ export async function readImageFile(root: string, ref: ImageAttachmentRef): Prom
     throw new AttachmentError('Unable to read image attachment.', 'ATTACHMENT_READ_FAILED', { cause: error })
   }
   if (digest(data) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
-  const metadata = inspectMetadata(data, ref.mediaType)
+  const metadata = await inspectMetadata(data, ref.mediaType)
   if (metadata.bytes !== ref.bytes || metadata.width !== ref.width || metadata.height !== ref.height) {
     throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
   }

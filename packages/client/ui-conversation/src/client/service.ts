@@ -15,7 +15,7 @@ import type { Context } from 'cordis'
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
-import type { InputService } from './input/contract.ts'
+import type { DraftAttachmentId, InputService } from './input/contract.ts'
 
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
@@ -46,7 +46,7 @@ export interface IConversation {
 
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
-  return { kind: 'image', id: crypto.randomUUID(), previewUrl: URL.createObjectURL(file), file }
+  return { kind: 'image', id: crypto.randomUUID() as DraftAttachmentId, previewUrl: URL.createObjectURL(file), file }
 }
 
 interface ImageUrlEntry {
@@ -59,10 +59,11 @@ interface ImageUrlEntry {
 export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
   readonly input: InputService
-  private readonly draftAttachments = new Map<string, ComposerAttachment>()
+  private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
+  private disposed = false
 
   /**
    * @param ctx - owning root context (the plugin apply context; the service
@@ -74,6 +75,7 @@ export class ConversationService extends Service implements IConversation {
     super(ctx, 'conversation')
     this.input = config.input
     ctx.effect(() => () => {
+      this.disposed = true
       for (const url of this.createdImageUrls) URL.revokeObjectURL(url)
       this.createdImageUrls.clear()
       this.draftAttachments.clear()
@@ -107,7 +109,7 @@ export class ConversationService extends Service implements IConversation {
     session: SessionFace,
     text: string,
     mode: 'queue' | 'steer',
-    imageIds: readonly string[],
+    imageIds: readonly DraftAttachmentId[],
   ): Promise<void> {
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
@@ -149,7 +151,7 @@ export class ConversationService extends Service implements IConversation {
    * @param ids - ordered ids from the per-session input state.
    * @returns attachments still available in this browser runtime.
    */
-  draftImages(ids: readonly string[]): readonly ComposerAttachment[] {
+  draftImages(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[] {
     const attachments: ComposerAttachment[] = []
     for (const id of ids) {
       const attachment = this.draftAttachments.get(id)
@@ -162,7 +164,7 @@ export class ConversationService extends Service implements IConversation {
    * Release one draft attachment preview.
    * @param id - draft-local attachment id.
    */
-  releaseDraftImage(id: string): void {
+  releaseDraftImage(id: DraftAttachmentId): void {
     const attachment = this.draftAttachments.get(id)
     if (attachment === undefined) return
     this.draftAttachments.delete(id)
@@ -185,6 +187,7 @@ export class ConversationService extends Service implements IConversation {
    * @returns a browser URL for inline and original-size display.
    */
   resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
+    if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
     const key = `${sessionId}:${attachment.attachmentId}`
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
@@ -194,6 +197,10 @@ export class ConversationService extends Service implements IConversation {
     const pending = session.readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+        if (this.disposed) throw new Error('conversation.resolveImage: service was disposed before loading completed')
+        if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
+          throw new Error('historical image scope was released before loading completed')
+        }
         if (typeof URL.createObjectURL !== 'function') {
           return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
         }
@@ -201,10 +208,6 @@ export class ConversationService extends Service implements IConversation {
         const url = URL.createObjectURL(new Blob([bytes.buffer], {
           type: result.value.attachment.mediaType,
         }))
-        if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
-          revokePreview(url)
-          throw new Error('historical image scope was released before loading completed')
-        }
         this.createdImageUrls.add(url)
         return url
       })

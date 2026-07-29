@@ -6,14 +6,14 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type { ComposerKeyboard, DraftAttachmentId, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 /** Browser-owned image that has not crossed the durable host boundary. */
 export interface ComposerAttachment {
   kind: 'image'
-  id: string
+  id: DraftAttachmentId
   file: File
   previewUrl: string
 }
@@ -275,9 +275,9 @@ export interface ComposerBarInjected {
   /** Create browser previews and append their ids to the session input state. */
   addImages: (files: readonly File[]) => string | null
   /** Release one browser preview and remove its id from the session input state. */
-  removeImage: (id: string) => void
+  removeImage: (id: DraftAttachmentId) => void
   /** Resolve ordered input-state ids to browser-owned draft attachments. */
-  draftImages: (ids: readonly string[]) => readonly ComposerAttachment[]
+  draftImages: (ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]
   /** Cancel the in-flight turn. */
   stop: () => void
   /**

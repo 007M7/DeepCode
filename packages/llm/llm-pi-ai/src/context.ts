@@ -18,6 +18,23 @@ function flattenText(message: Message): string {
     .join('')
 }
 
+/**
+ * Return whether content contains an image, including nested tool results.
+ * @param blocks - content to inspect recursively.
+ * @returns whether any nested block is an image.
+ */
+export function contentHasImage(blocks: readonly ContentBlock[]): boolean {
+  return blocks.some(block => block.type === 'image'
+    || (block.type === 'tool-result' && contentHasImage(block.content)))
+}
+
+/** Flatten text recursively inside one tool result. */
+function toolResultText(blocks: readonly ContentBlock[]): string {
+  return blocks.map(block => block.type === 'text'
+    ? block.text
+    : block.type === 'tool-result' ? toolResultText(block.content) : '').join('')
+}
+
 async function userContent(
   blocks: readonly ContentBlock[],
   attachments: AttachmentStore,
@@ -38,6 +55,14 @@ async function userContent(
         break
       }
       case 'tool-result':
+        {
+          const nested = await userContent(block.content, attachments)
+          if (typeof nested === 'string') {
+            if (nested.length > 0) content.push({ type: 'text', text: nested })
+          } else {
+            content.push(...nested)
+          }
+        }
         break
       default:
         // Other merge-extensible blocks are not user-input vocabulary for pi-ai.
@@ -72,8 +97,7 @@ function textOnlyContext(options: GenerateOptions): PiContext {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
-    if (message.content.some(block => block.type === 'image'
-      || (block.type === 'tool-result' && block.content.some(piece => piece.type === 'image')))) {
+    if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
     if (message.role === 'system') {
@@ -96,7 +120,7 @@ function textOnlyContext(options: GenerateOptions): PiContext {
         toolName: toolNames.get(result.toolCallId) ?? 'unknown',
         content: [{
           type: 'text',
-          text: result.content.filter(block => block.type === 'text').map(block => block.text).join('') || '(no output)',
+          text: toolResultText(result.content) || '(no output)',
         }],
         isError: result.isError ?? false,
         timestamp: 0,
@@ -131,7 +155,7 @@ async function toPiContextWithImages(options: GenerateOptions, attachments: Atta
 
   for (const message of options.messages) {
     if (message.role === 'system') {
-      if (message.content.some(block => block.type === 'image')) {
+      if (contentHasImage(message.content)) {
         throw new LlmError('pi-ai cannot represent an image in an in-history system message', 'UNSUPPORTED_CONTENT')
       }
       // pi-ai has a single systemPrompt slot; in-history system messages are

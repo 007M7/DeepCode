@@ -20,7 +20,10 @@
     "@deepseek-ai/dsh-paths": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
-  "dependencies": { "schemastery": "^3.18.0" },
+  "dependencies": {
+    "schemastery": "^3.18.0",
+    "sharp": "^0.35.3"
+  },
   "devDependencies": {
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

@@ -36,7 +36,7 @@ interface ImageAttachmentRef {
 ```
 
 ```ts type-equiv
-/** Deployment-resolved limits shared by upload consumers and UI preflight. */
+/** Deployment-resolved limits used by upload admission and request buffering. */
 interface ImageAttachmentLimits {
   maxImageBytes: number
   maxImagesPerMessage: number
@@ -54,7 +54,7 @@ The reference records intrinsic dimensions and encoded length so clients can lay
 /** Request to validate and durably commit one image. */
 interface SaveImageAttachment {
   data: Uint8Array
-  /** Caller-declared media type, checked against magic bytes. */
+  /** Caller-declared media type, checked against fully decoded bytes. */
   mediaType: ImageMediaType
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string
@@ -69,4 +69,4 @@ interface StoredImageAttachment {
 }
 ```
 
-`saveImage()` validates bytes and atomically commits one object before returning its reference. `validateImage()` runs the same admission checks without persisting anything; batch callers validate every member through it before saving any member, so admission rejection leaves no partial objects behind. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.
+`saveImage()` validates bytes and atomically commits one object before returning its reference. `validateImage()` runs the same admission checks without persisting anything; batch callers validate every member through it before saving any member, so validation rejection leaves no partial objects behind. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.

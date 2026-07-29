@@ -22,9 +22,9 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 输入栏为 `'conversation.input.plan'`（位于本地 access 模式控件右侧）和 `'conversation.input.model'`（渲染在 pending 指示器与发送／停止按钮之前）声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。当 `plan` 投影的有效目标为 plan mode 时，InputBar 将文本框 placeholder 切换为 plan 任务措辞，经本包注册的 `command.hint` locale 命名空间本地化，并与已认领 `/plan` 命令的提示逐字共用同一份文案（经标准套件 `useProjection` 读取的 host 折叠值；owner 提供的 placeholder 优先）。另一个会话视图活跃时，待处理的 composer 接管仍保持挂载，使被阻塞的 agent（智能体）仍能收到回答；没有待处理交互时，活跃会话的 composer 归 Chat 所有。常驻无会话壳使用 `DisabledInputBar`，因此不会分发任何会话作用域的控件 seat。
 
-图片草稿在该 store 中只保留有序的运行时 id。`ConversationService` 持有对应的浏览器 `File` 和对象 URL，在分配前应用最新的宿主能力与上传限制快照，并在图片移除或发送时释放草稿 URL，在所渲染的会话卸载时释放历史 URL。粘贴与拖放共用同一校验路径；混合剪贴板文本仍由 textarea 原生输入。
+图片草稿在该 store 中只保留有序的 `DraftAttachmentId` 值。`ConversationService` 持有对应的浏览器 `File` 和对象 URL，会在分配预览前拒绝声明媒体类型不受支持的图片，并在图片移除或发送时释放草稿 URL，在所渲染的会话卸载时释放历史 URL。一项历史读取如果在其所渲染的会话卸载或该服务释放后才完成，会在分配对象 URL 前被拒绝。粘贴与拖放共用同一校验路径；混合剪贴板文本仍由 textarea 原生输入。
 
-`src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
+`src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层仅限 `apply`／`inject` 与契约类型；具体服务、实现组件（骨架、聊天行）和 store factory 均保持内部状态。同包测试通过 `./src/*` 导入这些内部实现。
 
 ## 模型体验
 

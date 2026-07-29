@@ -13,7 +13,7 @@ import type {
   ReferenceInsert, SlashController, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type {
-  EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import { InputMachine } from './machine.ts'
@@ -39,7 +39,7 @@ export interface SessionInputDeps {
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, mode: 'queue' | 'steer', imageIds: readonly string[]): void
+  defaultSink(text: string, mode: 'queue' | 'steer', imageIds: readonly DraftAttachmentId[]): void
 }
 
 /** Guard tier from the machine phase. */
@@ -79,7 +79,7 @@ export class SessionInputShell implements SessionInput {
   private readonly core = new InputMachine({ now: () => Date.now() })
   private noticeSeq = 0
   private lastDraft = ''
-  private imageIds: readonly string[] = []
+  private imageIds: readonly DraftAttachmentId[] = []
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never raw placeholders). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -102,14 +102,14 @@ export class SessionInputShell implements SessionInput {
   }
 
   /** Append ordered browser-owned draft attachment ids. */
-  addImages(ids: readonly string[]): void {
+  addImages(ids: readonly DraftAttachmentId[]): void {
     if (ids.length === 0 || this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
     this.imageIds = [...this.imageIds, ...ids]
     this.publish()
   }
 
   /** Remove one browser-owned draft attachment id. */
-  removeImage(id: string): void {
+  removeImage(id: DraftAttachmentId): void {
     const next = this.imageIds.filter(candidate => candidate !== id)
     if (next.length === this.imageIds.length) return
     this.imageIds = next
@@ -120,7 +120,7 @@ export class SessionInputShell implements SessionInput {
    * Drop ids whose browser objects no longer exist.
    * @param available - ids that still resolve through the browser attachment registry.
    */
-  pruneImages(available: readonly string[]): void {
+  pruneImages(available: readonly DraftAttachmentId[]): void {
     const keep = new Set(available)
     const next = this.imageIds.filter(id => keep.has(id))
     if (next.length === this.imageIds.length) return
@@ -132,7 +132,7 @@ export class SessionInputShell implements SessionInput {
    * Restore a failed attempt's ids before any images added after submission.
    * @param ids - ordered identifiers captured by the failed attempt.
    */
-  restoreImages(ids: readonly string[]): void {
+  restoreImages(ids: readonly DraftAttachmentId[]): void {
     const current = new Set(this.imageIds)
     this.imageIds = [...ids.filter(id => !current.has(id)), ...this.imageIds]
     this.publish()
@@ -144,7 +144,7 @@ export class SessionInputShell implements SessionInput {
    * (the command path gets the same discipline from submit-settled success).
    * @param imageIds - identifiers included in the committed attempt.
    */
-  commitSend(imageIds: readonly string[]): void {
+  commitSend(imageIds: readonly DraftAttachmentId[]): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
     this.run(this.core.dispatch({ type: 'send-committed' }))

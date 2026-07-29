@@ -117,10 +117,26 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
   return response.result.value
 }
 
+function registerTextOnly(ctx: Context): void {
+  ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
+    override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+      return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+    }
+  }('Text Only', []))
+}
+
 describe('Web session model selection', () => {
   it('accepts ordered multi-image prompts and rejects configured batch-limit excess before persistence', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const validateImage = vi.fn((_input: { data: Uint8Array }): void => {})
+    let secondValidationStarted!: () => void
+    let releaseSecondValidation!: () => void
+    const secondStarted = new Promise<void>((resolve) => { secondValidationStarted = resolve })
+    const secondReleased = new Promise<void>((resolve) => { releaseSecondValidation = resolve })
+    const validateImage = vi.fn(async (input: { data: Uint8Array }): Promise<void> => {
+      if (input.data[0] !== 2) return
+      secondValidationStarted()
+      await secondReleased
+    })
     const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => {
       return Promise.resolve({
         attachmentId: `att-${String(input.data[0])}`,
@@ -141,11 +157,15 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
     const first = { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==', name: 'first.png' }
     const second = { type: 'image' as const, mediaType: 'image/png' as const, data: 'Ag==', name: 'second.png' }
-    const accepted = await api.sessions.prompt(request({
+    const accepting = api.sessions.prompt(request({
       sessionId,
       mode: 'queue' as const,
       content: [first, { type: 'text' as const, text: 'compare' }, second],
     }))
+    await secondStarted
+    expect(saveImage).not.toHaveBeenCalled()
+    releaseSecondValidation()
+    const accepted = await accepting
     expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
     expect(validateImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
     expect(saveImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
@@ -294,13 +314,9 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('refuses a text-only selection once the session log carries an image', async () => {
+  it('refuses a text-only selection while current derived history carries an image', async () => {
     const { ctx, sessionId, agent } = await harness()
-    ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
-      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
-      }
-    }('Text Only', []))
+    registerTextOnly(ctx)
     ctx.llm.registerAdapter(['vision'], new class extends CatalogAdapter {
       override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
         return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text', 'image'] })
@@ -318,7 +334,7 @@ describe('Web session model selection', () => {
       content: [{ type: 'image', attachment: { attachmentId: 'att-1', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
     } as never, { surfaceOp: 'append' })
 
-    // The log is immutable: a text-only route would fail every later turn.
+    // The image remains on the current request surface, so a text-only route would fail the next turn.
     const stranded = await api.sessions.selectModel(request({
       sessionId, provider: 'text-only', model: 'plain',
     }))
@@ -337,28 +353,84 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('refuses a text-only selection while an image prompt is still queued (not yet logged)', async () => {
+  it('keeps a dequeued image pending until publication, then follows the compacted surface', async () => {
     const { ctx, sessionId, agent } = await harness()
-    ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
-      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
-      }
-    }('Text Only', []))
+    registerTextOnly(ctx)
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
-    // The queued message enters the session log only when claimed — after a
-    // model switch would already have landed. The pending-inbox mirror must
-    // therefore gate the switch too.
-    ctx.emit('agent/inbox/enqueue', agent, {
+    const queued = {
       id: 'q-1', role: 'user', source: { kind: 'user' },
       content: [{ type: 'image', attachment: { attachmentId: 'att-q', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
-    } as never, 'queued')
-    const stranded = await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))
-    expect(stranded.result.ok).toBe(false)
-    // Claiming the message drains the mirror; the log now owns the decision.
-    ctx.emit('agent/inbox/dequeue', agent, { id: 'q-1' } as never, 'queued')
+    } as never
+    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    // Dequeue precedes the authoritative append, so it cannot open a switch window.
+    ctx.emit('agent/inbox/dequeue', agent, queued, 'queued')
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    const imageEvent = agent.session.append('user/message', queued, { surfaceOp: 'append' })
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    // Publication retires the mirror; once compaction shadows the image, the
+    // current model-visible surface no longer requires an image-capable route.
+    agent.session.append('user/message', {
+      id: 'summary', role: 'user', source: { kind: 'plugin', plugin: 'compact' },
+      content: [{ type: 'text', text: 'image summarized' }],
+    } as never, {
+      surfaceOp: { op: 'replace', start: imageEvent.seq, end: imageEvent.seq },
+      sourceEventSeqs: [imageEvent.seq],
+    })
     expect(expectValue(await api.sessions.selectModel(request({
       sessionId, provider: 'text-only', model: 'plain',
     }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
+
+  it('serializes an image save with a concurrent model selection', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    registerTextOnly(ctx)
+    let saveStarted!: () => void
+    let releaseSave!: () => void
+    const started = new Promise<void>((resolve) => { saveStarted = resolve })
+    const released = new Promise<void>((resolve) => { releaseSave = resolve })
+    const ref = { attachmentId: 'att-race', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 }
+    ctx.provide('attachments', {
+      imageLimits: {
+        maxImageBytes: 1,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 1,
+        maxImagePixels: 1,
+        mediaTypes: ['image/png'],
+      },
+      validateImage: () => Promise.resolve(),
+      saveImage: async () => {
+        saveStarted()
+        await released
+        return ref
+      },
+    } as never)
+    Object.assign(agent, {
+      followup(message: UserMessage) {
+        ctx.emit('agent/inbox/enqueue', agent, message, 'queued')
+      },
+    })
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const prompt = api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AA==' }],
+    }))
+    await started
+    const selection = api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))
+    expect(await Promise.race([
+      selection.then(() => 'settled' as const),
+      new Promise<'pending'>((resolve) => { setTimeout(() => { resolve('pending') }, 0) }),
+    ])).toBe('pending')
+
+    releaseSave()
+    expect((await prompt).result.ok).toBe(true)
+    expect((await selection).result.ok).toBe(false)
     await ctx.fiber.dispose()
   })
 
@@ -369,9 +441,8 @@ describe('Web session model selection', () => {
       readImage: () => Promise.resolve({ ref, data: new Uint8Array([1, 2, 3, 4]) }),
     } as never)
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
-    // The only reference lives inside an assistant/message wrapper — the same
-    // walk that gates model selection must authorize the read, or a real host
-    // denies galleries the fixture (with its own authorization mirror) serves.
+    // The only reference lives inside an assistant/message wrapper; the
+    // authorization walk must follow that durable event shape.
     agent.session.append('assistant/message', {
       turn: 1, step: 0,
       message: { id: 'a-1', role: 'assistant', source: { kind: 'model', provider: 'p', model: 'm' }, content: [{ type: 'image', attachment: ref }] },
@@ -383,7 +454,7 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('detects images on every replayed route: wrapped messages, streamed blocks, nested tool results', async () => {
+  it('detects images in wrapped messages and nested tool results on the current surface', async () => {
     const image = { type: 'image', attachment: { attachmentId: 'att-x', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }
     const cases: { label: string; append: (agent: Agent) => void }[] = [
       {
@@ -392,14 +463,6 @@ describe('Web session model selection', () => {
           agent.session.append('steering/message', {
             turn: 1, message: { id: 'st-1', role: 'user', source: { kind: 'user' }, content: [image] },
           } as never, { surfaceOp: 'append' })
-        },
-      },
-      {
-        label: 'streamed assistant block',
-        append: (agent) => {
-          agent.session.append('assistant/chunk', {
-            turn: 1, step: 0, chunk: { type: 'block-end', index: 0, block: image },
-          } as never)
         },
       },
       {
@@ -414,11 +477,7 @@ describe('Web session model selection', () => {
     ]
     for (const { label, append } of cases) {
       const { ctx, sessionId, agent } = await harness()
-      ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
-        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-          return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
-        }
-      }('Text Only', []))
+      registerTextOnly(ctx)
       const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
       append(agent)
       const stranded = await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))

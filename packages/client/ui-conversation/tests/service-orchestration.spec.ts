@@ -6,17 +6,19 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
-import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import { InputHub } from '../src/client/input/hub.ts'
+import { ConversationService } from '../src/client/service.ts'
 
-async function bench() {
+async function bench(readAttachment?: SessionFace['readAttachment']) {
   const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const loadOlder = vi.fn(() => Promise.resolve())
   await runtime.sessions.add({
     id: 's1',
-    session: { prompt, cancel, loadOlder },
+    session: { prompt, cancel, loadOlder, ...(readAttachment === undefined ? {} : { readAttachment }) },
   })
   // config.input is required (the apply shares its hub with the inject
   // factories); the bench passes its own instance explicitly.
@@ -25,7 +27,7 @@ async function bench() {
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationService
   const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
-  return { runtime, hub, root, scoped, prompt, cancel, loadOlder }
+  return { runtime, fiber, hub, root, scoped, prompt, cancel, loadOlder }
 }
 
 describe('ConversationService', () => {
@@ -119,6 +121,37 @@ describe('ConversationService', () => {
       created.mockRestore()
       revoked.mockRestore()
     }
+    await b.runtime.dispose()
+  })
+
+  it('does not publish a historical image URL after disposal', async () => {
+    let resolveRead!: (result: Awaited<ReturnType<SessionFace['readAttachment']>>) => void
+    const readAttachment: SessionFace['readAttachment'] = vi.fn(() => new Promise<Awaited<ReturnType<SessionFace['readAttachment']>>>(
+      (resolve) => { resolveRead = resolve },
+    ))
+    const b = await bench(readAttachment)
+    const created = vi.spyOn(URL, 'createObjectURL')
+    const sessionId = b.runtime.sessions.behavior('s1').sessionId
+    const attachment = {
+      attachmentId: AttachmentId('image-1'),
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    } as const
+    const pending = b.root.resolveImage(sessionId, attachment)
+    await b.fiber.dispose()
+    await expect(b.root.resolveImage(sessionId, attachment)).rejects.toThrow('service is disposed')
+    resolveRead({
+      ok: true,
+      value: {
+        attachment,
+        data: Uint8Array.of(1),
+      },
+    })
+    await expect(pending).rejects.toThrow('service was disposed before loading completed')
+    expect(created).not.toHaveBeenCalled()
+    created.mockRestore()
     await b.runtime.dispose()
   })
 
