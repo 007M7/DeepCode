@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -346,14 +347,22 @@ describe('LspInstance disposal', () => {
 function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
-    return true
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
     throw error
   }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/, 1)[0]
+    return !/^[ZXx]$/.test(state ?? '')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
-/** Wait until a process id disappears so temporary-workspace cleanup cannot race handle release. */
+/** Wait until a process can no longer execute so temporary-workspace cleanup cannot race handle release. */
 async function waitForProcessExit(pid: number, timeoutMs = 3_000): Promise<void> {
   const started = Date.now()
   while (processAlive(pid)) {

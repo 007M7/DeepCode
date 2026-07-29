@@ -665,7 +665,7 @@ describe('tree-survivor escalation (terminate and bounded waits reach helpers th
     clearTimeout(timer)
     running.terminate()
     await expect(running.waitForExit()).resolves.toBe(true)
-    expect(() => process.kill(helper, 0)).toThrow()
+    await expect(waitGone(helper)).resolves.toBeUndefined()
   })
 
   it('service teardown awaits tree survivors, not just handle settlement', async () => {
@@ -682,8 +682,8 @@ describe('tree-survivor escalation (terminate and bounded waits reach helpers th
     const helper = await waitForPidFile(pidFile)
     await running.done
     await fiber.dispose()
-    // Teardown itself waited for the survivor to die.
-    expect(() => process.kill(helper, 0)).toThrow()
+    // Teardown itself waited for the survivor to become quiescent.
+    await expect(waitGone(helper)).resolves.toBeUndefined()
   })
 })
 
