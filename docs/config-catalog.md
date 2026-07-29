@@ -270,6 +270,27 @@ Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) ·
 
 Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
 
+## `@deepseek-ai/dsh-client-connection`
+
+Requires: `httpServer` · `apiProxy`
+
+```ts config-catalog
+/** Plugin config: the deployment's non-loopback serving authorities. */
+export interface ConnectionConfig {
+  /**
+   * Authorities this deployment serves beyond loopback: exact `host:port`, or
+   * port-less `host` matching any port. The /api trust fence refuses any
+   * request whose Host is neither loopback nor listed here, so a
+   * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
+   * by (the dsh CLI derives the machine's LAN IP literals itself). An entry
+   * that is not a bare, canonical authority fails the plugin load.
+   */
+  trustedHosts?: string[]
+}
+```
+
+Source: [`packages/client/connection/src/index.ts:20`](../packages/client/connection/src/index.ts)
+
 ## `@deepseek-ai/dsh-client-hmr`
 
 Requires: `clientModuleHost` · `httpServer`
@@ -2166,7 +2187,6 @@ Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/cont
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-client-connection` — requires `httpServer` · `apiProxy` ([`packages/client/connection/src/index.ts`](../packages/client/connection/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))

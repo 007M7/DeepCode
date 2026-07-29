@@ -2,8 +2,8 @@
  * Server side of the fetch carrier: maps an ApiProxy onto a pure
  * WHATWG Request->Response function. Two-level parse: full form (type/rpcId/method +
  * path==method) -> payload dispatched per method. HTTP status expresses only the carrier
- * (404 unknown path / 400 non-JSON body / 500 handler crash); business errors are always
- * 200 + ServerResponse.
+ * (404 unknown path / 415 non-JSON media type / 400 non-JSON body / 500 handler crash);
+ * business errors are always 200 + ServerResponse.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -203,6 +203,17 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
 
       if (req.method !== 'POST' || !path.startsWith('/api/')) {
         return new Response('not found', { status: 404 })
+      }
+
+      // Cross-site write fence: browsers send "simple" POSTs (text/plain,
+      // form encodings) without a CORS preflight, so a malicious page could
+      // otherwise execute side-effectful RPCs blind — the response stays
+      // unreadable cross-origin, but session.prompt would still run. Only the
+      // JSON media type is accepted; anything else is forced into a preflight
+      // this server never answers. 415 = carrier layer, like the 400 below.
+      const mediaType = req.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+      if (mediaType !== 'application/json') {
+        return new Response('content type must be application/json', { status: 415 })
       }
 
       let body: unknown
