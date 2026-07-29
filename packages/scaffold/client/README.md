@@ -44,6 +44,6 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **No bundled-runtime resolution** — callers name the runtime executable explicitly; packaged-executable discovery stays Python-side until a TypeScript distribution consumer exists.
-- **No mid-turn cancel** — the wire has no prompt-cancel method; abandoning a turn means closing the runtime (see the protocol's [Known Limitations](../sdk-protocol/README.md)).
+- **No mid-turn cancel** — the wire has no prompt-cancel method; abandoning a turn means closing the runtime (see the protocol's [Known Limitations](../protocol/README.md)).
 - **No per-prompt result or cancel** — low-level `prompt()` returns only an enqueue receipt; high-level `run()` owns receipt-to-idle collection, and abandoning it means closing the runtime.
 - **Client→server notifications and server→client requests are unimplemented** on both wire ends; the transport carries them for future approval flows.

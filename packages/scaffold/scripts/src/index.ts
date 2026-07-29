@@ -3,7 +3,7 @@
  *
  * FIXME: rename to `@deepseek-ai/dsh-sdk-scripts` before the first tagged release —
  * the current name is indefensibly generic as a published name
- * ([regrouping Agent Note](../../../../.agents/notes/proposed/architecture/2026-07-29-package-regrouping.md)).
+ * ([regrouping Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md)).
  *
  * @module @deepseek-ai/dsh-scripts
  */

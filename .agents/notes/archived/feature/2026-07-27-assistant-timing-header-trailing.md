@@ -13,7 +13,7 @@ The TUI assistant message opened with a single header line joining the `Assistan
 
 **Split the label from the timing; render the timing as the message's trailing line.**
 
-`AssistantMessageComponent` (packages/interaction/tui/src/index.ts) now emits the bold `Assistant` label as the first line and appends the dim timing string (already assembled by `StreamingAssistantComponent.rebuild()` as `header`, including the `· Completed …` suffix when settled) as the last child, after reasoning and text. The timing content, bucket-hiding, and completion-time behavior are unchanged — only its position moved from the top to the bottom of the message.
+`AssistantMessageComponent` (packages/ui/tui/src/index.ts) now emits the bold `Assistant` label as the first line and appends the dim timing string (already assembled by `StreamingAssistantComponent.rebuild()` as `header`, including the `· Completed …` suffix when settled) as the last child, after reasoning and text. The timing content, bucket-hiding, and completion-time behavior are unchanged — only its position moved from the top to the bottom of the message.
 
 ## Alternatives considered
 

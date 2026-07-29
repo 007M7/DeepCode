@@ -125,7 +125,7 @@ Source: [`packages/core/agent/src/types.ts:300`](../packages/core/agent/src/type
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -141,7 +141,7 @@ Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -161,7 +161,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -211,7 +211,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -229,7 +229,7 @@ Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -449,7 +449,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:50`](../packages/interaction/permission/src/index.ts)
 
 ### `plan/*`
 

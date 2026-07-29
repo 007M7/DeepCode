@@ -1264,14 +1264,14 @@ function configureDualRuntimeClient(root: string, splitProjects: boolean): void 
   const hostAggregate = JSON.parse(readFileSync(hostAggregatePath, 'utf8')) as {
     references: { path: string }[]
   }
-  hostAggregate.references.push({ path: './packages/client/tsconfig.host.json' })
+  hostAggregate.references.push({ path: ['.', 'packages', 'client', 'tsconfig.host.json'].join('/') })
   writeFileSync(hostAggregatePath, `${JSON.stringify(hostAggregate, null, 2)}\n`)
 
   const clientAggregatePath = join(root, 'tsconfig.client.json')
   const clientAggregate = JSON.parse(readFileSync(clientAggregatePath, 'utf8')) as {
     references: { path: string }[]
   }
-  clientAggregate.references = [{ path: './packages/client/tsconfig.client.json' }]
+  clientAggregate.references = [{ path: ['.', 'packages', 'client', 'tsconfig.client.json'].join('/') }]
   writeFileSync(clientAggregatePath, `${JSON.stringify(clientAggregate, null, 2)}\n`)
 }
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本组包含 Harness 项目的开发者工具，以及从另一进程驱动 Harness 运行时的客户端栈。目录按角色命名，不带遗留的 `sdk-` 前缀；npm 名则经由[重新分组 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-29-package-regrouping.md)中 FIXME 跟踪的改名收敛为 `dsh-sdk-*`。
+本组包含 Harness 项目的开发者工具，以及从另一进程驱动 Harness 运行时的客户端栈。目录按角色命名，不带遗留的 `sdk-` 前缀；npm 名则经由[重新分组 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md)中 FIXME 跟踪的改名收敛为 `dsh-sdk-*`。
 
 | 包 | 职责 |
 |---|---|

@@ -25,22 +25,22 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   context/     request-context plugins
-  subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
-  bundle/      profile plugin bundles: installable patch layers for dsh --profile
+  subagent/    subagent seam + spawn/fork/ACP backends + tool
+  bundle/      installable dsh --profile patch-layer bundles
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
-  plan/        plan mode as logged collaboration state
-  guard/       loop-hygiene plugins + tool-call timeouts
-  self-modification/  the agent inspects/mounts plugins in its runtime
-  hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
-  session/     durable session data plane: persistence, projection, titles, reporting
-  settings/    user-settings seam + file-backed provider
-  credentials/ credential-reference seam + env-over-.env provider
+  plan/        plan mode as logged state
+  guard/       loop-hygiene + tool-timeout plugins
+  self-modification/  the agent inspects/mounts its own plugins
+  hooks/       Claude Code/Codex hook bridges + wire-protocol library
+  session/     durable session data: persistence, projection, titles, telemetry
+  settings/    user-settings seam + file provider
+  credentials/ credential-reference seam + env/.env provider
   acp/         automation-only Agent Client Protocol server
-  interaction/ approval/interaction seams, permission, commands, ask-user tool
-  boot/        shared app-bin boot glue
-  scaffold/    project tooling: helper, launcher, initializer, SDK wire protocol + ends
-  examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins) leaves load
+  interaction/ approval/interaction seams, permission, commands, ask-user
+  boot/        shared app-bin glue
+  scaffold/    project tooling: helper, launcher, initializer, SDK protocol
+  examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins)
   support/     dev/test infrastructure
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)

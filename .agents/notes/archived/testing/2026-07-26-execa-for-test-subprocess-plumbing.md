@@ -11,7 +11,7 @@ Roughly ten e2e/smoke files re-derived the same spawn-collect-timeout choreograp
 
 Two related test-infra hand-rolls compounded the case:
 
-- `packages/support/llm-mock-server/src/cli.ts` hand-tokenized 17 value-taking `--flag value` options plus boolean flags (~45–60 lines of loop and value-extraction helpers) where the `node:util` `parseArgs` builtin is already the repo idiom (`cli-demo`, `acp-demo`, `verify-runtime-closure.ts`, `packages/scaffold/scripts`).
+- `packages/support/llm-mock-server/src/cli.ts` hand-tokenized 17 value-taking `--flag value` options plus boolean flags (~45–60 lines of loop and value-extraction helpers) where the `node:util` `parseArgs` builtin is already the repo idiom (`cli-demo`, `acp-demo`, `verify-runtime-closure.ts`, `packages/sdk/scripts`).
 - `apps/web/tests/smoke-real.e2e.ts` and `apps/web/tests/scaffold.ts` carried two verbatim copies of a regex `.env` parser (~20 lines) where the `process.loadEnvFile` builtin has exactly the required no-override semantics — and the vitest e2e/snapshot/web configs already load root `.env` with it before these files run, making the copies dead.
 - The snapshot harness hand-rolled three poll-until-deadline loops (`waitForPersistedTurnStart`/`waitForPersistedTurnEnd`/`waitForWorkspaceFile` in `packages/support/acp-snapshot/src/harness.ts`, ~55 lines) plus `waitForFile` in `crash-recovery.e2e.ts`, where `vi.waitFor`/`expect.poll` cover the shape — vitest is already a runtime dependency of `dsh-acp-snapshot`, so this adds nothing.
 

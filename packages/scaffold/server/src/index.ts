@@ -8,7 +8,7 @@
  *
  * FIXME: rename to `@deepseek-ai/dsh-sdk-server` before the first tagged release —
  * the current name says the wire encoding, not the role; it is the server half of
- * the SDK protocol ([regrouping Agent Note](../../../../.agents/notes/proposed/architecture/2026-07-29-package-regrouping.md)).
+ * the SDK protocol ([regrouping Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md)).
  *
  * @module @deepseek-ai/dsh-jsonrpc
  */

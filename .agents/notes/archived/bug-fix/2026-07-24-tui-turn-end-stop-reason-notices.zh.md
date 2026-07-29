@@ -11,7 +11,7 @@ TUI 会为 `error`、`aborted`、`max-tokens`、`rejected`、`interrupted` 这�
 
 ## 决策
 
-`packages/interaction/tui/src/index.ts` 中的 `turn/end` 分支按 reason 的判别字段做 switch，覆盖每一种 kind：`completed` 保持沉默，因为已定稿的助手消息及其 `Completed` 计时头部已经呈现了这一结果；`disposed` 追加 `Turn stopped: the agent was disposed.`；merge 扩展的 default 分支追加 `Turn ended: <kind>.`，让未知的插件新增结果仍能点明 agent 停止的原因。其余各 kind 保留现有通知。
+`packages/ui/tui/src/index.ts` 中的 `turn/end` 分支按 reason 的判别字段做 switch，覆盖每一种 kind：`completed` 保持沉默，因为已定稿的助手消息及其 `Completed` 计时头部已经呈现了这一结果；`disposed` 追加 `Turn stopped: the agent was disposed.`；merge 扩展的 default 分支追加 `Turn ended: <kind>.`，让未知的插件新增结果仍能点明 agent 停止的原因。其余各 kind 保留现有通知。
 
 ## 备选方案
 

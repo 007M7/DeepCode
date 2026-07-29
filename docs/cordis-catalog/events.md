@@ -325,7 +325,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [ApprovalService](../core-data-structures/approval.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:30`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:30`](../../packages/interaction/user-approval/src/index.ts)
 
 ## `commands/*`
 
@@ -343,7 +343,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:172`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:172`](../../packages/interaction/commands/src/index.ts)
 
 ## `credentials/*`
 
@@ -822,7 +822,7 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:43`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:43`](../../packages/session/session-telemetry/src/index.ts)
 
 ## `tools/*`
 

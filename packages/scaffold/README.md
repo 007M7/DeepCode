@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This group contains developer tooling for Harness projects and the client stack for driving a Harness runtime from another process. Folders are role-named without the legacy `sdk-` prefix; npm names converge on `dsh-sdk-*` through the FIXME-tracked renames in the [regrouping Agent Note](../../.agents/notes/proposed/architecture/2026-07-29-package-regrouping.md).
+This group contains developer tooling for Harness projects and the client stack for driving a Harness runtime from another process. Folders are role-named without the legacy `sdk-` prefix; npm names converge on `dsh-sdk-*` through the FIXME-tracked renames in the [regrouping Agent Note](../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md).
 
 | Package | Role |
 |---|---|

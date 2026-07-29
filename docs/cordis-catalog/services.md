@@ -262,7 +262,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [Agent](../core-data-structures/core.md) · [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:193`](../../packages/interaction/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -451,7 +451,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:305`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:305`](../../packages/interaction/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -1062,7 +1062,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:159`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:159`](../../packages/interaction/permission/src/index.ts)
 
 ## `ctx.planMode` — `PlanModeService`
 
@@ -1352,7 +1352,7 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:72`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:72`](../../packages/session/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -1400,7 +1400,7 @@ async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnaps
 
 Types: [Session](../core-data-structures/session.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/session-projection/session-projection-cache/src/index.ts:71`](../../packages/session-projection/session-projection-cache/src/index.ts)
+Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../packages/session/session-projection-cache/src/index.ts)
 
 ## `ctx.sessionProjections` — `SessionProjectionRegistry`
 
@@ -1508,7 +1508,7 @@ restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseS
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-projection/session-projection/src/index.ts:156`](../../packages/session-projection/session-projection/src/index.ts)
+Source: [`packages/session/session-projection/src/index.ts:156`](../../packages/session/session-projection/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
@@ -1846,7 +1846,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:261`](../../packages/session/session-title/src/index.ts)
 
 ## `ctx.settings` — `Settings` (abstract seam)
 
@@ -2473,7 +2473,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:140`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -2745,7 +2745,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:51`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/interaction/user-interaction/src/index.ts:51`](../../packages/interaction/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

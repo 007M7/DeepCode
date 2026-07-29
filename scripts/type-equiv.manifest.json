@@ -443,7 +443,7 @@
     {
       "doc": "docs/core-data-structures/persistence.md",
       "symbol": "SessionInspection",
-      "source": "packages/session-persistence/session-persistence/src/index.ts"
+      "source": "packages/session/session-persistence/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/persistence.md",

@@ -9,7 +9,8 @@
  *
  * FIXME: rename to `@deepseek-ai/dsh-sdk-telemetry` before the first tagged release —
  * the current name collides with the `dsh-session-telemetry` family; this is
- * launcher-side SDK telemetry ([regrouping Agent Note](../../../../.agents/notes/proposed/architecture/2026-07-29-package-regrouping.md)).
+ * launcher-side SDK telemetry
+ * ([regrouping Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-29-package-regrouping.md)).
  *
  * @module @deepseek-ai/dsh-telemetry
  */

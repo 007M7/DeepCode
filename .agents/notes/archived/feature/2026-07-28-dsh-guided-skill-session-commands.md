@@ -25,7 +25,7 @@ The `dsh-migrate` skill is bundled under `skills/` (shipped through `DSH_BUNDLED
 
 `apps/cli/tests/args.spec.ts` gains routing for `migrate`/`upgrade` (bare discriminant) and exit-1 for every leaked option on either side of each subcommand.
 
-`packages/interaction/tui/tests/tui.spec.ts` gains two fake-terminal cases in the existing skill describe block: `config.initialSkill` set delivers the rendered skill body as the first turn with no user input, and an unknown initial skill reports a notice without sending. `runSkillSession` itself is composition inside the module's `v8 ignore` block, like `runTui`/`runMeta`.
+`packages/ui/tui/tests/tui.spec.ts` gains two fake-terminal cases in the existing skill describe block: `config.initialSkill` set delivers the rendered skill body as the first turn with no user input, and an unknown initial skill reports a notice without sending. `runSkillSession` itself is composition inside the module's `v8 ignore` block, like `runTui`/`runMeta`.
 
 No keyless PTY snapshot: per the maintainer's scope call for this change, unit coverage plus interactive verification suffices, and the seed rides the already-snapshotted `/skill:` render path. Both commands were verified interactively in tmux from a scratch cwd: `dsh migrate` loaded `dsh-migrate` and asked which source agent; `dsh upgrade` loaded `dsh-upgrade`, which pulled in `dsh-customize` and began checkout discovery.
 
