@@ -609,6 +609,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   // the same rpcId (the refresh-recovery baseline) — and withdraws on the
   // ask's own abort signal (turn cancel), pushing `cancelled` to subscribers.
   if (ctx.get('approval') !== undefined) {
+    // Teardown parity with the question provider above: a gateway disposed
+    // while approvals are pending settles every entry as 'cancelled' (the
+    // service's fail-closed vocabulary), so no ask promise dangles past the
+    // proxy's lifetime and subscribers see the withdrawal.
+    ctx.effect(() => () => {
+      for (const pending of [...pendingApprovals.values()]) pending.resolve('cancelled')
+    }, 'api-proxy: approval registry teardown')
     ctx.on('approval/request', (req, next) => {
       // The audit pair `approval/asked` is already appended by the service
       // before dispatch, but dispatch rides a microtask: parallel tool calls

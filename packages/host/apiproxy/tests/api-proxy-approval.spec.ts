@@ -176,6 +176,31 @@ describe('approval pending registry', () => {
     abort.abort()
   })
 
+  it('gateway teardown settles pending approvals as cancelled (question-provider parity)', async () => {
+    // Mount the proxy on its own fiber so disposal exercises the teardown
+    // effect while an ask is still pending.
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(ApprovalService)
+    let api!: ApiProxy
+    const fiber = ctx.plugin(Object.assign((fiberCtx: Context) => {
+      api = createApiProxy(fiberCtx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    }, { inject: ['sessions', 'agents', 'userInteraction', 'approval'] }))
+    await fiber.await()
+    const abort = new AbortController()
+    const mux = openMux(api, abort)
+    const asked = ctx.approval.request({ agent: agentOf(ctx), toolName: 'bash' })
+    const requested = requestedOf(await mux.waitFor('approval/requested'))
+    await fiber.dispose()
+    await expect(asked).resolves.toBe('cancelled')
+    const resolved = await mux.waitFor('approval/resolved')
+    expect(resolved).toMatchObject({ approvalId: requested.approvalId, outcome: 'cancelled' })
+    abort.abort()
+  })
+
   it('carries callId on the frame and ignores a late abort after the answer settled', async () => {
     const { ctx, api } = await harness()
     const abort = new AbortController()
