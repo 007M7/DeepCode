@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { stat } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { basename, delimiter, dirname, relative } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
@@ -108,10 +108,36 @@ describe('LocalSubprocessService', () => {
       terminate,
       waitForExit,
     }
-    ;(ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.add(terminal)
+    const terminals = (ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
+    terminals.add(terminal)
     await fiber.dispose()
     expect(terminate).toHaveBeenCalledOnce()
     expect(waitForExit).toHaveBeenCalledOnce()
+    expect(terminals.size).toBe(0)
+  })
+
+  it('retains an owned terminal when disposal cleanup rejects', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const service = ctx.subprocess
+    const runtimeRoot = service.runtimeRoot
+    const terminal: SubprocessTerminalHandle = {
+      pid: 1,
+      output: new PassThrough(),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      inspectForeground: async () => undefined,
+      signalForeground: async () => 1,
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw new Error('retryable cleanup failure') }),
+    }
+    const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
+    terminals.add(terminal)
+
+    await fiber.dispose()
+    expect(terminals).toEqual(new Set([terminal]))
+    expect((await stat(runtimeRoot)).isDirectory()).toBe(true)
+    await rm(runtimeRoot, { recursive: true, force: true })
   })
 
   it('releases a terminal after top-level exit reaches quiescence', async () => {

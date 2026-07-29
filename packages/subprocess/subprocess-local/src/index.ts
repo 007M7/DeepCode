@@ -64,10 +64,9 @@ export class LocalSubprocessService extends SubprocessService {
         // an identity-fenced descendant survives escalation). Await the cleanup
         // transaction directly so disposal reports that failure rather than
         // waiting forever on `done`.
-        pending.push(terminal.waitForExit())
+        pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
       }
       this.live.clear()
-      this.terminals.clear()
       await Promise.all(pending)
       await rm(this.runtimeRoot, { recursive: true, force: true })
     }, 'local subprocess teardown')
