@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-skill（技能）引用 source 的浏览器端：把 `/` 触发的 `skill` source 注册进 `ctx.slash`。候选来自 `skill.list` RPC，以每次调用的 `ClientSessionContext` 投影中的 `{sessionId}` 寻址——每个会话始终由 agent（智能体）支撑，host 从会话 header 解析 `cwd`。目录按会话缓存，拉取走 single-flight；scope 创建时的 `warm` 钩子预热该会话的缓存项，`connection/reset` 清空全部缓存。结果按 `startsWith(query)` 过滤；pick 一个候选会把字面文本 `/name ` 经 slash 管线落进草稿（决策 21 的纯文本引用），source 的 `codec` 拥有该引用的两种投影：`clipboardText` → `/name`，`serialize` → 提交时生成的模型形式 `<skill>name</skill>`。RPC 使用插件注册时捕获的根上下文连接——source 绝不从每次调用的参数上读取服务。source 不实现 `matchSpace`／`matchEnter` 钩子——skill 引用永不进入命令裁决，随普通提示词落入 default sink。
+skill（技能）引用 source 的浏览器端：把 `/` 触发的 `skill` source 注册进 `ctx.slash`。候选来自 `skill.list` RPC，以每次调用的 `ClientSessionContext` 投影中的 `{sessionId}` 寻址——每个会话始终由 agent（智能体）支撑，host 从会话 header 解析 `cwd`。宿主返回模型可调用与用户可调用 skill 的交集，因为该浏览器路径让用户插入模型引用，而不是直接加载正文。目录按会话缓存，拉取走 single-flight；scope 创建时的 `warm` 钩子预热该会话的缓存项，`connection/reset` 清空全部缓存。结果按 `startsWith(query)` 过滤；pick 一个候选会把字面文本 `/name ` 经 slash 管线落进草稿（决策 21 的纯文本引用），source 的 `codec` 拥有该引用的两种投影：`clipboardText` → `/name`，`serialize` → 提交时生成的模型形式 `<skill>name</skill>`。RPC 使用插件注册时捕获的根上下文连接——source 绝不从每次调用的参数上读取服务。source 不实现 `matchSpace`／`matchEnter` 钩子——skill 引用永不进入命令裁决，随普通提示词落入 default sink。
 
 `skill.list` 失败时 `candidates` 抛出异常，slash 壳层记录日志并折叠为静默的菜单组丢弃——菜单只显示 pending／ready 状态。
 
