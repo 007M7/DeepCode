@@ -294,6 +294,11 @@ export class SessionsService implements ISessions {
     this.manager.handleConnected()
   }
 
+  /** Drop generation-scoped live interaction state the moment a connection generation dies. */
+  handleDisconnected(): void {
+    this.manager.handleDisconnected()
+  }
+
   /**
    * Create a session on the host. Resolution guarantee: by the time the
    * promise resolves, the created session is in the list store and

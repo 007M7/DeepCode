@@ -443,14 +443,32 @@ export class SessionManager {
     }
   }
 
-  /** After each connection generation: refresh the session baseline and rebuild opened windows. */
-  handleConnected(): void {
-    // Approvals resolved while disconnected send no frame: drop the bits and
-    // let the mux-open replay re-add every still-pending question.
+  /**
+   * The moment a connection generation dies (before any next-generation frame
+   * can arrive — onConnected waits for the readiness handshake while replayed
+   * frames flow from stream open, so clearing there would race the replay):
+   * drop generation-scoped live state. Approvals resolved while disconnected
+   * send no frame, so the stale bits and the buffered answerable frames must
+   * not survive into the next generation — the mux-open replay re-adds every
+   * still-pending question with its live rpcId.
+   */
+  handleDisconnected(): void {
     if (this.waitingApprovals.size > 0) {
       this.waitingApprovals.clear()
       this.notifier.markDirty()
     }
+    for (const [sessionId, buffer] of [...this.pendingBuffers]) {
+      const kept = buffer.filter(item =>
+        item.payload.type !== 'approval/requested' && item.payload.type !== 'approval/resolved'
+        && item.payload.type !== 'question/requested' && item.payload.type !== 'question/resolved')
+      if (kept.length === buffer.length) continue
+      if (kept.length === 0) this.pendingBuffers.delete(sessionId)
+      else this.pendingBuffers.set(sessionId, kept)
+    }
+  }
+
+  /** After each connection generation: refresh the session baseline and rebuild opened windows. */
+  handleConnected(): void {
     void this.refreshList()
     for (const session of this.sessions.values()) void session.resync()
   }
