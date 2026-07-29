@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=12 viewportRow=13 bufferRow=13
+cursor hidden column=15 viewportRow=13 bufferRow=13
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-magenta bold
@@ -29,28 +29,24 @@ buffer
 9-11| <blank>
 12| "        ╭ Select model ────────────────────────────────────────────────────────────╮        "
   style 8-83 fg=bright-magenta
-13| "        │ >                                                                        │        "
+13| "        │ > pro                                                                    │        "
   style 8-8 fg=bright-magenta
-  style 12-12 inverse
+  style 15-15 inverse
   style 83-83 fg=bright-magenta
 14| "        │                                                                          │        "
   style 8-8 fg=bright-magenta
   style 83-83 fg=bright-magenta
-15| "        │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — current            │        "
+15| "        │ → deepseek/deepseek-v4-pro        DeepSeek V4 Pro                        │        "
   style 8-8 fg=bright-magenta
-  style 10-70 fg=bright-magenta inverse
+  style 10-58 fg=bright-magenta inverse
   style 83-83 fg=bright-magenta
-16| "        │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro                        │        "
-  style 8-8 fg=bright-magenta
-  style 36-58 dim
-  style 83-83 fg=bright-magenta
-17| "        │                                                                          │        "
+16| "        │                                                                          │        "
   style 8-8 fg=bright-magenta
   style 83-83 fg=bright-magenta
-18| "        │ type to filter • ↑/↓ move • Shift+Tab reasoning • Enter select • Esc     │        "
+17| "        │ type to filter • ↑/↓ move • Shift+Tab reasoning • Enter select • Esc     │        "
   style 8-8 fg=bright-magenta
   style 10-77 dim
   style 83-83 fg=bright-magenta
-19| "        ╰──────────────────────────────────────────────────────────────────────────╯        "
+18| "        ╰──────────────────────────────────────────────────────────────────────────╯        "
   style 8-83 fg=bright-magenta
-20-31| <blank>
+19-31| <blank>
