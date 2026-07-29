@@ -665,13 +665,17 @@ describe('LocalSkillProvider', () => {
       })
       return provider
     })
-    expect((await provider.list({})).map(skill => skill.name)).toEqual(['disposed-skill'])
+    const beforeDisposal = await provider.list({})
+    expect((Array.isArray(beforeDisposal) ? beforeDisposal : beforeDisposal.candidates).map(skill => skill.name))
+      .toEqual(['disposed-skill'])
 
     await provider.dispose()
     await provider.dispose()
     provider.observeHostMutation(join(home, '.agents/skills/disposed-skill/SKILL.md'))
 
-    expect((await provider.list({})).map(skill => skill.name)).toEqual(['disposed-skill'])
+    const afterDisposal = await provider.list({})
+    expect((Array.isArray(afterDisposal) ? afterDisposal : afterDisposal.candidates).map(skill => skill.name))
+      .toEqual(['disposed-skill'])
     disposeProvider()
   })
 

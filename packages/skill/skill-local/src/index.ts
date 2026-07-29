@@ -504,7 +504,7 @@ class SkillWatchManager {
       readiness.resolve(undefined)
     })
     for (const event of ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const) {
-      watcher.on(event, (path) => { this.handleWatchEvent(state, mode, event, path) })
+      watcher.on(event, (path) => { this.handleWatchEvent(state, event, path) })
     }
     try {
       await readiness.promise
@@ -519,11 +519,10 @@ class SkillWatchManager {
 
   private handleWatchEvent(
     state: RootWatchState,
-    mode: Extract<RootWatchMode, { kind: 'root' }>,
     event: SkillWatchEvent,
     path: string,
   ): void {
-    if (this.closing || !isRelevantWatchEvent(state.root, mode, event, resolve(path))) return
+    if (this.closing || !isRelevantWatchEvent(state.root, event, resolve(path))) return
     this.queueInvalidation()
     if (resolve(path) === state.root.path && event === 'unlinkDir') {
       state.unhealthy = true
@@ -630,7 +629,6 @@ function sameWatchMode(left: RootWatchMode, right: RootWatchMode): boolean {
 
 function isRelevantWatchEvent(
   root: SkillRoot,
-  mode: Extract<RootWatchMode, { kind: 'root' }>,
   event: SkillWatchEvent,
   path: string,
 ): boolean {
