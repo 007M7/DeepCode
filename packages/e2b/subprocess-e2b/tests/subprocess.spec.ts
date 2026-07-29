@@ -1200,9 +1200,11 @@ describe('E2BSubprocessService', () => {
     fake.deferStart()
     fake.backgroundError = new Error('start failed during disposal')
     const { ctx, fiber } = await service(fake)
-    const handle = ctx.subprocess.spawn(spec())
+    const subprocess = ctx.subprocess
+    const handle = subprocess.spawn(spec())
     const disposing = fiber.dispose()
-    expect(() => ctx.subprocess.spawn(spec())).toThrow('service is disposing')
+    await flush()
+    expect(() => subprocess.spawn(spec())).toThrow('service is disposing')
     fake.releaseStart()
     await expect(disposing).resolves.toBeUndefined()
     await expect(handle.done).rejects.toThrow('start failed during disposal')
