@@ -51,8 +51,10 @@ class FakeBash extends BashExecutor {
   commands: string[] = []
   result: BashRunResult = runResult(`${tmuxLine()}\n`)
   runError?: Error
+  resolveError?: Error
 
   override resolve(request: BashExecRequest): BashExecSpec {
+    if (this.resolveError) throw this.resolveError
     return {
       command: request.command,
       workdir: request.workdir ?? '/work',
@@ -323,6 +325,46 @@ describe('tmux-context no-op paths', () => {
     await fire(ctx, sessionAgent(session), 1, 1)
 
     expect(contextTexts(session)).toHaveLength(0)
+  })
+
+  it('warns and injects nothing when the executor rejects the run', async () => {
+    const { ctx, bash } = await mount({}, true)
+    bash.runError = new Error('bash executor unavailable')
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const session = new Session(SessionId('run-rejected'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bash executor unavailable'))
+  })
+
+  it('warns and injects nothing when the executor rejects the command at resolve', async () => {
+    const { ctx, bash } = await mount({}, true)
+    bash.resolveError = new Error('command denied by policy')
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const session = new Session(SessionId('resolve-rejected'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('command denied by policy'))
+  })
+
+  it('reports a non-Error rejection in the warning', async () => {
+    const { ctx, bash } = await mount({}, true)
+    // Non-Error throw: the executor seam is typed, but a bad impl can reject with anything.
+    bash.runError = 'spawn refused' as unknown as Error
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const session = new Session(SessionId('non-error-rejection'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('spawn refused'))
   })
 
   it('skips an already-aborted step and runs before ordinary agent/step listeners', async () => {

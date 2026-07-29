@@ -12,15 +12,16 @@
  * only when the rendered tmux state changes since the last injection (a moved,
  * renamed, or re-laid-out pane), with an optional `refreshIntervalMs` floor
  * between injections. Absent tmux environment, an inherited-only environment,
- * absent `ctx.bash`, or a failed query is a no-op, never an error.
+ * absent `ctx.bash`, or a failed query is a no-op, never an error: an executor
+ * rejection is contained and logged as a warning so the turn continues.
  *
  * @module @deepseek-ai/dsh-tmux-context
  */
 
-import type { Context } from 'cordis'
+import type { Context, LoggerService } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecutor, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -92,13 +93,20 @@ const FIELD_SEP = '\\t'
  * on a match, so an inherited environment reads as "not in tmux" and injects
  * nothing.
  *
+ * The location is optional context, so an executor rejection is a failed query,
+ * not a turn failure: `resolve()` may reject the command on policy grounds and
+ * `run()` only promises to resolve for nonzero exits, timeouts, and aborts, so
+ * both are contained and reported as a warning.
+ *
  * @param bash - the executor seam used to run the read-only tmux/ps commands.
+ * @param logger - receives a warning when the executor rejects the query.
  * @param processId - this agent process's pid, whose controlling tty must match the pane.
  * @param signal - abort signal forwarded to the executor.
  * @returns the parsed location, or `undefined` when not in a real pane or on any failure.
  */
 async function queryTmuxLocation(
   bash: BashExecutor,
+  logger: LoggerService,
   processId: number,
   signal: AbortSignal,
 ): Promise<TmuxLocation | undefined> {
@@ -111,8 +119,14 @@ async function queryTmuxLocation(
     '[ "$pane_tty" = "/dev/$self_tty" ] || exit 1',
     `exec tmux display-message -t "$TMUX_PANE" -p '${format}'`,
   ].join('\n')
-  const spec = bash.resolve({ command, signal })
-  const result = await bash.run(spec)
+  let result: BashRunResult
+  try {
+    result = await bash.run(bash.resolve({ command, signal }))
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.warn(`tmux location query failed: ${message}; injecting no location this turn`)
+    return undefined
+  }
   if (result.exitCode !== 0) return undefined
   const line = result.stdout.text.split('\n', 1)[0] as string
   const parts = line.split(FIELD_SEP)
@@ -215,7 +229,7 @@ export function apply(ctx: Context, config: Config): void {
       const now = Date.now()
       if (now >= previous.time && now - previous.time < refreshIntervalMs) return
     }
-    const location = await queryTmuxLocation(bash, process.pid, signal)
+    const location = await queryTmuxLocation(bash, ctx.logger, process.pid, signal)
     if (location === undefined) return
     const state = renderState(location)
     if (previous !== undefined && previous.state === state) return
