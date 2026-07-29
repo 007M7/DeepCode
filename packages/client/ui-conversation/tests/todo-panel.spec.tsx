@@ -31,11 +31,18 @@ describe('TodoPanel', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('shows progress, one row per item with its status glyph', () => {
+  it('starts collapsed with the progress summary visible', () => {
     render(<TodoPanel todos={LIST} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
     expect(screen.getByText('To-dos')).toBeTruthy()
     expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
+    expect(screen.queryByRole('list')).toBeNull()
+  })
+
+  it('expands to show one row per item with its status glyph', () => {
+    render(<TodoPanel todos={LIST} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
     expect(screen.getByText('搭骨架')).toBeTruthy()
@@ -44,8 +51,9 @@ describe('TodoPanel', () => {
     expect(items.every(li => li.querySelector('svg') !== null)).toBe(true)
   })
 
-  it('collapse hides the list; expand restores; header keeps the count summary', () => {
+  it('collapse hides an expanded list; expand restores; header keeps the count summary', () => {
     render(<TodoPanel todos={LIST} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
@@ -58,7 +66,7 @@ describe('TodoPanel', () => {
 
   it('collapsed header still shows zero in-progress when nothing is active', () => {
     render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} />)
-    fireEvent.click(screen.getByRole('button', { expanded: true }))
+    expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByText('都完了')).toBeNull()
     expect(screen.getByText('1/1 tasks · 0 in progress')).toBeTruthy()
   })
