@@ -20,6 +20,7 @@ export type {
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
+  GoalsApi, GoalRef,
 } from './api.ts'
 export { RpcId, AbstractApiClient, transportError } from './api.ts'
 

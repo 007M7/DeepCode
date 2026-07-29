@@ -1,7 +1,7 @@
 import { defineProperty, hyphenate } from 'cosmokit'
 import { Context } from './context.ts'
 import { Fiber } from './fiber.ts'
-import { createCallable, joinPrototype, symbols, Tracker } from './utils.ts'
+import { createCallable, joinPrototype, symbols, type Tracker } from './utils.ts'
 
 declare module './context.ts' {
   interface Intercept {
