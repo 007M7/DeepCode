@@ -36,6 +36,8 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
+// Type-only edge: resolves `ctx.get('sessionTitle')` for the rename impl.
+import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
@@ -1045,6 +1047,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             code: 'model-unavailable',
             message: error instanceof Error ? error.message : String(error),
             details: { provider, model },
+          })
+        }
+      },
+
+      async rename(request) {
+        const { sessionId, title } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const titles = ctx.get('sessionTitle')
+        if (titles === undefined) {
+          return err(request, { code: 'internal', message: 'session-title service is absent: this deployment does not mount @deepseek-ai/dsh-session-title in its composition (cordis.yml or explicit assembly)', details: {} })
+        }
+        try {
+          const accepted = titles.rename(found.agent.session, title)
+          return ok(request, { title: accepted.title, seq: accepted.eventSeq })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'title-invalid',
+            message: `rename rejected for session "${sessionId}": ${String(error)}`,
+            details: { sessionId },
           })
         }
       },
