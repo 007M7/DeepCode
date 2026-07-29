@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-28-terminal-card-double-exit-status.md
+2026-07-28-terminal-card-double-exit-status.md: e082308a9a3bd6071753993572bfca518bd89de5
+2026-07-28-terminal-card-double-exit-status.zh.md: dc8aa0a6c26958c1cfe7e4d20b7228260f7a1bff
