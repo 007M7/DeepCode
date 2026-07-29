@@ -214,6 +214,39 @@ it('adopts a directory through the composed in-app browse flow and lands in its 
   })
 })
 
+it('reveals hidden fixture entries via the footer toggle and prefix-filters from the path draft', async () => {
+  boot('?fixture=empty')
+
+  await findLockedComposer()
+  fireEvent.click(workspaceChip())
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Open local folder…' }))
+  const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' }, { timeout: 10_000 })
+  await within(dialog).findByText('Documents', {}, { timeout: 10_000 })
+  // The host flags .config hidden; the level filters it until the
+  // fixed-label footer toggle presses on (state lives in aria-pressed).
+  expect(within(dialog).queryByText('.config')).toBeNull()
+  const toggle = within(dialog).getByRole('button', { name: '显示隐藏文件' })
+  expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  await within(dialog).findByText('.config', {}, { timeout: 10_000 })
+  fireEvent.click(toggle)
+  expect(within(dialog).queryByText('.config')).toBeNull()
+  // The path editor seeds the level's path with a trailing separator and the
+  // draft's final segment prefix-filters the listed rows while typing.
+  fireEvent.click(within(dialog).getByRole('button', { name: '编辑路径' }))
+  const input = within(dialog).getByLabelText<HTMLInputElement>('编辑路径')
+  expect(input.value).toBe('/home/fixture/')
+  fireEvent.change(input, { target: { value: '/home/fixture/do' } })
+  expect(within(dialog).getByText('Documents')).toBeDefined()
+  expect(within(dialog).getByText('Downloads')).toBeDefined()
+  expect(within(dialog).queryByText('.config')).toBeNull()
+  // A dot-led prefix names hidden entries, so its matches surface.
+  fireEvent.change(input, { target: { value: '/home/fixture/.c' } })
+  await within(dialog).findByText('.config', {}, { timeout: 10_000 })
+  expect(within(dialog).queryByText('Documents')).toBeNull()
+})
+
 it('selects the recent Workspace and opens its blank Session on first load', async () => {
   boot('?fixture')
 

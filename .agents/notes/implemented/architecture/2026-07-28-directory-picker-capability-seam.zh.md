@@ -18,7 +18,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 
 - **不用 `ctx.fs` seam。** `packages/fs/` 是面向模型／会话的存储栈（policy 事件、sandbox 可换后端）。骑上去会把 GUI 浏览耦合进模型的限制后端——为模型换 `fs-sandbox` 绝不能改变 GUI 行为——而 OS 事实（home 锚定、隐藏约定）也不是存储原语。picker seam 保持无展示、无模型；`packages/host/` 是它消费方域的家。
 - **依赖调研（手写 vs 引入）。** Node 标准库本身就是维护中的跨平台 OS 层（`readdir(withFileTypes)`、`homedir`、路径语义）；调研过的替代品都过不了依赖门槛——文件管理器包（`node-file-manager`、`files-and-folders`、Syncfusion 的 provider）是整套 HTTP 应用（契合度不过），盘符工具（原生插件 `drivelist`、约七年未更的 `windows-drive-letters`）健康度／比例失当。browse 后端是标准库上的薄适配。
-- **隐藏条目：返回并打标。** 宿主标注 `hidden`（POSIX 点前缀约定）并返回全部条目；客户端过滤。展示策略留在客户端，计划中的"显示隐藏"开关变成纯客户端改动。Windows 的 `FILE_ATTRIBUTE_HIDDEN` 不被 dirent 暴露——记为限制，直到原生探测值回其成本。
+- **隐藏条目：返回并打标。** 宿主标注 `hidden`（POSIX 点前缀约定）并返回全部条目；客户端过滤。展示策略留在客户端，"显示隐藏"开关正是作为这一纯客户端改动落地（browse 客户端的 footer 开关）。Windows 的 `FILE_ATTRIBUTE_HIDDEN` 不被 dirent 暴露——记为限制，直到原生探测值回其成本。
 - **符号链接：为可进入性而跟随。** 用 `stat` 探测符号链接（断链／循环→跳过）；面包屑保留操作者导航的逻辑路径，`workspace.create` 在接纳时本就做 realpath 规范化。
 - **列举层级有上限，且流式处理。** 单次 `list` 至多返回 `maxEntries` 行（配置项，默认 1000——GitHub 网页端目录列举的同一上限）。层级经 `opendir` 流入一个按名排序、容量 `maxEntries + 1` 的候选窗口，内存保持 O(maxEntries)，可进入性探测只触及窗口内候选；线上 `DirectoryListing` 携带必填的 `truncated` 标志，让客户端明示不完整而不是静默缺尾。窗口内的断链符号链接不从窗口外回填——发生过驱逐本身已把层级标记为截断。窗口插入为二分查找、满窗尾部单次比较即拒绝（超大层级不能为每个 dirent 付出一次全窗扫描），且 `list(path, signal)` 透传载体的请求信号，滞塞网络目录的扫描不会在调用方断连后继续存活——扫描中的每个 await（打开、每次读取、每次符号链接探测）都与信号赛跑，中止路径放弃而非等待 close（Node 会把 close 排在在飞读取之后），被放弃的 settlement 全部吞掉，清理不会以未处理拒绝的形式冒出。无上限的层级对超大或恶意构造的目录就是内存／响应性漏洞。
 - **全盘可浏览，不做 roots 配置。** `workspace.create` 接受任意路径且 API 本就提供驱动 bash 的方法，浏览根只会是 UX 范围而非边界；没有消费方的可配置性过不了证据门槛。等到有部署需要再做。
