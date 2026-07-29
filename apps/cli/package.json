@@ -9,7 +9,9 @@
   },
   "files": [
     "lib/bin.js",
-    "cordis.yml",
+    "base.cordis.yml",
+    "tui.cordis.yml",
+    "web.cordis.yml",
     "src"
   ],
   "license": "BSD-3-Clause",
