@@ -73,30 +73,46 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
 }
 
 /**
- * Drops every trailing separator (`HOME=/home/u//` ships verbatim while
- * resolve() strips them) down to, but never past, one leading character —
- * which keeps the POSIX root `/` intact. A backslash drive root (`C:\`)
- * does lose its separator; that stays safe only because every comparison
- * trims both sides symmetrically.
+ * Lexically normalizes an absolute host path for comparisons: collapses
+ * repeated and trailing separators, drops `.` segments, and applies `..` —
+ * mirroring the backend's resolve() for the shapes an environment-supplied
+ * HOME legally carries verbatim (`/home/u/`, `/home//u`, `/home/u/.`)
+ * while the backend's paths arrive already resolved. A lexical mirror
+ * only: symlinks are the backend's business, and the input always
+ * contains the separator (it is an absolute path).
  */
-function trimTrailingSeparator(path: string, sep: '\\' | '/'): string {
-  let end = path.length
-  while (end > sep.length && path.endsWith(sep, end)) end -= sep.length
-  return path.slice(0, end)
+function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
+  return (value) => {
+    const segments = value.split(sep)
+    const head = segments.shift()
+    /* v8 ignore next -- narrowing guard: split always yields at least one segment. */
+    if (head === undefined) return value
+    const out: string[] = []
+    for (const segment of segments) {
+      if (segment === '' || segment === '.') continue
+      if (segment === '..') {
+        out.pop()
+        continue
+      }
+      out.push(segment)
+    }
+    return `${head}${sep}${out.join(sep)}`
+  }
 }
 
 /**
  * Breadcrumb rows for display: inside the home subtree the chain starts at a
  * localized Home crumb; outside it the full ancestry shows, the root labeled
- * by its own path. The home comparison folds per platform and normalizes a
- * trailing separator, so a typed-case Windows path or a `HOME=/home/u/`
+ * by its own path. The home comparison folds per platform and lexically
+ * normalizes both sides, so a typed-case Windows path or a `HOME=/home/u/.`
  * shape still collapses to the Home crumb.
  */
 function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryEntry[] {
   const sep = separatorOf(listing)
   const fold = foldPathFor(sep)
-  const home = fold(trimTrailingSeparator(listing.home, sep))
-  const homeIndex = listing.crumbs.findIndex(crumb => fold(trimTrailingSeparator(crumb.path, sep)) === home)
+  const normalize = normalizePathFor(sep)
+  const home = fold(normalize(listing.home))
+  const homeIndex = listing.crumbs.findIndex(crumb => fold(normalize(crumb.path)) === home)
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
@@ -800,7 +816,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             onClick={() => { setShowHidden(prev => !prev) }}
           >
             {t('browser.showHidden')}
-            {showHidden && <IconCheckOutline16 size={14} />}
+            {showHidden && <IconCheckOutline16 size={14} className={css.toggleCheck} />}
           </button>
           <span className={css.footerGap} />
           <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>

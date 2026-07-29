@@ -349,6 +349,16 @@ describe('DirectoryBrowser', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
   })
 
+  it('a home carrying dot segments is still the display root', async () => {
+    // os.homedir() ships HOME verbatim; the backend resolves listing paths.
+    const listDirectory = vi.fn(async (path?: string) => ({ ...listingFor(path), home: `${HOME}/foo/../.` }))
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+    expect(listDirectory).toHaveBeenCalledTimes(1)
+  })
+
   it('a navigation to the filesystem root keeps the single wide level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -1176,6 +1186,7 @@ describe('DirectoryBrowser', () => {
     expect(cancels.map(button => button.disabled).sort()).toEqual([false, true])
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' }).disabled).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.editPath' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'browser.showHidden' }).disabled).toBe(true)
     for (const row of screen.getAllByRole('listitem')) {
       expect(rowButton(row).disabled).toBe(true)
     }

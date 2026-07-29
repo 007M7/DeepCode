@@ -151,6 +151,13 @@
   scrollbar-width: none;
 }
 
+/* Engines that predate scrollbar-width take the pseudo-element path (the
+ * two are mutually exclusive by construction — see ui-theme's scrollbar
+ * contract); hide the row's horizontal bar there too. */
+.millerRow::-webkit-scrollbar {
+  display: none;
+}
+
 /* Columns split the row evenly around the divider (a solo column takes the
  * whole row); 256px is the floor below which the row scrolls (scrollbar
  * hidden, the effect pins the child pane into view) instead of squeezing
@@ -290,6 +297,13 @@
 
 .showHiddenToggleActive {
   color: var(--dsw-alias-label-primary);
+}
+
+/* Trailing pressed check (Menu's .check parallel): flex-none so wrap or
+ * narrow-viewport clamp pressure never squashes the glyph — the nowrap
+ * label refuses to shrink, leaving the icon as the only compressible item. */
+.toggleCheck {
+  flex: none;
 }
 
 .footerGap {
