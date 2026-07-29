@@ -611,6 +611,7 @@ describe('TUI terminal-state snapshots', () => {
   })
 
   it('pins the hidden phase folding a multi-step turn into one assistant message', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 29, 22, 30, 0).getTime())
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
       config: { maxToolOutputLines: 3 },
@@ -632,6 +633,7 @@ describe('TUI terminal-state snapshots', () => {
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await checkpoint('tool-cards-hidden-folded', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
     await disposeSnapshot(harness)
   })
 
