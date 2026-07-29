@@ -103,6 +103,23 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByRole('button', { name: '/' })).toBeNull()
   })
 
+  it('shows hidden entries when the toggle is on and hides them again on close', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(screen.queryByText('.config')).toBeNull()
+    // Toggle hidden files on.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.showHidden' }))
+    expect(screen.getByText('.config')).toBeTruthy()
+    // Toggle hidden files off.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.hideHidden' }))
+    expect(screen.queryByText('.config')).toBeNull()
+    // Close resets the toggle.
+    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
+    b.view.rerender(<DirectoryBrowser {...b.props} open />)
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(screen.queryByText('.config')).toBeNull()
+  })
+
   it('selects a row into the two-pane view: children preview right, crumbs follow the selection', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })

@@ -10,8 +10,8 @@
  * selects the created folder. Open adopts the selected folder, falling back
  * to the listed level. Pure consumer of the injected browse calls — the
  * owning flow decides what "Open" means and owns the workspace-creation
- * error surface. Hidden entries are host-flagged and filtered here (a
- * show-hidden toggle is deferred work, client-side only).
+ * error surface. Hidden entries are host-flagged and hidden by default;
+ * a "Show hidden files" toggle in the footer reveals them (client-side only).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -60,16 +60,17 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
 }
 
 /** One column of folder rows (the Miller view renders one or two of these). */
-function LevelColumn({ entries, selectedPath, busy, onPick, wide }: {
+function LevelColumn({ entries, selectedPath, busy, onPick, wide, showHidden }: {
   entries: readonly DirectoryEntry[]
   selectedPath: string | null
   busy: boolean
   onPick: (entry: DirectoryEntry) => void
   wide: boolean
+  showHidden: boolean
 }) {
   return (
     <div className={clsx(css.column, wide && css.columnWide)} role="list">
-      {entries.filter(entry => !entry.hidden).map((entry) => {
+      {entries.filter(entry => showHidden || !entry.hidden).map((entry) => {
         const selected = entry.path === selectedPath
         return (
           // The wrapper carries the list semantics; the row keeps its NATIVE
@@ -110,6 +111,8 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [error, setError] = useState<string | null>(null)
   // Path-edit state: null = breadcrumb mode; a string = the draft being typed.
   const [pathDraft, setPathDraft] = useState<string | null>(null)
+  // Show-hidden toggle state (pure client-side filter, reset on close).
+  const [showHidden, setShowHidden] = useState(false)
   // Create-folder state: null = closed; a string = the nested dialog's draft.
   const [folderDraft, setFolderDraft] = useState<string | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
@@ -213,6 +216,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setSelected(null)
       setChild(null)
       setCreatingFolder(false)
+      setShowHidden(false)
       navigate()
       return
     }
@@ -409,6 +413,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               busy={parentInert}
               onPick={select}
               wide={!twoPane}
+              showHidden={showHidden}
             />
           )}
           {twoPane && <span className={css.divider} />}
@@ -419,6 +424,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               busy={parentInert}
               onPick={advance}
               wide={false}
+              showHidden={showHidden}
             />
           )}
         </div>
@@ -442,6 +448,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         >
           {t('browser.newFolder')}
         </Button>
+        <button
+          type="button"
+          className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
+          disabled={parentInert}
+          onClick={() => { setShowHidden(prev => !prev) }}
+        >
+          {t(showHidden ? 'browser.hideHidden' : 'browser.showHidden')}
+        </button>
         <span className={css.footerGap} />
         <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>
         <Button

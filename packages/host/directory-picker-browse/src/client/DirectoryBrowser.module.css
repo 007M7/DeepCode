@@ -242,6 +242,32 @@
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 
+/* Show-hidden toggle: a subtle text button in the footer, left of the gap. */
+.showHiddenToggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.showHiddenToggle:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.showHiddenToggle:disabled {
+  color: var(--dsw-alias-label-caption);
+  cursor: default;
+}
+
+.showHiddenToggleActive {
+  color: var(--dsw-alias-label-primary);
+}
+
 .footerGap {
   flex: 1 1 0;
 }
