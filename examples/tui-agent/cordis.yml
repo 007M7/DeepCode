@@ -1,14 +1,11 @@
 # Full-screen TUI coding agent with swappable DeepSeek and local-bash backends.
 # `dsh-tui-demo` supplies the agent spine, workspace instructions, generic
 # task controls, JSONL persistence, the pi-tui front door, and `main`.
-# HMR remains a leaf because it depends on Loader internals. The app bin loads
-# the gitignored root `.env`; this file reads `DEEPSEEK_API_KEY` and optional
-# `DEEPSEEK_BASE_URL` through `!!js`.
-
-- id: hmr
-  name: '@cordisjs/plugin-hmr'
-  config:
-    root: ['.']
+# The app bin loads the gitignored root `.env` into the process environment;
+# entry configs here are the composition base, while user-plane values resolve
+# per request through the settings and credentials providers below.
+# No dev HMR row: vendored @cordisjs/plugin-hmr uses decorators, which the
+# native --experimental-transform-types source launch cannot load.
 
 # User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
 # `llm-deepseek:` section there overrides the adapter entry below without a
