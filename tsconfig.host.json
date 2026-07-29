@@ -15,6 +15,7 @@
     "apps/web/tests/steering.e2e.ts",
     "apps/web/tests/navigation-panes.e2e.ts",
     "apps/web/tests/lifecycle-chrome.e2e.ts",
+    "apps/web/tests/details-session-lifecycle.e2e.ts",
     "apps/web/tests/settings-chrome.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
