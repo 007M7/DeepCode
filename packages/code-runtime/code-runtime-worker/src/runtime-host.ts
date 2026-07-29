@@ -1,6 +1,7 @@
 /** Shared host mechanics for local and subprocess-hosted TypeScript worker runtimes. */
 
 import { stripTypeScriptTypes } from 'node:module'
+import type { Readable } from 'node:stream'
 import type {
   CodeBindingNamespace,
   CodeJsonValue,
@@ -14,6 +15,28 @@ import type { WorkerJsonWire } from './worker-json.ts'
 
 /** Smallest cap that can represent an empty log array and failure message. */
 export const MIN_RUNTIME_OUTPUT_BYTES = 4
+
+/**
+ * Resolve after a worker pipe emits queued data or closes during termination.
+ * @param stream - captured worker or child-process pipe.
+ * @returns after no more queued bytes can arrive.
+ */
+export function waitForRuntimePipeDrain(stream: Readable): Promise<void> {
+  if (stream.readableEnded || stream.destroyed) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = (): void => {
+      stream.off('end', done)
+      stream.off('close', done)
+      stream.off('error', done)
+      resolve()
+    }
+    stream.once('end', done)
+    stream.once('close', done)
+    stream.once('error', done)
+    /* v8 ignore next -- termination can win the adjacent listener-registration race. */
+    if (stream.readableEnded || stream.destroyed) done()
+  })
+}
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 const RESERVED_WORDS = new Set([
@@ -223,5 +246,6 @@ export class RuntimeOutputLedger {
 }
 
 export { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
-export { jsonValueBytesUpTo } from './output-json.ts'
+export { jsonStringBytesUpTo, jsonValueBytesUpTo } from './output-json.ts'
+export { runWorkerMain } from './bootstrap.ts'
 export type { WorkerJsonWire } from './worker-json.ts'

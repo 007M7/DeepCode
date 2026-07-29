@@ -6,6 +6,7 @@
  */
 
 import { inspect } from 'node:util'
+import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
 import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
@@ -310,6 +311,7 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
  * @param pending - the id-keyed map each posted call parks its handles in.
  * @param nextId - the shared mutable id counter (worker-issued correlation ids).
  * @param errorClasses - per-namespace constructors shared with program globals.
+ * @param maxFrameBytes - optional serialized transport cap checked before posting.
  * @returns one namespace object per declaration, in declaration order.
  */
 export function makeNamespaces(
@@ -318,6 +320,7 @@ export function makeNamespaces(
   pending: Map<number, PendingCall>,
   nextId: { value: number },
   errorClasses: Map<string, BindingErrorConstructor> = makeBindingErrorClasses(data),
+  maxFrameBytes?: number,
 ): Record<string, unknown>[] {
   return data.namespaces.map(({ global, names }) => {
     const errorClass = errorClasses.get(global)
@@ -335,6 +338,11 @@ export function makeNamespaces(
           if (detached === undefined) {
             return Promise.reject(bindingFailure(errorClass, name, 'binding arguments must be lossless JSON'))
           }
+          const call = { type: 'call' as const, id: nextId.value, global, name, args: encodeWorkerJson(detached) }
+          if (maxFrameBytes !== undefined
+            && jsonValueBytesUpTo(call as unknown as CodeJsonValue, maxFrameBytes) === undefined) {
+            return Promise.reject(bindingFailure(errorClass, name, 'binding arguments exceed maxFrameBytes'))
+          }
           return new Promise((resolve, reject) => {
             const id = nextId.value++
             pending.set(id, {
@@ -344,7 +352,7 @@ export function makeNamespaces(
               },
             })
             try {
-              port.postMessage({ type: 'call', id, global, name, args: encodeWorkerJson(detached) })
+              port.postMessage(call)
             } catch (error: unknown) {
               pending.delete(id)
               const message = `binding arguments must be structured-cloneable: ${error instanceof CapturedError ? error.message : String(error)}`
@@ -364,12 +372,14 @@ export function makeNamespaces(
  * @param port - host message port or test double.
  * @param data - the boot payload the host sent.
  * @param streams - stdout/stderr objects captured as program logs.
+ * @param maxFrameBytes - optional serialized transport cap checked before posting.
  * @returns after posting the done message.
  */
 export async function runWorkerMain(
   port: BootstrapPort,
   data: WorkerBootData,
   streams: { stdout: PatchableStream; stderr: PatchableStream },
+  maxFrameBytes?: number,
 ): Promise<void> {
   const logs = new LogBuffer(
     data.maxOutputBytes,
@@ -384,7 +394,7 @@ export async function runWorkerMain(
 
   const nextId = { value: 1 }
   const errorClasses = makeBindingErrorClasses(data)
-  const namespaces = makeNamespaces(data, port, pending, nextId, errorClasses)
+  const namespaces = makeNamespaces(data, port, pending, nextId, errorClasses, maxFrameBytes)
   const errorClassParameters: string[] = []
   const errorClassValues: BindingErrorConstructor[] = []
   for (const namespace of data.namespaces) {
@@ -420,5 +430,8 @@ export async function runWorkerMain(
       ...prepareException(error, logs.remainingOutputBytes(), data.maxOutputBytes),
     }
   }
-  port.postMessage(done)
+  port.postMessage(maxFrameBytes !== undefined
+    && jsonValueBytesUpTo(done as unknown as CodeJsonValue, maxFrameBytes) === undefined
+    ? { type: 'output-limit' }
+    : done)
 }

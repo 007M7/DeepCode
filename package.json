@@ -112,6 +112,8 @@
     "gen-module-graph": "tsx scripts/gen-module-graph.ts",
     "gen-scoped-events": "tsx scripts/gen-scoped-events.ts",
     "verify-scoped-events": "tsx scripts/gen-scoped-events.ts --check",
+    "gen-code-runtime-runner": "tsx scripts/gen-code-runtime-runner.ts",
+    "verify-code-runtime-runner": "tsx scripts/gen-code-runtime-runner.ts --check",
     "verify-module-graph": "tsx scripts/gen-module-graph.ts --check",
     "constraints": "tsx scripts/check-workspace-constraints.ts",
     "doc-sync": "tsx scripts/run-gates.ts doc-sync",
