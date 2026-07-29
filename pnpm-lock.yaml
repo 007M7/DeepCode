@@ -128,9 +128,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/ui/app-boot
-      '@deepseek-ai/dsh-bash-local':
+      '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:^
-        version: link:../../packages/bash/bash-local
+        version: link:../../packages/bash/bash-sandbox
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../packages/client/connection
@@ -164,6 +164,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-models':
         specifier: workspace:^
         version: link:../../packages/client/ui-models
+      '@deepseek-ai/dsh-client-ui-permission':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-permission
       '@deepseek-ai/dsh-client-ui-plan':
         specifier: workspace:^
         version: link:../../packages/client/ui-plan
@@ -212,12 +215,12 @@ importers:
       '@deepseek-ai/dsh-frontend':
         specifier: workspace:^
         version: link:../web
-      '@deepseek-ai/dsh-fs-local':
-        specifier: workspace:^
-        version: link:../../packages/fs/fs-local
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../packages/fs/fs-policy
+      '@deepseek-ai/dsh-fs-sandbox':
+        specifier: workspace:^
+        version: link:../../packages/fs/fs-sandbox
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../packages/goal/goal
@@ -251,9 +254,18 @@ importers:
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../packages/ui/permission
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../packages/plan/plan-mode
+      '@deepseek-ai/dsh-sandbox-local':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-local
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../packages/core/session
@@ -347,6 +359,9 @@ importers:
       '@deepseek-ai/dsh-tui':
         specifier: workspace:^
         version: link:../../packages/ui/tui
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:^
+        version: link:../../packages/ui/user-approval
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../packages/ui/user-interaction
@@ -1052,6 +1067,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../ui/permission
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../plan/plan-mode
@@ -1202,6 +1220,27 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/client/ui-permission:
+    devDependencies:
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@deepseek-ai/dsh-client-ui-command':
+        specifier: workspace:^
+        version: link:../ui-command
+      '@deepseek-ai/dsh-client-ui-slash':
+        specifier: workspace:^
+        version: link:../ui-slash
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../ui/permission
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/client/ui-plan:
     devDependencies:
@@ -4868,10 +4907,16 @@ importers:
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
         version: link:../../bash/bash
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../commands
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -4884,6 +4929,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../user-approval

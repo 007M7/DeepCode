@@ -8,6 +8,8 @@
 
 该服务要求存在具有约束能力的 `ctx.bash` 执行器和 `ctx.approval`。表中名为 `custom` 的条目会在加载时抛出异常；如果组合在表外指定默认值，则零事件会话会推导出 `custom`。详见[沙箱切换设计](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
+两个可选子件在同一服务之上交付产品界面：`permissions` 会话投影单元（`src/types.ts` 声明该 key；单元折叠三个全量值旋钮事件，在组合默认值之上视图出 select——表内选项加仅作当前值的 `custom`）与 `/permission` 命令（裸调用报告当前预设与表；预设参数经 `set` 切换）。每个子件仅在其注册表（`ctx.sessionProjections` / `ctx.commands`）被组合时激活。
+
 ## 模型体验
 
 间接地，通过 `dsh-user-approval` 和 `dsh-tool-bash`：二者会渲染由此服务的调节项事件所选择的审批策略提示词、切换通知和沙箱工具结果；`permission/preset` 本身只写入日志。
@@ -18,7 +20,6 @@
 
 ## 已知限制与延期工作
 
-- **当前没有已交付的组合挂载此服务**：在 [ACP 变为仅用于自动化](../../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md)之前，ACP 桥接层是唯一的选择器；preset 表为下一个公开运行时策略切换的交互式入口保留。
 - **只组合两个机制调节项**：preset 选择沙箱模式和审批策略；agent（智能体）／profile 选择尚未纳入 `PresetSpec`。
 - **`custom` 只能推导得出**：调用方可以从不匹配的调节项组合切换出去，但无法通过此服务选中或持久化一个具名 custom preset。
 - **preset 表位于进程级别**：配置在插件生命周期内固定；更改可用 preset 必须重新加载插件。
