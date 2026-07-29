@@ -29,7 +29,7 @@ function appendHumanPrompt(session: ReturnType<Context['sessions']['create']>, t
 }
 
 describe('SessionTitleService.rename', () => {
-  it('appends a normalized user-source title and supersedes automatic work', async () => {
+  it('appends a normalized user-source title', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
@@ -118,9 +118,48 @@ describe('SessionTitleService.rename', () => {
       title: 'Derivable prompt words',
       source: { kind: 'fallback' },
     })
-    // The pin is gone: the next user message schedules automatic work again
-    // (observable as a fresh fallback-source title remaining latest).
+    // The pin is gone: the latest title is fallback-sourced, so the
+    // onUserMessage pin check no longer skips scheduling.
     expect(ctx.sessionTitle.get(session)?.source.kind).toBe('fallback')
+  })
+
+  it('supersedes in-flight automatic generation: a late provider result cannot override the user title', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    // The provider parks on a test-held deferred so rename lands while its
+    // generation is ACTIVE (not merely scheduled).
+    let releaseProvider: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { releaseProvider = resolve })
+    let aborted = false
+    const generate = vi.fn(async (request: SessionTitleProviderRequest) => {
+      request.signal.addEventListener('abort', () => { aborted = true })
+      await gate
+      return { title: 'Late provider title', messageSeqs: request.messages.map(message => message.seq) }
+    })
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('deferred-provider'),
+      automatic: 'all-user-messages',
+      generate,
+    })
+    const session = ctx.sessions.create(SessionId('rename-supersede'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    appendHumanPrompt(session, 'Prompt that triggers generation')
+    session.append('request/header', {
+      header: { config: { provider: 'main-route', model: 'chat-model' } },
+      reason: 'change',
+    })
+    await settle()
+    expect(generate).toHaveBeenCalledOnce()
+
+    ctx.sessionTitle.rename(session, 'User wins')
+    expect(aborted).toBe(true)
+    releaseProvider?.()
+    await settle()
+    // The released provider result must not append over the user title, and
+    // the swallowed abort must not surface as an unhandled rejection.
+    const latest = session.events.findLast(item => item.type === 'session/title')
+    expect(latest?.data).toMatchObject({ title: 'User wins', source: { kind: 'user' } })
   })
 
   it('fallback-only refresh keeps the user title when no fallback is derivable', async () => {

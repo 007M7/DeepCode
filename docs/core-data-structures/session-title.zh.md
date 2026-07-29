@@ -45,9 +45,9 @@ type SessionTitleSource =
 interface SessionTitleEventData {
   /** Normalized non-empty title text. */
   readonly title: string
-  /** Exact human `user/message` seqs used to derive this title. */
+  /** Exact human `user/message` seqs used to derive this title; empty for an explicit user rename. */
   readonly messageSeqs: number[]
-  /** Built-in fallback or registered-provider provenance. */
+  /** Built-in fallback, registered-provider, or explicit-user provenance. */
   readonly source: SessionTitleSource
 }
 ```

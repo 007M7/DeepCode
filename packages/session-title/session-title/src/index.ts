@@ -61,9 +61,9 @@ export type SessionTitleSource =
 export interface SessionTitleEventData {
   /** Normalized non-empty title text. */
   readonly title: string
-  /** Exact human `user/message` seqs used to derive this title. */
+  /** Exact human `user/message` seqs used to derive this title; empty for an explicit user rename. */
   readonly messageSeqs: number[]
-  /** Built-in fallback or registered-provider provenance. */
+  /** Built-in fallback, registered-provider, or explicit-user provenance. */
   readonly source: SessionTitleSource
 }
 
@@ -99,6 +99,16 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'session/title': SessionTitleEventData
   }
+}
+
+/**
+ * Rejection of an explicit user title whose text normalizes to empty — the
+ * one {@link SessionTitleService.rename} failure that blames the input.
+ * Callers translating rename failures onto a wire (`title-invalid`) narrow on
+ * this class; liveness and disposal failures stay plain `Error`s.
+ */
+export class SessionTitleInvalidError extends Error {
+  override readonly name = 'SessionTitleInvalidError'
 }
 
 /** One eligible human text message exposed to title providers. */
@@ -347,7 +357,8 @@ export class SessionTitleService extends Service {
    * @param session - exact live session to rename.
    * @param title - raw user input; normalized before acceptance.
    * @returns the accepted title snapshot.
-   * @throws {Error} when the session is not live or the title normalizes to empty.
+   * @throws {SessionTitleInvalidError} when the title normalizes to empty.
+   * @throws {Error} when the session is not live or the service is disposed.
    */
   rename(session: Session, title: string): SessionTitleSnapshot {
     this.assertServiceActive()
@@ -356,7 +367,7 @@ export class SessionTitleService extends Service {
     }
     const normalized = normalizeSessionTitle(title, this.config.maxTitleBytes)
     if (normalized.length === 0) {
-      throw new Error('session title must contain visible characters')
+      throw new SessionTitleInvalidError('session title must contain visible characters')
     }
     const state = this.stateFor(session)
     this.supersede(state, 'user rename superseded automatic title generation')
@@ -394,14 +405,7 @@ export class SessionTitleService extends Service {
       const current = this.get(session)
       const [first] = messages
       if (current?.source.kind === 'user' && first !== undefined) {
-        const title = fallbackSessionTitle(first.text, this.config.fallbackMaxWords, this.config.fallbackMaxBytes)
-        if (title.length > 0) {
-          session.append('session/title', {
-            title,
-            messageSeqs: [first.seq],
-            source: { kind: 'fallback' },
-          })
-        }
+        this.appendFallback(session, first)
         signal?.throwIfAborted()
         return this.get(session)
       }
@@ -728,6 +732,23 @@ export class SessionTitleService extends Service {
     if (typeof candidate.generate !== 'function') {
       throw new Error(`session-title provider "${candidate.id}" requires generate()`)
     }
+  }
+
+  /**
+   * Derive and append the deterministic fallback title over whatever stands
+   * (the refresh unpin path: overwriting a pinned user title is the point).
+   * Synchronous on purpose — no await may separate derivation from append, so
+   * it needs neither ensureFallback's in-flight dedup nor its liveness
+   * re-check. An underivable fallback (empty after the caps) appends nothing.
+   */
+  private appendFallback(session: Session, first: SessionTitleUserMessage): void {
+    const title = fallbackSessionTitle(first.text, this.config.fallbackMaxWords, this.config.fallbackMaxBytes)
+    if (title.length === 0) return
+    session.append('session/title', {
+      title,
+      messageSeqs: [first.seq],
+      source: { kind: 'fallback' },
+    })
   }
 
   /** Create the first deterministic fallback if the session still lacks a title. */

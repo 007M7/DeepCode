@@ -38,7 +38,7 @@ Automatic provider failures are nonfatal warnings and retain the latest title. E
 
 ### Explicit rename
 
-`rename(session, title)` accepts a user title synchronously: it normalizes the text under the accepted-title byte limit, supersedes in-flight automatic work, and appends a `session/title` event with the third source kind, `user`. A user-sourced latest title pins the session: `onUserMessage` schedules no automatic revision while it stands, under either cadence. An explicit `refresh()` remains the deliberate unpin — it reserves a revision and appends a provider or fallback event over the pinned one. The Web host exposes this as the `session.rename` unary method (resuming cold sessions first) and returns the normalized title plus its event seq so the client settles its `title` projection cell before the push frame arrives.
+`rename(session, title)` accepts a user title synchronously: it normalizes the text under the accepted-title byte limit, supersedes in-flight automatic work, and appends a `session/title` event with the third source kind, `user`. A user-sourced latest title pins the session: `onUserMessage` schedules no automatic revision while it stands, under either cadence. An explicit `refresh()` remains the deliberate unpin — it appends a provider or fallback event over the pinned one whenever a replacement title is derivable (an underivable fallback, e.g. under a tiny byte cap, leaves the pin standing). The Web host exposes this as the `session.rename` unary method (resuming cold sessions first) and returns the normalized title plus its event seq so the client settles its `title` projection cell before the push frame arrives.
 
 ### Forks and consumers
 

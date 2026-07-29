@@ -38,7 +38,7 @@ Status: implemented
 
 ### 显式重命名
 
-`rename(session, title)` 同步接受用户标题：按已接受标题的字节上限规范化文本、取代在途自动工作，并追加一条第三种来源 `user` 的 `session/title` 事件。最新标题来源为 user 即钉住该会话：只要它还在，`onUserMessage` 在任一节奏下都不再安排自动修订。显式 `refresh()` 仍是有意的解钉手段——它预留一个修订号，并在被钉住的标题之上追加提供方或回退事件。Web host 将其暴露为 `session.rename` unary 方法（冷会话先恢复），并返回规范化后的标题及其事件 seq，使 client 在推送帧到达前就结算自己的 `title` 投影格。
+`rename(session, title)` 同步接受用户标题：按已接受标题的字节上限规范化文本、取代在途自动工作，并追加一条第三种来源 `user` 的 `session/title` 事件。最新标题来源为 user 即钉住该会话：只要它还在，`onUserMessage` 在任一节奏下都不再安排自动修订。显式 `refresh()` 仍是有意的解钉手段——只要能推导出替代标题，它就在被钉住的标题之上追加提供方或回退事件（推导不出回退标题时，例如字节上限过小，钉住状态保持不变）。Web host 将其暴露为 `session.rename` unary 方法（冷会话先恢复），并返回规范化后的标题及其事件 seq，使 client 在推送帧到达前就结算自己的 `title` 投影格。
 
 ### Fork 与消费方
 
