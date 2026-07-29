@@ -498,8 +498,15 @@ export class E2BFileSystem extends FileSystem {
     const sandbox = await this.ctx.e2b.getSandbox()
     const targetPath = String(target.targetKey)
     const versionId = randomUUID()
-    const temporary = posix.join(posix.dirname(targetPath), `.${posix.basename(targetPath)}.dsh-${randomUUID()}.tmp`)
+    const stagingDirectory = posix.join(posix.dirname(targetPath), `.dsh-${randomUUID()}.tmp`)
+    const temporary = posix.join(stagingDirectory, 'content')
+    let stagingDirectoryCreated = false
     try {
+      const created = await sandbox.files.makeDir(stagingDirectory, signalOpts(signal))
+      if (!created) throw new Error('private staging directory already exists')
+      stagingDirectoryCreated = true
+      await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stagingDirectory)}`, signalOpts(signal))
+      assertNotAborted(signal, 'write')
       await sandbox.files.write(temporary, content, {
         metadata: { [VERSION_METADATA_KEY]: versionId },
         ...signalOpts(signal),
@@ -512,12 +519,19 @@ export class E2BFileSystem extends FileSystem {
       )
       assertNotAborted(signal, 'write')
       const committed = await sandbox.files.rename(temporary, targetPath, signalOpts(signal))
+      try {
+        await sandbox.files.remove(stagingDirectory)
+      } catch (_committedStagingCleanupFailure) {
+        // The target is already committed; an empty private directory cannot turn that write into a failure.
+      }
       return entryVersion(committed)
     } catch (error: unknown) {
-      try {
-        await sandbox.files.remove(temporary)
-      } catch (_temporaryAlreadyAbsent) {
-        // Only the private staging path is swallowed; the original failure owns the operation.
+      if (stagingDirectoryCreated) {
+        try {
+          await sandbox.files.remove(stagingDirectory)
+        } catch (_stagingDirectoryAlreadyAbsentOrCleanupFailed) {
+          // Only the private staging directory is swallowed; the original failure owns the operation.
+        }
       }
       throw mapError(error, 'write', target.displayPath, signal)
     }

@@ -35,6 +35,7 @@ function commandError(exitCode: number, stderr = ''): CommandExitError {
 class FakeRemote {
   readonly nodes = new Map<string, RemoteNode>()
   readonly writes: Array<{ path: string; data: string; metadata?: Record<string, string> }> = []
+  readonly writeParentModes: number[] = []
   readonly renames: Array<{ from: string; to: string }> = []
   readonly removals: string[] = []
   readonly commands: string[] = []
@@ -42,6 +43,7 @@ class FakeRemote {
   streamKeepOpen = false
   readonly streamCancel = vi.fn()
   nextCommandError: unknown
+  nextMakeDirResult: boolean | undefined
   nextInfoError: unknown
   nextListError: unknown
   nextReadError: unknown
@@ -130,7 +132,13 @@ class FakeRemote {
   readonly sandbox = {
     sandboxId: 'fake',
     files: {
-      makeDir: async (path: string): Promise<boolean> => {
+      makeDir: async (path: string, options?: { signal?: AbortSignal }): Promise<boolean> => {
+        this.checkAbort(options)
+        if (this.nextMakeDirResult !== undefined) {
+          const result = this.nextMakeDirResult
+          this.nextMakeDirResult = undefined
+          return result
+        }
         if (this.nodes.has(path)) return false
         this.dir(path)
         return true
@@ -178,6 +186,7 @@ class FakeRemote {
         this.checkAbort(options)
         const parent = dirname(path)
         if (!this.nodes.has(parent)) this.dir(parent)
+        this.writeParentModes.push(this.required(parent).mode)
         this.nodes.set(path, {
           type: FileType.FILE,
           data: bytes(data),
@@ -209,7 +218,9 @@ class FakeRemote {
           this.nextRemoveError = undefined
           throw error
         }
-        this.nodes.delete(path)
+        for (const candidate of this.nodes.keys()) {
+          if (candidate === path || candidate.startsWith(`${path}/`)) this.nodes.delete(candidate)
+        }
       },
     },
     commands: {
@@ -499,6 +510,10 @@ describe('E2BFileSystem atomic writes and edits', () => {
     expect(outcome).toMatchObject({ operation: 'create', before: null, after: 'one\ntwo\rthree' })
     expect(remote.nodes.get('/workspace/new.txt')?.mode).toBe(0o600)
     expect(remote.nodes.get('/workspace/new.txt')?.metadata?.['dsh-version']).toBeDefined()
+    expect(remote.writeParentModes).toEqual([0o700])
+    const stagingDirectory = posix.dirname(remote.writes[0]!.path)
+    expect(posix.dirname(stagingDirectory)).toBe('/workspace')
+    expect(remote.removals).toContain(stagingDirectory)
     await expect(fs.stat(target)).resolves.toMatchObject({ version: outcome.version, size: 14 })
   })
 
@@ -558,6 +573,15 @@ describe('E2BFileSystem atomic writes and edits', () => {
     expect(controller.signal.aborted).toBe(true)
   })
 
+  it('does not turn post-commit staging cleanup failure into a failed write', async () => {
+    const remote = new FakeRemote()
+    remote.nextRemoveError = new Error('empty staging cleanup failed')
+    const { fs } = await setup(remote)
+    await expect(fs.writeText(await fs.resolve('committed'), 'yes'))
+      .resolves.toMatchObject({ operation: 'create' })
+    expect(new TextDecoder().decode(remote.nodes.get('/workspace/committed')?.data)).toBe('yes')
+  })
+
   it('returns committed rename metadata without a fallible post-commit lookup', async () => {
     const remote = new FakeRemote()
     const getInfo = vi.spyOn(remote.sandbox.files, 'getInfo')
@@ -582,6 +606,11 @@ describe('E2BFileSystem atomic writes and edits', () => {
     remote.nextRemoveError = new Error('cleanup also failed')
     remote.nextRenameError = new DOMException('aborted', 'AbortError')
     await expectCode(fs.writeText(await fs.resolve('abort'), 'x'), 'FS_ABORTED')
+
+    const removalsBeforeCollision = remote.removals.length
+    remote.nextMakeDirResult = false
+    await expectCode(fs.writeText(await fs.resolve('collision'), 'x'), 'FS_IO_ERROR')
+    expect(remote.removals).toHaveLength(removalsBeforeCollision)
   })
 
   it('applies literal edits atomically and restores the detected CRLF style', async () => {

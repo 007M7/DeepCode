@@ -28,7 +28,8 @@ export class E2BSubprocessService extends SubprocessService {
 
   private readonly live = new Set<E2BSubprocessHandle>()
   private readonly terminals = new Set<SubprocessTerminalHandle>()
-  private readonly terminalSetups = new Set<Promise<void>>()
+  private readonly terminalSetups = new Map<Promise<void>, AbortController>()
+  private readonly failedTerminalSetupCleanups = new Set<() => Promise<void>>()
   private disposing = false
 
   /** @inheritdoc */
@@ -44,9 +45,13 @@ export class E2BSubprocessService extends SubprocessService {
     this.runtimeRoot = ctx.e2b.runtimeRoot
     ctx.effect(() => async () => {
       this.disposing = true
-      await Promise.all([...this.terminalSetups])
+      for (const controller of this.terminalSetups.values()) {
+        controller.abort(new Error('subprocess-e2b: service disposed during terminal setup'))
+      }
+      await Promise.all([...this.terminalSetups.keys()])
       const handles = [...this.live]
       const terminals = [...this.terminals]
+      const failedTerminalSetupCleanups = [...this.failedTerminalSetupCleanups]
       const pending: Promise<unknown>[] = []
       for (const handle of handles) {
         handle.terminate()
@@ -58,6 +63,9 @@ export class E2BSubprocessService extends SubprocessService {
       for (const terminal of terminals) {
         terminal.terminate()
         pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
+      }
+      for (const cleanup of failedTerminalSetupCleanups) {
+        pending.push(cleanup().then(() => { this.failedTerminalSetupCleanups.delete(cleanup) }))
       }
       await Promise.all(pending)
     }, 'e2b subprocess teardown')
@@ -133,9 +141,18 @@ export class E2BSubprocessService extends SubprocessService {
     spec.signal?.throwIfAborted()
     const stateDir = posix.join(this.runtimeRoot, 'terminals', randomUUID())
     const setup = Promise.withResolvers<void>()
-    this.terminalSetups.add(setup.promise)
+    const setupController = new AbortController()
+    const setupSignal = spec.signal === undefined
+      ? setupController.signal
+      : AbortSignal.any([spec.signal, setupController.signal])
+    this.terminalSetups.set(setup.promise, setupController)
     try {
-      const terminal = await spawnE2BTerminal(this.ctx.e2b, spec, stateDir)
+      const terminal = await spawnE2BTerminal(
+        this.ctx.e2b,
+        { ...spec, signal: setupSignal },
+        stateDir,
+        (cleanup) => { this.failedTerminalSetupCleanups.add(cleanup) },
+      )
       this.terminals.add(terminal)
       if (this.isDisposing()) {
         terminal.terminate()

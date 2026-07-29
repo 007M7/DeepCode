@@ -19,3 +19,23 @@ export function scrubRemoteEnvironment(raw: string): Map<string, string> {
   }
   return environment
 }
+
+/**
+ * Overlay explicit entries and serialize one validated E2B environment.
+ * @param raw - The complete NUL-delimited remote environment.
+ * @param explicit - Deliberate caller overrides applied after ambient scrubbing.
+ * @returns NUL-delimited `name=value` entries accepted by `env -i`.
+ */
+export function serializeRemoteEnvironment(
+  raw: string,
+  explicit: Readonly<Record<string, string>> | undefined,
+): string {
+  const environment = scrubRemoteEnvironment(raw)
+  for (const [name, value] of Object.entries(explicit ?? {})) {
+    if (name.length === 0 || name.includes('=') || name.includes('\0') || value.includes('\0')) {
+      throw new Error('subprocess-e2b: environment entries require non-empty NUL-free names without = and NUL-free values')
+    }
+    environment.set(name, value)
+  }
+  return [...environment].map(([name, value]) => `${name}=${value}\0`).join('')
+}

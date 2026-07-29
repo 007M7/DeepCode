@@ -17,7 +17,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { scrubRemoteEnvironment } from './environment.ts'
+import { serializeRemoteEnvironment } from './environment.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
 
 const GROUP_POLL_MS = 20
@@ -90,12 +90,6 @@ function withinMs<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefi
       resolve(value)
     })
   })
-}
-
-function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
-  const environment = scrubRemoteEnvironment(raw)
-  for (const [name, value] of Object.entries(explicit ?? {})) environment.set(name, value)
-  return [...environment].map(([name, value]) => `${name}=${value}\0`).join('')
 }
 
 function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
@@ -213,7 +207,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private invalidHandleQuiescent = false
   private provisionalHandleQuiescent = false
   private terminationStarted = false
-  private terminationSucceeded = false
+  private terminationFenced = false
+  private quiescenceProven = false
   private terminationAttempt: Promise<void> | undefined
   private terminationFailure: Error | undefined
   private terminationSignal: NodeJS.Signals | null = null
@@ -265,18 +260,18 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   /** @inheritdoc */
   terminate(): void {
-    if (this.terminationSucceeded || this.terminationAttempt !== undefined) return
+    if (this.terminationFenced || this.quiescenceProven || this.terminationAttempt !== undefined) return
     this.terminationStarted = true
     this.terminationFailure = undefined
     const attempt = this.terminateRemote()
     this.terminationAttempt = attempt
     void attempt.then(
       () => {
-        this.terminationSucceeded = true
+        this.terminationFenced = true
         this.terminationAttempt = undefined
       },
       (error: unknown) => {
-        this.terminationFailure = asError(error)
+        if (!this.quiescenceProven) this.terminationFailure = asError(error)
         this.terminationAttempt = undefined
       },
     )
@@ -284,17 +279,24 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   /** @inheritdoc */
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
+    if (this.quiescenceProven) return true
     let handle: CommandHandle | undefined
     if (this.terminationStarted) {
       const observed = await waitWithSignal(this.commandState.promise, signal)
       if (observed === WAIT_ABORTED) return false
       handle = observed
-      if (handle === undefined) return true
+      if (handle === undefined) {
+        this.markQuiescent()
+        return true
+      }
       if (this.remotePid <= 0) {
         const attempt = this.terminationAttempt
         if (attempt !== undefined && await waitWithSignal(attempt, signal) === WAIT_ABORTED) return false
         this.throwTerminationFailure()
-        if (this.invalidHandleQuiescent || this.provisionalHandleQuiescent) return true
+        if (this.invalidHandleQuiescent || this.provisionalHandleQuiescent) {
+          this.markQuiescent()
+          return true
+        }
       }
     } else {
       try {
@@ -303,7 +305,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         handle = observed
       } catch {
         handle = this.commandHandle
-        if (handle === undefined) return true
+        if (handle === undefined) {
+          this.markQuiescent()
+          return true
+        }
       }
     }
     this.throwTerminationFailure()
@@ -320,10 +325,17 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       if (!await waitTick(signal)) return false
     }
     this.throwTerminationFailure()
-    return !isAborted(signal)
+    if (isAborted(signal)) return false
+    this.markQuiescent()
+    return true
   }
 
   private readonly onAbort = (): void => { this.terminate() }
+
+  private markQuiescent(): void {
+    this.quiescenceProven = true
+    this.terminationFailure = undefined
+  }
 
   private async run(): Promise<SubprocessOutcome> {
     let sandbox: Sandbox | undefined
@@ -385,7 +397,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       return outcome
     } catch (error: unknown) {
       this.commandState.resolve(undefined)
-      let failure = error
+      let failure = await this.rollbackPublishedFailure(error)
       if (sandbox !== undefined && this.stateDirectoryCreated) {
         try {
           await this.removeFailedState(sandbox)
@@ -413,7 +425,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     const files = [
       { path: this.paths.pid, data: '' },
       { path: this.paths.status, data: '' },
-      { path: this.paths.environment, data: remoteEnvironment(ambient.stdout, this.spec.env) },
+      { path: this.paths.environment, data: serializeRemoteEnvironment(ambient.stdout, this.spec.env) },
       ...(hasSpill(this.spec.stdio.stdout) ? [{ path: this.paths.stdout, data: '' }] : []),
       ...(hasSpill(this.spec.stdio.stderr) ? [{ path: this.paths.stderr, data: '' }] : []),
     ]
@@ -508,15 +520,16 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         if (!/^(?:0|[1-9][0-9]*)$/.test(rawStatus) || !Number.isSafeInteger(exitCode) || exitCode > 255) {
           throw new Error(`subprocess-e2b: remote wrapper published invalid exit code ${JSON.stringify(rawStatus)}`)
         }
+        if (this.spec.stdio.stdout === 'pipe' || this.spec.stdio.stderr === 'pipe') {
+          return this.commandOutcome(await settlement)
+        }
         const completed = await withinMs(settlement, this.spec.graceMs)
         if (completed !== undefined) return this.commandOutcome(completed)
         this.outputDrainExpired = true
         this.stdoutReader?.invalidateSpill()
         this.stderrReader?.invalidateSpill()
         await handle.disconnect()
-        return this.terminationSignal === null
-          ? { exitCode, signal: null }
-          : { exitCode: null, signal: this.terminationSignal }
+        return { exitCode, signal: null }
       }
       const completed = await Promise.race([settlement, waitTick().then(() => undefined)])
       if (completed !== undefined) return this.commandOutcome(completed)
@@ -531,6 +544,20 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         : { exitCode: null, signal: this.terminationSignal }
     }
     throw settlement.error
+  }
+
+  private async rollbackPublishedFailure(error: unknown): Promise<unknown> {
+    if (this.remotePid <= 0 || this.commandHandle === undefined || this.quiescenceProven) return error
+    this.terminate()
+    try {
+      await this.waitForExit()
+      return error
+    } catch (cleanupError: unknown) {
+      return new AggregateError(
+        [asError(error), asError(cleanupError)],
+        'subprocess-e2b: command monitoring failed and process-group rollback did not reach quiescence',
+      )
+    }
   }
 
   private async rollbackUnpublishedGroup(sandbox: Sandbox, handle: CommandHandle): Promise<void> {

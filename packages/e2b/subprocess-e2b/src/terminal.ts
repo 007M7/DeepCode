@@ -19,7 +19,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { scrubRemoteEnvironment } from './environment.ts'
+import { serializeRemoteEnvironment } from './environment.ts'
 
 const POLL_MS = 20
 
@@ -140,17 +140,6 @@ function serializeValues(values: readonly string[], kind: string): string {
     if (value.includes('\0')) throw new Error(`subprocess-e2b: terminal ${kind} must not contain NUL bytes`)
   }
   return values.map(value => `${value}\0`).join('')
-}
-
-function remoteEnvironment(raw: string, explicit: Readonly<Record<string, string>> | undefined): string {
-  const environment = scrubRemoteEnvironment(raw)
-  for (const [name, value] of Object.entries(explicit ?? {})) {
-    if (name.length === 0 || name.includes('=') || name.includes('\0') || value.includes('\0')) {
-      throw new Error('subprocess-e2b: terminal environment entries require non-empty NUL-free names without = and NUL-free values')
-    }
-    environment.set(name, value)
-  }
-  return serializeValues([...environment].map(([name, value]) => `${name}=${value}`), 'environment')
 }
 
 async function terminalSessionId(sandbox: Sandbox, pid: number, signal?: AbortSignal): Promise<number> {
@@ -432,12 +421,14 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
  * @param runtime - Shared E2B sandbox owner.
  * @param spec - Fully specified terminal-process request.
  * @param stateDir - Private remote directory for one startup transaction.
+ * @param retainFailedCleanup - Optional owner for retrying a cleanup transaction that could not prove quiescence.
  * @returns The live subprocess terminal handle.
  */
 export async function spawnE2BTerminal(
   runtime: E2BSandboxService,
   spec: SubprocessTerminalSpawnSpec,
   stateDir: string,
+  retainFailedCleanup?: (cleanup: () => Promise<void>) => void,
 ): Promise<E2BTerminalHandle> {
   const sandbox = await runtime.getSandbox()
   spec.signal?.throwIfAborted()
@@ -456,7 +447,7 @@ export async function spawnE2BTerminal(
   let stateDirectoryCreated = false
   try {
     const ambient = await sandbox.commands.run('env -0', signalOpts(spec.signal))
-    const environment = remoteEnvironment(ambient.stdout, spec.env)
+    const environment = serializeRemoteEnvironment(ambient.stdout, spec.env)
     const argv = serializeValues(spec.argv, 'argv')
     await sandbox.files.makeDir(stateDir)
     stateDirectoryCreated = true
@@ -502,25 +493,37 @@ export async function spawnE2BTerminal(
     )
   } catch (error: unknown) {
     output.destroy()
-    const cleanupErrors: Error[] = []
-    if (handle !== undefined && completion !== undefined) {
-      try {
-        await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
-      } catch (rollbackError: unknown) {
-        cleanupErrors.push(asError(rollbackError))
+    let terminalQuiescent = handle === undefined
+    let stateRemoved = !stateDirectoryCreated
+    const retryCleanup = async (): Promise<void> => {
+      const failures: Error[] = []
+      if (!terminalQuiescent && handle !== undefined) {
+        try {
+          if (completion === undefined) await handle.kill()
+          else await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
+          terminalQuiescent = true
+        } catch (cleanupError: unknown) {
+          failures.push(asError(cleanupError))
+        }
       }
-    } else if (handle !== undefined) {
-      await handle.kill().catch(() => false)
-    }
-    if (stateDirectoryCreated) {
-      try {
-        await sandbox.files.remove(stateDir)
-      } catch (stateError: unknown) {
-        if (!(stateError instanceof FileNotFoundError)) cleanupErrors.push(asError(stateError))
+      if (!stateRemoved) {
+        try {
+          await sandbox.files.remove(stateDir)
+          stateRemoved = true
+        } catch (stateError: unknown) {
+          if (stateError instanceof FileNotFoundError) stateRemoved = true
+          else failures.push(asError(stateError))
+        }
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'subprocess-e2b: terminal setup cleanup did not complete')
       }
     }
-    if (cleanupErrors.length > 0) {
-      throw new AggregateError([asError(error), ...cleanupErrors], asError(error).message)
+    try {
+      await retryCleanup()
+    } catch (cleanupError: unknown) {
+      retainFailedCleanup?.(retryCleanup)
+      throw new AggregateError([asError(error), asError(cleanupError)], asError(error).message)
     }
     throw error
   }

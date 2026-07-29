@@ -111,18 +111,7 @@ class FakeTerminalSandbox {
   resolvedExecutable = '/usr/bin/node\n'
   requestedOutput = 'requested-shell$ '
   emitOutputMarker = true
-  private createGate: Promise<void> | undefined
-  private releaseCreateGate: (() => void) | undefined
-
-  deferCreate(): void {
-    const gate = Promise.withResolvers<undefined>()
-    this.createGate = gate.promise
-    this.releaseCreateGate = () => { gate.resolve(undefined) }
-  }
-
-  releaseCreate(): void {
-    this.releaseCreateGate?.()
-  }
+  afterSessionLookup: (() => void) | undefined
 
   readonly sandbox = {
     files: {
@@ -163,7 +152,10 @@ class FakeTerminalSandbox {
         if (command.includes('command -v -- ')) {
           return { exitCode: 0, stdout: this.resolvedExecutable, stderr: '' }
         }
-        if (command.startsWith('ps -o sid=')) return { exitCode: 0, stdout: this.sessionId, stderr: '' }
+        if (command.startsWith('ps -o sid=')) {
+          this.afterSessionLookup?.()
+          return { exitCode: 0, stdout: this.sessionId, stderr: '' }
+        }
         if (command.startsWith('ps -o tpgid=')) {
           if (this.foregroundFailure !== undefined) throw this.foregroundFailure
           return { exitCode: 0, stdout: this.foreground, stderr: '' }
@@ -186,7 +178,6 @@ class FakeTerminalSandbox {
     pty: {
       create: async (options: Parameters<Sandbox['pty']['create']>[0]): Promise<CommandHandle> => {
         this.createOptions = options
-        await this.createGate
         if (this.createError !== undefined) throw this.createError
         await options.onData(Buffer.from('buffered banner\n'))
         return this.handle.asHandle()
@@ -691,7 +682,7 @@ describe('E2B subprocess terminal service', () => {
 
   it('owns live terminals through service disposal', async () => {
     const { ctx, fiber, fake } = await service()
-    const terminal = await ctx.subprocess.spawnTerminal(spec())
+    const terminal = await ctx.subprocess.spawnTerminal(spec({ signal: new AbortController().signal }))
     await fiber.dispose()
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
     expect(fake.handle.disconnects).toBe(1)
@@ -699,25 +690,56 @@ describe('E2B subprocess terminal service', () => {
 
   it('joins and rejects terminal setup that completes during service disposal', async () => {
     const fake = new FakeTerminalSandbox()
-    fake.deferCreate()
     const { ctx, fiber } = await service(fake)
+    let disposing: Promise<void> | undefined
+    fake.afterSessionLookup = () => {
+      fake.afterSessionLookup = undefined
+      queueMicrotask(() => {
+        queueMicrotask(() => { disposing = fiber.dispose() })
+      })
+    }
+    const subprocess = ctx.subprocess
     const spawning = ctx.subprocess.spawnTerminal(spec())
     const rejected = expect(spawning).rejects.toThrow('service disposed during terminal setup')
-    await vi.waitFor(() => { expect(fake.createOptions).toBeDefined() })
-
-    let disposed = false
-    const subprocess = ctx.subprocess
-    const disposing = fiber.dispose().then(() => { disposed = true })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(disposed).toBe(false)
+    await vi.waitFor(() => { expect(disposing).toBeDefined() })
     await expect(subprocess.spawnTerminal(spec())).rejects.toThrow('service is disposing')
-    fake.releaseCreate()
 
     await rejected
     await disposing
     expect(fake.groups).toEqual([])
     expect(fake.handle.disconnects).toBe(1)
     expect(fake.removed.some(path => path.includes('/terminals/'))).toBe(true)
+  })
+
+  it('aborts and rolls back terminal setup that cannot publish readiness during disposal', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.ready = new FileNotFoundError('not ready')
+    const { ctx, fiber } = await service(fake)
+    const spawning = ctx.subprocess.spawnTerminal(spec())
+    const rejected = expect(spawning).rejects.toThrow('service disposed during terminal setup')
+    await vi.waitFor(() => { expect(fake.readyReads).toBeGreaterThan(0) })
+
+    await fiber.dispose()
+    await rejected
+    expect(fake.groups).toEqual([])
+    expect(fake.handle.disconnects).toBe(1)
+  })
+
+  it('retains failed terminal setup cleanup for disposal retry', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.sendError = new Error('bootstrap failed')
+    fake.clearOnTerm = false
+    fake.clearOnKill = false
+    const { ctx, fiber } = await service(fake)
+
+    await expect(ctx.subprocess.spawnTerminal(spec({ graceMs: 1 }))).rejects.toThrow('bootstrap failed')
+    expect(fake.groups).toEqual([123])
+    expect(fake.handle.disconnects).toBe(0)
+
+    fake.clearOnKill = true
+    await fiber.dispose()
+    expect(fake.groups).toEqual([])
+    expect(fake.handle.disconnects).toBe(1)
   })
 
   it('releases naturally settled terminals and validates terminal requests', async () => {
