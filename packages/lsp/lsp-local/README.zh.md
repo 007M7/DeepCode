@@ -11,7 +11,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 - 在注册前解析每项服务器局部设置；无效映射或注册冲突会回滚较早配置项，因此加载失败不会留下提供方路由。
 - 每个 `(server id, canonical workspace target)` 惰性 single-flight 一个服务器进程。存活服务器错误不会回放；如果选中的池化传输在只读查询之前或期间失败，提供方会等待其释放，并在新进程上重试该查询一次。
 - 每次查询都使用兼容性优先的**临时打开** 序列：通过 `ctx.fs` 解析源文件并进行有界读取、`textDocument/didOpen`（版本 1、完整文本）、所请求操作，然后执行 `textDocument/didClose`，该操作位于 `finally` 中。写入 `didOpen` 失败或取消时，会先终止实例再允许池复用。文档在每次调用后关闭，因此第一版不需要 `didChange`、内容 cache 或文档 LRU。
-- 通过一条逐 Workspace、可中止的队列，串行执行每个源读取／打开／查询／关闭生命周期，因此排队调用只会在轮到自身时读取当前源；不同 Workspace 并行运行。
+- 通过一条逐 Workspace、可中止的队列，串行执行每个源读取／打开／查询／关闭生命周期，因此排队调用只会在轮到自身时读取当前源；不同 Workspace 并行运行。提供方资源释放会中止文件系统与协议工作，等待尚未进入队列的 Workspace 查找结算，再排空所有队列并等待所有服务器结算。
 - 协议 shutdown 失败后，经由进程管理器 seam 终止服务器后代树（POSIX 进程组信号；Windows `taskkill /T /F`）。树终止的投递结果与所有进程组信号一样被就地吸收，不向外抛出（投递与服务器退出存在竞态）；服务器是否完全停稳，由句柄的进程树存活等待确认，而非由这次终止自身的结果确认。
 - 通过 `ctx.subprocess` 解析服务器可执行文件、cwd、进程与协议流；`initialize.processId` 为 `null`，因为另一台机器或 PID 命名空间不得监控 harness 进程。
 - 使用 `ctx.fs` 提供的规范 containment、文件 URI 与稳定有界读取，但不发出 `fs/observed`：只有 LSP 结果对模型可见，因此查询不满足先读后写策略。

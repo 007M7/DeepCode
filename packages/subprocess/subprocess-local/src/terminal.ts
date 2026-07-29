@@ -193,11 +193,15 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async closeOnce(): Promise<void> {
-    const survivors = await this.stopDescendants()
+    let survivors = await this.stopDescendants()
     if (survivors.length > 0) {
       throw new Error(`terminal cleanup failed; surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
     }
     await this.stopShell()
+    survivors = await this.stopDescendants()
+    if (survivors.length > 0) {
+      throw new Error(`terminal cleanup failed; surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
+    }
     this.dataDisposable.dispose()
     this.exitDisposable.dispose()
   }

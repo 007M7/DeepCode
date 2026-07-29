@@ -13,6 +13,7 @@ class FakePty {
   readonly kills: string[] = []
   autoExitOnKill = true
   throwKill = false
+  onKill?: () => void
   private readonly dataListeners = new Set<(data: string) => void>()
   private readonly exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>()
 
@@ -39,6 +40,7 @@ class FakePty {
   kill(signal?: string): void {
     if (this.throwKill) throw new Error('process raced')
     this.kills.push(signal ?? 'SIGHUP')
+    this.onKill?.()
     if (this.autoExitOnKill) this.emitExit(0, signal === 'SIGKILL' ? 9 : 15)
   }
 
@@ -211,6 +213,46 @@ describe('LocalTerminalHandle', () => {
     await handle.waitForExit()
     expect(inspector.processes).toEqual([[124, 'SIGTERM'], [125, 'SIGKILL']])
     expect(pty.kills).toEqual(['SIGTERM'])
+  })
+
+  it('sweeps a same-session descendant forked while the shell handles TERM', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const late = { pid: 124, started: 'shell-term-trap' }
+    pty.onKill = () => {
+      inspector.sessionMembers = [late]
+      inspector.alive.add(late.pid)
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    handle.terminate()
+    await handle.waitForExit()
+
+    expect(inspector.processes).toEqual([[late.pid, 'SIGTERM']])
+    expect(pty.kills).toEqual(['SIGTERM'])
+  })
+
+  it('keeps a failed post-shell sweep retryable until its survivor leaves', async () => {
+    vi.useFakeTimers()
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const late = { pid: 124, started: 'shell-term-survivor' }
+    inspector.removeOnSignal = false
+    pty.onKill = () => {
+      inspector.sessionMembers = [late]
+      inspector.alive.add(late.pid)
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    handle.terminate()
+    const failed = expect(handle.waitForExit()).rejects.toThrow('surviving pids: 124')
+    await vi.advanceTimersByTimeAsync(25)
+    await failed
+
+    inspector.alive.delete(late.pid)
+    handle.terminate()
+    expect(await handle.waitForExit()).toBe(true)
+    expect(inspector.processes).toEqual([[late.pid, 'SIGTERM'], [late.pid, 'SIGKILL']])
   })
 
   it('retains captured descendants after reparenting', async () => {

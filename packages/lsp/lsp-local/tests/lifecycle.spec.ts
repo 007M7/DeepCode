@@ -301,6 +301,52 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 
+  it('aborts and awaits a workspace lookup when the provider is disposed', async () => {
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const fs = ctx.fs
+    const resolve = fs.resolve.bind(fs)
+    const started = Promise.withResolvers<AbortSignal>()
+    const release = Promise.withResolvers<undefined>()
+    vi.spyOn(fs, 'resolve').mockImplementation(async (path, options) => {
+      if (path !== ws) return await resolve(path, options)
+      const signal = options?.signal
+      if (signal === undefined) throw new Error('workspace lookup missing provider lifetime signal')
+      started.resolve(signal)
+      return await rejectWhenAborted(signal, release.promise)
+    })
+
+    const pending = ctx.lsp.query(query('goToDefinition'))
+    const signal = await started.promise
+    let disposed = false
+    const disposing = ctx.fiber.dispose().then(() => { disposed = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    expect(signal.aborted).toBe(true)
+    expect(disposed).toBe(false)
+    release.resolve(undefined)
+    await expect(pending).rejects.toThrow('provider is disposed')
+    await expect(disposing).resolves.toBeUndefined()
+  })
+
+  it('aborts a queued source read when the provider is disposed', async () => {
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const fs = ctx.fs
+    const started = Promise.withResolvers<AbortSignal>()
+    vi.spyOn(fs, 'readTextBounded').mockImplementation(async (_target, _maxBytes, signal) => {
+      if (signal === undefined) throw new Error('source read missing provider lifetime signal')
+      started.resolve(signal)
+      return await rejectWhenAborted(signal)
+    })
+
+    const pending = ctx.lsp.query(query('goToDefinition'))
+    const signal = await started.promise
+    const disposing = ctx.fiber.dispose()
+
+    await expect(pending).rejects.toThrow('provider is disposed')
+    await expect(disposing).resolves.toBeUndefined()
+    expect(signal.aborted).toBe(true)
+  })
+
   it('runs distinct workspaces in parallel instances', async () => {
     const ws2 = join(root, 'ws2')
     await mkdir(ws2)
@@ -357,4 +403,17 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs = 3000): Pro
     if (Date.now() - started > timeoutMs) throw new Error('waitFor timed out')
     await new Promise<void>(resolve => setTimeout(resolve, 10))
   }
+}
+
+/** Hold one fake provider operation until cancellation, optionally behind a cleanup gate. */
+function rejectWhenAborted<T>(signal: AbortSignal, release: Promise<unknown> = Promise.resolve()): Promise<T> {
+  return new Promise((_resolve, reject) => {
+    const onAbort = (): void => {
+      void release.then(() => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+      })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
 }

@@ -112,7 +112,7 @@ Provider disposal occurs outside tool execution, so `dsh-lsp-local` keeps `shutd
 
 ## Workspace, filesystem, and document synchronization
 
-`dsh-lsp-local` canonicalizes and reads through `ctx.fs` in the language server's execution world. It requires the workspace target to be a directory, rejects out-of-workspace sources through provider-owned containment, and uses `readTextBounded` so regular-file validation, UTF-8 decoding, the byte ceiling, and path replacement/growth safety stay one filesystem operation. It observes caller cancellation around each provider operation. It does not emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
+`dsh-lsp-local` canonicalizes and reads through `ctx.fs` in the language server's execution world. It requires the workspace target to be a directory, rejects out-of-workspace sources through provider-owned containment, and uses `readTextBounded` so regular-file validation, UTF-8 decoding, the byte ceiling, and path replacement/growth safety stay one filesystem operation. It fuses caller cancellation with provider disposal across each filesystem operation, tracks workspace lookups before they enter a queue, and awaits those lookups during disposal. It does not emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
 
 The `read` tool is unsuitable source because its output is windowed, numbered, transcript-visible, and observed. Reading in `tool-lsp` would also assign provider-specific synchronization to the consumer and preclude non-local providers.
 

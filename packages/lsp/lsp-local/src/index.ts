@@ -208,6 +208,9 @@ class LocalLspProvider implements LspProvider {
   private readonly instances = new Map<WorkspaceKey, LspInstance>()
   /** One complete source-read→open→query→close serialization tail per canonical workspace. */
   private readonly queues = new Map<WorkspaceKey, Promise<void>>()
+  /** Workspace canonicalizations that have not entered a provider-owned queue yet. */
+  private readonly workspaceLookups = new Set<Promise<void>>()
+  private readonly lifetime = new AbortController()
   private disposed = false
 
   constructor(
@@ -234,32 +237,48 @@ class LocalLspProvider implements LspProvider {
     if (signal?.aborted) throw abortError(signal)
   }
 
+  /** Fuse caller cancellation with provider disposal for every filesystem and protocol await. */
+  private querySignal(signal?: AbortSignal): AbortSignal {
+    return signal === undefined
+      ? this.lifetime.signal
+      : AbortSignal.any([signal, this.lifetime.signal])
+  }
+
   async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
     // Honor an already-aborted signal before provider I/O so a canceled request never starts a server.
     this.assertActive(signal)
-    const workspace = await canonicalizeWorkspace(this.fs, request.workspaceRoot, signal)
-    this.assertActive(signal)
+    const querySignal = this.querySignal(signal)
+    const workspaceResult = canonicalizeWorkspace(this.fs, request.workspaceRoot, querySignal)
+    const workspaceLookup = workspaceResult.then(() => undefined, () => undefined)
+    this.workspaceLookups.add(workspaceLookup)
+    let workspace: HostWorkspace
+    try {
+      workspace = await workspaceResult
+    } finally {
+      this.workspaceLookups.delete(workspaceLookup)
+    }
+    this.assertActive(querySignal)
     const workspaceKey = workspace.target.targetKey
-    return this.enqueue(workspaceKey, signal, async () => {
-      this.assertActive(signal)
+    return this.enqueue(workspaceKey, querySignal, async () => {
+      this.assertActive(querySignal)
       // Read inside the workspace queue but before spawning: a queued query sees current bytes when
       // its turn starts, while an invalid source still cannot leave an idle process pooled.
-      const source = await readHostSource(this.fs, request.filePath, workspace, this.config.maxDocumentBytes, signal)
+      const source = await readHostSource(this.fs, request.filePath, workspace, this.config.maxDocumentBytes, querySignal)
       // Disposal may have snapshotted the instance map while host I/O was pending. Re-check before a
       // synchronous get-or-create so every spawned process remains owned by teardown.
-      this.assertActive(signal)
+      this.assertActive(querySignal)
       let instance = this.instanceFor(workspaceKey, workspace)
       try {
-        return await instance.query(request, source, signal)
+        return await instance.query(request, source, querySignal)
       } catch (error) {
         // A selected child can have died while idle or fail during the next write. Queries are
         // read-only, so replace that transport once and retry transparently.
         if (!instance.isTransportFailure(error)) throw error
         await instance.dispose()
         this.evictIfCurrent(workspaceKey, instance)
-        this.assertActive(signal)
+        this.assertActive(querySignal)
         instance = this.instanceFor(workspaceKey, workspace)
-        return await instance.query(request, source, signal)
+        return await instance.query(request, source, querySignal)
       } finally {
         // Reach quiescence before dropping a dead slot; a replacement must survive this ownership check.
         if (instance.dead) {
@@ -320,13 +339,17 @@ class LocalLspProvider implements LspProvider {
   /** Dispose every live instance and block further queries. */
   async disposeAll(): Promise<void> {
     this.disposed = true
+    this.lifetime.abort(new LspError('lsp-local provider is disposed', 'LSP_DISPOSED'))
     const live = [...this.instances.values()]
     const draining = [...this.queues.values()]
+    const resolving = [...this.workspaceLookups]
     this.instances.clear()
     await Promise.all([
       ...live.map(instance => instance.dispose()),
       ...draining,
+      ...resolving,
     ])
     this.queues.clear()
+    this.workspaceLookups.clear()
   }
 }
