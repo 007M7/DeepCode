@@ -154,7 +154,12 @@ export function TerminalBlock({
     const body = command.endsWith('\n') ? command.slice(0, -1) : command
     return body.split('\n')
   }, [command])
-  const empty = text.trim() === ''
+  // Read from the parsed lines the card actually renders, not from the raw text:
+  // output that is only escapes or control bytes (a lone reset, an OSC title, an
+  // erase) survives `text.trim()` yet parses to nothing visible. Judging it on
+  // the raw text drew an output box of blank rows plus a copy control for
+  // invisible bytes, and hid the placeholder that belongs there.
+  const empty = lines.every(line => line.every(span => span.text.trim() === ''))
   const hidden = lines.length - maxLines
   const capped = hidden > 0 && !expanded
   // Same split arithmetic as the TUI transcript's collapsed tool card, so a

@@ -220,16 +220,24 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         // puts it to the left of the `$`.
         beforePrompt: node.compareDocumentPosition(node.parentElement!.querySelector('[class*="_cwd_"]')!)
           === Node.DOCUMENT_POSITION_FOLLOWING,
-        // The dot is out of flow in the card's left gutter, so it starts to the
-        // left of the card surface itself — the geometry jsdom cannot compute.
-        leftOfCard: (node as HTMLElement).getBoundingClientRect().left
-          < node.closest('[data-terminal]')!.getBoundingClientRect().left,
+        // The dot lives in the card's OWN left padding, so it sits inside the
+        // card box yet left of the prompt text. Owning the reservation as padding
+        // rather than margin is what keeps a consumer's own margin from
+        // cancelling it and letting a container clip the dot — geometry jsdom
+        // cannot compute.
+        insideCard: (node as HTMLElement).getBoundingClientRect().left
+          >= (node.closest('[data-terminal]')?.getBoundingClientRect().left ?? Infinity),
+        leftOfPrompt: (node as HTMLElement).getBoundingClientRect().right
+          <= (node.closest('[class*="_promptLine_"]')
+            ?.querySelector('[class*="_cwd_"]')
+            ?.getBoundingClientRect().left ?? -Infinity),
       }
     })
     expect(dot.state).toBe('done')
     expect(dot.label).toBe('已完成')
     expect(dot.beforePrompt).toBe(true)
-    expect(dot.leftOfCard).toBe(true)
+    expect(dot.insideCard).toBe(true)
+    expect(dot.leftOfPrompt).toBe(true)
     // Resolved through the theme token, not a literal hex in the component.
     expect(dot.success).toMatch(/^rgb/)
     expect(dot.color).toBe(dot.success)

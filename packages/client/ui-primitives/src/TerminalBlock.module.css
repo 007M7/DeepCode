@@ -7,13 +7,18 @@
 .block {
   --dsl-terminal-radius: 12px;
   --dsl-terminal-line-height: 22px;
-  /* Reserved strip to the left of the card for the per-line run-state dots.
-     The dots sit outside the card surface, so a reader scans command state
-     down one column without the dots competing with the commands themselves. */
+  /* The card's own left inset, holding the run-state dot in a column of its own
+     so it never competes with the commands for horizontal space. */
   --dsl-terminal-gutter: 30px;
 
   position: relative;
-  margin: 16px 0 16px var(--dsl-terminal-gutter);
+  margin: 16px 0;
+  /* The gutter is the card's OWN padding, not a margin: every consumer rewrites
+     `margin` wholesale (each render site sets its own indent), which silently
+     cancelled the reservation and let the dot fall outside the card into a
+     container that clips it. Owning the reservation here keeps the invariant
+     with the component that depends on it. */
+  padding-left: var(--dsl-terminal-gutter);
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-terminal-radius);
@@ -25,7 +30,9 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 9px 14px;
+  /* No left padding: the card's gutter already insets this row, and the banner
+     background still has to span the full surface. */
+  padding: 9px 14px 9px 0;
   background: var(--dsw-alias-markdown-code-block-banner);
   border-top-left-radius: var(--dsl-terminal-radius);
   border-top-right-radius: var(--dsl-terminal-radius);
@@ -50,12 +57,13 @@
   line-height: var(--dsl-terminal-line-height);
 }
 
-/* Out of flow in the gutter, so a dot neither indents its command nor depends
-   on the command's own text metrics to line up with it. Centered against the
-   row's line box rather than sitting on the code font's baseline. */
+/* Out of flow inside the card's own gutter padding, so the reservation and the
+   dot move together and no consumer margin can pull them apart; the dot neither
+   indents its command nor depends on the command's text metrics to line up.
+   Centered against the row's line box, not the code font's baseline. */
 .runState {
   position: absolute;
-  left: calc(-1 * var(--dsl-terminal-gutter));
+  left: calc(-1 * var(--dsl-terminal-gutter) + 8px);
   top: 50%;
   transform: translateY(-50%);
 }
@@ -103,7 +111,7 @@
 }
 
 .output {
-  padding: 12px 14px;
+  padding: 12px 14px 12px 0;
   font: var(--dsw-font-markdown-code-block);
   overflow-x: auto;
   overflow-y: hidden;
@@ -132,7 +140,7 @@
 }
 
 .empty {
-  padding: 12px 14px;
+  padding: 12px 14px 12px 0;
   font: var(--dsw-font-markdown-code-block);
   color: var(--dsw-alias-label-tertiary);
 }

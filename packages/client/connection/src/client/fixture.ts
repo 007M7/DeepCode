@@ -97,8 +97,11 @@ function sgr(code: number, body: string): string {
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
  * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
- * height cap collapses the middle, and the trailing `[exit code: N]` marker the
- * bash tool appends, from which the exit pill is recovered.
+ * height cap collapses the middle. The exit status is authored separately in
+ * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
+ * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
+ * terminal card shows the exit as its own pill and leaving the marker in would
+ * render it twice (packages/bash/tool-bash/src/render.ts).
  */
 const TERMINAL_OUTPUT_FIXTURE = [
   sgr(1, 'Running 4 checks'),
@@ -122,7 +125,6 @@ const TERMINAL_OUTPUT_FIXTURE = [
   'markdown/Markdown.tsx       100%     100%        100%         -',
   '',
   sgr(31, '1 of 4 checks failed'),
-  '[exit code: 1]',
 ].join('\n')
 
 /**

@@ -249,6 +249,72 @@ describe('parseAnsiLines: backspaces', () => {
   })
 })
 
+describe('parseAnsiLines: erase and column arithmetic', () => {
+  it('erases the rest of the line, the fixed companion of a redraw', () => {
+    // Verified in a real terminal: `100%\r\x1b[KOK` shows `OK`. Every spinner and
+    // progress bar writes `\r\x1b[K`; without the erase the previous frame's tail
+    // stands and the card shows text the terminal never displayed.
+    expect(onlySpan(`100%\r${ESC}[KOK`)).toEqual({ text: 'OK', style: undefined })
+    // The parameterless form and `0` are the same erase.
+    expect(onlySpan(`100%\r${ESC}[0KOK`)).toEqual({ text: 'OK', style: undefined })
+  })
+
+  it('erases the whole line for the 2K form and to the cursor for 1K', () => {
+    expect(onlySpan(`ab\r${ESC}[2Kxy`)).toEqual({ text: 'xy', style: undefined })
+    // 1K clears left of the cursor without moving it, so those columns read as
+    // blanks — verified in a real terminal, which shows `    |` for this input.
+    expect(onlySpan(`abcd${ESC}[1K|`)).toEqual({ text: '    |', style: undefined })
+  })
+
+  it('paints columns a 2K dropped as blanks when a later write lands past them', () => {
+    // 2K clears the line but leaves the cursor where it was, so writing there
+    // leaves the columns before it unwritten — blanks, as a terminal shows.
+    expect(onlySpan(`abcd${ESC}[2Kx`)).toEqual({ text: '    x', style: undefined })
+  })
+
+  it('advances a redraw cursor by tab stops, leaving a tabbed column standing', () => {
+    // Verified in a real terminal: `a\tb\rXY` shows `XY      b` — the `b` sits at
+    // column 8, which a two-character redraw cannot reach. Counting the tab as
+    // one column would have produced `XYb` and destroyed the alignment.
+    expect(onlySpan('a\tb\rXY')).toEqual({ text: 'XY      b', style: undefined })
+  })
+
+  it('counts a wide character as the two columns a terminal advances', () => {
+    // `中` occupies two cells, so a two-character redraw covers exactly it.
+    expect(onlySpan('中x\rab')).toEqual({ text: 'abx', style: undefined })
+  })
+
+  it('does not accumulate a cursor or erase sequence into a cell style', () => {
+    // Only SGR carries graphic state. An erase folded into the style string
+    // would grow it per redraw and emit boundaries anser has to discard.
+    expect(parseAnsiLines(`${ESC}[31ma\r${ESC}[Kb`)).toEqual([[
+      { text: 'b', style: { color: 'var(--dsw-alias-state-error-primary)' } },
+    ]])
+  })
+})
+
+describe('parseAnsiLines: SGR across lines', () => {
+  it('carries active state past a newline, as a terminal does', () => {
+    // Verified in a real terminal: `\x1b[31mabc\rX\nnext` paints BOTH lines red.
+    // A newline does not reset the graphic state, so a replayed line must hand
+    // its state to the next one instead of closing it off.
+    expect(parseAnsiLines(`${ESC}[31mabc\rX\nnext`)).toEqual([
+      [{ text: 'Xbc', style: { color: 'var(--dsw-alias-state-error-primary)' } }],
+      [{ text: 'next', style: { color: 'var(--dsw-alias-state-error-primary)' } }],
+    ])
+  })
+
+  it('tracks state through a line that needs no replay', () => {
+    // The middle line has no movement, so it is not replayed — but its own SGR
+    // still has to reach the line after it.
+    expect(parseAnsiLines(`a\r${ESC}[32mb\nplain\nc`)).toEqual([
+      [{ text: 'b', style: { color: 'var(--dsw-alias-state-success-primary)' } }],
+      [{ text: 'plain', style: { color: 'var(--dsw-alias-state-success-primary)' } }],
+      [{ text: 'c', style: { color: 'var(--dsw-alias-state-success-primary)' } }],
+    ])
+  })
+})
+
 describe('parseAnsiLines: runs spanning lines', () => {
   it('carries one run\'s style onto every line it covers', () => {
     expect(parseAnsiLines(sgr('32', 'first\nsecond'))).toEqual([

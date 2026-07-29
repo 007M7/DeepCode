@@ -210,18 +210,18 @@ it('renders the keyed bash row with a resident terminal card', async () => {
       ],
       "expander": {
         "expanded": "false",
-        "label": "展开其余 14 行输出",
-        "text": "… 其余 14 行",
+        "label": "展开其余 13 行输出",
+        "text": "… 其余 13 行",
       },
       "lines": [
         "Running 4 checks",
         "✓ typecheck                                          1.82s",
         "✓ lint                                               0.94s",
         "✓ duplication                                        2.10s",
+        "StateDot.tsx                100%     100%        100%         -",
         "markdown/Markdown.tsx       100%     100%        100%         -",
         "",
         "1 of 4 checks failed",
-        "[exit code: 1]",
       ],
       "prompt": [
         "nested pnpm run check",
@@ -298,7 +298,7 @@ it('the chat card expands the collapsed middle in place, without opening the det
     {
       "cappedLines": 8,
       "detailsOpen": false,
-      "expandedLines": 22,
+      "expandedLines": 21,
       "expanderLabel": "收起输出",
     }
   `)

@@ -87,6 +87,33 @@ const NON_CSI_ESCAPE = /\u001b(?!\[)[\u0020-\u002f]*[\u0030-\u007e]?/g
  */
 const INERT_CONTROL = /[\u0000-\u0007\u000b-\u001a\u001c-\u001f\u007f]/g
 
+/** Terminal tab stop width; a tab advances to the next multiple of this. */
+const TAB_WIDTH = 8
+
+/**
+ * Characters a terminal advances two columns for: CJK scripts, fullwidth forms,
+ * CJK punctuation, and the emoji/symbol blocks a command's output realistically
+ * carries.
+ */
+const WIDE_CHAR = new RegExp(
+  '\\p{Script=Han}|\\p{Script=Hiragana}|\\p{Script=Katakana}|\\p{Script=Hangul}'
+  + '|[\\u{1f300}-\\u{1faff}\\u{2600}-\\u{27bf}\\uff01-\\uff60\\u3000-\\u303e]',
+  'u',
+)
+
+/**
+ * Whether a character occupies two terminal columns (CJK, fullwidth forms,
+ * emoji). Covers the ranges a command's output realistically carries; a
+ * narrower guess would misalign the columns this card exists to preserve.
+ * @param char - one character from the output.
+ * @returns true when the terminal advances two columns for it.
+ */
+function isWide(char: string): boolean {
+  const code = char.codePointAt(0)
+  if (code === undefined || code < 0x1100) return false
+  return WIDE_CHAR.test(char)
+}
+
 /**
  * Replay one line's cursor movements the way a terminal paints it, into a
  * column buffer. Carriage return and backspace only MOVE the cursor — neither
@@ -104,42 +131,70 @@ const INERT_CONTROL = /[\u0000-\u0007\u000b-\u001a\u001c-\u001f\u007f]/g
  * @param line - one output line, still carrying its CSI sequences.
  * @returns the line as the terminal would have it after every movement.
  */
-function replayLine(line: string): string {
+function replayLine(line: string, entrySgr: string): { text: string; sgr: string } {
   // Same shape anser splits on, so a sequence is one unit here as well.
-  const csi = /\u001b\[[\u0030-\u003f]*[\u0020-\u002f]*[\u0040-\u007e]/g
+  const csi = /\u001b\[([\u0030-\u003f]*)[\u0020-\u002f]*([\u0040-\u007e])/g
   /** Per column: the SGR state in force when it was written, and its character. */
-  const columns: { sgr: string; char: string }[] = []
+  const columns: ({ sgr: string; char: string } | undefined)[] = []
   let cursor = 0
   // SGR state accumulates as the line is scanned, exactly as a terminal tracks
   // it: each cell is stamped with whatever was in force at the moment of the
-  // write, so a later redraw cannot restyle the cells it does not reach.
-  let sgr = ''
+  // write, so a later redraw cannot restyle the cells it does not reach. It
+  // enters carrying the previous line's state, since a newline does not reset it.
+  let sgr = entrySgr
   let at = 0
 
   const consume = (chunk: string): void => {
     for (const char of chunk) {
       if (char === '\r') { cursor = 0; continue }
       if (char === '\u0008') { cursor = Math.max(0, cursor - 1); continue }
+      if (char === '\t') {
+        // A tab advances to the next 8-column stop, leaving the cells it skips
+        // as they were — which is how a redraw can leave a tabbed column
+        // standing. Column alignment is the whole point of this card.
+        const stop = cursor + TAB_WIDTH - (cursor % TAB_WIDTH)
+        for (; cursor < stop; cursor++) columns[cursor] ??= { sgr, char: ' ' }
+        continue
+      }
       columns[cursor] = { sgr, char }
       cursor++
+      // A wide character occupies two columns; the trailing one is a spacer the
+      // terminal keeps blank, so a later write there cannot split the glyph.
+      if (isWide(char)) { columns[cursor] = { sgr, char: '' }; cursor++ }
     }
   }
 
   for (const match of line.matchAll(csi)) {
     consume(line.slice(at, match.index))
-    // A reset clears the accumulated state; anything else adds to it.
-    sgr = /^\u001b\[0?m$/.test(match[0]) ? '' : sgr + match[0]
     at = match.index + match[0].length
+    // Both groups are mandatory in the pattern, so destructuring types them as
+    // strings without a fallback that could never run.
+    const params = String(match[1])
+    const final = String(match[2])
+    if (final === 'K') {
+      // Erase in line: the fixed companion of `\r` in every spinner and progress
+      // bar. Without it a shorter redraw leaves the previous frame's tail
+      // standing, which is text the terminal never showed. `1` blanks the
+      // columns before the cursor rather than dropping them, since the cursor
+      // does not move and a later write can still land past them.
+      if (params === '1') for (let index = 0; index < cursor; index++) columns[index] = { sgr, char: ' ' }
+      else columns.length = params === '2' ? 0 : cursor
+      continue
+    }
+    // Only SGR carries graphic state; every other final byte is a cursor or
+    // erase action that must not be accumulated into a cell's style.
+    if (final !== 'm') continue
+    sgr = /^0?$/.test(params) ? '' : sgr + match[0]
   }
   consume(line.slice(at))
 
-  // Re-emit the columns, opening a run only where its SGR state changes and
-  // closing the previous one, so anser sees the same styling a terminal shows.
-  // No index can be missing: `\r` and backspace only move the cursor LEFT, so
-  // every column up to the furthest write has been written at least once.
+  // Re-emit the columns, opening a run only where its SGR state changes, so
+  // anser sees the same styling a terminal shows. A `\x1b[2K` can leave holes
+  // before the cursor, which a terminal paints as blanks.
   let out = ''
-  let active = ''
-  for (const column of columns) {
+  let active = entrySgr
+  for (const slot of columns) {
+    const column = slot ?? { sgr: '', char: ' ' }
     if (column.sgr !== active) {
       if (active !== '') out += '\u001b[0m'
       out += column.sgr
@@ -147,21 +202,35 @@ function replayLine(line: string): string {
     }
     out += column.char
   }
-  return active === '' ? out : `${out}\u001b[0m`
+  // The state at the line's end continues onto the next line, so it is returned
+  // rather than closed off with a reset here.
+  return { text: out, sgr: active }
 }
 
 /**
  * Replay every line's cursor movements. A `\r` that only terminates a CRLF line
  * is dropped first, so those lines keep their text instead of being redrawn onto
- * themselves.
+ * themselves. SGR state threads across lines: a newline does not reset it, so a
+ * run opened before a redraw still colors the lines after it.
  * @param text - output text, already free of OSC and non-CSI escapes.
  * @returns the text with each line painted as the terminal would.
  */
 function applyCursorMovements(text: string): string {
-  return text.split('\n')
-    .map(raw => raw.replace(/\r+$/, ''))
-    .map(line => (/[\r\u0008]/.test(line) ? replayLine(line) : line))
-    .join('\n')
+  const replayed: string[] = []
+  let sgr = ''
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r+$/, '')
+    // A line with no cursor movement or erase needs no replay — its tabs stay
+    // literal for `white-space: pre` to lay out — but its own SGR still has to
+    // be tracked so a later line that DOES replay enters with the right state.
+    // Tabs only need column arithmetic where a redraw can land on them, which is
+    // exactly the replayed case. An erase counts: `\x1b[1K` blanks columns even
+    // with no `\r` beside it.
+    const result = replayLine(line, sgr)
+    replayed.push(/\r|\u0008|\u001b\[[0-9]*K/.test(line) ? result.text : line)
+    sgr = result.sgr
+  }
+  return replayed.join('\n')
 }
 
 /**

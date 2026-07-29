@@ -124,6 +124,17 @@ describe('TerminalBlock states', () => {
     expect(screen.getByText('无输出')).toBeTruthy()
   })
 
+  it('treats output that renders nothing visible as empty', () => {
+    // A lone reset, an OSC title, an erase: all survive `text.trim()` yet parse
+    // to nothing. Judging emptiness on the raw text drew a box of blank rows
+    // plus a copy control for invisible bytes, and hid the placeholder.
+    const view = render(<TerminalBlock command="true" output={`${ESC}[0m`} exitCode={0} />)
+    expect(view.getByText('无输出')).toBeTruthy()
+    expect(view.queryByText('复制')).toBeNull()
+    view.rerender(<TerminalBlock command="true" output={`${ESC}]0;title${ESC}\\`} exitCode={0} />)
+    expect(view.getByText('无输出')).toBeTruthy()
+  })
+
   it('merges className onto the wrapper', () => {
     const view = render(<TerminalBlock command="ls" className="x" output="a" />)
     expect(view.container.firstElementChild?.classList.contains('x')).toBe(true)
