@@ -236,6 +236,71 @@ describe('DirectoryBrowser', () => {
     expect(listDirectory).toHaveBeenCalledTimes(1)
   })
 
+  it('a home with several trailing separators is still the display root', async () => {
+    const listDirectory = vi.fn(async (path?: string) => ({ ...listingFor(path), home: `${HOME}//` }))
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+    expect(listDirectory).toHaveBeenCalledTimes(1)
+  })
+
+  it('a landing whose new level dropped the focused row parks on the edit zone', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    // Keyboard is on the right-pane harness row; the home landing has no
+    // such key, so the focused node unmounts and focus re-parks.
+    rowButton(within(columns()[1]!).getByRole('listitem')).focus()
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    await waitFor(() => { expect(columns()).toHaveLength(1) })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('closing the create dialog parks focus on the edit zone', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    const nameInput = screen.getByLabelText('browser.folderName')
+    fireEvent.keyDown(nameInput, { key: 'Escape' })
+    // The nested dialog unmounted with focus inside it: re-park.
+    expect(screen.queryByLabelText('browser.folderName')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('a failed create relist parks focus on the edit zone with the error shown', async () => {
+    let relists = 0
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === HOME && ++relists > 0) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'gone', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'ghost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    await screen.findByRole('alert')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('Escape over a dot-revealed focused row re-parks on the edit zone as the row re-hides', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: `${HOME}/.co` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    expect(row.textContent).toBe('.config')
+    row.focus()
+    fireEvent.keyDown(row, { key: 'Escape' })
+    // The cleared draft re-hides the revealed row under the focused cursor;
+    // the body guard sees the fall and parks on the edit zone.
+    expect(screen.queryByText('.config')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
   it('a navigation to the filesystem root keeps the single wide level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })

@@ -69,9 +69,17 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
   return value => (sep === '\\' ? value.toLowerCase() : value)
 }
 
-/** Drops one trailing separator (`HOME=/home/u/` ships verbatim while resolve() strips it) unless the path IS the bare root. */
+/**
+ * Drops every trailing separator (`HOME=/home/u//` ships verbatim while
+ * resolve() strips them) down to, but never past, one leading character —
+ * which keeps the POSIX root `/` intact. A backslash drive root (`C:\`)
+ * does lose its separator; that stays safe only because every comparison
+ * trims both sides symmetrically.
+ */
 function trimTrailingSeparator(path: string, sep: '\\' | '/'): string {
-  return path.length > sep.length && path.endsWith(sep) ? path.slice(0, -sep.length) : path
+  let end = path.length
+  while (end > sep.length && path.endsWith(sep, end)) end -= sep.length
+  return path.slice(0, end)
 }
 
 /**
@@ -253,14 +261,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const millerRowRef = useRef<HTMLDivElement | null>(null)
   // Focus parking (consumed by the refocus effect below): a pick — and a
   // parent-leg upgrade that displaces focused rows — parks on the
-  // selection's row; Enter, an input-focused Escape, and a failed pick
-  // whose row unmounts park on the crumb edit zone (the latter only when
-  // focus actually fell to body). Pointer-out cancels never set (or clear)
-  // these — yanking focus back from wherever the user clicked would be
-  // worse than the fall.
+  // selection's row; every other displacing exit (Enter, Escape, a landing
+  // whose new level dropped the focused row, a failed pick or relist, and
+  // the nested create dialog closing) parks on the crumb edit zone, each
+  // only when focus actually fell to body. Pointer-out cancels never set
+  // (or clear) these — yanking focus back from wherever the user clicked
+  // would be worse than the fall.
   const refocusPick = useRef(false)
   const refocusEditZone = useRef(false)
-  const pathInputRef = useRef<HTMLInputElement | null>(null)
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
   /**
@@ -300,6 +308,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     setError(null)
     scan.then((target) => {
       if (seq !== requestSeq.current) return
+      // The landing replaces every row key; a slow jump leaves the OLD
+      // rows tabbable meanwhile (parentInert excludes loading), so focus
+      // may live among them. With no selection yet the edit zone is the
+      // park target (body-guarded, like every other exit).
+      const rowHost = millerRowRef.current
+      /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
+      if (rowHost === null) return
+      if (rowHost.contains(document.activeElement)) refocusEditZone.current = true
       setParent(target)
       setSelected(null)
       setChild(null)
@@ -342,6 +358,17 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setError(failureText(reason))
     })
   }, [launchListing, continueScan])
+
+  /**
+   * Close the nested create dialog. Its unmount drops focus to body (the
+   * Modal has no focus trap), so every exit — Escape, mask, Cancel, and a
+   * successful create — arms the body-guarded edit-zone parking; a create
+   * landing's later select() re-parks on the created row instead.
+   */
+  const closeCreateDialog = useCallback(() => {
+    setFolderDraft(null)
+    refocusEditZone.current = true
+  }, [])
 
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
@@ -449,7 +476,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // the fresh dialog or issue a relist against the stale target.
       if (generation !== openGeneration.current) return
       setCreatingFolder(false)
-      setFolderDraft(null)
+      closeCreateDialog()
       // Land like a right-column pick (figma 802:57446 → 813:23278 flow): the
       // create target becomes the listed level and the new folder its selection.
       const { seq, scan } = launchListing(targetPath)
@@ -572,11 +599,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           // document listener — the same containment the input previously
           // provided for itself.
           event.stopPropagation()
-          // Escape while the input holds focus is about to unmount it; with
-          // focus already parked on a row, that row survives the cancel and
-          // keeps focus naturally. Assignment (not a conditional set) also
+          // The cancel may unmount whatever holds focus — the input, or a
+          // dot-revealed row the cleared draft re-hides. Arm the parking
+          // unconditionally: the refocus effect's body guard already
+          // distinguishes a surviving focused row (left alone) from focus
+          // that actually fell. Assignment (not a conditional set) also
           // retires a stale flag a failed or still-upgrading Enter left.
-          refocusEditZone.current = document.activeElement === pathInputRef.current
+          refocusEditZone.current = true
           cancelPathEdit()
         }}
         // Focus leaving THIS dialog card while editing cancels like Escape.
@@ -660,7 +689,6 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   value={pathDraft}
                   aria-label={t('browser.editPath')}
                   autoFocus
-                  ref={pathInputRef}
                   disabled={parentInert}
                   onChange={(event) => {
                   // Editing the draft supersedes any in-flight navigation:
@@ -770,7 +798,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       {/* Nested create dialog (figma 813:23278): names one folder inside the target. */}
       <Modal
         open={folderDraft !== null}
-        onClose={() => { if (!creatingFolder) setFolderDraft(null) }}
+        onClose={() => { if (!creatingFolder) closeCreateDialog() }}
         title={t('browser.newFolder')}
         className={clsx(css.createDialog)}
         headless
@@ -794,13 +822,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               }
               if (event.key === 'Escape') {
                 event.stopPropagation()
-                if (!creatingFolder) setFolderDraft(null)
+                if (!creatingFolder) closeCreateDialog()
               }
             }}
           />
           {createError !== null && <div className={css.error} role="alert">{createError}</div>}
           <div className={css.createActions}>
-            <Button variant="outline" disabled={creatingFolder} onClick={() => { setFolderDraft(null) }}>{t('browser.cancel')}</Button>
+            <Button variant="outline" disabled={creatingFolder} onClick={() => { closeCreateDialog() }}>{t('browser.cancel')}</Button>
             <Button
               variant="primary"
               disabled={creatingFolder || folderDraft === null || folderDraft.trim() === ''}
