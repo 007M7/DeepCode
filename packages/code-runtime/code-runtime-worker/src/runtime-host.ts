@@ -49,7 +49,11 @@ export type RuntimeBindingReply =
  * @returns the caller-facing diagnostic text.
  */
 export function runtimeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  try {
+    return error instanceof Error ? error.message : String(error)
+  } catch {
+    return 'binding rejected with an unrenderable value'
+  }
 }
 
 /**
