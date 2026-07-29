@@ -12,7 +12,6 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
-import { SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessOutcome,
   SubprocessTerminalForeground,
@@ -345,7 +344,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   readonly done: Promise<SubprocessOutcome>
 
   private topLevelExited = false
-  private readonly lifecycle: SubprocessTerminalLifecycle
+  private cleanup: Promise<void> | undefined
   private terminationSignal: NodeJS.Signals | null = null
 
   constructor(
@@ -357,21 +356,17 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     private readonly controlEnvs: Record<string, string>,
     private readonly stateDir: string,
     private readonly graceMs: number,
-    signal?: AbortSignal,
   ) {
     this.pid = handle.pid
     this.done = this.waitForCommand()
-    this.lifecycle = new SubprocessTerminalLifecycle({
-      done: this.done,
-      cleanup: () => this.closeOnce(),
-      signal,
-    })
   }
 
+  // TODO(e2b-pgid-identity): Replace retained numeric PTY/session ids when E2B
+  // exposes identity-bound input, foreground-signal, and cleanup operations.
   /** @inheritdoc */
-  async write(data: Uint8Array): Promise<void> {
+  async write(data: string): Promise<void> {
     if (this.topLevelExited) throw new Error('terminal process has exited')
-    await this.sandbox.pty.sendInput(this.pid, data)
+    await this.sandbox.pty.sendInput(this.pid, Buffer.from(data, 'utf8'))
   }
 
   /** @inheritdoc */
@@ -413,13 +408,14 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   }
 
   /** @inheritdoc */
-  terminate(): void {
-    this.lifecycle.terminate()
-  }
-
-  /** @inheritdoc */
-  async waitForExit(signal?: AbortSignal): Promise<boolean> {
-    return await this.lifecycle.waitForExit(signal)
+  terminate(): Promise<void> {
+    if (this.cleanup !== undefined) return this.cleanup
+    const cleanup = this.closeOnce()
+    this.cleanup = cleanup
+    void cleanup.catch((_cleanupFailure: unknown) => {
+      this.cleanup = undefined
+    })
+    return cleanup
   }
 
   private async waitForCommand(): Promise<SubprocessOutcome> {
@@ -474,7 +470,11 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     } catch (error: unknown) {
       if (!(error instanceof SandboxNotFoundError)) throw error
     }
-    await this.sandbox.files.remove(this.stateDir).catch(() => {})
+    try {
+      await this.sandbox.files.remove(this.stateDir)
+    } catch (_adapterPrivateStateRemovalFailure) {
+      // The terminal is quiescent; a retained sandbox tolerates private residue.
+    }
   }
 }
 
@@ -558,7 +558,6 @@ export async function spawnE2BTerminal(
       controlEnvs,
       stateDir,
       spec.graceMs,
-      spec.signal,
     )
   } catch (error: unknown) {
     output.destroy()

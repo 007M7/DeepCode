@@ -26,6 +26,8 @@ function remoteEnvironmentEntries(raw: string): Array<readonly [string, string]>
  * @returns the complete NUL-delimited UTF-8 environment.
  */
 export async function readRemoteEnvironment(sandbox: Sandbox, signal?: AbortSignal): Promise<string> {
+  // TODO(e2b-replace-environment): Remove this ambient probe when E2B can start
+  // a command with a replacement environment instead of merged overrides.
   const result = await sandbox.commands.run(
     'set -o pipefail; printf \'%s\' "$PWD" | base64 -w 0; printf \'\\n\'; env -0 | base64 -w 0',
     { envs: e2bControlEnvs(), ...(signal === undefined ? {} : { signal }) },

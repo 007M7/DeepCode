@@ -726,7 +726,9 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       // A spill mode is a collect mode, so construction always created its reader.
       const size = (reader as E2BOutputReader).size
       if (this.outputDrainExpired || size <= mode.maxBytes || size > mode.spill.maxBytes) {
-        removals.push(sandbox.files.remove(path).catch(() => {}))
+        removals.push(sandbox.files.remove(path).catch((_adapterPrivateSpillRemovalFailure: unknown) => {
+          // The command outcome is authoritative; a retained sandbox tolerates private residue.
+        }))
       }
     }
     collect(this.spec.stdio.stdout, this.stdoutReader, this.paths.stdout)

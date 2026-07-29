@@ -160,7 +160,8 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     expect(stderr).toBe('')
     const output = JSON.parse(stdout) as Record<string, unknown>
     expect(output).toMatchObject({
-      bashRead: 'written-by-fs\n',
+      bashRead: 'written-by-fs-versioned\n',
+      fsVersionGuard: true,
       fsRead: 'written-by-bash\n',
       explicitEnvironment: true,
       splitUtf8Output: '你好',
@@ -184,7 +185,6 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         kind: 'locations',
         locations: [{ range: { start: { line: 0, character: 6 }, end: { line: 0, character: 10 } } }],
       },
-      lspContainment: true,
       lspDocumentBound: true,
       terminal: {
         echo: { waitReason: 'stdin_read', sessionStatus: { kind: 'running' } },

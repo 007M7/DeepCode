@@ -14,7 +14,7 @@
 | `tool-fs/` | 面向模型的 `read`/`write`/`edit` 工具以及执行器（通过 `ctx.fs` 读取，拥有读取窗口逻辑，分派 `fs/*`）；为会话 cwd 相对路径保留文件系统语义，并在已挂载的 `ctx.fs` 实施约束时声明沙箱升级字段 | （注册到 `ctx.tools`） |
 | `tool-fs-search/` | 面向模型的 `glob`/`grep` 发现工具；当 `rg` 位于 bash 执行器 `PATH` 上时注册，通过 `ctx.bash` 运行固定 ripgrep 命令，而不是使用 `ctx.fs` 提供方方法 | （注册到 `ctx.tools`） |
 
-接口位于 `fs/fs/`。沙箱化、远程或限定项目作用域的文件系统后端可以替换 `fs-local`，而无需更改 seam、政策门禁或面向模型的工具 schema：`fs-sandbox` 基于共享沙箱模式提供进程内路径围栏（[决策](../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md)），而 `fs-e2b` 则把文件状态置于与 E2B 进程管理提供方共享的远程运行时中（[POC 决策](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md)）。政策（`fs-policy/`）是一个只通过 `fs/*` 事件门禁参与的插件，不是工具注入的服务；因此移除它会平稳失去政策，留下不受约束的裸提供方，而不会破坏工具。加载 `tool-fs/` 的部署也应加载该插件。模式围栏与编辑前读取门禁彼此正交，可以组合。发现（`tool-fs-search/`）有意不扩展提供方 seam：搜索是在 bash 执行器上运行 `rg`、由进程支持的工作流，因此文件系统后端无需承担通用搜索契约；只有当执行器能找到 `rg` 时，其工具才会注册。如果 bash 工作目录与 `read` 根目录是同一工作区，结果就能继续读取，这也是其 README 所述的共置部署。
+接口位于 `fs/fs/`。沙箱化、远程或限定项目作用域的文件系统后端可以替换 `fs-local`，而无需更改 seam、政策门禁或面向模型的工具 schema：`fs-sandbox` 基于共享沙箱模式提供进程内路径围栏（[决策](../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md)），而 `fs-e2b` 则把文件状态置于与 E2B 进程管理提供方共享的远程执行世界中（[决策](../../.agents/notes/implemented/architecture/2026-07-28-portable-execution-world-consumers.md)）。政策（`fs-policy/`）是一个只通过 `fs/*` 事件门禁参与的插件，不是工具注入的服务；因此移除它会平稳失去政策，留下不受约束的裸提供方，而不会破坏工具。加载 `tool-fs/` 的部署也应加载该插件。模式围栏与编辑前读取门禁彼此正交，可以组合。发现（`tool-fs-search/`）有意不扩展提供方 seam：搜索是在 bash 执行器上运行 `rg`、由进程支持的工作流，因此文件系统后端无需承担通用搜索契约；只有当执行器能找到 `rg` 时，其工具才会注册。如果 bash 工作目录与 `read` 根目录是同一工作区，结果就能继续读取，这也是其 README 所述的共置部署。
 
 ## 文件 I/O 不设超时
 

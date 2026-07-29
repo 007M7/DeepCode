@@ -26,17 +26,10 @@ import {
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { EntryInfo, Sandbox } from '@deepseek-ai/dsh-e2b'
-import { BOUNDED_READER_SOURCE } from './source-reader.ts'
 
 const VERSION_METADATA_KEY = 'dsh-version'
 const BINARY_SAMPLE_BYTES = 8192
-
-type BoundedReadResponse =
-  | { kind: 'ok'; data: string }
-  | { kind: 'not-file' }
-  | { kind: 'oversize'; size: number }
-  | { kind: 'grew' }
-  | { kind: 'open-error'; message: string }
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function assertNotAborted(signal: AbortSignal | undefined, operation: string): void {
   if (signal?.aborted === true) throw new FsError(`${operation} aborted`, 'FS_ABORTED')
@@ -66,6 +59,27 @@ function decodeText(bytes: Uint8Array, displayPath: string, binarySampleBytes: n
   } catch (error: unknown) {
     throw new FsError(`cannot read "${displayPath}": invalid UTF-8 text`, 'FS_NOT_TEXT', { cause: error })
   }
+}
+
+function decodeCanonicalPath(encoded: string): string {
+  if (encoded.length === 0 || !BASE64.test(encoded)) {
+    throw new Error('fs-e2b: canonical path transport returned invalid base64')
+  }
+  const framed = Buffer.from(encoded, 'base64')
+  if (framed.toString('base64') !== encoded
+    || framed.length < 2
+    || framed.at(-1) !== 0
+    || framed.subarray(0, -1).includes(0)) {
+    throw new Error('fs-e2b: canonical path transport returned invalid NUL framing')
+  }
+  let path: string
+  try {
+    path = new TextDecoder('utf-8', { fatal: true }).decode(framed.subarray(0, -1))
+  } catch (error: unknown) {
+    throw new Error('fs-e2b: canonical path is not valid UTF-8', { cause: error })
+  }
+  if (!posix.isAbsolute(path)) throw new Error('fs-e2b: canonical path is not absolute')
+  return path
 }
 
 function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
@@ -213,69 +227,6 @@ export class E2BFileSystem extends FileSystem {
     }
   }
 
-  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
-    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-      throw new Error('bounded read maxBytes must be a positive safe integer')
-    }
-    assertNotAborted(signal, 'read')
-    const sandbox = await this.ctx.e2b.getSandbox()
-    try {
-      const node = await sandbox.commands.run('command -v -- node', commandOpts(signal))
-      const executable = node.stdout.trim()
-      if (!posix.isAbsolute(executable) || executable.includes('\n')) {
-        throw new Error('fs-e2b: bounded reader requires one absolute Node executable')
-      }
-      const command = [
-        quoteE2BShellArg(executable),
-        '--input-type=commonjs',
-        '-e',
-        quoteE2BShellArg(BOUNDED_READER_SOURCE),
-        quoteE2BShellArg(this.processPath(target)),
-        String(maxBytes),
-      ].join(' ')
-      const result = await sandbox.commands.run(command, commandOpts(signal))
-      assertNotAborted(signal, 'read')
-      const response = this.parseBoundedRead(result.stdout, target)
-      if (response.kind === 'not-file') {
-        throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
-      }
-      if (response.kind === 'oversize' && Number.isSafeInteger(response.size)) {
-        throw new FsError(
-          `cannot read "${target.displayPath}": ${response.size} bytes exceeds the ${maxBytes}-byte limit`,
-          'FS_IO_ERROR',
-        )
-      }
-      if (response.kind === 'grew') {
-        throw new FsError(
-          `cannot read "${target.displayPath}": file grew past the ${maxBytes}-byte limit while reading`,
-          'FS_IO_ERROR',
-        )
-      }
-      if (response.kind === 'open-error' && typeof response.message === 'string') {
-        if (/ENOENT|no such file/i.test(response.message)) {
-          throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
-        }
-        if (/EACCES|EPERM|permission denied|operation not permitted/i.test(response.message)) {
-          throw new FsError(`cannot read "${target.displayPath}": permission denied`, 'FS_PERMISSION_DENIED')
-        }
-        throw new FsError(
-          `cannot read "${target.displayPath}" safely: ${response.message}`,
-          'FS_IO_ERROR',
-        )
-      }
-      if (response.kind !== 'ok' || typeof response.data !== 'string') {
-        throw new FsError(`cannot read "${target.displayPath}": bounded reader returned an invalid response`, 'FS_IO_ERROR')
-      }
-      const bytes = Buffer.from(response.data, 'base64')
-      if (bytes.toString('base64') !== response.data || bytes.length > maxBytes) {
-        throw new FsError(`cannot read "${target.displayPath}": bounded reader returned invalid bytes`, 'FS_IO_ERROR')
-      }
-      return decodeText(bytes, target.displayPath, BINARY_SAMPLE_BYTES)
-    } catch (error: unknown) {
-      throw mapError(error, 'read', target.displayPath, signal)
-    }
-  }
-
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     const sandbox = await this.ctx.e2b.getSandbox()
     await this.requireRegular(target, signal)
@@ -339,18 +290,23 @@ export class E2BFileSystem extends FileSystem {
     try {
       const sandbox = await this.ctx.e2b.getSandbox()
       const listed = await sandbox.files.list(String(target.targetKey), { depth: 1, ...signalOpts(signal) })
-      const entries = await Promise.all(listed.map(async (entry): Promise<FsDirEntry> => {
+      const entries: FsDirEntry[] = []
+      for (const entry of listed) {
         const displayPath = posix.join(target.displayPath, entry.name)
-        const canonical = await this.canonicalPath(sandbox, entry.path, signal)
-        const resolved = await this.probe(canonical, displayPath, signal)
-        return {
+        const canonical = entry.symlinkTarget === undefined
+          ? entry.path
+          : await this.canonicalPath(sandbox, entry.path, signal)
+        const resolved = entry.symlinkTarget === undefined
+          ? entry
+          : await this.probe(canonical, displayPath, signal)
+        entries.push({
           name: entry.name,
           type: resolved === undefined ? 'other' : entryType(resolved),
           target: { targetKey: FsTargetKey(canonical), displayPath },
           ...(resolved !== undefined ? { version: entryVersion(resolved) } : {}),
           ...(resolved?.type === FileType.FILE ? { size: resolved.size } : {}),
-        }
-      }))
+        })
+      }
       return entries.sort((left, right) => left.name.localeCompare(right.name))
     } catch (error: unknown) {
       throw mapError(error, 'list', target.displayPath, signal)
@@ -420,23 +376,14 @@ export class E2BFileSystem extends FileSystem {
 
   private async canonicalPath(sandbox: Sandbox, path: string, signal?: AbortSignal): Promise<string> {
     try {
-      const result = await sandbox.commands.run(`realpath -m -- ${quoteE2BShellArg(path)}`, commandOpts(signal))
-      return result.stdout.replace(/\n$/, '')
+      const result = await sandbox.commands.run(
+        `set -o pipefail; realpath -mz -- ${quoteE2BShellArg(path)} | base64 -w0`,
+        commandOpts(signal),
+      )
+      return decodeCanonicalPath(result.stdout)
     } catch (error: unknown) {
       if (error instanceof CommandExitError) throw new Error(error.stderr || error.message, { cause: error })
       throw error
-    }
-  }
-
-  private parseBoundedRead(stdout: string, target: FsTarget): BoundedReadResponse {
-    try {
-      return JSON.parse(stdout) as BoundedReadResponse
-    } catch (error: unknown) {
-      throw new FsError(
-        `cannot read "${target.displayPath}": bounded reader returned invalid JSON`,
-        'FS_IO_ERROR',
-        { cause: error },
-      )
     }
   }
 

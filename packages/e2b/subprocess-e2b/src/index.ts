@@ -61,8 +61,7 @@ export class E2BSubprocessService extends SubprocessService {
         }))
       }
       for (const terminal of terminals) {
-        terminal.terminate()
-        pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
+        pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
       }
       for (const cleanup of failedTerminalSetupCleanups) {
         pending.push(cleanup().then(() => { this.failedTerminalSetupCleanups.delete(cleanup) }))
@@ -125,7 +124,9 @@ export class E2BSubprocessService extends SubprocessService {
       await handle.waitForExit()
       this.live.delete(handle)
     }
-    void handle.done.then(release, release).catch(() => {})
+    void handle.done.then(release, release).catch((_automaticReleaseFailure: unknown) => {
+      // Retain the handle so service disposal can retry its cleanup transaction.
+    })
     return handle
   }
 
@@ -158,16 +159,17 @@ export class E2BSubprocessService extends SubprocessService {
       )
       this.terminals.add(terminal)
       if (this.isDisposing()) {
-        terminal.terminate()
-        await terminal.waitForExit()
+        await terminal.terminate()
         this.terminals.delete(terminal)
         throw new Error('subprocess-e2b: service disposed during terminal setup')
       }
       const release = async (): Promise<void> => {
-        await terminal.waitForExit()
+        await terminal.terminate()
         this.terminals.delete(terminal)
       }
-      void terminal.done.then(release, release).catch(() => {})
+      void terminal.done.then(release, release).catch((_automaticReleaseFailure: unknown) => {
+        // Retain the terminal so service disposal can retry its cleanup transaction.
+      })
       return terminal
     } finally {
       this.terminalSetups.delete(setup.promise)

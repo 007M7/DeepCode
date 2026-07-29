@@ -12,4 +12,4 @@
 
 现有的 [`dsh-bash-local`](../bash/bash-local/README.md)、[`dsh-pty-local`](../pty/pty-local/README.md)、[`dsh-lsp-local`](../lsp/lsp-local/README.md) 及 [`dsh-code-runtime-subprocess`](../code-runtime/code-runtime-subprocess/README.md) 无需 E2B 专用 fork。它们把执行环境中的所有操作委托给 `ctx.fs` 和 `ctx.subprocess`，因此挂载这两个 E2B 适配器后，它们执行的可变操作都发生在同一个沙箱内。
 
-该边界不会迁移 harness 进程、Cordis 对象、模型调用、agent（智能体）／会话状态、会话持久化、skill（技能）、更高层协议状态或 E2B SDK 缓冲。[共享运行时决策](../../.agents/notes/implemented/feature/2026-07-27-e2b-remote-runtime-poc.md)界定 POC 边界；[可移植消费方决策](../../.agents/notes/implemented/architecture/2026-07-28-portable-execution-world-consumers.md)界定通用组合。
+该边界不会迁移 harness 进程、Cordis 对象、模型调用、agent（智能体）／会话状态、会话持久化、skill（技能）、更高层协议状态或 E2B SDK 缓冲。[可移植执行世界决策](../../.agents/notes/implemented/architecture/2026-07-28-portable-execution-world-consumers.md)同时界定通用组合和此 POC 边界。

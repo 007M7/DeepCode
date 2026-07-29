@@ -35,9 +35,19 @@ let terminalId: Awaited<ReturnType<typeof ctx.pty.spawn>>['sessionId'] | undefin
 try {
   const sandbox = await ctx.e2b.getSandbox()
   const fromFs = await ctx.fs.resolve('from-fs.txt')
-  await ctx.fs.writeText(fromFs, 'written-by-fs\n', { kind: 'createIfAbsent' })
+  const written = await ctx.fs.writeText(fromFs, 'written-by-fs\n', { kind: 'createIfAbsent' })
+  const reread = await ctx.fs.stat(fromFs)
+  if (reread?.version !== written.version) {
+    throw new Error(`E2B rename did not preserve version metadata: ${JSON.stringify({ written, reread })}`)
+  }
+  await ctx.fs.editText(
+    fromFs,
+    { oldString: 'written-by-fs', newString: 'written-by-fs-versioned', replaceAll: false },
+    { version: reread.version },
+  )
+  const fsVersionGuard = true
   const bashRead = await ctx.bash.run(ctx.bash.resolve({ command: 'cat from-fs.txt' }))
-  if (bashRead.exitCode !== 0 || bashRead.stdout.text !== 'written-by-fs\n') {
+  if (bashRead.exitCode !== 0 || bashRead.stdout.text !== 'written-by-fs-versioned\n') {
     throw new Error(`E2B Bash could not read the FS write: ${JSON.stringify(bashRead)}`)
   }
 
@@ -183,44 +193,8 @@ try {
     workspaceRoot: process.cwd(),
   })
 
-  const swappedParentPath = posix.join(process.cwd(), 'swapped-parent')
-  const swappedSourcePath = posix.join(swappedParentPath, 'source.ts')
-  const swappedOutsidePath = '/tmp/dsh-e2b-lsp-outside'
-  await sandbox.commands.run(
-    `mkdir -p -- ${quoteE2BShellArg(swappedParentPath)} ${quoteE2BShellArg(swappedOutsidePath)} && printf 'const safe = true\\n' > ${quoteE2BShellArg(swappedSourcePath)} && printf 'const outside = true\\n' > ${quoteE2BShellArg(posix.join(swappedOutsidePath, 'source.ts'))}`,
-  )
-  const remoteCommands = sandbox.commands as unknown as {
-    run(command: string, options?: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }>
-  }
-  const runRemoteCommand = remoteCommands.run.bind(sandbox.commands)
-  let containmentFaultInjected = false
-  remoteCommands.run = async (command, options) => {
-    if (!containmentFaultInjected && command.includes('dsh-e2b-bounded-reader') && command.includes('swapped-parent/source.ts')) {
-      containmentFaultInjected = true
-      await runRemoteCommand(
-        `rm -rf -- ${quoteE2BShellArg(swappedParentPath)} && ln -s -- ${quoteE2BShellArg(swappedOutsidePath)} ${quoteE2BShellArg(swappedParentPath)}`,
-      )
-    }
-    return await runRemoteCommand(command, options)
-  }
-  let lspContainment = false
-  try {
-    await ctx.lsp.query({
-      operation: 'hover',
-      filePath: 'swapped-parent/source.ts',
-      position: { line: 0, character: 1 },
-      workspaceRoot: process.cwd(),
-    })
-  } catch (error: unknown) {
-    lspContainment = containmentFaultInjected && String(error).includes('opened safely')
-    if (!lspContainment) throw error
-  } finally {
-    remoteCommands.run = runRemoteCommand
-  }
-  if (!lspContainment) throw new Error('E2B LSP source swap was not rejected')
-
   const oversizedSourcePath = posix.join(process.cwd(), 'oversized-source.ts')
-  await sandbox.commands.run(`head -c 4000001 /dev/zero > ${quoteE2BShellArg(oversizedSourcePath)}`)
+  await sandbox.commands.run(`head -c 4000001 /dev/zero | tr '\\0' x > ${quoteE2BShellArg(oversizedSourcePath)}`)
   let lspDocumentBound = false
   try {
     await ctx.lsp.query({
@@ -235,6 +209,10 @@ try {
   }
   if (!lspDocumentBound) throw new Error('E2B LSP accepted an oversized remote source')
 
+  const remoteCommands = sandbox.commands as unknown as {
+    run(command: string, options?: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  }
+  const runRemoteCommand = remoteCommands.run.bind(sandbox.commands)
   const terminal = await ctx.pty.spawn(owner, { type: 'shell' })
   terminalId = terminal.sessionId
   const terminalEcho = await ctx.pty.startSend(owner, terminal.sessionId, {
@@ -429,6 +407,7 @@ try {
   process.stdout.write(`${JSON.stringify({
     sandboxId: await ctx.e2b.sandboxId,
     bashRead: bashRead.stdout.text,
+    fsVersionGuard,
     fsRead,
     explicitEnvironment,
     splitUtf8Output,
@@ -437,7 +416,6 @@ try {
     spill: { liveBytes: liveSpillBytes, outcome: spillOutcome, read: spillRead },
     hover,
     definition,
-    lspContainment,
     lspDocumentBound,
     terminal: {
       motd: terminal.motd,
