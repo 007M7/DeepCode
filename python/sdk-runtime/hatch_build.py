@@ -16,6 +16,34 @@ _PLATFORMS = {
 _SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
+def _spawn_helper_binary_target(header: bytes) -> str | None:
+    if (
+        len(header) >= 20
+        and header[:4] == b"\x7fELF"
+        and header[4] == 2
+        and header[5] == 1
+    ):
+        machine = int.from_bytes(header[18:20], "little")
+        if machine == 62:
+            return "linux-x64"
+        if machine == 183:
+            return "linux-arm64"
+    if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
+        if int.from_bytes(header[4:8], "little") == 0x0100000C:
+            return "macos-arm64"
+    return None
+
+
+def _validate_spawn_helper(path: Path, expected_target: str) -> None:
+    with path.open("rb") as helper:
+        actual_target = _spawn_helper_binary_target(helper.read(20))
+    if actual_target != expected_target:
+        raise RuntimeError(
+            f"runtime spawn helper binary mismatch: expected {expected_target}, "
+            f"found {actual_target or 'unsupported format or architecture'} at {path}"
+        )
+
+
 def _host_platform_tag() -> str:
     machine = platform.machine().lower()
     arch = "arm64" if machine in {"arm64", "aarch64"} else "x64" if machine in {"x86_64", "amd64"} else machine
@@ -39,13 +67,13 @@ class RuntimeBuildHook(BuildHookInterface):
             )
 
         platform_tag = os.environ.get("DSH_RUNTIME_PLATFORM_TAG") or _host_platform_tag()
-        matches = [value for value in _PLATFORMS.values() if value[0] == platform_tag]
+        matches = [(key, value) for key, value in _PLATFORMS.items() if value[0] == platform_tag]
         if len(matches) != 1:
             supported = ", ".join(value[0] for value in _PLATFORMS.values())
             raise RuntimeError(
                 f"unsupported DSH_RUNTIME_PLATFORM_TAG {platform_tag!r}; expected one of {supported}"
             )
-        expected_executable = matches[0][1]
+        expected_target, (_, expected_executable) = matches[0]
         runtime_dir = Path(self.root) / "src" / "deepseek_harness_runtime" / "runtime"
         runtime_files = sorted(runtime_dir.glob("dsh-jsonrpc-agent-pkg-*") if runtime_dir.is_dir() else [])
         executables = [path for path in runtime_files if not path.name.endswith(_SPAWN_HELPER_SUFFIX)]
@@ -64,6 +92,7 @@ class RuntimeBuildHook(BuildHookInterface):
         for executable in [executables[0], helpers[0]]:
             if executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
+        _validate_spawn_helper(helpers[0], expected_target)
 
         build_data["pure_python"] = False
         build_data["infer_tag"] = False

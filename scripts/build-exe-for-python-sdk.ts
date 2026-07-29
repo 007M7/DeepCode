@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, copyFile, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -56,6 +56,24 @@ type Arch = (typeof ARCHES)[number]
 interface RuntimeProduct {
   executable: string
   spawnHelper: string
+}
+
+function spawnHelperBinaryTarget(path: string): string | undefined {
+  const header = readFileSync(path).subarray(0, 20)
+  if (header.length >= 20
+    && header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))
+    && header[4] === 2
+    && header[5] === 1) {
+    const machine = header.readUInt16LE(18)
+    if (machine === 62) return 'linux-x64'
+    if (machine === 183) return 'linux-arm64'
+  }
+  if (header.length >= 8 && header.readUInt32LE(0) === 0xfeedfacf) {
+    const cpuType = header.readUInt32LE(4)
+    if (cpuType === 0x01000007) return 'macos-x64'
+    if (cpuType === 0x0100000c) return 'macos-arm64'
+  }
+  return undefined
 }
 
 function isPlatform(value: string): value is Platform {
@@ -347,7 +365,17 @@ class SingleExeBuild {
         + `checked ${candidates.join(', ')}. Build each runtime on its target platform and architecture.`,
       )
     }
-    if (statSync(helper).mode & 0o111) return helper
+    if (statSync(helper).mode & 0o111) {
+      const expected = `${target.platform}-${target.arch}`
+      const actual = spawnHelperBinaryTarget(helper)
+      if (actual !== expected) {
+        throw new Error(
+          `build-exe-for-python-sdk: node-pty spawn-helper binary mismatch: expected ${expected}, `
+          + `found ${actual ?? 'unsupported format or architecture'} at ${helper}`,
+        )
+      }
+      return helper
+    }
     throw new Error(`build-exe-for-python-sdk: node-pty spawn-helper is not executable: ${helper}`)
   }
 
