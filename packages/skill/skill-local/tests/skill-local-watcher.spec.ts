@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
-import { mkdir, writeFile } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,12 +13,32 @@ interface FakeWatcherControl {
   options: Record<string, unknown>
 }
 
+interface FakeWatchFileControl {
+  path: string
+  listener(current: Stats, previous: Stats): void
+}
+
 const watcherHarness = vi.hoisted(() => ({
   watchers: [] as FakeWatcherControl[],
   startupErrors: [] as Error[],
   closeErrors: 0,
   deferredReady: 0,
+  watchFiles: [] as FakeWatchFileControl[],
 }))
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    watchFile(path: string, _options: unknown, listener: FakeWatchFileControl['listener']) {
+      watcherHarness.watchFiles.push({ path, listener })
+    },
+    unwatchFile(path: string, listener: FakeWatchFileControl['listener']) {
+      const index = watcherHarness.watchFiles.findIndex(control => control.path === path && control.listener === listener)
+      if (index !== -1) watcherHarness.watchFiles.splice(index, 1)
+    },
+  }
+})
 
 vi.mock('chokidar', () => ({
   default: {
@@ -67,6 +88,7 @@ beforeEach(() => {
   watcherHarness.startupErrors.length = 0
   watcherHarness.closeErrors = 0
   watcherHarness.deferredReady = 0
+  watcherHarness.watchFiles.length = 0
 })
 
 describe('skill-local watcher failures', () => {
@@ -158,6 +180,40 @@ describe('skill-local watcher failures', () => {
     await settle()
   })
 
+  it('re-probes a retained root after child unlink and observes immediate recreation', async () => {
+    const home = await tempDir('skill-watch-root-reprobe')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'old-skill')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['old-skill'])
+    const original = watcherHarness.watchers[0]
+    if (original === undefined) throw new Error('expected a root watcher')
+
+    await rm(root, { recursive: true })
+    original.emitter.emit('unlink', join(root, 'old-skill/SKILL.md'))
+    await settle()
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
+
+    const missingRoot = watcherHarness.watchFiles.find(control => control.path === root)
+    expect(missingRoot).toBeDefined()
+    await writeSkill(root, 'recreated-skill')
+    missingRoot!.listener({} as Stats, {} as Stats)
+    await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(2) })
+    await settle()
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['recreated-skill'])
+    await fiber.dispose()
+  })
+
   it('settles an opening watcher when plugin disposal races its ready event', async () => {
     const home = await tempDir('skill-watch-opening-dispose')
     const root = join(home, '.dsh/skills')
@@ -178,7 +234,7 @@ describe('skill-local watcher failures', () => {
     })
 
     const discovery = provider.list({})
-    await settle()
+    await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected an opening root watcher')
     first.emitter.emit('unlinkDir', root)
@@ -211,7 +267,7 @@ describe('skill-local watcher failures', () => {
     })
 
     const discovery = provider.list({})
-    await settle()
+    await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
     const first = watcherHarness.watchers[0]
     if (first === undefined) throw new Error('expected an opening root watcher')
     const disposal = provider.dispose()

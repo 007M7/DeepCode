@@ -252,6 +252,7 @@ interface RootWatchState {
 }
 
 interface WatchHandle {
+  mode: RootWatchMode
   close(): Promise<void> | void
 }
 
@@ -348,9 +349,8 @@ class SkillWatchManager {
 
   private ensureWatcher(state: RootWatchState): Promise<void> {
     if (this.closing || !this.config.enabled) return Promise.resolve()
-    if (state.watcher !== undefined && !state.unhealthy) return Promise.resolve()
     if (state.opening !== undefined) return state.opening
-    const opening = this.replaceWatcher(state)
+    const opening = this.ensureCurrentWatcher(state)
     state.opening = opening
     void opening.then(
       () => {
@@ -361,6 +361,18 @@ class SkillWatchManager {
       },
     )
     return opening
+  }
+
+  private async ensureCurrentWatcher(state: RootWatchState): Promise<void> {
+    const watcher = state.watcher
+    if (watcher !== undefined && !state.unhealthy) {
+      const current = await resolveRootWatchMode(state.root.path)
+      // A child unlink can publish an empty catalog before root unlinkDir arrives.
+      // Discovery therefore revalidates the retained handle independently.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- watcher callbacks can mark unhealthy while the probe awaits
+      if (!state.unhealthy && sameWatchMode(watcher.mode, current)) return
+    }
+    await this.replaceWatcher(state)
   }
 
   private async replaceWatcher(state: RootWatchState): Promise<void> {
@@ -389,7 +401,7 @@ class SkillWatchManager {
     }
   }
 
-  // FIXME(file-watch-service): Extract Chokidar and missing-root observation below into a Cordis
+  // TODO(file-watch-service): Extract Chokidar and missing-root observation below into a Cordis
   // service; keep skill filtering and invalidation here.
   private async openStableWatcher(state: RootWatchState): Promise<WatchHandle | undefined> {
     while (!this.closing && state.owners.size > 0) {
@@ -416,6 +428,7 @@ class SkillWatchManager {
       interval: this.config.pollIntervalMs,
     }, listener)
     return {
+      mode,
       close() {
         unwatchFile(mode.nextPath, listener)
       },
@@ -436,6 +449,10 @@ class SkillWatchManager {
       usePolling: this.config.usePolling,
       interval: this.config.pollIntervalMs,
     })
+    const handle: WatchHandle = {
+      mode,
+      close: () => watcher.close(),
+    }
     let ready = false
     const readiness = Promise.withResolvers<undefined>()
     const onError = (error: unknown): void => {
@@ -456,10 +473,10 @@ class SkillWatchManager {
     try {
       await readiness.promise
     } catch (error) {
-      await this.closeWatcher(watcher)
+      await this.closeWatcher(handle)
       throw error
     }
-    return watcher
+    return handle
   }
 
   private handleWatchEvent(
