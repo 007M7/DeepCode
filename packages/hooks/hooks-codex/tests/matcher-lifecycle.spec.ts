@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,36 +6,30 @@ import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 
-interface RustRegexInstance {
-  free(): void
-}
+const matcherLifecycle = vi.hoisted(() => {
+  const registry = {
+    matches: vi.fn(() => true),
+    dispose: vi.fn<() => void>(),
+  }
+  return {
+    registry,
+    compileMatchers: vi.fn(() => registry),
+  }
+})
+
+vi.mock('@deepseek-ai/dsh-hook-protocol', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-hook-protocol')>()
+  return { ...actual, compileMatchers: matcherLifecycle.compileMatchers }
+})
 
 const dirs: string[] = []
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  vi.clearAllMocks()
+})
 
 describe('hooks-codex matcher lifecycle', () => {
-  it('constructs one reusable runtime regex and frees it on plugin teardown', async () => {
-    // The product deliberately loads rregex through createRequire so Cordis can
-    // discover the bridge synchronously. Patch that SAME CJS export, rather
-    // than an ESM mock that would not observe the production load path.
-    const require = createRequire(new URL('../../hook-protocol/package.json', import.meta.url))
-    const rregex = require('rregex') as { RRegex: new(pattern: string) => RustRegexInstance }
-    const OriginalRRegex = rregex.RRegex
-    const construct = vi.fn<(pattern: string) => void>()
-    const free = vi.fn<() => void>()
-
-    class CountingRRegex extends OriginalRRegex {
-      constructor(pattern: string) {
-        super(pattern)
-        construct(pattern)
-      }
-
-      override free(): void {
-        free()
-        super.free()
-      }
-    }
-
+  it('gives the loaded config one matcher registry and disposes it on plugin teardown', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-codex-matchers-'))
     dirs.push(dir)
     const configPath = join(dir, 'hooks.json')
@@ -45,29 +38,19 @@ describe('hooks-codex matcher lifecycle', () => {
       PostToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'true' }] }],
     } }))
 
-    rregex.RRegex = CountingRRegex
-    vi.resetModules()
-    try {
-      const HooksCodex = await import('@deepseek-ai/dsh-hooks-codex')
-      const ctx = new Context()
-      await ctx.plugin(LocalSubprocessService)
-      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-      const fiber = await ctx.plugin(HooksCodex, { configPath, model: 'm' })
+    const HooksCodex = await import('@deepseek-ai/dsh-hooks-codex')
+    const ctx = new Context()
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    const fiber = await ctx.plugin(HooksCodex, { configPath, model: 'm' })
 
-      // The parser validates both groups one-shot (2 construct/free pairs), then
-      // the runtime registry compiles the duplicate pattern only once and owns it.
-      expect(construct.mock.calls.map(([pattern]) => pattern)).toEqual([
-        '(?i)^bash$',
-        '(?i)^bash$',
-        '(?i)^bash$',
-      ])
-      expect(free).toHaveBeenCalledTimes(2)
+    expect(matcherLifecycle.compileMatchers).toHaveBeenCalledExactlyOnceWith([
+      '(?i)^bash$',
+      '(?i)^bash$',
+    ], 'codex')
+    expect(matcherLifecycle.registry.dispose).not.toHaveBeenCalled()
 
-      await fiber.dispose()
-      expect(free).toHaveBeenCalledTimes(3)
-    } finally {
-      rregex.RRegex = OriginalRRegex
-      vi.resetModules()
-    }
+    await fiber.dispose()
+    expect(matcherLifecycle.registry.dispose).toHaveBeenCalledOnce()
   })
 })
