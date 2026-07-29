@@ -3,6 +3,8 @@ import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
@@ -25,7 +27,7 @@ import { ConversationSession } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 
 /** Services required by the conversation plugin. */
-export const inject = ['slots', 'layout', 'sessions', 'workspaces']
+export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
 
 /** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
 function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
@@ -49,6 +51,33 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+
+  // Command hint locale: friendly placeholder text for claimed commands. The
+  // claimed /plan hint and the plan-mode textarea placeholder share one
+  // string: both describe the same next action.
+  const HINT_NS = 'command.hint'
+  const PLAN_HINT_ZH = '描述你的任务以生成计划'
+  const PLAN_HINT_EN = 'describe your task to generate plan'
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(HINT_NS, 'zh', {
+        plan: PLAN_HINT_ZH,
+        goal: '输入目标，智能体将持续执行',
+        'goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
+        'placeholder.plan': PLAN_HINT_ZH,
+        'placeholder.default': '给智能体发消息',
+      }),
+      ctx.locale.register(HINT_NS, 'en', {
+        plan: PLAN_HINT_EN,
+        goal: 'describe the objective for a long-running task',
+        'goal.active': 'goal active — edit / pause / resume / clear',
+        'placeholder.plan': PLAN_HINT_EN,
+        'placeholder.default': 'Message the agent',
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-conversation: command hint dictionaries')
+  const translateHint = ctx.locale.bind(HINT_NS)
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
@@ -159,6 +188,7 @@ export function apply(ctx: Context): void {
           const result = await session.command(line)
           return result.ok && result.value.matched
         },
+        translateHint,
         hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },

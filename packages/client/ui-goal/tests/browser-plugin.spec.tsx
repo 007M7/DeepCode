@@ -57,6 +57,7 @@ function bench(options: { projection?: GoalProjection | null | undefined; failWi
   const ref = { id: 'g-1', revision: 3 }
   ctx.provide('connection', { api: { goals: {
     edit: answer('goal.edit', { ref }),
+    pause: answer('goal.pause', { ref }),
     resume: answer('goal.resume', { ref }),
     clear: answer('goal.clear', { cleared: true as const }),
   } } })
@@ -100,13 +101,15 @@ describe('ui-goal browser plugin', () => {
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
     expect(await verbs.onEdit('New objective')).toEqual({ ok: true })
+    expect(await verbs.onPause()).toEqual({ ok: true })
     expect(await verbs.onResume()).toEqual({ ok: true })
     expect(await verbs.onClear()).toEqual({ ok: true })
-    expect(b.calls.map(c => c.method)).toEqual(['goal.edit', 'goal.resume', 'goal.clear'])
+    expect(b.calls.map(c => c.method)).toEqual(['goal.edit', 'goal.pause', 'goal.resume', 'goal.clear'])
     const ref = { id: 'g-1', revision: 5 }
     expect(b.calls[0]?.payload).toEqual({ sessionId: 's1', ref, objective: 'New objective' })
     expect(b.calls[1]?.payload).toEqual({ sessionId: 's1', ref })
     expect(b.calls[2]?.payload).toEqual({ sessionId: 's1', ref })
+    expect(b.calls[3]?.payload).toEqual({ sessionId: 's1', ref })
   })
 
   it('a null or absent projection short-circuits every verb without touching the wire', async () => {
@@ -114,7 +117,7 @@ describe('ui-goal browser plugin', () => {
       const b = bench({ projection })
       await b.fiber.await()
       const verbs = b.entry()!.inject!(sid('s1'))
-      for (const result of [await verbs.onEdit('x'), await verbs.onResume(), await verbs.onClear()]) {
+      for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
         expect(result).toEqual({ ok: false, error: { code: 'no-current-goal', message: 'no current goal to mutate' } })
       }
       expect(b.calls).toHaveLength(0)
@@ -143,6 +146,7 @@ describe('GoalDock adapter', () => {
     const useProjection = vi.fn(() => projection)
     const actions: GoalBarActions = {
       onEdit: () => Promise.resolve({ ok: true }),
+      onPause: () => Promise.resolve({ ok: true }),
       onResume: () => Promise.resolve({ ok: true }),
       onClear: () => Promise.resolve({ ok: true }),
     }

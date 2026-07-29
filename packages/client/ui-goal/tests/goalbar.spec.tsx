@@ -25,6 +25,7 @@ function makeGoal(over: Partial<GoalSnapshot> = {}): GoalSnapshot {
 function makeActions() {
   return {
     onEdit: vi.fn<GoalBarActions['onEdit']>(() => Promise.resolve({ ok: true })),
+    onPause: vi.fn<GoalBarActions['onPause']>(() => Promise.resolve({ ok: true })),
     onResume: vi.fn<GoalBarActions['onResume']>(() => Promise.resolve({ ok: true })),
     onClear: vi.fn<GoalBarActions['onClear']>(() => Promise.resolve({ ok: true })),
   } satisfies GoalBarActions
