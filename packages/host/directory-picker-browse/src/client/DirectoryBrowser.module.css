@@ -261,8 +261,9 @@
 }
 
 /* Show-hidden toggle: a subtle fixed-label text button left of the gap;
- * the pressed state seats a check glyph before the label (Menu's selected
- * vocabulary) instead of flipping the wording. */
+ * the pressed state seats a check glyph after the label (Menu's selected
+ * vocabulary; trailing so the label never shifts) instead of flipping the
+ * wording. */
 .showHiddenToggle {
   display: inline-flex;
   align-items: center;

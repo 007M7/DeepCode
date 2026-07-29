@@ -194,7 +194,7 @@ describe('DirectoryBrowser', () => {
     expect(signals[2]?.aborted).toBe(true)
   })
 
-  it('jumps back through a crumb into a fresh single-column level', async () => {
+  it('a crumb jump to the display root (home) lands the single wide level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(rowButton(screen.getByRole('listitem')))
@@ -235,35 +235,130 @@ describe('DirectoryBrowser', () => {
     expect(columns()).toHaveLength(1)
   })
 
-  it('drops a parent leg that settles after a newer intent, resolving or rejecting', async () => {
-    const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
-    const listDirectory = vi.fn(async (path?: string) => {
-      if (path === HOME) {
-        return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
+  it('commits the target immediately, aborts a superseded parent leg on the wire, and drops its late resolution', async () => {
+    const signals: (AbortSignal | undefined)[] = []
+    const settlers: ((value: DirectoryListing) => void)[] = []
+    // Only the FIRST explicit HOME request (the parent leg) hangs; the later
+    // home crumb jump lists normally.
+    let homeCalls = 0
+    const listDirectory = vi.fn(async (path?: string, signal?: AbortSignal) => {
+      signals.push(signal)
+      if (path === HOME && ++homeCalls === 1) {
+        return new Promise<DirectoryListing>((resolve) => { settlers.push(resolve) })
       }
       return listingFor(path)
     })
     mount({ listDirectory })
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
-    // Enter lands the target leg; the parent leg hangs. Escape supersedes
-    // the landing, and the late parent RESOLUTION must change nothing.
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
     fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The target leg commits at once: editor closed, single-pane DOCS level,
+    // while the parent leg (upgrade) is still in flight.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    expect(columns()).toHaveLength(1)
     await waitFor(() => { expect(settlers).toHaveLength(1) })
-    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Escape' })
-    await act(async () => { settlers[0]!.resolve(listingFor(HOME)) })
+    // A newer jump aborts the pending parent leg ON THE WIRE, not merely
+    // dropping its settlement.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    expect(signals[2]?.aborted).toBe(true)
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
+    // Its late resolution changes nothing either.
+    await act(async () => { settlers[0]!(listingFor(HOME)) })
     expect(columns()).toHaveLength(1)
-    expect(screen.getByRole('listitem').textContent).toBe('Documents')
-    // Same shape, late parent REJECTION: equally silent.
+    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('keeps the single-pane landing when the truncated parent level lacks the target', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      // The parent leg names HOME explicitly; serve it a truncated window
+      // that misses Documents (the initial open uses the absent-path form).
+      if (path === HOME) return { ...listingFor(HOME), entries: [], truncated: true }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
     fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
-    await waitFor(() => { expect(settlers).toHaveLength(2) })
-    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Escape' })
-    await act(async () => { settlers[1]!.reject(new Error('late')) })
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    // The upgrade would orphan the selection (no source row): it stays off.
+    await act(async () => {})
     expect(columns()).toHaveLength(1)
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('browser.truncated')).toBeNull()
+  })
+
+  it('anchors the upgrade on the parent level actual entry under Windows case folding', async () => {
+    const ROOT = 'C:\\'
+    const TYPED = 'c:\\users'
+    const winRoot: DirectoryListing = {
+      path: ROOT,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }],
+      entries: [{ name: 'Users', path: 'C:\\Users', hidden: false }],
+      truncated: false,
+    }
+    const winUsers: DirectoryListing = {
+      path: TYPED,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }, { name: 'users', path: TYPED, hidden: false }],
+      entries: [],
+      truncated: false,
+    }
+    mount({ listDirectory: vi.fn(async (path?: string) => (path === TYPED ? winUsers : winRoot)) })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: TYPED } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The typed case differs from the real entry; the upgrade selects the
+    // parent level's ACTUAL entry so aria-current and exemptions hold.
+    await waitFor(() => {
+      expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+    })
+    expect(within(columns()[0]!).getByText('Users')).toBeTruthy()
+  })
+
+  it('re-parks focus on the edit zone when a failed pick unmounts a dot-revealed row', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === `${HOME}/.config`) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: `${HOME}/.co` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // The failed selection re-hides the picked row; focus fell to body and
+    // re-parks on the crumb edit zone.
+    await screen.findByRole('alert')
+    expect(screen.queryByText('.config')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('leaves focus on a surviving row when its pick fails', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === DOCS) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: `${HOME}/do` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    row.focus()
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // Documents survives the cleared selection (it is not hidden): the
+    // user's focus on it is not yanked to the edit zone.
+    await screen.findByRole('alert')
+    expect(document.activeElement).toBe(row)
   })
 
   it('falls back to the single-pane landing when the parent leg of a navigation fails', async () => {

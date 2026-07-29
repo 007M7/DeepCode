@@ -5,7 +5,10 @@
  * breadcrumb, and a click-to-edit path zone; below it a Miller view — one
  * full-width level until a row is selected, then two columns splitting the
  * row evenly (256px floor; level | selected folder's children) around a
- * hairline divider. Selecting in the
+ * hairline divider. Navigations land selection-anchored: a crumb jump or a
+ * submitted path commits the target immediately, then re-selects it in its
+ * parent level once that level arrives, so stepping back keeps two panes
+ * away from the display root. Selecting in the
  * right column shifts the view one level deeper. "New folder" opens a nested
  * create dialog targeting the selected folder (or the level itself) and
  * selects the created folder. Open adopts the selected folder, falling back
@@ -215,12 +218,27 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [supersede, listDirectory])
 
   /**
-   * Replace the whole view with a freshly navigated level. Away from the
-   * display root the landing keeps the navigated directory SELECTED inside
-   * its parent level (left pane = parent, right pane = its children), so a
-   * crumb jump or a submitted path reads as stepping back one pane instead
-   * of collapsing to a single column; the display root (the home level, or
-   * a chain with no parent) keeps the single wide level.
+   * Launch a follow-up listing under the CURRENT supersession seq: a newer
+   * intent aborts it like the leg it continues, and it supersedes nothing.
+   */
+  const continueScan = useCallback((path: string): Promise<DirectoryListing> => {
+    const controller = new AbortController()
+    scanController.current = controller
+    return listDirectory(path, controller.signal)
+  }, [listDirectory])
+
+  /**
+   * Replace the whole view with a freshly navigated level. The target level
+   * commits the moment it arrives (single wide level: the editor closes and
+   * loading ends on this first settlement, so an Enter-submitted navigation
+   * is never withdrawn waiting on anything further). Away from the display
+   * root — the same collapse the crumb header renders, so crumbs and pane
+   * shape never disagree — a parent leg then upgrades the landing in place:
+   * the target's ACTUAL parent-level entry re-selected (left pane = parent,
+   * right pane = the target), so a crumb jump reads as stepping back one
+   * pane. A failed parent leg, or a truncated parent window that lacks the
+   * target, leaves the committed single-pane landing — the upgrade must
+   * never orphan the selection it exists to anchor.
    */
   const navigate = useCallback((path?: string) => {
     const { seq, scan } = launchListing(path)
@@ -228,46 +246,38 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     setError(null)
     scan.then((target) => {
       if (seq !== requestSeq.current) return
+      setParent(target)
+      setSelected(null)
+      setChild(null)
+      setLoading(false)
+      setPathDraft(null)
+      // Arity is label-independent: only the collapsed chain's depth decides.
+      if (displayCrumbs(target, '').length < 2) return
       const parentCrumb = target.crumbs.at(-2)
-      const anchor = target.crumbs.at(-1)
-      if (target.path === target.home || parentCrumb === undefined
-        /* v8 ignore next -- narrowing: the anchor crumb exists whenever a parent crumb does (root-to-target inclusive chain). */
-        || anchor === undefined) {
-        setParent(target)
-        setSelected(null)
-        setChild(null)
-        setLoading(false)
-        setPathDraft(null)
-        return
-      }
-      // Two-pane landing: the parent leg runs under the same supersession
-      // scope (a newer intent aborts it like the first leg).
-      const controller = new AbortController()
-      scanController.current = controller
-      listDirectory(parentCrumb.path, controller.signal).then((parentLevel) => {
+      /* v8 ignore next -- narrowing: a two-deep display chain implies a parent crumb (root-to-target inclusive). */
+      if (parentCrumb === undefined) return
+      continueScan(parentCrumb.path).then((parentLevel) => {
         if (seq !== requestSeq.current) return
+        // Windows resolves a typed path preserving its case; anchor on the
+        // parent level's actual entry so selection comparisons hold.
+        const sep = separatorOf(parentLevel)
+        const fold = (value: string): string => (sep === '\\' ? value.toLowerCase() : value)
+        const match = parentLevel.entries.find(entry => fold(entry.path) === fold(target.path))
+        if (match === undefined) return
         setParent(parentLevel)
-        setSelected(anchor)
+        setSelected(match)
         setChild(target)
-        setLoading(false)
-        setPathDraft(null)
       }, () => {
-        if (seq !== requestSeq.current) return
-        // The target listed fine and is what the user asked for; a parent
-        // leg failure quietly falls back to the single-pane landing rather
-        // than surfacing an error for a level nobody requested.
-        setParent(target)
-        setSelected(null)
-        setChild(null)
-        setLoading(false)
-        setPathDraft(null)
+        // Swallows the parent-leg failure (its abort included): the
+        // committed single-pane landing stands, and nobody asked to see
+        // the parent level.
       })
     }, (reason: unknown) => {
       if (seq !== requestSeq.current) return
       setLoading(false)
       setError(failureText(reason))
     })
-  }, [launchListing, listDirectory])
+  }, [launchListing, continueScan])
 
   // Editor-close focus parking (consumed by the refocus effect below the
   // miller-row ref): a pick parks on the selection's row, Enter and an
@@ -302,6 +312,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // An unreadable selection cannot be the committing target while the
       // breadcrumb still names the level: fall back to the single pane.
       setSelected(null)
+      // Clearing the selection can unmount the very row the pick parked
+      // focus on (a dot-revealed hidden row re-hides); the refocus effect
+      // re-parks on the edit zone only if focus actually fell to body.
+      refocusEditZone.current = true
     })
   }, [launchListing, pathDraft])
 
@@ -350,6 +364,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     setPathDraft(null)
     setFolderDraft(null)
     setCreateError(null)
+    // A close mid-flight (failed Enter, then Cancel) may leave refocus
+    // flags armed; retire them so a later render cannot consume them.
+    refocusPick.current = false
+    refocusEditZone.current = false
   }, [open, navigate, supersede])
 
   /** The folder a create or Open acts on: the selection, else the listed level. */
@@ -436,6 +454,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     }
     if (refocusEditZone.current) {
       refocusEditZone.current = false
+      // Re-park only when the close actually dropped focus to body; focus
+      // the user parked elsewhere (a surviving row) stays theirs.
+      if (document.activeElement !== document.body) return
       const zone = editZoneRef.current
       /* v8 ignore next -- narrowing guard: crumb mode renders the edit zone whenever the editor just closed. */
       if (zone === null) return
@@ -483,8 +504,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           event.stopPropagation()
           // Escape while the input holds focus is about to unmount it; with
           // focus already parked on a row, that row survives the cancel and
-          // keeps focus naturally.
-          if (document.activeElement === pathInputRef.current) refocusEditZone.current = true
+          // keeps focus naturally. Assignment (not a conditional set) also
+          // retires a stale flag a failed or still-upgrading Enter left.
+          refocusEditZone.current = document.activeElement === pathInputRef.current
           cancelPathEdit()
         }}
         // Focus leaving THIS dialog card while editing cancels like Escape.
