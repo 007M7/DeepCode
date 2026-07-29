@@ -138,6 +138,8 @@ export interface SlashSource {
   readonly trigger: TriggerChar
   /** Menu group label; unique per trigger — duplicate registration throws. */
   readonly name: string
+  /** Menu group display order (lower = higher in the list; default 0). */
+  readonly order?: number
   candidates(session: ClientSessionContext, req: CandidateRequest): Promise<readonly SlashCandidate[]>
   /** Every pick lands here; claim/insert outcomes are executed by the pipeline via the scoped input events. */
   onPick(pick: SlashPick): PickOutcome

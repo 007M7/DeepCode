@@ -165,7 +165,7 @@ One example row (the table structure is the reading key):
 |---|---|---|---|
 | `session.list` | `{ cursor?: string }` (cursor is a reserved seat, unimplemented) | `{ items: SessionSummary[] }` | persisted sessions, updatedAt descending; v1 builds no index |
 
-The remaining methods (`session.create`/`session.history`/`session.prompt`/`session.cancel`/`host.describe`) are not re-copied here — signatures are the source of truth; see `api/sessions.ts`, `api/host.ts`, and `RpcMethodMap`.
+The remaining methods (`session.create`/`session.history`/`session.rename`/`session.prompt`/`session.cancel`/`host.describe`) are not re-copied here — signatures are the source of truth; see `api/sessions.ts`, `api/host.ts`, and `RpcMethodMap`.
 
 ### Frames (server→client, named unions)
 
@@ -187,7 +187,7 @@ The remaining frame types are not re-copied here; the full unions are `MuxFrame`
 - **Cold sessions resume implicitly**: when `history`/`prompt` hits an unattached session the impl auto-resumes, deduplicating concurrent triggers with an in-flight table; attachment status is not exposed to clients (`running` already covers it).
 - **Approvals/questions**: the requested frame mints a stable rpcId on acceptance; first answer wins, and the host's in-memory pending table (keyed by rpcId) is the only referee; after a mux reopen, still-pending requested frames replay after the subscribed frame (rpcId reused verbatim — refresh recovery). The audit events `approval/asked`/`decided` continue through the durable log — frames = the live control plane, events = the durable audit. **Status**: the contract and frame types are shipped; the host-side pending table/wire answerer is unimplemented (`respond` in `api-proxy.ts` is a stub, always `not-pending`); PendingCard v1 is display-only.
 - **No protocol version**: client and host release bound together; `host.describe` has no protocolVersion field; introduce one when an independently released client appears.
-- **Reserved-seam discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`.
+- **Reserved-seam discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`. (`session.rename` graduated from this list: it appends a user-source `session/title` event.)
 
 ## The client carrier: the AbstractApiClient class family (`fetch/client.ts`)
 

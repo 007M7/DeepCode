@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, and TerminalBlock. Contract: api-contracts v3 §8.
+Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), and TerminalBlock. Contract: api-contracts v3 §8.
 
 ## Markdown rendering
 
