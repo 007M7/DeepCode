@@ -37,6 +37,15 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
     ],
   },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  // Dual-face host package: its browser half fills the directory-flow holes
+  // (the same composition row apps/cli mounts for the node-side backend).
+  {
+    id: '@deepseek-ai/dsh-host-directory-picker-browse',
+    dir: '../host/directory-picker-browse',
+    url: '/plugins/directory-picker-browse.js',
+    rev: 'fx',
+    inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-locale'],
+  },
 ]
 
 const bundles = new Map(PLUGINS.map(plugin => [
@@ -172,6 +181,37 @@ it('locks the composer in the New Session view state until a Workspace is chosen
       "sidebar": "No sessions yet",
     }
   `)
+})
+
+it('adopts a directory through the composed in-app browse flow and lands in its blank session', async () => {
+  boot('?fixture=empty')
+
+  await findLockedComposer()
+  fireEvent.click(workspaceChip())
+  const menu = await screen.findByRole('menu')
+  // The composed flow package occupies the directory-flow hole, so the
+  // picking affordance is present (no advertised-kind read exists anymore).
+  expect(within(menu).getAllByRole('menuitem').map(item => visibleText(item)))
+    .toEqual(['Open local folder…', 'Create a new workspace'])
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open local folder…' }))
+  // The browse occupant renders the Select Workspace Directory dialog at the
+  // fixture home; select Documents, advance into project, and adopt it.
+  const dialog = await screen.findByRole('dialog', { name: '选择工作区目录' }, { timeout: 10_000 })
+  // Row targeting goes through the visible label text: listitem accessible-name
+  // computation differs across dom-accessibility-api environments, while the
+  // row's name span is stable (clicks bubble to the row button).
+  fireEvent.click(await within(dialog).findByText('Documents', {}, { timeout: 10_000 }))
+  fireEvent.click(await within(dialog).findByText('project', {}, { timeout: 10_000 }))
+  // Open disables while the selection's child listing is in flight; wait for
+  // the enabled state or the click lands on a dead button on slow runners.
+  await waitFor(() => {
+    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: '打开' }).disabled).toBe(false)
+  }, { timeout: 10_000 })
+  fireEvent.click(within(dialog).getByRole('button', { name: '打开' }))
+  await findHeroComposer()
+  await waitFor(() => {
+    expect(visibleText(screen.getByRole('tree', { name: 'Sessions' }))).toContain('project')
+  })
 })
 
 it('selects the recent Workspace and opens its blank Session on first load', async () => {

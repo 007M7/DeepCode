@@ -1,3 +1,4 @@
+- button "New session"
 - button "Collapse sidebar":
   - img
 - button "New session":
@@ -27,11 +28,13 @@
 - textbox "Describe what you want to build"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
 - text: 详情

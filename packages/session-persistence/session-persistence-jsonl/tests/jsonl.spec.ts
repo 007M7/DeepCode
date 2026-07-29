@@ -1023,6 +1023,12 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(ids).toContain('big')
   })
 
+  it.each(['sandboxMode', 'approvalPolicy'] as const)('rejects the retired %s header field', (field) => {
+    const line = { ...toHeaderLine(meta('retired-policy-header')), [field]: 'read-only' }
+    expect(() => scanLog(Buffer.from(`${JSON.stringify(line)}\n`)))
+      .toThrow(/retired policy baseline fields/)
+  })
+
   it('list rejects a header whose cwd does not identify its physical log', async () => {
     const m = meta('misplaced', '/stored')
     await ctx.sessionPersistence.create(m)

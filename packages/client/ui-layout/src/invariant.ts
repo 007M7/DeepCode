@@ -15,8 +15,8 @@ export const name = 'client-ui-layout-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: shell viewing-state stores (zustand+persist) behind
- * ctx.layout — it emits no cordis events; clamp/prune/concession-chain
+ * No runtime invariant: the shell viewing-state store behind ctx.layout emits
+ * no cordis events; clamp/prune/concession-chain
  * sequencing is asserted directly by this package's columns and service specs.
  */
 const install: InvariantInstaller = () => {}

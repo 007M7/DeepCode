@@ -1,19 +1,22 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
+import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
@@ -24,13 +27,18 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces']
 
-/** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
-function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
+/** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
+function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   const scoped = sessions.scope(id)
   if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
   const conversation = scoped.get('conversation')
   if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable through the session scope')
   return conversation
+}
+
+/** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
+function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
+  return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
 }
 
 /** Mounts the conversation plugin.
@@ -129,8 +137,9 @@ export function apply(ctx: Context): void {
   // verbs ride this inject (package-internal — hub and bar are one plugin).
   slots.register({
     name: 'conversation.composer.bar',
-    // The two named control seats in the bar's tool row (plan left, model
-    // right); empty until their owning plugins register (B ruling).
+    // The two named control seats in the bar's tool row (plan beside the
+    // access control, model right); empty until their owning plugins
+    // register (B ruling).
     children: {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
@@ -144,10 +153,26 @@ export function apply(ctx: Context): void {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
+        command: async (line) => {
+          const session = sessions.binding(sessionId)?.session
+          if (session === undefined) return false
+          const result = await session.command(line)
+          return result.ok && result.value.matched
+        },
         hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },
   }, InputBar)
+
+  // The approval takeover: a selector-routed entry of the chain this package
+  // just declared (the ui-question registration pattern; the entry lives here
+  // because approval answering is core conversation UX, not an optional tool).
+  // Zero business face — data and verbs both ride the matched carrier.
+  // priority 1: question takeovers (default 0) win when both kinds are
+  // pending — a question is a conversation the model is waiting on, while an
+  // approval only blocks one tool call; answering the question first cannot
+  // strand the approval (it re-elects the moment the question resolves).
+  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1 }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
   // Declaring the keyed toolview hole here is claiming it: ChatView is the

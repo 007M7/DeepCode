@@ -290,7 +290,7 @@ export function fadeGlyph(
     return `\x1b[38;2;${r};${g};${b}m${glyph}\x1b[39m`
   }
   if (!visible) return ' '
-  return colorEnabled ? palette.muted(glyph) : glyph
+  return colorEnabled ? palette.dim(glyph) : glyph
 }
 
 /**

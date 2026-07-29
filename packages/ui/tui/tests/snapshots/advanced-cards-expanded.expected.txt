@@ -4,10 +4,10 @@ title "DSH snapshot"
 cursor hidden column=7 viewportRow=39 bufferRow=42
 buffer
 0| " DEEPSEEK HARNESS"
-  style 1-8 fg=bright-blue bold
+  style 1-8 fg=bright-magenta bold
   style 10-16 bold
 1| " Snapshot agent ready."
-  style 1-21 fg=bright-black
+  style 1-21 dim
 2| " main-session"
   style 1-12 dim
 3| <blank>
@@ -17,13 +17,17 @@ buffer
 6| "● Tool / bash / Run the coverage gate"
   style 0-36 fg=green
 7| "$ pnpm run test:coverage                                                                            "
-  style 0-23 fg=cyan
+  style 0-23 dim
 8| "/workspace/project                                                                                  "
   style 0-17 dim
 9| "packages/ui/tui 100%                                                                                "
+  style 0-19 dim
 10| "4016 tests passed                                                                                   "
+  style 0-16 dim
 11| "1 test skipped                                                                                      "
+  style 0-13 dim
 12| "coverage complete                                                                                   "
+  style 0-16 dim
 13| "[exit 0]                                                                                            "
   style 0-7 dim
 14| <blank>
@@ -45,35 +49,42 @@ buffer
 23| "● Tool / subagent"
   style 0-16 fg=green
 24| "Delegate renderer audit                                                                             "
+  style 0-99 dim
 25| "The renderer has explicit lifecycle ownership.                                                      "
+  style 0-99 dim
 26| <blank>
 27| "● Tool / task_output"
   style 0-19 fg=green
 28| "Read output from background task subagent-7                                                         "
+  style 0-99 dim
 29| "                                                                                                    "
 30| "console                                                                                             "
   style 0-6 dim
 31| "  started background task bash-5                                                                    "
-  style 2-31 fg=cyan
+  style 0-1 dim
+  style 2-31 fg=cyan dim
+  style 32-99 dim
 32| "                                                                                                    "
 33| <blank>
 34| "● Tool / skill"
   style 0-13 fg=green
 35| "Load skill dsh-code-review                                                                          "
+  style 0-99 dim
 36| "Loaded review instructions.                                                                         "
+  style 0-99 dim
 37| "Model wait 0.0s                                                                                     "
   style 0-14 dim
 38| <blank>
-39| "Tool cards expanded.                                                                                "
-  style 0-19 fg=bright-black
+39| "Tool and context cards expanded.                                                                    "
+  style 0-31 dim
 40| <blank>
 41| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
-  style 0-17 fg=bright-blue bold
-  style 18-31 fg=bright-black
-  style 34-50 fg=bright-black
-  style 53-57 fg=bright-black
-  style 60-69 fg=bright-black
+  style 0-17 fg=bright-magenta bold
+  style 18-31 dim
+  style 34-50 dim
+  style 53-57 dim
+  style 60-69 dim
 42| " dsh >                                                                                              "
-  style 1-3 fg=bright-blue bold
-  style 5-6 fg=bright-black
+  style 1-3 fg=bright-magenta bold
+  style 5-6 dim
   style 7-7 inverse

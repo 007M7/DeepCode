@@ -24,7 +24,10 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { Context } from 'cordis'
-import type { TuiResumeHost } from '@deepseek-ai/dsh-tui'
+import {
+  TUI_GOODBYE_MESSAGE_KEY,
+  type TuiResumeHost,
+} from '@deepseek-ai/dsh-tui'
 
 const NAME = 'dsh'
 
@@ -70,8 +73,10 @@ export async function runTui(config: string | undefined, resumeSessionId: string
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
+  const resumeCommand = (sessionId: string): string =>
+    `${NAME} --resume=${sessionId}${config === undefined ? '' : ` --config ${config}`}`
   const resumeHost: TuiResumeHost | undefined = entry === undefined || execve === undefined ? undefined : {
-    async handoff(sessionId): Promise<never> {
+    async handoff(sessionId, cwd): Promise<never> {
       const current = app.current
       if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
       // Rebuild argv from the parsed config plus the selected id: TUI mode's
@@ -83,6 +88,11 @@ export async function runTui(config: string | undefined, resumeSessionId: string
         `--resume=${sessionId}`,
         ...config !== undefined ? ['--config', config] : [],
       ]
+      try {
+        process.chdir(cwd)
+      } catch (error) {
+        throw new Error(`${NAME}: cannot resume in "${cwd}": ${String(error)}`)
+      }
       try {
         await current.fiber.dispose()
         execve(process.execPath, nextArgv, process.env)
@@ -101,6 +111,9 @@ export async function runTui(config: string | undefined, resumeSessionId: string
       // Inject the resume id (or undefined) so the shipped config's `!!js`
       // reads it as a bare identifier; then offer the in-place handoff host.
       hostCtx.provide(RESUME_SESSION_ID_KEY, resumeSessionId)
+      if (resumeSessionId !== undefined) {
+        hostCtx.provide(TUI_GOODBYE_MESSAGE_KEY, `To resume this session: ${resumeCommand(resumeSessionId)}`)
+      }
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
     },
   )
