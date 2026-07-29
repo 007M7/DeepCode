@@ -371,6 +371,20 @@ describe('ChatView', () => {
     expect(view.queryByLabelText('回到底部')).toBeNull()
   })
 
+  it('entering the at-bottom threshold does not snap the remaining scroll distance', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
+    Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
+    // Inside FOLLOW_THRESHOLD (24) but not flush with the floor — the chrome
+    // re-render from setAtBottom must not force scrollTop to scrollHeight.
+    scroller.scrollTop = 690 // distance-to-bottom = 10
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    expect(scroller.scrollTop).toBe(690)
+  })
+
   it('under data-conversation-scroll, bottom-follow targets the host scrollport', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')

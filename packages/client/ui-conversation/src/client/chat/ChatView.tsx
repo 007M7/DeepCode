@@ -253,9 +253,15 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
   const lastKeyRef = useRef<string | null>(null)
+  /** Flow tip signature — follow-scroll only when this moves, never on a
+   *  scroll-driven at-bottom chrome re-render (that was snapping inertial
+   *  scrolls the rest of the way to the floor). */
+  const followSigRef = useRef<string | null>(null)
 
   const firstSeq = nodes[0]?.seq ?? null
   const lastItem = items[items.length - 1]
+  const lastKey = lastItem?.key ?? null
+  const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}`
 
   const toBottom = (el: HTMLElement): void => {
     el.scrollTop = el.scrollHeight
@@ -273,7 +279,8 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
       openedRef.current = true
       toBottom(el)
       firstSeqRef.current = firstSeq
-      lastKeyRef.current = lastItem?.key ?? null
+      lastKeyRef.current = lastKey
+      followSigRef.current = followSig
       return
     }
     // Prepend (head seq decreased): compensate by the height delta.
@@ -282,17 +289,21 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
       anchorRef.current = null
       firstSeqRef.current = firstSeq
       /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
-      lastKeyRef.current = lastItem?.key ?? null
+      lastKeyRef.current = lastKey
+      followSigRef.current = followSig
       return
     }
     firstSeqRef.current = firstSeq
     // Own words must be visible: a new trailing user node force-scrolls
     // (send lives in the composer, so arrival is detected here, not armed there).
-    const lastKey = lastItem?.key ?? null
     const appendedUser = lastKey !== lastKeyRef.current
       && lastItem !== undefined && lastItem.kind === 'node' && lastItem.node.kind === 'user'
+    const tipMoved = followSigRef.current !== followSig
     lastKeyRef.current = lastKey
-    if (appendedUser || atBottomRef.current) toBottom(el)
+    followSigRef.current = followSig
+    // Follow new flow content while pinned; do NOT re-pin on every render
+    // merely because atBottomRef is true (scroll threshold → setState → snap).
+    if (appendedUser || (tipMoved && atBottomRef.current)) toBottom(el)
   })
 
   const onScrollRef = useRef(() => {})
