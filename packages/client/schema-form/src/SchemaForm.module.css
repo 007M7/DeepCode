@@ -1,0 +1,99 @@
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field.group {
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+}
+
+.description {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #888);
+}
+
+.control {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+.control:focus {
+  outline: 2px solid var(--accent, #3964fe);
+  outline-offset: -1px;
+}
+
+.resetButton {
+  border: none;
+  background: none;
+  color: var(--accent, #3964fe);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row > :first-child {
+  flex: 1;
+}
+
+.dictKey {
+  min-width: 96px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.unsupported {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-tertiary, #888);
+}
+
+.unsupported pre {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-sunken, #f5f5f5);
+  overflow-x: auto;
+}

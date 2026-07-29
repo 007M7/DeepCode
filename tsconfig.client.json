@@ -28,6 +28,7 @@
     // so it cannot drag host-side Context augmentation into this program.
     { "path": "./packages/host/webserver" },
     { "path": "./packages/client/ui-slots" },
+    { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },
