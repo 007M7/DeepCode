@@ -153,7 +153,11 @@ export interface Config {
   sessionTitle?: SessionTitleConfig
   /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
   workspaceContext: workspaceContext.Config | false
-  /** Skill registry, local provider, and model-facing consumer config. */
+  /**
+   * Skill registry, local provider, and model-facing consumer config.
+   * Skills use `enabled` because one nested config controls a provider stack;
+   * single model-tool plugins use `Config | false` to disable that one consumer.
+   */
   skills?: SkillConfig
   /** Model-facing bash tool config, or false when another plugin owns `bash`. */
   toolBash?: toolBash.Config | false
@@ -1589,7 +1593,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/pty/tool-bash-persistent/src/index.ts:340`](../packages/pty/tool-bash-persistent/src/index.ts)
+Source: [`packages/pty/tool-bash-persistent/src/index.ts:382`](../packages/pty/tool-bash-persistent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -1762,10 +1766,12 @@ export interface Config {
   description?: string
   /** Require local absolute paths like the canonical editor contract (default true). */
   requireAbsolutePath?: boolean
+  /** Expand tabs across the full file before each mutation, matching the canonical editor (default true). */
+  expandTabsOnMutation?: boolean
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:373`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:539`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 

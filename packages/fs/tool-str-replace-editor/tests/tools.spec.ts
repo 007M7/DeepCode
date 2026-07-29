@@ -9,6 +9,9 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
@@ -57,7 +60,10 @@ function call(ctx: Context, owner: Agent | undefined, args: unknown) {
   })
 }
 
-async function setup(config: ToolStrReplaceEditor.Config = {}) {
+async function setup(
+  config: ToolStrReplaceEditor.Config = {},
+  options: { fsPolicy?: boolean; sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-tool-str-replace-editor-'))
   roots.push(root)
   const ctx = new Context()
@@ -65,7 +71,13 @@ async function setup(config: ToolStrReplaceEditor.Config = {}) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalFileSystem, { cwd: root })
+  if (options.sandboxMode === undefined) {
+    await ctx.plugin(LocalFileSystem, { cwd: root })
+  } else {
+    await ctx.plugin(SandboxPolicy, { mode: options.sandboxMode, workspaceRoot: root })
+    await ctx.plugin(SandboxedFileSystem, { cwd: root })
+  }
+  if (options.fsPolicy === true) await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolStrReplaceEditor, config)
   return { ctx, root, owner: agent(ctx, root) }
 }
@@ -85,13 +97,38 @@ describe('tool-str-replace-editor', () => {
     expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
       command: 'view',
       path: '/workspace/a.txt',
-    })).toMatchObject({ card: 'generic', kind: 'read' })
+    })).toMatchObject({
+      card: 'generic',
+      kind: 'read',
+      locations: [{ path: '/workspace/a.txt' }],
+    })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'create',
+      path: '/workspace/a.txt',
+      file_text: 'hello',
+    })).toMatchObject({
+      card: 'diff',
+      diffs: [{ path: '/workspace/a.txt', oldText: null, newText: 'hello' }],
+    })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'str_replace',
+      path: '/workspace/a.txt',
+      old_str: 'old',
+      new_str: 'new',
+    })).toMatchObject({
+      card: 'diff',
+      diffs: [{ path: '/workspace/a.txt', oldText: 'old', newText: 'new' }],
+    })
     expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
       command: 'insert',
       path: '/workspace/a.txt',
       insert_line: 0,
       new_str: 'x',
-    })).toMatchObject({ card: 'generic', kind: 'edit' })
+    })).toMatchObject({
+      card: 'generic',
+      kind: 'edit',
+      locations: [{ path: '/workspace/a.txt', line: 1 }],
+    })
   })
 
   it('creates, views, replaces, and inserts with the canonical model-facing output', async () => {
@@ -136,16 +173,20 @@ describe('tool-str-replace-editor', () => {
   })
 
   it('lists visible entries to depth two and clips at the configured view limit', async () => {
-    const { ctx, root, owner } = await setup({ maxOutputChars: 10 })
+    const { ctx, root, owner } = await setup({ maxOutputChars: 10_000 })
     await mkdir(join(root, 'dir', 'nested', 'third'), { recursive: true })
     await mkdir(join(root, 'dir', 'node_modules', 'pkg'), { recursive: true })
+    await mkdir(join(root, 'dir', 'node_modules_old'), { recursive: true })
     await mkdir(join(root, 'dir', '__pycache__'), { recursive: true })
+    await mkdir(join(root, 'dir', '__pycache__backup'), { recursive: true })
     await writeFile(join(root, 'dir', 'visible.txt'), 'ok')
     await writeFile(join(root, 'dir', '.hidden'), 'hidden')
     await writeFile(join(root, 'dir', 'nested', 'child.txt'), 'child')
     await writeFile(join(root, 'dir', 'nested', 'third', 'too-deep.txt'), 'deep')
     await writeFile(join(root, 'dir', 'node_modules', 'pkg', 'index.js'), 'hidden dependency')
+    await writeFile(join(root, 'dir', 'node_modules_old', 'kept.js'), 'visible source')
     await writeFile(join(root, 'dir', '__pycache__', 'module.pyc'), 'cache')
+    await writeFile(join(root, 'dir', '__pycache__backup', 'kept.py'), 'visible source')
     const listDir = ctx.fs.listDir.bind(ctx.fs)
     const otherTarget = await ctx.fs.resolve(join(root, 'dir', 'other'))
     ctx.fs.listDir = async (target, signal) => {
@@ -156,14 +197,19 @@ describe('tool-str-replace-editor', () => {
     }
 
     const listing = text(await call(ctx, owner, { command: 'view', path: join(root, 'dir') }))
-    expect(listing).toContain('<response clipped>')
     expect(listing).not.toContain('.hidden')
     expect(listing).not.toContain('too-deep.txt')
     expect(listing).not.toContain('index.js')
     expect(listing).not.toContain('module.pyc')
+    expect(listing).toContain('node_modules_old/kept.js')
+    expect(listing).toContain('__pycache__backup/kept.py')
 
-    await writeFile(join(root, 'large.txt'), 'x'.repeat(100))
-    expect(text(await call(ctx, owner, { command: 'view', path: join(root, 'large.txt') })))
+    const clipped = await setup({ maxOutputChars: 10 })
+    await writeFile(join(clipped.root, 'large.txt'), 'x'.repeat(100))
+    expect(text(await call(clipped.ctx, clipped.owner, {
+      command: 'view',
+      path: join(clipped.root, 'large.txt'),
+    })))
       .toContain('<response clipped>')
   })
 
@@ -233,10 +279,20 @@ describe('tool-str-replace-editor', () => {
     expect(text(repeated)).toContain('Multiple occurrences of old_str `same` in lines [1, 3]')
     expect(text(repeated)).not.toContain('replace_all')
 
+    await writeFile(ambiguous, 'alpha\nbeta\nmiddle\nalpha\nbeta')
+    const repeatedMultiline = await call(ctx, owner, {
+      command: 'str_replace',
+      path: ambiguous,
+      old_str: 'alpha\nbeta',
+      new_str: 'x',
+    })
+    expect(text(repeatedMultiline))
+      .toContain('Multiple occurrences of old_str `alpha\nbeta` in lines [1, 4]')
+
     const relative = await call(ctx, owner, { command: 'view', path: 'ambiguous.txt' })
     expect(relative.isError).toBe(true)
     expect(text(relative)).toContain('is not an absolute path')
-    expect(await readFile(ambiguous, 'utf8')).toBe('same\nother\nsame')
+    expect(await readFile(ambiguous, 'utf8')).toBe('alpha\nbeta\nmiddle\nalpha\nbeta')
   })
 
   it('reports invalid commands or arguments without mutating files', async () => {
@@ -300,6 +356,63 @@ describe('tool-str-replace-editor', () => {
     await writeFile(join(root, 'relative.txt'), 'relative')
     expect(text(await call(ctx, owner, { command: 'view', path: 'relative.txt' })))
       .toContain("Here's the content of")
+  })
+
+  it('delegates read-before-edit decisions to fs-policy', async () => {
+    const { ctx, root, owner } = await setup({}, { fsPolicy: true })
+    const existing = join(root, 'existing.txt')
+    const created = join(root, 'created.txt')
+    await writeFile(existing, 'before')
+
+    const blindEdit = await call(ctx, owner, {
+      command: 'str_replace',
+      path: existing,
+      old_str: 'before',
+      new_str: 'after',
+    })
+    expect(blindEdit.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
+    expect(await readFile(existing, 'utf8')).toBe('before')
+
+    await call(ctx, owner, { command: 'view', path: existing })
+    expect((await call(ctx, owner, {
+      command: 'str_replace',
+      path: existing,
+      old_str: 'before',
+      new_str: 'after',
+    })).isError).toBe(false)
+    expect(await readFile(existing, 'utf8')).toBe('after')
+
+    expect((await call(ctx, owner, {
+      command: 'create',
+      path: created,
+      file_text: 'new',
+    })).isError).toBe(false)
+    expect(await readFile(created, 'utf8')).toBe('new')
+  })
+
+  it('passes the session sandbox policy to every mutation', async () => {
+    const { ctx, root, owner } = await setup({}, { sandboxMode: 'read-only' })
+    const path = join(root, 'blocked.txt')
+    const result = await call(ctx, owner, {
+      command: 'create',
+      path,
+      file_text: 'blocked',
+    })
+    expect(result.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
+    expect(text(result)).toContain('[sandbox: file access denied under read-only mode]')
+  })
+
+  it('can preserve tabs outside the edited region', async () => {
+    const { ctx, root, owner } = await setup({ expandTabsOnMutation: false })
+    const path = join(root, 'Makefile')
+    await writeFile(path, 'target:\n\told\n')
+    await call(ctx, owner, {
+      command: 'str_replace',
+      path,
+      old_str: 'old',
+      new_str: 'new',
+    })
+    expect(await readFile(path, 'utf8')).toBe('target:\n\tnew\n')
   })
 
   it('rejects invalid plugin config', () => {

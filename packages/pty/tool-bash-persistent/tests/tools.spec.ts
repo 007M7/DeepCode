@@ -85,6 +85,8 @@ type StubMode =
   | 'init-exit'
   | 'init-timeout'
   | 'spawn-error'
+  | 'send-error'
+  | 'prompt-after-idle'
 
 class StubPtySession implements PtyBackendSession {
   readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
@@ -95,6 +97,7 @@ class StubPtySession implements PtyBackendSession {
   mode: StubMode
   sends = 0
   pendingText = ''
+  historyTruncated = false
 
   constructor(mode: StubMode) {
     this.mode = mode
@@ -112,6 +115,7 @@ class StubPtySession implements PtyBackendSession {
       }
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')))
     }
+    if (this.mode === 'send-error') throw new Error('stub send failed')
     if (this.mode === 'wait-for-abort') {
       const done = new Promise<ReturnType<StubPtySession['result']>>((resolve) => {
         request.signal?.addEventListener('abort', () => {
@@ -125,6 +129,17 @@ class StubPtySession implements PtyBackendSession {
       this.mode = 'normal'
       this.pendingText = request.text
       return this.operation(Promise.resolve(this.result('', 'inferred_idle')))
+    }
+    if (this.mode === 'prompt-after-idle') {
+      if (request.text.length > 0) {
+        const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(request.text)?.[0]
+        const output = `${start ?? ''}\npartial syntax output\n`
+        this.scrollback += output
+        return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
+      }
+      const output = `bash: syntax error\n${this.motd}`
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
     if (this.mode === 'prompt-only' || this.mode === 'prompt-crlf') {
       const newline = this.mode === 'prompt-crlf' ? '\r\n' : '\n'
@@ -166,7 +181,7 @@ class StubPtySession implements PtyBackendSession {
       totalLines: lines.length,
       lineBegin: 0,
       lineEnd: lines.length,
-      truncated: false,
+      truncated: this.historyTruncated,
     }
   }
 
@@ -316,6 +331,29 @@ describe('tool-bash-persistent', () => {
     expect(text(await call(ctx, owner, 'stalled page'))).toContain('hello from stub')
   })
 
+  it('sanitizes a prompt fallback reached after multiple polling rounds', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'prompt-after-idle'
+    session.scrollback = ''
+    const result = text(await call(ctx, owner, 'bad {'))
+    expect(result).toContain('partial syntax output')
+    expect(result).toContain('bash: syntax error')
+    expect(result).not.toContain('DSH_PERSISTENT_BASH_PROMPT')
+    expect(result).not.toContain('DSH_PERSISTENT_BASH_START')
+  })
+
+  it('does not attribute old scrollback truncation to a complete current command', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.historyTruncated = true
+    const result = text(await call(ctx, owner, 'short command'))
+    expect(result).toBe('hello from stub')
+    expect(result).not.toContain('<response clipped>')
+    expect(result).not.toContain('beginning of this command output was dropped')
+  })
+
   it('closes a timed-out shell and reports bounded partial output', async () => {
     const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 10 })
     await call(ctx, owner, 'warm up')
@@ -357,6 +395,48 @@ describe('tool-bash-persistent', () => {
     const { ctx, owner, stub } = await setup({ backendType: 'stub' }, 'spawn-error')
     expect((await call(ctx, owner, 'pwd')).isError).toBe(true)
     expect(stub.sessions).toHaveLength(0)
+  })
+
+  it('resets a cached shell after startSend fails', async () => {
+    const { ctx, owner, stub } = await setup()
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.mode = 'send-error'
+    expect((await call(ctx, owner, 'fails')).isError).toBe(true)
+    expect(stub.sessions[0]?.closed).toContain('persistent bash send failed')
+    expect(text(await call(ctx, owner, 'recovers'))).toBe('hello from stub')
+    expect(stub.sessions).toHaveLength(2)
+  })
+
+  it('cancels and awaits a pending shell spawn when the plugin is disposed', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(PtyService)
+    const spawnStarted = Promise.withResolvers<undefined>()
+    const spawnAborted = Promise.withResolvers<undefined>()
+    ctx.pty.registerBackend({
+      type: 'slow',
+      spawn: spec => new Promise((_resolve, reject) => {
+        spawnStarted.resolve(undefined)
+        spec.signal?.addEventListener('abort', () => {
+          spawnAborted.resolve(undefined)
+          const reason: unknown = spec.signal?.reason
+          reject(reason instanceof Error
+            ? reason
+            : new Error('slow PTY spawn aborted', { cause: reason }))
+        }, { once: true })
+      }),
+    })
+    const fiber = await ctx.plugin(ToolBashPersistent, { backendType: 'slow' })
+    const owner = agent(ctx, '/workspace')
+    const running = call(ctx, owner, 'pwd')
+    await spawnStarted.promise
+    await fiber.dispose()
+    await spawnAborted.promise
+    expect((await running).isError).toBe(true)
+    expect(ctx.pty.list(owner)).toEqual([])
   })
 
   it('rejects invalid config and invalid calls', async () => {

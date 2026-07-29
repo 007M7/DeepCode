@@ -11,6 +11,7 @@ Standalone model-facing `str_replace_editor` over `ctx.fs`. It can be composed w
 | `maxOutputChars` | `16000` | Prefix characters retained for file and directory views. |
 | `description` | Editor command guide | Model-facing tool description. |
 | `requireAbsolutePath` | `true` | Reject relative paths; disable only for deployments with a deliberate session-cwd contract. |
+| `expandTabsOnMutation` | `true` | Preserve the canonical Claude SWE behavior that expands tabs across the whole file before replace/insert. Set `false` for atomic literal replacement that preserves unrelated tabs. |
 
 ## Tool
 
@@ -36,7 +37,7 @@ Prefix-stable while the configured description and schema remain unchanged.
 
 #### What the model sees
 
-Views return numbered text or a shallow directory listing. Mutations return concise confirmations. Long views keep their prefix and append a clipping notice.
+Views return numbered text or a shallow directory listing. Calls expose file locations, and create/replace calls expose diff cards to presentation surfaces. Mutations return concise confirmations. Long views keep their prefix and append a clipping notice.
 
 #### Token effect
 
@@ -50,5 +51,5 @@ Append-only tool results follow the reusable request prefix.
 
 - Operations target UTF-8 text; binary files are unsupported.
 - `str_replace` intentionally rejects zero or multiple matches and has no `replace_all` argument.
-- Canonical mode expands tabs before replacement or insertion, matching the reference string-replacement editor.
-- The package delegates security and read-before-edit policy to the mounted filesystem and policy plugins.
+- Canonical mode (`expandTabsOnMutation: true`) expands tabs in the entire file before replacement or insertion, including lines outside the edited region. Set it to `false` for Makefiles and other tab-sensitive files.
+- Every mutation goes through `fs/write-intent` or `fs/edit-intent`, resolves the current session sandbox policy, and delegates enforcement to the mounted filesystem and policy plugins.

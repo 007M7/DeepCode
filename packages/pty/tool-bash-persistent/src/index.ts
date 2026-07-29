@@ -16,7 +16,10 @@ const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this comma
 const SHELL_RESET_MESSAGE = 'The persistent bash shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.'
 const SHELL_PROMPT = '__DSH_PERSISTENT_BASH_PROMPT__ '
 const TIMEOUT_CODE = 'PERSISTENT_BASH_TIMEOUT'
+// One page is enough to find a just-emitted completion marker; the full
+// scrollback is assembled only when a command settles or needs partial output.
 const SCROLLBACK_PAGE_LINES = 1_000
+const POLL_INTERVAL_MS = 25
 
 const DEFAULT_DESCRIPTION = 'Run commands in a persistent bash shell. State, including the current directory and exported environment variables, persists across calls for this agent.'
 
@@ -101,7 +104,7 @@ function commandOutput(
   const start = startMarker < 0 ? 0 : startMarker + marker.start.length
   return {
     text: stripPrompt(text.slice(start, end).replace(/^\r?\n/, '')),
-    incomplete: startMarker < 0 || snapshot.truncated,
+    incomplete: startMarker < 0,
   }
 }
 
@@ -115,22 +118,29 @@ function partialOutput(
   snapshot: RetainedOutput,
   marker: CommandMarkers,
   fallback: string,
+  fallbackTruncated = false,
 ): CapturedOutput {
   const startMarker = snapshot.text.lastIndexOf(marker.start)
   if (startMarker >= 0) {
     return {
       text: stripPrompt(snapshot.text.slice(startMarker + marker.start.length).replace(/^\r?\n/, '')),
-      incomplete: snapshot.truncated,
+      incomplete: false,
     }
   }
+  const fallbackStart = fallback.lastIndexOf(marker.start)
+  const afterStart = fallbackStart < 0
+    ? fallback
+    : fallback.slice(fallbackStart + marker.start.length).replace(/^\r?\n/, '')
+  const fallbackEnd = afterStart.lastIndexOf(marker.end)
+  const beforeEnd = fallbackEnd < 0 ? afterStart : afterStart.slice(0, fallbackEnd)
   return {
-    text: stripPrompt(fallback),
-    incomplete: snapshot.truncated,
+    text: stripPrompt(beforeEnd.replaceAll(SHELL_PROMPT, '')),
+    incomplete: fallbackTruncated || fallbackStart < 0,
   }
 }
 
 async function pause(): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, 25))
+  await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
 }
 
 function nextScrollbackOffset(page: PtyReadResult, offset: number): number | undefined {
@@ -142,11 +152,13 @@ function retainedScrollback(
   ctx: Context,
   owner: Agent,
   id: PtySessionId,
+  latest = ctx.pty.read(owner, id, { offset: 0, count: SCROLLBACK_PAGE_LINES }),
 ): RetainedOutput {
-  const pages: string[] = []
-  let offset = 0
-  let truncated = false
+  const pages: string[] = latest.text.length === 0 ? [] : [latest.text]
+  let offset = latest.lineEnd
+  let truncated = latest.truncated
   while (true) {
+    if (offset >= latest.totalLines) break
     const page = ctx.pty.read(owner, id, { offset, count: SCROLLBACK_PAGE_LINES })
     truncated ||= page.truncated
     if (page.text.length > 0) pages.unshift(page.text)
@@ -167,7 +179,10 @@ function renderCaptured(output: CapturedOutput, maxOutputChars: number): string 
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
   const pending = new WeakMap<Agent, Promise<PtySessionId>>()
   const live = new Map<Agent, PtySessionId>()
+  const creating = new Set<Promise<PtySessionId>>()
   const ownerCleanupInstalled = new WeakSet<Agent>()
+  const lifecycle = new AbortController()
+  let disposed = false
 
   const close = async (owner: Agent, id: PtySessionId, reason: string): Promise<void> => {
     if (!ctx.pty.list(owner).some(snapshot => snapshot.sessionId === id)) return
@@ -175,6 +190,9 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
   }
 
   ctx.effect(() => async () => {
+    disposed = true
+    lifecycle.abort(new Error('tool-bash-persistent disposed during shell creation'))
+    await Promise.allSettled([...creating])
     const closing = [...live].map(async ([owner, id]) => { await close(owner, id, 'tool-bash-persistent disposed') })
     await Promise.all(closing)
     live.clear()
@@ -188,15 +206,17 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
   }
 
   const get = (owner: Agent, signal: AbortSignal): Promise<PtySessionId> => {
+    if (disposed) return Promise.reject(new Error('tool-bash-persistent is disposed'))
     const existing = pending.get(owner)
     if (existing !== undefined) return existing
-    const creating = (async () => {
+    const combinedSignal = AbortSignal.any([signal, lifecycle.signal])
+    const creation = (async () => {
       try {
         const cwd = owner.session.header.cwd
         const spawned = await ctx.pty.spawn(owner, {
           type: config.backendType,
           ...cwd === undefined ? {} : { cwd },
-        }, signal)
+        }, combinedSignal)
         live.set(owner, spawned.sessionId)
         if (!ownerCleanupInstalled.has(owner)) {
           ownerCleanupInstalled.add(owner)
@@ -208,7 +228,7 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
         const setup = ctx.pty.startSend(owner, spawned.sessionId, {
           text: `stty -echo; PS1=${quoteForBash(SHELL_PROMPT)}`,
           submit: true,
-          signal,
+          signal: combinedSignal,
         })
         const result = await setup.done
         if (result.sessionStatus.kind === 'exited' || result.waitReason === 'timeout') {
@@ -220,8 +240,12 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
         throw error
       }
     })()
-    pending.set(owner, creating)
-    return creating
+    const tracked = creation.finally(() => {
+      creating.delete(tracked)
+    })
+    creating.add(tracked)
+    pending.set(owner, tracked)
+    return tracked
   }
 
   return { get, reset }
@@ -241,21 +265,32 @@ async function executeCommand(
   const wrapped = wrapCommand(command, marker)
   let first = true
   let fallback = ''
+  let fallbackTruncated = false
 
   while (true) {
-    const operation = ctx.pty.startSend(owner, id, {
-      text: first ? wrapped : '',
-      submit: first,
-      signal: commandDeadline.signal,
-    })
-    first = false
-    const result = await operation.done
-    fallback += result.viewport
-    const snapshot = retainedScrollback(ctx, owner, id)
+    let operation
+    let result
+    try {
+      operation = ctx.pty.startSend(owner, id, {
+        text: first ? wrapped : '',
+        submit: first,
+        signal: commandDeadline.signal,
+      })
+      first = false
+      result = await operation.done
+    } catch (error: unknown) {
+      await shells.reset(owner, 'persistent bash send failed')
+      throw error
+    }
+    const incremental = operation.readOutput()
+    fallback = incremental.delta.length > 0 ? fallback + incremental.delta : result.viewport
+    fallbackTruncated ||= incremental.truncated || result.truncated
+    const latest = ctx.pty.read(owner, id, { offset: 0, count: SCROLLBACK_PAGE_LINES })
     const timedOut = timeoutOf(commandDeadline.signal, TIMEOUT_CODE)
     if (timedOut !== undefined) {
+      const snapshot = retainedScrollback(ctx, owner, id, latest)
       const partial = renderCaptured(
-        partialOutput(snapshot, marker, fallback),
+        partialOutput(snapshot, marker, fallback, fallbackTruncated),
         config.maxOutputChars,
       )
       await shells.reset(owner, 'persistent bash command timed out')
@@ -265,12 +300,15 @@ async function executeCommand(
         SHELL_RESET_MESSAGE,
       ].join('\n')
     }
-    const complete = commandOutput(snapshot, marker)
-    if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
+    if (latest.text.includes(marker.end)) {
+      const complete = commandOutput(retainedScrollback(ctx, owner, id, latest), marker)
+      if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
+    }
     if (result.sessionStatus.kind === 'exited') {
+      const snapshot = retainedScrollback(ctx, owner, id, latest)
       await shells.reset(owner, 'persistent bash shell exited')
       return [
-        renderCaptured(partialOutput(snapshot, marker, fallback), config.maxOutputChars),
+        renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
         SHELL_RESET_MESSAGE,
       ].filter(part => part.length > 0).join('\n')
     }
@@ -279,7 +317,11 @@ async function executeCommand(
       commandDeadline.signal.throwIfAborted()
     }
     if (promptCompleted(result)) {
-      return maybeTruncate(stripPrompt(fallback), config.maxOutputChars, result.truncated)
+      const snapshot = retainedScrollback(ctx, owner, id, latest)
+      return renderCaptured(
+        partialOutput(snapshot, marker, fallback, fallbackTruncated),
+        config.maxOutputChars,
+      )
     }
     await pause()
   }

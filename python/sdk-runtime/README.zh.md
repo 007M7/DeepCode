@@ -15,7 +15,7 @@ Python SDK 的运行时载体包（分发名 `deepseek-harness-runtime-bin`，�
 
 exe 缺失时抛出 `FileNotFoundError`，并写明两种获取途径：在 deepseek-harness 检出中经 `scripts/build-exe-for-python-sdk.ts` 构建，或安装 `build-exe-for-python-sdk` CI 工作流生成的对应平台运行时 wheel 包。仅限开发的 `node` 载体缺失时只提示构建脚本这一条途径。该工作流只保留 wheel 包，不保留独立 exe 归档。获取策略与查找接口刻意分离，之后可以换成按需下载而不改动任何调用方。
 
-每个 wheel 包只包含一个运行时可执行文件及其匹配的原生 spawn helper。固定标签为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、运行时文件缺失或重复、文件不可执行以及不支持的平台标签。仓库根目录的 `package.json` 为本包和 SDK 提供共同版本，`python-vX.Y.Z` 发布标签必须与其匹配。
+每个 wheel 包只包含一个运行时可执行文件及其匹配的原生 spawn helper。缺少伴随文件意味着运行时安装不完整，并会在启动时硬失败，即使所选 Cordis 组合不使用 PTY 工具也是如此；旧的仅 exe wheel 有意不再兼容。固定标签为 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 与 `py3-none-macosx_11_0_arm64`；构建钩子会拒绝 `py3-none-any`、运行时文件缺失或重复、文件不可执行以及不支持的平台标签。仓库根目录的 `package.json` 为本包和 SDK 提供共同版本，`python-vX.Y.Z` 发布标签必须与其匹配。
 
 ## 解析 API
 

@@ -11,6 +11,7 @@
 | `maxOutputChars` | `16000` | 文件和目录查看结果保留的前缀字符数。 |
 | `description` | 编辑器命令指南 | 面向模型的工具描述。 |
 | `requireAbsolutePath` | `true` | 拒绝相对路径；仅当部署明确约定 session cwd 时才应关闭。 |
+| `expandTabsOnMutation` | `true` | 保留 Claude SWE 参考行为：替换/插入前展开整个文件的制表符。设为 `false` 时使用原子字面量替换，并保留未触及的制表符。 |
 
 ## 工具
 
@@ -36,7 +37,7 @@ Schema 提供 `view`、`create`、`str_replace` 与 `insert`。文件查看使�
 
 #### 模型所见
 
-查看操作返回带行号文本或浅层目录列表。修改操作返回简洁确认。长查看结果保留前缀并追加截断提示。
+查看操作返回带行号文本或浅层目录列表。调用会向展示层提供文件位置，创建/替换还会提供 diff 卡片。修改操作返回简洁确认。长查看结果保留前缀并追加截断提示。
 
 #### Token 影响
 
@@ -50,5 +51,5 @@ Schema 提供 `view`、`create`、`str_replace` 与 `insert`。文件查看使�
 
 - 操作面向 UTF-8 文本，不支持二进制文件。
 - `str_replace` 刻意拒绝零匹配或多匹配，且没有 `replace_all` 参数。
-- 规范模式会在替换或插入前展开制表符，与参考字符串替换编辑器保持一致。
-- 安全与先读后改策略委托给挂载的文件系统和策略插件。
+- 规范模式（`expandTabsOnMutation: true`）会在替换或插入前展开整个文件中的制表符，包括未编辑区域。Makefile 等依赖制表符的文件应设为 `false`。
+- 每个修改操作都会经过 `fs/write-intent` 或 `fs/edit-intent`，解析当前 session 的沙箱策略，并交由挂载的文件系统与策略插件执行。

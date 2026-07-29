@@ -1,0 +1,57 @@
+{
+  "tools": [
+    {
+      "name": "bash",
+      "required": [
+        "command"
+      ]
+    },
+    {
+      "name": "str_replace_editor",
+      "required": [
+        "command",
+        "path"
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "name": "bash",
+      "arguments": "{\"command\":\"cd /tmp && export DSH_EXAMPLE_COUNT=1 && printf \\\"COUNT=%s CWD=%s\\\\n\\\" \\\"$DSH_EXAMPLE_COUNT\\\" \\\"$PWD\\\"\"}"
+    },
+    {
+      "name": "bash",
+      "arguments": "{\"command\":\"DSH_EXAMPLE_COUNT=$((DSH_EXAMPLE_COUNT + 1)); printf \\\"COUNT=%s CWD=%s\\\\n\\\" \\\"$DSH_EXAMPLE_COUNT\\\" \\\"$PWD\\\"\"}"
+    },
+    {
+      "name": "str_replace_editor",
+      "arguments": "{\"command\":\"create\",\"path\":\"{{cwd}}/note.txt\",\"file_text\":\"alpha\\n\"}"
+    },
+    {
+      "name": "str_replace_editor",
+      "arguments": "{\"command\":\"str_replace\",\"path\":\"{{cwd}}/note.txt\",\"old_str\":\"alpha\",\"new_str\":\"beta\"}"
+    }
+  ],
+  "results": [
+    {
+      "text": "COUNT=1 CWD=/tmp"
+    },
+    {
+      "text": "COUNT=2 CWD=/tmp"
+    },
+    {
+      "text": "New file created successfully at: {{cwd}}/note.txt"
+    },
+    {
+      "text": "The file {{cwd}}/note.txt has been edited successfully."
+    }
+  ],
+  "final": {
+    "status": "ok",
+    "reason": {
+      "kind": "completed"
+    },
+    "response": "PERSISTENT_TOOLS_OK",
+    "file": "beta\n"
+  }
+}

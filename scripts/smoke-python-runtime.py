@@ -27,7 +27,7 @@ WORKFLOW_PROMPT = "Use workflow to compute the packaged worker smoke value witho
 WORKFLOW_WORKER_TEXT = "workflow worker smoke ok"
 PERSISTENT_TOOLS_PROMPT = "Exercise the packaged persistent Bash and string-replacement editor."
 PERSISTENT_TOOLS_TEXT = "persistent tools smoke ok"
-PERSISTENT_EDITOR_PATH: str | None = None
+PERSISTENT_EDITOR_PATH_PREFIX = "Editor path: "
 PERSISTENT_BASH_COMMAND = (
     "counter=$(( ${counter:-0} + 1 )); export counter; "
     "printf 'COUNT=%s CWD=%s\\n' \"$counter\" \"$PWD\"; "
@@ -198,7 +198,7 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         raise AssertionError(f"unexpected tool follow-up: {tool_name}")
 
     prompt = message_text(latest.get("content"))
-    if prompt == PERSISTENT_TOOLS_PROMPT:
+    if prompt.startswith(f"{PERSISTENT_TOOLS_PROMPT}\n{PERSISTENT_EDITOR_PATH_PREFIX}"):
         names = advertised_tool_names(body)
         if names != {"bash", "str_replace_editor"}:
             raise AssertionError(f"persistent tools smoke advertised unexpected tools: {names}")
@@ -261,14 +261,27 @@ def persistent_tool_followup(
     if call_id == "persistent-bash-2" and tool_name == "bash":
         if "COUNT=2 CWD=/tmp" not in tool_text:
             raise AssertionError(f"persistent bash did not retain state: {tool_text}")
-        if PERSISTENT_EDITOR_PATH is None:
-            raise AssertionError("persistent editor smoke path was not initialized")
+        messages = body.get("messages")
+        if not isinstance(messages, list):
+            raise AssertionError("persistent editor smoke request has no messages")
+        editor_path = next(
+            (
+                text.split(PERSISTENT_EDITOR_PATH_PREFIX, 1)[1].strip()
+                for message in messages
+                if isinstance(message, dict) and message.get("role") == "user"
+                for text in [message_text(message.get("content"))]
+                if PERSISTENT_EDITOR_PATH_PREFIX in text
+            ),
+            None,
+        )
+        if editor_path is None:
+            raise AssertionError("persistent editor smoke prompt has no editor path")
         return tool_call_chunks(
             "persistent-editor",
             "str_replace_editor",
             {
                 "command": "create",
-                "path": PERSISTENT_EDITOR_PATH,
+                "path": editor_path,
                 "file_text": "created by packaged editor\n",
             },
         )
@@ -545,12 +558,12 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
 
 def smoke_sdk_persistent_tools(base_url: str, executable: Path) -> None:
     """Exercise native PTY state and the editor through the packaged executable."""
-    global PERSISTENT_EDITOR_PATH
     from deepseek_harness import DeepSeekHarness
 
     with tempfile.TemporaryDirectory(prefix="dsh-sdk-persistent-tools-") as temporary:
         root = Path(temporary).resolve()
-        PERSISTENT_EDITOR_PATH = str(root / "created.txt")
+        editor_path = root / "created.txt"
+        prompt = f"{PERSISTENT_TOOLS_PROMPT}\n{PERSISTENT_EDITOR_PATH_PREFIX}{editor_path}"
         sessions = root / "sessions"
         cordis = root / "cordis.yml"
         cordis.write_text(PERSISTENT_TOOLS_CORDIS)
@@ -565,17 +578,15 @@ def smoke_sdk_persistent_tools(base_url: str, executable: Path) -> None:
             base_url=base_url,
             request_timeout_seconds=60,
         ) as harness:
-            result = harness.run(PERSISTENT_TOOLS_PROMPT, session_id="persistent-tools-smoke")
+            result = harness.run(prompt, session_id="persistent-tools-smoke")
 
         assert result.status == "ok", result
         event_text = json.dumps(result.events)
         if PERSISTENT_TOOLS_TEXT not in event_text:
             raise AssertionError(f"packaged tools run emitted no final response: {result.events}")
-        created = root / "created.txt"
-        if created.read_text() != "created by packaged editor\n":
-            raise AssertionError(f"packaged editor wrote unexpected content: {created.read_text()!r}")
+        if editor_path.read_text() != "created by packaged editor\n":
+            raise AssertionError(f"packaged editor wrote unexpected content: {editor_path.read_text()!r}")
         assert_session_log(sessions, root, PERSISTENT_TOOLS_TEXT, "COUNT=1", "COUNT=2 CWD=/tmp")
-    PERSISTENT_EDITOR_PATH = None
 
 
 def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) -> None:

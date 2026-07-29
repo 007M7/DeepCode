@@ -260,7 +260,9 @@ class SingleExeBuild {
       '--config.node-linker=hoisted',
       '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',
-      // The production closure intentionally omits patched dev-only packages.
+      // The production closure intentionally omits the patched dev-only
+      // @earendil-works/pi-tui package. The root frozen install still validates
+      // every patch; this exception is scoped only to the production deploy.
       '--config.allow-unused-patches=true',
       this.staging,
     ])
