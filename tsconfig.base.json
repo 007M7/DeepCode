@@ -86,6 +86,7 @@
         "./packages/hooks/*/src/invariant.ts",
         "./packages/session-persistence/*/src/invariant.ts",
         "./packages/session-projection/*/src/invariant.ts",
+        "./packages/session-title/*/src/invariant.ts",
         "./packages/session-query/*/src/invariant.ts",
         "./packages/telemetry/*/src/invariant.ts",
         "./packages/acp/*/src/invariant.ts",

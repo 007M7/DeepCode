@@ -19,7 +19,7 @@ Status: proposed
 | `code-runtime-worker` 的 protocol/bootstrap 再导出 | 包外的生产/e2e 消费方使用 `WorkerCodeRuntime` 和配置，而非 `BootstrapPort`、`PatchableStream` 或 worker 消息/启动类型。 | 保留运行时类/配置契约，将其协议格式/bootstrap 词汇改为源码私有。 |
 | ACP 的 `agentOptions` 根导出 | 该辅助函数只有同文件和 ACP 测试消费方；唯一的包外生产消费方挂载的是插件命名空间。 | 保留 `name`、`inject`、`Config`、`AcpConfig` 和 `apply`；将 `agentOptions` 改为源码私有，通过桥接层行为测试。 |
 | `providerWording` 与 `completedTurnPrefix` 根导出 | 各有一个同包生产调用者；只有 balanced-prefix 辅助函数有一个同包白盒测试。 | 改为源码私有，测试提供方行为。 |
-| `depthOf`、`SubagentDepthError`、`SENSITIVE_ENV_PATTERN`、`waitForExit` 与 `exitsWithin` 根导出 | 生产 subagent 后端消费的是进程内 runner 和子进程构造/dispose（资源释放）辅助函数，而非这些强制/测试内部实现。 | 保留深度/环境/退出行为，但将辅助函数和 error/regex 改为源码私有；通过 spawn 和 dispose 测试。 |
+| `depthOf`、`SubagentDepthError`、`waitForExit` 与 `exitsWithin` 根导出 | 生产 subagent 后端消费的是进程内 runner 和子进程构造/dispose（资源释放）辅助函数，而非这些强制/测试内部实现。`SENSITIVE_ENV_PATTERN` 不在其中，因为 SDK helper 会将它应用于调用方传入的环境。 | 保留深度与退出行为，但将剩余辅助函数和 error 改为源码私有；通过 spawn 和 dispose 测试。保持共享凭据正则公开。 |
 | `PersistenceCoordinator.inits`、后端 `inits` 访问器、`seedCoversPrefix` 与 `assertSerializable` | 访问器为白盒测试而存在；`seedCoversPrefix` 没有包外生产导入者；`assertSerializable` 没有生产调用者，且与 coordinator append 边界的无损快照重复。 | 通过 `session/flush` 观察初始化，将 `seedCoversPrefix` 改为源码私有，删除 `assertSerializable`。保留两个后端、`SessionHeader` 和 SQLite 的版本契约。 |
 | `LlmError.status` 与回放 status | 适配器/回放填充它，但生产分支基于稳定的错误码/消息判断，从不读取原始 status。 | 移除未读字段和回放管道，保留错误分类。 |
 | `BlockAssembler.push()` 返回值 | 两个生产调用者都忽略返回的已完成块。 | 返回 `void`；保留有意公开的 `blocks()`/`message()` 契约。 |

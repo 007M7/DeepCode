@@ -464,6 +464,47 @@ describe('createFixtureApi', () => {
     expect(seen.map(f => f.type)).toEqual(['host/workspace-changed', 'host/workspace-changed'])
   })
 
+  it('session.rename covers not-found, blank title, and the accepted append + title frame', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const framesPromise = (async () => {
+      const frames: MuxFrame[] = []
+      for await (const envelope of api.events.mux(req({}), abort.signal)) {
+        frames.push(envelope.payload)
+        if (frames.some(f => f.type === 'session/projection' && f.key === 'title' && f.value === '重命名')) abort.abort()
+      }
+      return frames
+    })()
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const missing = await api.sessions.rename(req({ sessionId: sid('fx-void'), title: 'x' }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found', details: { sessionId: 'fx-void' } } })
+
+    const blank = await api.sessions.rename(req({ sessionId: sid('fx-alpha'), title: '   ' }))
+    expect(blank.result).toMatchObject({ ok: false, error: { code: 'title-invalid', details: { sessionId: 'fx-alpha' } } })
+
+    const renamed = await api.sessions.rename(req({ sessionId: sid('fx-alpha'), title: '  重命名  ' }))
+    if (!renamed.result.ok) throw new Error('rename failed')
+    expect(renamed.result.value.title).toBe('重命名')
+    const acceptedSeq = renamed.result.value.seq
+    // The response seq addresses the appended title event (the client plane
+    // has no session/title in its event union — titles ride the projection —
+    // so the event is located by seq and its payload checked structurally).
+    const history = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 100 }))
+    if (!history.result.ok) throw new Error('history failed')
+    const appended = history.result.value.events.find(entry => entry.event.seq === acceptedSeq)
+    expect(appended?.event).toMatchObject({
+      type: 'session/title',
+      data: { title: '重命名', messageSeqs: [], source: { kind: 'user' } },
+    })
+    // Beyond the subscribe-time baseline replay, the append emitted exactly
+    // one title projection frame carrying the new value at the response seq.
+    const frames = await framesPromise
+    const titleFrames = frames.filter(f => f.type === 'session/projection' && f.key === 'title' && f.sessionId === sid('fx-alpha') && f.value === '重命名')
+    expect(titleFrames).toHaveLength(1)
+    expect(titleFrames[0]).toMatchObject({ seq: acceptedSeq })
+  })
+
   it('workspace.insertSessionBefore moves, appends, no-ops, and rejects invalid ids', async () => {
     const api = createFixtureApi()
     const wsid = 'fx-ws-fixture' as WorkspaceId

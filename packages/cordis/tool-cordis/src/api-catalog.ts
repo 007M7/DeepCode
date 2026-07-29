@@ -735,6 +735,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the latest folded title from one live or replayed session.\n * @param session - session whose log is the title source of truth.\n * @returns latest title snapshot, or `undefined` before eligible input.\n */',
       },
       {
+        signature: 'rename(session: Session, title: string): SessionTitleSnapshot',
+        jsDoc: '/**\n * Accept an explicit user title. Appends a `session/title` event with the\n * `user` source, which pins the title: in-flight automatic generation is\n * superseded and later user messages schedule none (an explicit\n * {@link SessionTitleService.refresh} remains the deliberate unpin).\n * @param session - exact live session to rename.\n * @param title - raw user input; normalized before acceptance.\n * @returns the accepted title snapshot.\n * @throws {SessionTitleInvalidError} when the title normalizes to empty.\n * @throws {Error} when the session is not live or the service is disposed.\n */',
+      },
+      {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
         jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
@@ -2325,7 +2329,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionTitleSource',
-    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n};',
+    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n} | {\n    readonly kind: \'user\';\n};',
   },
   {
     name: 'SessionTitleUserMessage',
