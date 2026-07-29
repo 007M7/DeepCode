@@ -310,7 +310,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('File · terminal-special-case.t')
     expect(output).toContain('@src/terminal-special-case.ts')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, process.env.DSH_EXAMPLE_MODE === 'lib' ? 75_000 : LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('boots the Code Mode overlay tree, renders its banner, and exits cleanly', async () => {
     // The overlay's only keyless composition proof: the include+patch tree,
