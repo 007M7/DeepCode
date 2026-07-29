@@ -30,6 +30,7 @@ describe('compileMatchers — native regex lifecycle', () => {
       expect(construct.mock.calls.map(([pattern]) => pattern)).toEqual(['(?i)^bash$', '^write$'])
 
       for (let i = 0; i < 1_000; i++) {
+        expect(matchers.diagnostic('(?i)^bash$')).toBeUndefined()
         expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
       }
       expect(construct).toHaveBeenCalledTimes(2)

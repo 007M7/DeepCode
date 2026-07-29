@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { parseCodexConfig, CODEX_EVENTS } from '@deepseek-ai/dsh-hooks-codex/src/config.ts'
+import { afterEach, describe, expect, it } from 'vitest'
+import { parseCodexConfig as parseRawCodexConfig, CODEX_EVENTS } from '@deepseek-ai/dsh-hooks-codex/src/config.ts'
+
+const matcherSets: Array<ReturnType<typeof parseRawCodexConfig>['matchers']> = []
+afterEach(() => { for (const matchers of matcherSets.splice(0)) matchers.dispose() })
+
+function parseCodexConfig(...args: Parameters<typeof parseRawCodexConfig>): ReturnType<typeof parseRawCodexConfig> {
+  const result = parseRawCodexConfig(...args)
+  matcherSets.push(result.matchers)
+  return result
+}
 
 describe('parseCodexConfig', () => {
   it('honors only the five bridge-supported Codex events, dropping the rest', () => {
@@ -62,8 +71,9 @@ describe('parseCodexConfig', () => {
   })
 
   it('keeps a valid Rust-regex matcher when present', () => {
-    const { config } = parseCodexConfig({ PreToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
+    const { config, matchers } = parseCodexConfig({ PreToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
     expect(config.PreToolUse![0]!.matcher).toBe('(?i)^bash$')
+    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
   })
 
   it('rejects an invalid regex matcher with its event name', () => {

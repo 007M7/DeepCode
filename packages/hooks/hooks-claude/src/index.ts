@@ -21,7 +21,6 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
-  compileMatchers,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
@@ -35,7 +34,7 @@ import {
 // declarations (declaration-merged into cordis `Events` by dsh-subagent) so the
 // SubagentStart/SubagentStop listeners below type-check.
 import type {} from '@deepseek-ai/dsh-subagent'
-import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
+import { parseClaudeConfig, type ParsedClaudeConfig } from './config.ts'
 
 export const name = 'hooks-claude'
 // `bash` is required to run hooks; the rest are read opportunistically via
@@ -100,26 +99,22 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   // Parse once at load. A read or parse failure logs and registers nothing.
-  let parsed: ClaudeHookConfig = {}
+  let result: ParsedClaudeConfig
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    const result = parseClaudeConfig(raw, {
+    result = parseClaudeConfig(raw, {
       ...config.pluginRoot !== undefined ? { pluginRoot: config.pluginRoot } : {},
       ...config.projectDir !== undefined ? { projectDir: config.projectDir } : {},
     })
-    parsed = result.config
-    for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-claude: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
-    }
   } catch (error: unknown) {
     ctx.logger.warn(`hooks-claude: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
 
-  const matchers = compileMatchers(
-    Object.values(parsed).flatMap(groups => groups.map(group => group.matcher)),
-    'claude',
-  )
+  const parsed = result.config
+  // Parsing validates through this same registry, so admission and runtime do
+  // not construct separate matcher instances.
+  const matchers = result.matchers
 
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before releasing matchers.
@@ -131,6 +126,10 @@ export function apply(ctx: Context, config: Config): void {
       matchers.dispose()
     }
   }, 'hooks-claude: drain detached hook runs and dispose matchers')
+
+  for (const s of result.skipped) {
+    ctx.logger.warn(`hooks-claude: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+  }
 
   /**
    * Run every command hook configured for `point` whose matcher selects

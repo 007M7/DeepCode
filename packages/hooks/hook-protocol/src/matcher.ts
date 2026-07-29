@@ -3,8 +3,8 @@
  * pipe patterns as literal alternatives and other patterns as regex. Codex
  * uses the same literal fast path, then compiles regex patterns with Rust's
  * `regex` dialect. Missing, empty, and `*` match all. Runtime matching contains
- * invalid regexes as non-matches; config parsers use {@link matcherDiagnostic}
- * to reject them with a diagnostic.
+ * invalid regexes as non-matches. A compiled config registry exposes the same
+ * stable diagnostic without constructing a second native regex.
  * @module @deepseek-ai/dsh-hook-protocol/matcher
  */
 
@@ -30,6 +30,7 @@ const EXACT_MATCHER = /^[A-Za-z0-9_|]+$/
 
 interface CompiledMatcher {
   matches(query: string): boolean
+  diagnostic?: string
   dispose(): void
 }
 
@@ -37,6 +38,8 @@ interface CompiledMatcher {
 export interface CompiledMatchers {
   /** Match one of the patterns supplied to {@link compileMatchers}. */
   matches(matcher: string | undefined, query: string): boolean
+  /** Diagnose one supplied pattern using the already-compiled instance. */
+  diagnostic(matcher: string | undefined): string | undefined
   /** Release every native matcher. Safe to call more than once. */
   dispose(): void
 }
@@ -66,7 +69,13 @@ function compileMatcher(matcher: string | undefined, mode: MatcherMode): Compile
     return { matches: query => alternatives.has(query), dispose: () => {} }
   }
   const regex = compileRegex(pattern, mode)
-  if (regex === undefined) return { matches: () => false, dispose: () => {} }
+  if (regex === undefined) {
+    return {
+      matches: () => false,
+      diagnostic: `invalid ${mode} regex matcher ${JSON.stringify(pattern)}`,
+      dispose: () => {},
+    }
+  }
   return {
     matches: query => regex instanceof RRegex ? regex.isMatch(query) : regex.test(query),
     dispose: () => { disposeRegex(regex) },
@@ -92,6 +101,10 @@ export function compileMatchers(matchers: Iterable<string | undefined>, mode: Ma
       if (disposed) return false
       return compiled.get(matcher)?.matches(query) ?? false
     },
+    diagnostic(matcher) {
+      if (disposed) return undefined
+      return compiled.get(matcher)?.diagnostic
+    },
     dispose() {
       if (disposed) return
       disposed = true
@@ -108,13 +121,12 @@ export function compileMatchers(matchers: Iterable<string | undefined>, mode: Ma
  * @returns `undefined` for a valid matcher, otherwise a stable diagnostic.
  */
 export function matcherDiagnostic(matcher: string | undefined, mode: MatcherMode): string | undefined {
-  if (isMatchAll(matcher)) return undefined
-  const pattern = matcher as string
-  if (EXACT_MATCHER.test(pattern)) return undefined
-  const regex = compileRegex(pattern, mode)
-  if (regex === undefined) return `invalid ${mode} regex matcher ${JSON.stringify(pattern)}`
-  disposeRegex(regex)
-  return undefined
+  const compiled = compileMatcher(matcher, mode)
+  try {
+    return compiled.diagnostic
+  } finally {
+    compiled.dispose()
+  }
 }
 
 /**

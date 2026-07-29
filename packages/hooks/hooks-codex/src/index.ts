@@ -25,7 +25,6 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
-  compileMatchers,
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
@@ -35,7 +34,7 @@ import {
   type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-import { parseCodexConfig, type CodexHookConfig } from './config.ts'
+import { parseCodexConfig, type ParsedCodexConfig } from './config.ts'
 /* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
@@ -84,28 +83,20 @@ export function apply(ctx: Context, config: Config): void {
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
-  let parsed: CodexHookConfig = {}
+  let result: ParsedCodexConfig
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    const result = parseCodexConfig(raw)
-    parsed = result.config
-    for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
-    }
+    result = parseCodexConfig(raw)
   } catch (error: unknown) {
     ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
 
+  const parsed = result.config
   const model = config.model ?? ''
-
-  // Compile each distinct config matcher once. In particular, rebuilding an
-  // rregex WASM value on every hook point permanently raises the module's WASM
-  // memory high-water mark even when each value is freed.
-  const matchers = compileMatchers(
-    Object.values(parsed).flatMap(groups => groups.map(group => group.matcher)),
-    'codex',
-  )
+  // Parsing validates through this same registry, so no native regex is rebuilt
+  // between config admission and runtime matching.
+  const matchers = result.matchers
 
   // SessionStart is the one emit-shaped (detached) point Codex has: track its
   // run chains so disposal aborts a still-running hook process and drains the
@@ -119,6 +110,10 @@ export function apply(ctx: Context, config: Config): void {
       matchers.dispose()
     }
   }, 'hooks-codex: drain detached hook runs and dispose matchers')
+
+  for (const s of result.skipped) {
+    ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+  }
 
   /**
    * Run and fold one configured Codex hook point.

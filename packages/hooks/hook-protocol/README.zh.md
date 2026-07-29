@@ -10,7 +10,7 @@ Claude Code／Codex hook 协议格式的**共享核心**。它不是 cordis 插�
 
 | 关注点 | 此处（`dsh-hook-protocol`） | 桥接（`dsh-hooks-claude` / `-codex`） |
 |---|---|---|
-| Matcher 校验 + 测试 | `matcherDiagnostic(pattern, mode)` 用于解析时诊断；`compileMatchers(patterns, mode)` 用于配置生命周期内的重复匹配；`matchesMatcher(pattern, query, mode)` 用于一次性的收敛匹配 | 选择自身原生正则 `mode`（`claude` = JavaScript，`codex` = Rust `regex`），拒绝带有诊断的配置组，并在 teardown 时释放已编译集合 |
+| Matcher 校验 + 测试 | `compileMatchers(patterns, mode)` 从同一已编译集合提供诊断与配置生命周期内的重复匹配；`matcherDiagnostic`／`matchesMatcher` 是收敛的一次性 helper | 选择自身原生正则 `mode`（`claude` = JavaScript，`codex` = Rust `regex`），将可运行的唯一 pattern 只编译一次，拒绝带有 registry 诊断的配置组，并在失败或 teardown 时释放同一集合 |
 | 运行 hook | `runHook(bash, hook, opts, now)`：通过 `ctx.bash` 提供 stdin payload + env，再解码 | 构造每个事件的 stdin **payload** + 该方言的 **env** |
 | 解码输出 | `parseHookOutput(exit, stdout, stderr)` → 中性 `HookOutput` | 将中性 `HookOutput` 映射到 seam 特定的类型化 Decision |
 | 合并 N 个 hook | `mergeHookOutputs(outputs)` → 最严格的 `MergedHookOutcome` | （无） |
@@ -19,7 +19,7 @@ Claude Code／Codex hook 协议格式的**共享核心**。它不是 cordis 插�
 
 ## 原语
 
-- **`matcherDiagnostic(matcher, mode)` / `compileMatchers(matchers, mode)` / `matchesMatcher(matcher, query, mode)`**：缺失、`''` 或 `'*'` 时匹配全部；两种方言都将纯 `[A-Za-z0-9_|]+` pattern 视为按 pipe 分隔的精确多选。其他 pattern 会用原生方言编译为未锚定正则：Claude Code 使用 JavaScript，Codex 使用 Rust `regex`（包括 `(?i)` 等内联 flag）。桥接解析器会丢弃没有 matcher 匹配对象的事件所带 matcher 字段，再使用 `matcherDiagnostic` 在注册任何 hook 之前拒绝实际会被消费的无效正则，并输出稳定诊断。每个桥接通过 `compileMatchers` 将配置中每个唯一 pattern 只编译一次，在各 hook 点重复使用，并在插件 teardown 时先 drain 脱离运行，再释放这个有限集合；因此 Rust／WASM 分配器不会因每次匹配都抬高且无法收缩的内存高水位。`matchesMatcher` 保留为收敛的一次性谓词，运行时无效 pattern 仍是不匹配而非异常。
+- **`compileMatchers(matchers, mode)` / `matcherDiagnostic(matcher, mode)` / `matchesMatcher(matcher, query, mode)`**：缺失、`''` 或 `'*'` 时匹配全部；两种方言都将纯 `[A-Za-z0-9_|]+` pattern 视为按 pipe 分隔的精确多选。其他 pattern 会用原生方言编译为未锚定正则：Claude Code 使用 JavaScript，Codex 使用 Rust `regex`（包括 `(?i)` 等内联 flag）。桥接解析器会先丢弃没有 matcher 匹配对象的事件所带字段，收集其余可运行 group，再将它们的唯一 pattern 只编译一次。解析器直接从这些实例读取 `registry.diagnostic(pattern)`；实际消费的正则无效时，会先释放 registry 再抛错，否则把同一 registry 交给运行时。插件会在各 hook 点重复使用它，并在 teardown 时先 drain 脱离运行，再释放该集合。因此校验和匹配都不会重复构造 Rust／WASM 正则并抬高其无法收缩的内存高水位。`matcherDiagnostic` 与 `matchesMatcher` 保留为收敛的一次性 helper；运行时无效 pattern 仍是不匹配而非异常。
 - **`runHook(bash, hook, options, now)`**：要求并转发调用方拥有的 `options.signal`，将 `options.payload` 序列化到 hook stdin（当且仅当 `options.trailingNewline` 时添加尾随换行符），在执行器凭证清理后合并 `options.env`（`dsh-bash` 受信任插件表层），遵循 hook 的 `timeoutSec`（否则使用 `options.defaultTimeoutMs`；默认值属于桥接，其配置默认为 lib 的 `DEFAULT_HOOK_TIMEOUT_MS` 10 分钟参考值），再解码结果（将 `options.expectedEventName` 传递给 codec）。因此取消会到达执行器的进程组终止与 join 边界。它绝不抛出异常：执行器拒绝（基础设施故障）会变为 `HookOutput`，其 `exitCode: undefined`（非阻塞错误）。`now` 会被注入，以便测试持续时间。
 - **`parseHookOutput(exitCode, stdout, stderr, expectedEventName?)`** 解码退出状态与结构化 stdout。退出码 2 使用 stderr 阻塞；其他失败不阻塞。匹配的 hook 特定权限决策会覆盖遗留顶层决策；事件判别字段不匹配或缺失只会抑制事件特定字段。顶层字段仍与事件无关，成功但非 JSON 的输出会留给桥接处理。
 - **`mergeHookOutputs(outputs)`**：折叠在一个点上匹配的每个 hook 结果：权限优先级为 **deny > ask > allow**，首个 `continue:false` 使 halt 粘滞，阻塞原因用 `\n\n` 连接，`additionalContext`／`systemMessages` 按顺序累积。

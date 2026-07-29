@@ -93,10 +93,14 @@ describe('compileMatchers — config-lifetime reuse', () => {
     expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
     expect(matchers.matches('[', 'anything')).toBe(false)
     expect(matchers.matches('not-compiled', 'not-compiled')).toBe(false)
+    expect(matchers.diagnostic('(?i)^bash$')).toBeUndefined()
+    expect(matchers.diagnostic('[')).toBe('invalid codex regex matcher "["')
+    expect(matchers.diagnostic('not-compiled')).toBeUndefined()
 
     matchers.dispose()
     expect(matchers.matches(undefined, 'anything')).toBe(false)
     expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(false)
+    expect(matchers.diagnostic('[')).toBeUndefined()
     expect(() => { matchers.dispose() }).not.toThrow()
   })
 

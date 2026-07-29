@@ -9,6 +9,7 @@ import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 const matcherLifecycle = vi.hoisted(() => {
   const registry = {
     matches: vi.fn(() => true),
+    diagnostic: vi.fn<(matcher: string | undefined) => string | undefined>(() => undefined),
     dispose: vi.fn<() => void>(),
   }
   return {
@@ -26,9 +27,30 @@ const dirs: string[] = []
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   vi.clearAllMocks()
+  matcherLifecycle.registry.diagnostic.mockReturnValue(undefined)
 })
 
 describe('hooks-codex matcher lifecycle', () => {
+  it('disposes the compiled set when one event-specific diagnostic rejects the config', async () => {
+    const { parseCodexConfig } = await import('@deepseek-ai/dsh-hooks-codex/src/config.ts')
+    matcherLifecycle.registry.diagnostic.mockImplementation((matcher: string | undefined) => (
+      matcher === '[' ? 'invalid codex regex matcher "["' : undefined
+    ))
+
+    expect(() => parseCodexConfig({
+      PreToolUse: [
+        { matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'first' }] },
+        { matcher: '[', hooks: [{ type: 'command', command: 'second' }] },
+      ],
+    })).toThrow('invalid codex regex matcher "[" on event "PreToolUse"')
+
+    expect(matcherLifecycle.compileMatchers).toHaveBeenCalledExactlyOnceWith(
+      new Set(['(?i)^bash$', '[']),
+      'codex',
+    )
+    expect(matcherLifecycle.registry.dispose).toHaveBeenCalledOnce()
+  })
+
   it('gives the loaded config one matcher registry and disposes it on plugin teardown', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-codex-matchers-'))
     dirs.push(dir)
@@ -44,10 +66,10 @@ describe('hooks-codex matcher lifecycle', () => {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     const fiber = await ctx.plugin(HooksCodex, { configPath, model: 'm' })
 
-    expect(matcherLifecycle.compileMatchers).toHaveBeenCalledExactlyOnceWith([
+    expect(matcherLifecycle.compileMatchers).toHaveBeenCalledExactlyOnceWith(new Set([
       '(?i)^bash$',
-      '(?i)^bash$',
-    ], 'codex')
+    ]), 'codex')
+    expect(matcherLifecycle.registry.diagnostic).toHaveBeenCalledTimes(2)
     expect(matcherLifecycle.registry.dispose).not.toHaveBeenCalled()
 
     await fiber.dispose()
