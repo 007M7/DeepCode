@@ -34,6 +34,10 @@ class MemoryProvider implements SkillProvider {
   }
 }
 
+function registerProvider(ctx: Context, provider: SkillProvider): () => void {
+  return ctx.skills.registerProvider(() => provider)
+}
+
 describe('SkillService registry', () => {
   it('registers providers, resolves duplicates first-wins, and disposes providers', async () => {
     const ctx = new Context()
@@ -59,8 +63,8 @@ describe('SkillService registry', () => {
         return { ...candidate, content: (candidate.locator as { content: string }).content }
       },
     }
-    const disposeMemory = ctx.skills.registerProvider(provider)
-    ctx.skills.registerProvider(overrideProvider)
+    const disposeMemory = registerProvider(ctx, provider)
+    registerProvider(ctx, overrideProvider)
 
     expect((await ctx.skills.list()).map(skill => [skill.name, skill.description, skill.provider])).toEqual([
       ['a-skill', 'A skill', 'memory'],
@@ -84,24 +88,52 @@ describe('SkillService registry', () => {
         return { ...candidate, content: (candidate.locator as { content: string }).content }
       },
     }
-    ctx.skills.registerProvider(sameRankProvider)
+    registerProvider(ctx, sameRankProvider)
     expect((await ctx.skills.list()).find(skill => skill.name === 'same-rank-skill')?.provider).toBe('same-rank')
     await expect(ctx.plugin({
       name: 'duplicate-memory',
       inject: ['skills'],
       apply(pluginCtx: Context) {
-        pluginCtx.skills.registerProvider(new MemoryProvider([]))
+        registerProvider(pluginCtx, new MemoryProvider([]))
       },
     })).rejects.toThrow('already registered')
-    expect(() => ctx.skills.registerProvider({
-      name: 'runtime',
-      async list() {
-        return []
-      },
-      async get() {
-        return undefined
-      },
+    let rejectedSignal: AbortSignal | undefined
+    expect(() => ctx.skills.registerProvider((control) => {
+      rejectedSignal = control.signal
+      return {
+        name: 'runtime',
+        async list() {
+          return []
+        },
+        async get() {
+          return undefined
+        },
+      }
     })).toThrow('reserved')
+    expect(rejectedSignal?.aborted).toBe(true)
+
+    const factoryFailure = new Error('factory failed')
+    let failedSignal: AbortSignal | undefined
+    expect(() => ctx.skills.registerProvider((control) => {
+      failedSignal = control.signal
+      throw factoryFailure
+    })).toThrow(factoryFailure)
+    expect(failedSignal?.reason).toBe(factoryFailure)
+
+    const effectContext = new Context()
+    const effectService = new SkillService(effectContext)
+    const effectFailure = new Error('effect registration failed')
+    vi.spyOn(effectContext, 'effect').mockImplementation(() => { throw effectFailure })
+    let effectSignal: AbortSignal | undefined
+    expect(() => effectService.registerProvider((control) => {
+      effectSignal = control.signal
+      return {
+        name: 'effect-provider',
+        list: () => Promise.resolve([]),
+        get: () => Promise.resolve(undefined),
+      }
+    })).toThrow(effectFailure)
+    expect(effectSignal?.reason).toBe(effectFailure)
 
     disposeMemory()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
@@ -111,7 +143,7 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const badDescription = { value: 'object-description' }
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'bad-candidate',
       list: () => Promise.resolve([{
         ...memorySkill('bad-candidate', 'placeholder', 1),
@@ -125,7 +157,7 @@ describe('SkillService registry', () => {
 
     const badBoolean = new Context()
     await badBoolean.plugin(SkillService)
-    badBoolean.skills.registerProvider({
+    registerProvider(badBoolean, {
       name: 'bad-boolean',
       list: () => Promise.resolve([{
         ...memorySkill('bad-boolean', 'Bad boolean', 1),
@@ -140,7 +172,7 @@ describe('SkillService registry', () => {
   it('rejects non-array provider results and every malformed candidate scalar', async () => {
     const badList = new Context()
     await badList.plugin(SkillService)
-    badList.skills.registerProvider({
+    registerProvider(badList, {
       name: 'non-array-list',
       list: () => Promise.resolve({} as unknown as SkillCandidate[]),
       get: () => Promise.resolve(undefined),
@@ -171,7 +203,7 @@ describe('SkillService registry', () => {
         path: '/skills/candidate/SKILL.md',
         ...patch,
       } as SkillCandidate
-      ctx.skills.registerProvider({
+      registerProvider(ctx, {
         name: providerName,
         list: () => Promise.resolve([candidate]),
         get: () => Promise.resolve(undefined),
@@ -195,7 +227,7 @@ describe('SkillService registry', () => {
       rank: 1,
       locator: 'skill-a',
     }
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'contextual',
       async list(received) {
         listedWith = received
@@ -218,7 +250,7 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     let getCalls = 0
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'cached',
       async list() {
         return [{
@@ -267,7 +299,7 @@ describe('SkillService registry', () => {
         })
       }
     })
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'held',
       async list() {
         return [{
@@ -347,7 +379,7 @@ describe('SkillService registry', () => {
     }
     let listCalls = 0
     let received: SkillCandidate | undefined
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'detached',
       async list() {
         listCalls += 1
@@ -422,7 +454,7 @@ describe('SkillService registry', () => {
       await ctx.plugin(SkillService)
       const providerName = `definition-provider-${index}`
       const skillName = `definition-${index}`
-      ctx.skills.registerProvider({
+      registerProvider(ctx, {
         name: providerName,
         list: () => Promise.resolve([{
           name: skillName,
@@ -455,7 +487,7 @@ describe('SkillService registry', () => {
 
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'bad',
       async list() {
         return [memorySkill('Bad_Name', 'bad', 1)]
@@ -474,7 +506,7 @@ describe('SkillService registry', () => {
     for (const candidate of invalidCandidates) {
       const invalid = new Context()
       await invalid.plugin(SkillService)
-      invalid.skills.registerProvider({
+      registerProvider(invalid, {
         name: candidate.name,
         async list() {
           return [candidate]
@@ -492,7 +524,7 @@ describe('SkillService registry', () => {
   it('sorts model-visible summaries without locale-sensitive collation', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    ctx.skills.registerProvider(new MemoryProvider([
+    registerProvider(ctx, new MemoryProvider([
       memorySkill('z-skill', 'Z skill', 10),
       memorySkill('a-skill', 'A skill', 10),
     ]))
@@ -517,7 +549,7 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService, { collectCacheMaxEntries: 1 })
     const provider = new MemoryProvider([memorySkill('first-skill', 'First', 10)])
-    ctx.skills.registerProvider(provider)
+    registerProvider(ctx, provider)
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['first-skill'])
     provider.replace([memorySkill('second-skill', 'Second', 10)])
@@ -544,7 +576,7 @@ describe('SkillService registry', () => {
 
     let fail = true
     let flakyCalls = 0
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'flaky',
       async list() {
         flakyCalls += 1
@@ -572,21 +604,27 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const provider = new MemoryProvider([memorySkill('first-skill', 'First', 10)])
-    const dispose = ctx.skills.registerProvider(provider)
+    let invalidate = (): void => {}
+    let signal: AbortSignal | undefined
+    const dispose = ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      signal = control.signal
+      return provider
+    })
 
     expect((await ctx.skills.snapshot()).complete).toBe(true)
     provider.replace([memorySkill('second-skill', 'Second', 10)])
-    ctx.skills.invalidateProvider(new MemoryProvider([]))
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['first-skill'])
 
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['second-skill'])
     dispose()
+    expect(signal?.aborted).toBe(true)
 
     const replacement = new MemoryProvider([memorySkill('replacement-skill', 'Replacement', 10)])
-    ctx.skills.registerProvider(replacement)
+    registerProvider(ctx, replacement)
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['replacement-skill'])
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['replacement-skill'])
     expect(replacement.listCalls).toBe(1)
   })
@@ -598,11 +636,13 @@ describe('SkillService registry', () => {
     let changes = 0
     ctx.on('skills/change', () => { changes += 1 })
 
-    const disposeProvider = ctx.skills.registerProvider(provider)
+    let invalidate = (): void => {}
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return provider
+    })
     expect(changes).toBe(1)
-    ctx.skills.invalidateProvider(new MemoryProvider([]))
-    expect(changes).toBe(1)
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     expect(changes).toBe(2)
 
     const disposeRuntime = ctx.skills.register({
@@ -616,7 +656,7 @@ describe('SkillService registry', () => {
     expect(changes).toBe(4)
     disposeProvider()
     expect(changes).toBe(5)
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     expect(changes).toBe(5)
   })
 
@@ -632,7 +672,7 @@ describe('SkillService registry', () => {
     const disposeObserver = ctx.on('skills/change', () => { observed += 1 })
 
     const provider = new MemoryProvider([])
-    expect(() => ctx.skills.registerProvider(provider)).not.toThrow()
+    expect(() => registerProvider(ctx, provider)).not.toThrow()
     await Promise.resolve()
     expect(observed).toBe(1)
     expect(warnings).toEqual([
@@ -662,12 +702,16 @@ describe('SkillService registry', () => {
       }
       return await originalList(options)
     }
-    ctx.skills.registerProvider(provider)
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return provider
+    })
 
     const pending = ctx.skills.list()
     await started.promise
     provider.replace([memorySkill('fresh-skill', 'Fresh', 10)])
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     release?.()
 
     expect((await pending).map(skill => skill.name)).toEqual(['fresh-skill'])
@@ -695,7 +739,7 @@ describe('SkillService registry', () => {
         return { ...candidate, name: 'new-name', content: 'Fresh body.' }
       },
     }
-    ctx.skills.registerProvider(provider)
+    registerProvider(ctx, provider)
 
     expect(await ctx.skills.get('old-name')).toBeUndefined()
     await ctx.skills.list()
@@ -705,7 +749,7 @@ describe('SkillService registry', () => {
   it('returns undefined when a discovered candidate disappears before loading', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'vanished-body',
       async list() {
         return [{ ...memorySkill('vanished-skill', 'Vanished', 10), provider: 'vanished-body' }]
@@ -728,7 +772,7 @@ describe('SkillService registry', () => {
         throw new Error('provider failure coercion failed')
       },
     }
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'hostile-failure',
       list() {
         // Deliberately violate the provider contract to prove containment is total.
@@ -753,7 +797,7 @@ describe('SkillService registry', () => {
     let release: (() => void) | undefined
     const started = new Promise<void>((resolve) => { markStarted = resolve })
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const dispose = ctx.skills.registerProvider({
+    const dispose = registerProvider(ctx, {
       name: 'delayed',
       async list() {
         markStarted?.()
@@ -783,7 +827,7 @@ describe('SkillService registry', () => {
     const held = new Promise<SkillCandidate[]>((resolve) => {
       release = () => { resolve([]) }
     })
-    ctx.skills.registerProvider({
+    registerProvider(ctx, {
       name: 'uncooperative',
       list(options) {
         seenSignal = options.signal

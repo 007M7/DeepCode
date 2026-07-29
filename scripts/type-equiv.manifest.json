@@ -1011,6 +1011,11 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderControl",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "Config",
       "source": "packages/skill/skill/src/index.ts"
     },

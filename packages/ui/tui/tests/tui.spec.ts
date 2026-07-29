@@ -3596,6 +3596,7 @@ describe('skill slash command', () => {
   it('retains last-good slash completions across incomplete snapshots', async () => {
     let skills: SkillService | undefined
     let provider: SkillProvider | undefined
+    let invalidate = (): void => {}
     let fail = false
     const result = await setup({
       configureContext: async (ctx) => {
@@ -3619,13 +3620,16 @@ describe('skill slash command', () => {
             return undefined
           },
         }
-        skills?.registerProvider(provider)
+        skills?.registerProvider((control) => {
+          invalidate = control.invalidate
+          return provider as SkillProvider
+        })
       },
     })
     if (skills === undefined || provider === undefined) throw new Error('skills provider not mounted')
 
     fail = true
-    skills.invalidateProvider(provider)
+    invalidate()
     await tick()
     result.terminal.output = ''
     result.terminal.send('/skill:stable')

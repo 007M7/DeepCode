@@ -105,6 +105,7 @@ export const LINK_MAP: Record<string, string> = {
   PreparedLlmCall: 'llm-streaming.md',
   LlmService: 'llm-streaming.md',
   StreamChunk: 'llm-streaming.md',
+  SkillProviderControl: 'skills.md',
   CreateSessionOptions: 'persistence.md',
   SessionHeader: 'persistence.md',
   SessionLocation: 'persistence.md',

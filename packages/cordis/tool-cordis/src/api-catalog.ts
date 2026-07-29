@@ -671,12 +671,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Registry of skill providers.',
     methods: [
       {
-        signature: 'registerProvider(provider: SkillProvider): () => void',
-        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param provider - the provider to register by `provider.name`.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
-      },
-      {
-        signature: 'invalidateProvider(provider: SkillProvider): void',
-        jsDoc: '/**\n * Invalidate catalogs contributed by one currently registered provider. Exact object identity\n * prevents a late callback from an old provider instance from invalidating its replacement.\n * Calls for an already-unregistered provider are harmless.\n * @param provider - exact provider instance whose external source changed.\n */',
+        signature: 'registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
@@ -2215,6 +2211,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillProvider',
     declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
+  },
+  {
+    name: 'SkillProviderControl',
+    declaration: 'export interface SkillProviderControl {\n    readonly signal: AbortSignal;\n    readonly invalidate: () => void;\n}',
   },
   {
     name: 'SkillRegistration',

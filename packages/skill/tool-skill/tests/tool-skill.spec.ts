@@ -153,7 +153,7 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-prefix-signal')
     const ctx = await setup(home)
     let seenSignal: AbortSignal | undefined
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'signal-probe',
       async list(options) {
         seenSignal = options.signal
@@ -162,7 +162,7 @@ describe('dsh-tool-skill', () => {
       async get() {
         return undefined
       },
-    })
+    }))
     const controller = new AbortController()
 
     await composePrefix(ctx, '/workspace', controller.signal)
@@ -245,7 +245,11 @@ describe('dsh-tool-skill', () => {
         return undefined
       },
     }
-    ctx.skills.registerProvider(provider)
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return provider
+    })
     const session = new Session(SessionId('incomplete-prefix'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
@@ -253,7 +257,7 @@ describe('dsh-tool-skill', () => {
     await composePrefixForAgent(ctx, agent)
     expect(catalogMessages(session)).toEqual([])
     failing = false
-    ctx.skills.invalidateProvider(provider)
+    invalidate()
     await fireStep(ctx, agent, 1, 1)
 
     expect(catalogMessages(session)).toEqual([])
@@ -421,7 +425,7 @@ describe('dsh-tool-skill', () => {
     openMessageTurn(session)
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('stable-skill')
 
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'failing',
       async list() {
         throw new Error('temporarily unavailable')
@@ -429,7 +433,7 @@ describe('dsh-tool-skill', () => {
       async get() {
         return undefined
       },
-    })
+    }))
     disposeStable()
     await fireStep(ctx, agent, 1, 1)
 

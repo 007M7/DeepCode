@@ -572,12 +572,8 @@ describe('LocalSkillProvider', () => {
     const root = join(home, '.agents/skills')
     const ctx = await setupLocal(home)
     expect(await ctx.skills.list()).toEqual([])
-    const invalidateProvider = ctx.skills.invalidateProvider.bind(ctx.skills)
     let invalidations = 0
-    ctx.skills.invalidateProvider = (provider) => {
-      invalidations += 1
-      invalidateProvider(provider)
-    }
+    ctx.on('skills/change', () => { invalidations += 1 })
 
     await writeSkill(root, 'observed-skill', 'Observed skill')
     const path = join(root, 'observed-skill/SKILL.md')
@@ -657,15 +653,18 @@ describe('LocalSkillProvider', () => {
     await writeSkill(join(home, '.agents/skills'), 'disposed-skill', 'Disposed skill')
     const ctx = new Context()
     await ctx.plugin(SkillService)
-    const provider = new SkillLocal.LocalSkillProvider(ctx, {
-      dshHome: join(home, '.dsh'),
-      agentsHome: join(home, '.agents'),
-      customSkillDirs: [nonDirectoryRoot],
-      watch: true,
-      watchStabilityThresholdMs: 20,
-      watchPollIntervalMs: 10,
+    let provider!: SkillLocal.LocalSkillProvider
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillLocal.LocalSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        customSkillDirs: [nonDirectoryRoot],
+        watch: true,
+        watchStabilityThresholdMs: 20,
+        watchPollIntervalMs: 10,
+      })
+      return provider
     })
-    ctx.skills.registerProvider(provider)
     expect((await provider.list({})).map(skill => skill.name)).toEqual(['disposed-skill'])
 
     await provider.dispose()
@@ -673,6 +672,7 @@ describe('LocalSkillProvider', () => {
     provider.observeHostMutation(join(home, '.agents/skills/disposed-skill/SKILL.md'))
 
     expect((await provider.list({})).map(skill => skill.name)).toEqual(['disposed-skill'])
+    disposeProvider()
   })
 
   it('refreshes frontmatter through a followed skill symlink', { timeout: 10000 }, async () => {
@@ -740,7 +740,10 @@ describe('LocalSkillProvider', () => {
       expect(await empty.skills.list()).toEqual([])
 
       delete process.env.DSH_AGENTS_HOME
-      expect(new SkillLocal.LocalSkillProvider(empty, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('local')
+      expect(new SkillLocal.LocalSkillProvider(empty, {
+        signal: new AbortController().signal,
+        invalidate() {},
+      }, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('local')
     } finally {
       if (previousDshHome === undefined) {
         delete process.env.DSH_HOME

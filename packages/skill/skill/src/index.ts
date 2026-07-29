@@ -117,6 +117,14 @@ export interface SkillProvider {
   readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
 }
 
+/** Registration-scoped lifecycle and invalidation capability borrowed by one provider. */
+export interface SkillProviderControl {
+  /** Aborts if registration fails or when the exact provider registration is disposed. */
+  readonly signal: AbortSignal
+  /** Invalidate completed catalogs and notify consumers only while the exact registration remains active. */
+  readonly invalidate: () => void
+}
+
 /** Skill registry configuration. */
 export interface Config {
   /** Maximum number of completed cwd/provider catalogs kept in memory. */
@@ -180,43 +188,50 @@ export class SkillService extends Service {
    * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
    * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
    * the provider and invalidates catalog caches.
-   * @param provider - the provider to register by `provider.name`.
+   * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
-  registerProvider(provider: SkillProvider): () => void {
-    const name = provider.name
-    if (name === RUNTIME_PROVIDER) {
-      throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
+  registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void {
+    const lifecycle = new AbortController()
+    let active = false
+    let provider: SkillProvider
+    const control: SkillProviderControl = {
+      signal: lifecycle.signal,
+      invalidate: () => {
+        if (active) this.invalidateProvider(provider)
+      },
     }
-    if (this.providers.has(name)) {
-      throw new Error(`a skill provider named "${name}" is already registered`)
-    }
-    const providers = this.providers
-    const order = this.nextProviderOrder
-    const invalidateCache = (): void => { this.invalidateCache() }
-    this.nextProviderOrder += 1
-    const dispose = this.ctx.effect(function* () {
-      providers.set(name, { provider, order })
-      invalidateCache()
-      yield () => {
-        providers.delete(name)
-        invalidateCache()
+    try {
+      provider = create(control)
+      const name = provider.name
+      if (name === RUNTIME_PROVIDER) {
+        throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
       }
-    }, 'skills.registerProvider()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
-  }
-
-  /**
-   * Invalidate catalogs contributed by one currently registered provider. Exact object identity
-   * prevents a late callback from an old provider instance from invalidating its replacement.
-   * Calls for an already-unregistered provider are harmless.
-   * @param provider - exact provider instance whose external source changed.
-   */
-  invalidateProvider(provider: SkillProvider): void {
-    if (this.providers.get(provider.name)?.provider !== provider) return
-    this.invalidateCache()
+      if (this.providers.has(name)) {
+        throw new Error(`a skill provider named "${name}" is already registered`)
+      }
+      const providers = this.providers
+      const order = this.nextProviderOrder
+      const invalidateCache = (): void => { this.invalidateCache() }
+      this.nextProviderOrder += 1
+      const dispose = this.ctx.effect(function* () {
+        active = true
+        providers.set(name, { provider, order })
+        invalidateCache()
+        yield () => {
+          active = false
+          providers.delete(name)
+          lifecycle.abort(new Error(`skill provider "${name}" disposed`))
+          invalidateCache()
+        }
+      }, 'skills.registerProvider()')
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; preserve exact disposer identity
+      return dispose
+    } catch (error) {
+      lifecycle.abort(error)
+      throw error
+    }
   }
 
   /**
@@ -389,6 +404,11 @@ export class SkillService extends Service {
     this.providerRevision += 1
     this.collectCache.clear()
     this.notifyChange()
+  }
+
+  private invalidateProvider(provider: SkillProvider): void {
+    /* v8 ignore else -- A definition load can outlive the exact provider registration it selected. */
+    if (this.providers.get(provider.name)?.provider === provider) this.invalidateCache()
   }
 
   /** Notify catalog observers without making their refresh work load-bearing. */
