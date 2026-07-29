@@ -10,9 +10,9 @@ The active conversation column split scrolling: the chat (and trajectory) view o
 
 ## Decision
 
-Active phase keeps the session header as `flex: none` column chrome above the scrollport. `ConversationRoot` supplies a `wrapActiveBody` owner callback that wraps the view ring in a `data-conversation-scroll` body and places the composer stack inside that body with `position: sticky; bottom: 0`. Hero and settling keep the composer as a Root child (centered hero card). ChatView and Trajectory/Waterfall keep a local scroller only when mounted outside that host (unit tests); under the host they set `overflow: visible` and resolve bottom-follow / prepend anchoring through `closest('[data-conversation-scroll]')`.
+While a session exists, `ConversationRoot` always supplies a `wrapActiveBody` owner callback that wraps the view ring in a `data-conversation-scroll` body and places the composer stack inside that body. Active CSS sticks the composer with `position: sticky; bottom: 0`; hero CSS centers the same stack inside the scroll body. `ConversationSession` keeps a chrome-hidden header + body shell while blank so that tree seat does not change on the first send. The session header remains `flex: none` column chrome above the scrollport when visible. ChatView and Trajectory/Waterfall keep a local scroller only when mounted outside that host (unit tests); under the host they set `overflow: visible` and resolve bottom-follow / prepend anchoring through `closest('[data-conversation-scroll]')`.
 
-Session stats live on `'conversation.composer.dock'` (above `'conversation.input.dock'`). The InputBar textarea, when inside the host, listens for `wheel` with `{ passive: false }`, calls `preventDefault`, and applies `deltaY` to the host — hero mounts have no host and keep native textarea wheel behavior. Moving the composer into the Session scrollport on the hero → active flip may remount the textarea; the InputHub draft is the durable carrier across that flip.
+Session stats live on `'conversation.composer.dock'` (above `'conversation.input.dock'`). The InputBar textarea, when inside the host, listens for `wheel` with `{ passive: false }`, calls `preventDefault`, and applies `deltaY` to the host.
 
 ## Alternatives considered
 
@@ -26,4 +26,4 @@ Session stats live on `'conversation.composer.dock'` (above `'conversation.input
 
 ## Consequences
 
-Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Hero → active asserts draft survival through the InputHub, not textarea DOM identity.
+Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Hero → active keeps the same textarea DOM node (assembled slash-flow snapshot) and the InputHub draft.

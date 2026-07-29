@@ -17,6 +17,12 @@
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
+/* Blank hero/settling: keep the header node mounted (stable Session tree for
+   the wrapActiveBody composer) without taking column space. */
+.headerHidden {
+  display: none;
+}
+
 .crumbRow {
   display: flex;
   align-items: center;
@@ -199,8 +205,11 @@
   padding-left: 8px;
 }
 
-.root[data-phase='hero'] {
+/* Hero: the composer sits inside the session scroll body; center there so
+   the tree seat matches active (sticky footer) without a Root remount. */
+.root[data-phase='hero'] .scrollBody {
   justify-content: center;
+  overflow-y: auto;
 }
 
 /* Settling (session replaying, hero/docked unknown): keep the composer

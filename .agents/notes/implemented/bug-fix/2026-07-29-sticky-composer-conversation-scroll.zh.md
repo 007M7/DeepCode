@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-活跃阶段会话标题栏保持为滚动容器之上的 `flex: none` 列 chrome。`ConversationRoot` 提供 `wrapActiveBody` owner 回调，将视图环包进 `data-conversation-scroll` 主体，并把编辑器栈以 `position: sticky; bottom: 0` 放进该主体。Hero／settling 仍把编辑器作为 Root 子节点（居中 hero 卡片）。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
+只要存在会话，`ConversationRoot` 就会始终提供 `wrapActiveBody` owner 回调，将视图环包进 `data-conversation-scroll` 主体，并把编辑器栈放进该主体。活跃阶段 CSS 以 `position: sticky; bottom: 0` 钉住编辑器；hero CSS 在同一滚动主体内居中同一栈。`ConversationSession` 在 blank 时保留隐藏 chrome 的 header + body 壳，使首次发送时树座位不变。可见时会话标题栏仍是滚动容器之上的 `flex: none` 列 chrome。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
 
-会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 监听 `wheel`，调用 `preventDefault`，并将 `deltaY` 施加到宿主——hero 挂载没有宿主，保留 textarea 原生滚轮行为。hero → active 翻转时编辑器进入 Session 滚动容器可能重挂载 textarea；跨该翻转的耐久载体是 InputHub 草稿。
+会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 监听 `wheel`，调用 `preventDefault`，并将 `deltaY` 施加到宿主。
 
 ## Alternatives considered
 
@@ -26,4 +26,4 @@ Status: implemented
 
 ## Consequences
 
-在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。hero → active 断言经 InputHub 的草稿存续，而非 textarea DOM 身份。
+在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。hero → active 保持同一 textarea DOM 节点（assembled slash-flow 快照）以及 InputHub 草稿。

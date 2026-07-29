@@ -187,14 +187,19 @@ describe('ConversationRoot resident composer', () => {
         { ...workspace('second'), title: 'Selected Folder' },
       ],
     )
-    // Hero chrome present, view ring absent; scroll host is active-phase only.
-    expect(b.view.container.querySelector('[data-conversation-scroll]')).toBeNull()
+    // Hero chrome present, view ring absent; scroll host already wraps the
+    // resident composer so the blank → active flip does not remount it.
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const header = b.view.container.querySelector('header')
+    expect(host).not.toBeNull()
+    expect(header?.getAttribute('aria-hidden')).toBe('true')
     expect(b.view.getByText("Let's start building")).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
-    // persistence mirror stays bound (ConversationSession mounts chrome-less
+    // persistence mirror stays bound (ConversationSession mounts chrome-hidden
     // for blank sessions): hero typing reaches the chat store.
     const box = b.view.getByRole('textbox')
+    expect(host?.contains(box)).toBe(true)
     fireEvent.change(box, { target: { value: 'draft in hero' } })
     expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
@@ -207,16 +212,17 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
-  it('machine draft survives the hero → active flip into the sticky scrollport composer', () => {
+  it('same textarea DOM node survives the hero → active flip into the sticky scrollport', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
     const before = b.view.getByRole('textbox')
     fireEvent.change(before, { target: { value: 'kept across flip' } })
-    // First message landed: content exists, phase leaves blank. The active
-    // composer lives inside the Session scrollport (sticky footer), so the
-    // textarea may remount; the InputHub draft is the durable carrier.
+    // First message landed: content exists, phase leaves blank. Composer
+    // already sat in the Session scrollport during hero, so the textarea
+    // node and InputHub draft both survive.
     b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
     b.rerender()
     const after = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(after).toBe(before)
     expect(after.value).toBe('kept across flip')
     expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
     expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)

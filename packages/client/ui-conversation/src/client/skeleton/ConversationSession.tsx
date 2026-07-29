@@ -44,9 +44,13 @@ export function ConversationSession({
     // the machine mirror, not this seed effect.
   }, [inputActions])
 
-  if (blank && composerPhase === 'blank') return null
+  // Blank hero/settling: keep the same header + body tree shape so a
+  // wrapActiveBody-hosted composer keeps its DOM identity across the first
+  // send (hero → active). Chrome is hidden; the draft-persistence mirror
+  // still runs because this component stays mounted.
+  const hideChrome = blank && composerPhase === 'blank'
 
-  const view: ReactNode = (
+  const view: ReactNode = hideChrome ? null : (
     <div className={css.viewArea}>
       {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
     </div>
@@ -54,43 +58,50 @@ export function ConversationSession({
 
   return (
     <>
-      <header className={css.header}>
-        <div className={css.crumbRow}>
-          <nav className={css.crumbs} aria-label="Session hierarchy">
-            {ancestry.map((summary, index) => {
-              const last = index === ancestry.length - 1
-              return (
-                <span key={summary.id} className={css.crumbSeg}>
-                  {index > 0 && <span className={css.crumbSep}>/</span>}
+      <header
+        className={clsx(css.header, hideChrome && css.headerHidden)}
+        aria-hidden={hideChrome || undefined}
+      >
+        {!hideChrome && (
+          <>
+            <div className={css.crumbRow}>
+              <nav className={css.crumbs} aria-label="Session hierarchy">
+                {ancestry.map((summary, index) => {
+                  const last = index === ancestry.length - 1
+                  return (
+                    <span key={summary.id} className={css.crumbSeg}>
+                      {index > 0 && <span className={css.crumbSep}>/</span>}
+                      <button
+                        type="button"
+                        className={clsx(css.crumb, last && css.crumbCurrent)}
+                        disabled={last}
+                        onClick={() => { open(summary.id) }}
+                      >
+                        {summary.displayTitle}
+                      </button>
+                    </span>
+                  )
+                })}
+                {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
+              </nav>
+            </div>
+            {tabs.length > 1 && (
+              <div className={css.tabs} role="tablist">
+                {tabs.map(viewTab => (
                   <button
+                    key={viewTab.id}
                     type="button"
-                    className={clsx(css.crumb, last && css.crumbCurrent)}
-                    disabled={last}
-                    onClick={() => { open(summary.id) }}
+                    role="tab"
+                    aria-selected={viewTab.id === active?.id}
+                    className={clsx(css.tab, viewTab.id === active?.id && css.tabActive)}
+                    onClick={() => { actions.setView(viewTab.id) }}
                   >
-                    {summary.displayTitle}
+                    {viewTab.label}
                   </button>
-                </span>
-              )
-            })}
-            {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
-          </nav>
-        </div>
-        {tabs.length > 1 && (
-          <div className={css.tabs} role="tablist">
-            {tabs.map(viewTab => (
-              <button
-                key={viewTab.id}
-                type="button"
-                role="tab"
-                aria-selected={viewTab.id === active?.id}
-                className={clsx(css.tab, viewTab.id === active?.id && css.tabActive)}
-                onClick={() => { actions.setView(viewTab.id) }}
-              >
-                {viewTab.label}
-              </button>
-            ))}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </header>
       {wrapActiveBody !== undefined ? wrapActiveBody(view) : view}

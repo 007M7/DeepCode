@@ -128,9 +128,10 @@ export function ConversationRoot({
     { fallback: composerBar, overlay: true },
   )
 
-  // Active: header is column chrome above the scrollport; the sticky composer
-  // lives inside the same scrollport as the transcript (wheel over the footer
-  // scrolls the flow). Hero/settling keep the composer as a Root child.
+  // Header stays column chrome above this scrollport; the sticky composer
+  // lives inside it with the transcript. Always wrap while a session exists
+  // (hero/settling/active) so the composer keeps one tree seat across the
+  // blank → active flip — relocating it only in active remounted the textarea.
   const wrapActiveBody = (view: ReactNode): ReactNode => (
     <div className={css.scrollBody} data-conversation-scroll="">
       {view}
@@ -141,14 +142,14 @@ export function ConversationRoot({
   return (
     <div className={css.root} data-phase={phase}>
       {/* Mounted for every real session, hero included: ConversationSession
-          renders no chrome while blank but owns the draft-persistence mirror
-          bind — unmounting it in the hero would lose pre-first-send text on
-          a refresh or scope rebuild. */}
+          keeps a chrome-hidden shell while blank and owns the draft-
+          persistence mirror bind — unmounting it in the hero would lose
+          pre-first-send text on a refresh or scope rebuild. */}
       {sessionId !== undefined && renderSlot(
         'conversation.session',
-        phase === 'active' ? { wrapActiveBody } : {},
+        { wrapActiveBody },
       )}
-      {phase !== 'active' ? composer : null}
+      {sessionId === undefined ? composer : null}
     </div>
   )
 }
