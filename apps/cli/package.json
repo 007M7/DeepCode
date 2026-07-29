@@ -111,11 +111,9 @@
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
-    "@earendil-works/pi-ai": "^0.82.1",
     "commander": "^15.0.0",
     "cordis": "^4.0.0-rc.7",
-    "js-yaml": "^4.2.0",
-    "yaml": "^2.9.0"
+    "js-yaml": "^4.2.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
