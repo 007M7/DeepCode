@@ -21,6 +21,7 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@shikijs/langs": "^4.3.1",
+    "anser": "^2.3.5",
     "clsx": "^2.0.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",

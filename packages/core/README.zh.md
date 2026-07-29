@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话日志、系统提示词组装、工具注册表、agent 词汇，以及构成 harness 默认控制主干的具体循环。这些是 **产品** 包（package），插件和消费方以其稳定表层为基础构建。
+会话日志、系统提示词组装、工具注册表、agent（智能体）词汇，以及构成 harness 默认控制主干的具体循环。这些是 **产品** 包（package），插件和消费方以其稳定接口为基础构建。
 
 | 包 | 角色 | ctx 键 |
 |---|---|---|
@@ -17,4 +17,4 @@
 
 `agent-loop` 是 `agent` seam 的唯一具体实现，位于此处是因为它就是 harness 的默认产品循环。它在 `ctx.agents.withInitiator()` 中运行每个驱动器。扩展插件依赖 `agent`，即使需要发起调用的 Agent 也是如此；它们绝不直接依赖 `agent-loop`，因此循环保持可替换。
 
-将这条主干接成可运行 agent 的默认组合位于 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)：一个 bundle（组合包）插件，加载控制主干及所选默认能力（`timer` + `llm` + 会话 + 后备会话标题 + 系统提示词 + 工具 + agent + 不变式 + 本地[技能系列](../skill/README.md) + `tool-bash` + workspace 上下文 + `agent-loop`），并将 `agent-loop` 的 `agents` 列表作为自身配置转发。它位于 `examples/`，即开箱可运行的演示／参考组合包，而不是 `core/`：`core/` 交付可替换的主干组件，演示组合包则选定其中一种具体组合并添加前端入口。
+将这条主干接成可运行 agent 的默认组合位于 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)：一个 bundle（组合包）插件，加载控制主干及所选默认能力（`timer` + `llm` + 会话 + 后备会话标题 + 系统提示词 + 工具 + agent + 不变式 + 本地 [skill（技能）系列](../skill/README.md) + `tool-bash` + 工作区上下文 + `agent-loop`），并将 `agent-loop` 的 `agents` 列表作为自身配置转发。它位于 `examples/`，即开箱可运行的演示／参考组合包，而不是 `core/`：`core/` 交付可替换的主干组件，演示组合包则选定其中一种具体组合并添加一个对外交互入口。
