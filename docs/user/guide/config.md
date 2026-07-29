@@ -48,6 +48,12 @@ A minimal configuration is a list of plugin entries:
 
 Plugins load in file order. Place plugins that depend on services after the applications or capability plugins that provide them. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
 
+## CLI overlays
+
+The TUI composes `base.cordis.yml` and `tui.cordis.yml`, then applies one optional patch list. By default that final list is `~/.dsh/config.yaml`; `dsh --config <path>` replaces the personal list with the named overlay. `dsh --config-replace <path>` instead boots the named file as the complete tree, without shipped or personal layers. `dsh web --config <path>` adds its overlay after the shared base and Web surface defaults and before Web profile and CLI-flag patches.
+
+A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
+
 ## JavaScript values and environment variables
 
 The Cordis loader evaluates runtime expressions tagged with `!!js`. Keep API keys and other secrets in the gitignored `.env` file at the repository root, never in committed configuration.

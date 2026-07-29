@@ -48,6 +48,12 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 
 插件按文件中的顺序加载。依赖其他服务的插件应该排在提供这些服务的应用或能力插件之后；引用不存在的模型、工具或插件会尽早报错，而不是被静默忽略。
 
+## CLI 覆盖层
+
+TUI 先组合 `base.cordis.yml` 与 `tui.cordis.yml`，再应用一个可选补丁列表。默认的最后一层是 `~/.dsh/config.yaml`；`dsh --config <path>` 会以指定覆盖替代个人补丁列表。`dsh --config-replace <path>` 则把指定文件作为完整配置树启动，不使用已交付配置或个人层。`dsh web --config <path>` 会在共享基础配置与 Web 界面默认值之后、Web profile 与命令行标志补丁之前添加覆盖。
+
+补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKey` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
+
 ## JavaScript 值和环境变量
 
 Cordis loader 使用 `!!js` 标签读取运行时表达式。API key 等凭据应放在仓库根目录、已被 Git 忽略的 `.env` 中，不能提交到配置文件。
