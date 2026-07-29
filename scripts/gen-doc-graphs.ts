@@ -597,7 +597,7 @@ const APP_EXAMPLES = [
     rel: 'apps/cli/composition.md',
     title: 'dsh TUI Composition',
     label: 'apps/cli (dsh)',
-    config: 'apps/cli/base.cordis.yml',
+    configs: ['apps/cli/base.cordis.yml', 'apps/cli/tui.cordis.yml'],
     summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
   },
   {
@@ -605,7 +605,7 @@ const APP_EXAMPLES = [
     rel: 'examples/headless-agent/composition.md',
     title: 'Headless Agent App Composition',
     label: 'examples/headless-agent',
-    config: 'examples/headless-agent/cordis.yml',
+    configs: ['examples/headless-agent/cordis.yml'],
     summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
   },
   {
@@ -613,7 +613,7 @@ const APP_EXAMPLES = [
     rel: 'examples/acp-agent/composition.md',
     title: 'ACP Automation App Composition',
     label: 'examples/acp-agent',
-    config: 'examples/acp-agent/cordis.yml',
+    configs: ['examples/acp-agent/cordis.yml'],
     summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
   },
 ]
@@ -639,15 +639,15 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
 }
 
 function renderAppComposition(example: AppExample): string {
-  const plugins = parseExampleCordis(example.config)
-  const maintenance = 'hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source'
+  const plugins = example.configs.flatMap(parseExampleCordis)
+  const maintenance = 'hybrid: the leaf plugin list is parsed from its shipped config files; app package expansion is curated from package source'
   const lines = generatedHeader(example.title)
   lines.push(
     example.summary,
     '',
     '```mermaid',
     'flowchart LR',
-    `  cfg["${escLabel(example.label)}<br/>cordis.yml"]`,
+    `  cfg["${escLabel(example.label)}<br/>${escLabel(example.configs.map(config => config.split('/').at(-1)).join(' + '))}"]`,
   )
   for (const plugin of plugins) {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
@@ -664,7 +664,7 @@ function renderAppComposition(example: AppExample): string {
     '| --- | --- |',
     ...plugins.map(plugin => `| \`${plugin.id}\` | \`${plugin.name}\` |`),
     '',
-    `Source config: [\`${example.config}\`](${linkFromDoc(example.rel, example.config)}).`,
+    `Source config${example.configs.length === 1 ? '' : 's'}: ${example.configs.map(config => `[\`${config}\`](${linkFromDoc(example.rel, config)})`).join(', ')}.`,
   )
   lines.push('', ...maintenanceFooter(maintenance))
   return lines.join('\n')

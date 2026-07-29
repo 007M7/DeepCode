@@ -134,6 +134,9 @@ importers:
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../packages/bash/bash-local
+      '@deepseek-ai/dsh-bash-sandbox':
+        specifier: workspace:^
+        version: link:../../packages/bash/bash-sandbox
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../packages/client/connection
@@ -167,6 +170,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-models':
         specifier: workspace:^
         version: link:../../packages/client/ui-models
+      '@deepseek-ai/dsh-client-ui-permission':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-permission
       '@deepseek-ai/dsh-client-ui-plan':
         specifier: workspace:^
         version: link:../../packages/client/ui-plan
@@ -224,18 +230,21 @@ importers:
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../packages/fs/fs-policy
+      '@deepseek-ai/dsh-fs-sandbox':
+        specifier: workspace:^
+        version: link:../../packages/fs/fs-sandbox
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../packages/goal/goal
       '@deepseek-ai/dsh-goal-session':
         specifier: workspace:^
         version: link:../../packages/goal/goal-session
-      '@deepseek-ai/dsh-helper':
-        specifier: workspace:^
-        version: link:../../packages/sdk/helper
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../packages/host/apiproxy
+      '@deepseek-ai/dsh-host-directory-picker-browse':
+        specifier: workspace:^
+        version: link:../../packages/host/directory-picker-browse
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../packages/host/webserver
@@ -257,9 +266,18 @@ importers:
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths
+      '@deepseek-ai/dsh-permission':
+        specifier: workspace:^
+        version: link:../../packages/ui/permission
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../packages/plan/plan-mode
+      '@deepseek-ai/dsh-sandbox-local':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-local
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../packages/sandbox/sandbox-policy
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../packages/core/scope
@@ -374,6 +392,9 @@ importers:
       '@deepseek-ai/dsh-tui':
         specifier: workspace:^
         version: link:../../packages/ui/tui
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:^
+        version: link:../../packages/ui/user-approval
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../packages/ui/user-interaction

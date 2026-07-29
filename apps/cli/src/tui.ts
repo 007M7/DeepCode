@@ -18,7 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   addHarnessSourceSection,
@@ -155,6 +155,8 @@ export async function runTui(
   // selected session may belong to another workspace, so the handoff also enters
   // that directory. The host is offered only when Node exposes `process.execve`
   // and knows its own entry.
+  const resolvedConfig = config === undefined ? undefined : resolve(config)
+  const resolvedConfigReplace = configReplace === undefined ? undefined : resolve(configReplace)
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
@@ -172,8 +174,8 @@ export async function runTui(
         `--resume=${sessionId}`,
         // Both config flags must survive the handoff: resuming into a different
         // tree than the session was created in would silently change the agent.
-        ...config !== undefined ? ['--config', config] : [],
-        ...configReplace !== undefined ? ['--config-replace', configReplace] : [],
+        ...resolvedConfig !== undefined ? ['--config', resolvedConfig] : [],
+        ...resolvedConfigReplace !== undefined ? ['--config-replace', resolvedConfigReplace] : [],
       ]
   // Mint the fresh id here rather than in the app bundle: the exit line names
   // the session to resume, so the launcher must know it before the tree boots.
@@ -223,11 +225,11 @@ export async function runTui(
     ...loadOverlayPatches(NAME, TUI_OVERLAY),
     ...config === undefined
       ? loadPersonalPatches(NAME) ?? []
-      : loadOverlayPatches(NAME, resolveConfigPath(config, undefined)),
+      : loadOverlayPatches(NAME, resolveConfigPath(resolve(config), undefined)),
   ]
   const ctx = await boot(
     NAME,
-    replaceTree ? resolveConfigPath(configReplace, undefined) : BASE_CONFIG,
+    replaceTree ? resolveConfigPath(resolve(configReplace), undefined) : BASE_CONFIG,
     patches,
     (hostCtx) => {
       // The launcher owns session identity and the exit line: a config-mounted

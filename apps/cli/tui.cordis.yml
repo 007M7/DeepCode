@@ -94,9 +94,8 @@
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
 
-    # Refuses write/edit inside the dsh checkout this launcher runs from, on that
-    # checkout's own branch, until the session loads dsh-customize. Inert
-    # everywhere else, so an ordinary project sees no change.
+    # Compacts oversized tool results before the broader conversation compactor
+    # runs, preserving the model-visible result within the configured budget.
     - id: tool-result-prune
       name: '@deepseek-ai/dsh-compact-tool-result-prune'
 

@@ -7,7 +7,7 @@ The TUI agent combines the real DeepSeek adapter, coding tools, compaction, suba
 
 ```mermaid
 flowchart LR
-  cfg["apps/cli (dsh)<br/>cordis.yml"]
+  cfg["apps/cli (dsh)<br/>base.cordis.yml + tui.cordis.yml"]
   plugin_tui_timer["timer<br/>@cordisjs/plugin-timer"]
   cfg --> plugin_tui_timer
   plugin_tui_llm["llm<br/>@deepseek-ai/dsh-llm"]
@@ -26,6 +26,8 @@ flowchart LR
   cfg --> plugin_tui_tasks
   plugin_tui_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
   cfg --> plugin_tui_llm_retry
+  plugin_tui_llm_pi_ai["llm-pi-ai<br/>@deepseek-ai/dsh-llm-pi-ai"]
+  cfg --> plugin_tui_llm_pi_ai
   plugin_tui_session_persistence_jsonl["session-persistence-jsonl<br/>@deepseek-ai/dsh-session-persistence-jsonl"]
   cfg --> plugin_tui_session_persistence_jsonl
   plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -94,6 +96,8 @@ flowchart LR
   cfg --> plugin_tui_fs_local
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
+  plugin_tui_tools["tools<br/>@deepseek-ai/dsh-tool-ask-user"]
+  cfg --> plugin_tui_tools
 ```
 
 | Plugin id | Package / module |
@@ -107,6 +111,7 @@ flowchart LR
 | `agent` | `@deepseek-ai/dsh-agent` |
 | `tasks` | `@deepseek-ai/dsh-tasks-local` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
+| `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash-local` | `@deepseek-ai/dsh-bash-local` |
@@ -141,7 +146,8 @@ flowchart LR
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
+| `tools` | `@deepseek-ai/dsh-tool-ask-user` |
 
-Source config: [`apps/cli/base.cordis.yml`](base.cordis.yml).
+Source configs: [`apps/cli/base.cordis.yml`](base.cordis.yml), [`apps/cli/tui.cordis.yml`](tui.cordis.yml).
 
-Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
+Maintenance mode: hybrid: the leaf plugin list is parsed from its shipped config files; app package expansion is curated from package source.

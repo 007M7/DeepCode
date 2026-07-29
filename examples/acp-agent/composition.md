@@ -94,4 +94,4 @@ flowchart LR
 
 Source config: [`examples/acp-agent/cordis.yml`](cordis.yml).
 
-Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
+Maintenance mode: hybrid: the leaf plugin list is parsed from its shipped config files; app package expansion is curated from package source.

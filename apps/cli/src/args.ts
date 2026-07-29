@@ -213,27 +213,12 @@ Examples:
       resolved = resolveWeb(options)
     })
 
-  // `--resume` is NOT redeclared here: an option a subcommand shares with its
-  // parent parses into `program.opts()` and leaves the subcommand's own options
-  // empty, so redeclaring it would silently drop the id. Commander therefore
-  // omits it from this subcommand's option list, hence the trailing help text.
   program
     .command('meta')
     .description('work on the dsh source that runs this command, from any directory')
-    .addHelpText('after', '\nAccepts --resume <id> to resume a persisted session from this checkout.\n')
     .action(() => {
-      // Commander parses the parent (default-surface) options on either side of
-      // the subcommand into `program.opts()`. `meta` accepts only `--resume`, so
-      // a leaked `--config`/`-p` is a mistyped invocation that must fail loud
-      // rather than silently be dropped.
-      const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
-      if (parent.config !== undefined || parent.configReplace !== undefined || parent.prompt !== undefined) {
-        program.error('error: meta takes none of --config, --config-replace, or -p/--prompt')
-      }
-      // Same reason as the default surface: an empty id would start a fresh
-      // session downstream instead of failing the mistyped resume.
-      if (parent.resume === '') program.error('error: --resume needs a session id')
-      resolved = { mode: 'meta', ...parent.resume !== undefined && { resume: parent.resume } }
+      rejectParentOptions('meta')
+      resolved = { mode: 'meta' }
     })
 
   try {

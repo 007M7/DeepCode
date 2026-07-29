@@ -8,8 +8,8 @@
 # A patch replaces the targeted row's whole `config` rather than merging into
 # it, so a row whose value differs per surface does NOT live here: it belongs to
 # each overlay, keeping any single row down to one overlay layer plus the user's.
-# That is why `agent-loop`, `system-prompt`, `tools`, `fs-local`, and
-# `llm-deepseek` thinking defaults are absent below.
+# Rows with surface-specific values appear below only with shared plugin identity
+# and neutral defaults; each overlay restates the complete surface configuration.
 #
 # Row order carries no load semantics (activation is service-availability
 # driven); the grouping is for readers.
@@ -51,9 +51,20 @@
 - id: llm-retry
   name: '@deepseek-ai/dsh-llm-retry'
 
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        baseURL: !!js process.env.ANTHROPIC_BASE_URL
+
 # The session store root is the launcher's policy, not a plugin's: `dsh` shares
-# one store under the Harness home across every cwd, so `/resume` and
-# `/resume` spans workspaces. Without a launcher the project-local fallback keeps
+# one store under the Harness home across every cwd, so `/resume` spans
+# workspaces. Without a launcher the project-local fallback keeps
 # an embedder's sessions beside its project.
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'

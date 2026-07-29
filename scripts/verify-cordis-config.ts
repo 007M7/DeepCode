@@ -78,6 +78,11 @@ function validateEntry(value: unknown, file: string, path: string): void {
       validateEntry(value.config[index], file, `${path}.config[${index}]`)
     }
   }
+  if (isUnknownArray(value.insert)) {
+    for (let index = 0; index < value.insert.length; index++) {
+      validateEntry(value.insert[index], file, `${path}.insert[${index}]`)
+    }
+  }
   if (value.name !== '@cordisjs/plugin-include') return
   const config = value.config
   if (!isRecord(config) || !isUnknownArray(config.patches)) return
@@ -124,7 +129,7 @@ function validateExampleResolution(): string[] {
 
 function validateAppResolution(): string[] {
   const dependencies = readManifest('apps/cli/package.json').dependencies ?? {}
-  const references = pluginReferences.filter(reference => reference.file === 'apps/cli/base.cordis.yml')
+  const references = pluginReferences.filter(reference => reference.file.startsWith('apps/cli/'))
   return missingPluginDependencies(references, dependencies, 'apps/cli/package.json')
 }
 
