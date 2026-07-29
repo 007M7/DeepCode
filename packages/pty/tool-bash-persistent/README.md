@@ -46,5 +46,5 @@ Append-only tool results follow the reusable request prefix.
 ## Known Limitations and Deferred Work
 
 - The tool requires an owning Agent and a real PTY backend.
-- Explicit `exit`, timeout, or cancellation discards shell state; the next call starts a fresh shell.
+- Explicit `exit` and timeout discard shell state. Cancellation also resets and discards the result, even when a complete status marker is already observable; the next call starts a fresh shell.
 - Environment facts such as network access and package mirrors belong in the configured `description`, not this package's default.
