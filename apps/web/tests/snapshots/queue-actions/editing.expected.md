@@ -23,6 +23,8 @@
       - img
     - button "Remove queued message":
       - img
+    - button "插话发送":
+      - img
   - listitem:
     - textbox "Edit queued message": Edited queue item
     - button "Save queued message":

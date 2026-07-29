@@ -1,15 +1,7 @@
-// Web e2e scenario: mid-turn steering over the host wire. The Web UI has no
-// steer entry, so the steer is POSTed from the page over the same
-// same-origin /api transport the client uses. Everything downstream is
-// product: the gateway routes mode:'steer' to Agent.steer, the loop drains
-// it at the step boundary into a durable steering/message event, the SSE mux
-// pushes it, and the transcript shows the text as a plain bubble (no
-// interjection chrome). The question composer supplies the deterministic
-// mid-turn window: while ask_user_question blocks, the turn is provably
-// running, so record and replay perform the identical steer-then-answer
-// sequence with zero timing dependence — and the recorded final reply proves
-// the steer reached the MODEL (it obeys an instruction that only the
-// steering message carries).
+// Web e2e scenario: queue a message while the first response streams, strictly
+// transfer that exact occurrence to steering through QueueDock, then prove it
+// is logged, rendered, and obeyed. The following question tool supplies a
+// deterministic pending-steering snapshot before the step can drain.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -56,15 +48,12 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let liveSessionId: string | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 })
-    scaffold.ctx.on('session/event', (session, event) => {
-      liveSessionId ??= session.id
-      sessionEvents.push(event)
-    })
+    // The slower replay keeps the Queue action available until the recorded question barrier arrives.
+    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 100 })
+    scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
@@ -79,7 +68,7 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     await scaffold?.close()
   })
 
-  it('steers during the blocked step; the message is logged, rendered, and obeyed', async () => {
+  it('strictly steers one queued row; the interjection is logged, rendered, and obeyed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-steering'))
     if (MODE !== 'record') {
       // The steer must NOT be a user/message — it lands as steering/message.
@@ -91,35 +80,27 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     await input.fill(PROMPT)
     await input.press('Enter')
 
-    // The blocked composer is the mid-turn barrier: its presence proves the
-    // ask_user_question step is executing, i.e. the turn is running NOW.
+    // Enter remains the Queue gesture. The row action then atomically moves
+    // this exact occurrence into the current turn's steering outbox.
+    await input.fill(STEER)
+    await input.press('Enter')
+    const queued = page.getByText(STEER, { exact: true })
+    await queued.waitFor({ timeout: 10_000 })
+    const queuedRow = page.getByRole('listitem').filter({ hasText: STEER })
+    const steerButton = queuedRow.getByRole('button', { name: 'Steer queued message' })
+    await expect.poll(() => steerButton.isEnabled(), { timeout: 10_000 }).toBe(true)
+    await steerButton.click({ timeout: 10_000 })
+    await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+
+    // The blocked composer is the mid-turn barrier: the tool cannot finish
+    // this step, so the accepted steering remains pending and invisible.
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: MODE === 'record' ? 120_000 : 30_000 })
 
-    // Steer through the real wire from the page (same envelope + endpoint the
-    // web client's session.prompt uses). accepted:true is the transport proof.
-    expect(liveSessionId).toBeDefined()
-    const reply = await page.evaluate(async ({ sessionId, text }) => {
-      const response = await fetch('/api/session.prompt', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'client-request',
-          rpcId: crypto.randomUUID(),
-          method: 'session.prompt',
-          payload: { sessionId, mode: 'steer', content: [{ type: 'text', text }] },
-        }),
-      })
-      return await response.json() as { result?: { ok?: boolean } }
-    }, { sessionId: liveSessionId!, text: STEER })
-    expect(reply.result?.ok).toBe(true)
-
     if (MODE !== 'record') {
-      // Mid-turn golden: the ACCEPTED steer is durable in the inbox but the
-      // loop drains steering only at the step boundary, so no steering/message
-      // exists yet and no steer text renders — the composer still blocks,
-      // alone. The DOM is stable here (no further SSE frames can arrive until
-      // the question is answered), making this state capturable.
+      // Mid-turn golden: the converted steer is pending in the loop but the
+      // loop drains steering only at the step boundary, so no Queue row or
+      // steering/message bubble renders while the question still blocks.
       expect(await page.getByText(STEER, { exact: true }).count()).toBe(0)
       expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
       const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)

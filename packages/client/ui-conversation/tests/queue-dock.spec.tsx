@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * QueueDock rendering and operations: authoritative rows, inline editing,
- * collapse state, removal, failure notices, and live retirement.
+ * collapse state, removal, strict steering, failure notices, and live retirement.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -187,10 +187,10 @@ describe('QueueDock', () => {
     fireEvent.click(getByRole('button', { name: '2 条排队消息' }))
     expect([...container.querySelectorAll('li')].map(item => item.textContent))
       .toEqual(['第一条排队消息', 'image [image]'])
-    expect(container.querySelectorAll('button')).toHaveLength(5)
+    expect(container.querySelectorAll('button')).toHaveLength(7)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="删除排队消息"]')).toHaveLength(2)
-    expect(container.querySelectorAll('[aria-label="立即发送排队消息"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[aria-label="插话发送"]')).toHaveLength(2)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[0] as HTMLButtonElement).disabled).toBe(false)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[1] as HTMLButtonElement).disabled).toBe(true)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')[1]?.getAttribute('title'))
@@ -271,6 +271,45 @@ describe('QueueDock', () => {
     await waitFor(() => {
       expect(updateQueue).toHaveBeenCalledWith(iid('i-1'), { kind: 'remove' })
     })
+  })
+
+  it('strictly steers complete row content only while the agent is running', async () => {
+    const running = snapshotWith([row('i-steer', null, 'image [image]')])
+    const source = liveSession(running)
+    const updateQueue = vi.fn(() => Promise.resolve())
+    const rendered = render(
+      <QueueDock {...kitFor(running, { updateQueue })} useSession={source.useSession} />,
+    )
+
+    const button = rendered.getByLabelText('插话发送')
+    expect(button).toHaveProperty('disabled', false)
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(updateQueue).toHaveBeenCalledWith(iid('i-steer'), { kind: 'steer' })
+    })
+
+    act(() => { source.push({ ...running, running: false }) })
+    expect(rendered.getByLabelText('插话发送')).toHaveProperty('disabled', true)
+    expect(rendered.getByLabelText('插话发送').getAttribute('title')).toBe('仅运行中可插话发送')
+  })
+
+  it('keeps the row and reports a strict steer race', async () => {
+    const snap = snapshotWith([row('i-steer-race', 'pending steer')])
+    const source = liveSession(snap)
+    const notify = vi.fn()
+    const updateQueue = vi.fn(() => Promise.reject(new Error('steer unavailable')))
+    const { getByLabelText, getByText } = render(
+      <QueueDock {...kitFor(snap, { updateQueue, notify })} useSession={source.useSession} />,
+    )
+
+    fireEvent.click(getByLabelText('插话发送'))
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith(
+        'error',
+        '插话失败：当前回复已结束，或这条消息已经开始发送。',
+      )
+    })
+    expect(getByText('pending steer')).toBeTruthy()
   })
 
   it('keeps the row and surfaces a notice when an operation loses the claim race', async () => {

@@ -1,0 +1,67 @@
+# Agent Note（agent 决策记录）：将 Web 已排队消息转为活动轮次的 steering（中途引导）
+
+Status: implemented
+
+[English](2026-07-30-web-queue-steer-action.md) | 中文
+
+## 问题
+
+Web composer 会在 agent 运行期间有意把 Enter 提交作为 Queue 入队。QueueDock 已经为每条待处理消息提供可寻址的行，持久 transcript（文本记录）也已能把消费后的 `steering/message` 事件渲染为带插话徽标的消息，但 Web 没有连接这两个界面的操作。
+
+如果 Web 先在客户端删除该行，再调用 `session.prompt(mode: 'steer')`，就会把用户的一次意图拆分到两个 RPC 中。驱动器可能在两次调用之间先认领该项，steering 投递也可能在删除后失败；现有尽力而为的 `agent.steer()` 回退还可能在原单次入队项被移除后，静默追加一个新的 Queue 项。因此，立即发送操作必须区分当前轮次 steering 与 Queue 前移，并在 steering 已不可用时保留原行。
+
+## 决策
+
+### 产品契约
+
+每个非编辑态的 QueueDock 行都会提供名为“插话发送”的向上箭头操作。仅当会话报告 agent 正在运行时，该操作才会启用；包含混合内容的消息仍可使用，因为 steering 会转发完整且不可变的 `UserMessage`，而非该行的文本投影。编辑和删除保持现有行为，composer 也继续把 Enter 提交为 Queue。
+
+触发该操作会针对对应的 `InboxItemId` 请求严格的当前轮次 steering。操作成功后，权威 Host 快照会移除 Queue 行。AgentLoop 排空该项时，现有持久 `steering/message` 事件与 transcript 插话徽标会渲染这条消息，无需新增聊天展示路径。
+
+running 标志位只用于提示交互状态。在同步变更边界上，AgentLoop 的 `acceptsNextStep` 值才是权威依据。如果该窗口已经关闭，操作会保持 Queue 单次入队项不变，并返回类型化的 `steer-unavailable` 错误；如果驱动器已经认领该项，则返回现有的 `queue-item-not-found` 错误。UI 会报告任一竞态，不会乐观地移除该行。
+
+### Agent 与生命周期边界
+
+`InboxAction` 会在编辑和移除之外，新增由实际消费方支撑的 `{ kind: 'steer' }` 操作。`Agent.updateInbox()` 只有在找到 queued 单次入队项并确认 `acceptsNextStep` 后才会处理该操作，绝不会委托给尽力而为的 `agent.steer()` 别名。
+
+操作成功应用后，系统会结束 queued 单次入队项，并把同一个不可变 `UserMessage` 接受为新的 steering 单次入队项。steering 单次入队项会获得新的 `InboxItemId` 和如实反映投递方式的 `placement: 'steering'`，消息则保留其 `MessageId`、内容和来源。AgentLoop 会先安装新的 outbox 项，再发布生命周期事件；随后先发出新单次入队项的 enqueue，再发出旧单次入队项的 discard，确保可重入取消无法观察或退役一个尚未公布的项。因此，现有 inbox 守恒不变量仍然要求每个单次入队项恰好对应一个 enqueue，以及一个终态 dequeue 或 discard。
+
+该操作不会运行 `agent/prompt-submit`：选择 steering 会有意把投递方式从经独立接纳的轮次改为当前轮次的 next-step 输入。它既不会取消当前工作，也不会重新排序 Queue 中的剩余项。
+
+### Host 与客户端边界
+
+`session.updateQueue` 会携带 `steer` 操作，并把两种负面结果映射为类型化 RPC 错误。这项转换是一次同步 Agent 操作；Host 绝不会通过组合移除和提示词调用来重建它。
+
+Host 的瞬态 `session/queue` 投影仍然只包含 Queue。它会忽略新的待处理 steering 单次入队项，并在收到旧项的 discard 时移除原行。本阶段不会为待处理 steering 增加编辑、删除或重连展示。未来可以用专用的待处理 steering 投影补充这种可观测性，而无需扩大 Queue 变更语义。
+
+现有 `session.prompt(mode: 'steer')` 对新输入仍采用尽力而为的契约：在 next-step 窗口之外，它可能变为会唤醒 agent 的后续轮次。只有 Queue 行操作采用严格语义，因为失败时可以安全地保留其已经待处理的消息。
+
+### 验证
+
+AgentLoop 契约覆盖保持提示词接纳窗口打开，转换一个精确的 queued 单次入队项，并证明替代它的 steering 单次入队项保留消息值、以 `steering/message` 的形式排空，且绝不启动原本的独立轮次。该覆盖还钉住窗口不可用时保留原项、拒绝已被认领的地址，以及可重入取消下的生命周期守恒。
+
+Host schema 和代理测试覆盖新操作、两种类型化错误、权威 Queue 快照，以及重连快照不包含待处理 steering。QueueDock 测试覆盖按运行状态启用、混合内容消息仍可完整投递、失败时保留原行，以及成功后由权威快照退役。
+
+无密钥 Web steering 场景在第一次响应流式输出期间，通过真实 composer 排队一条消息并触发行上的箭头，再用 `ask_user_question` 作为稳定的待处理 steering 屏障。回答问题后，该场景证明一条带徽标的插话成为持久记录，并且下一次模型请求遵循它。Queue 编辑／删除场景继续证明这些操作没有变化。
+
+## 考虑过的替代方案
+
+**在 Web 中删除该行，再调用 `session.prompt(mode: 'steer')`。** 不予采纳，因为两个 RPC 无法让删除和 steering 成为原子操作；失败和驱动器认领竞态可能丢失或重复用户消息。
+
+**恢复向上箭头对应的 Queue 前移操作。** 不予采纳，因为把某个项移到队首仍然会创建一个独立接纳的轮次。该控件承诺的是当前轮次 steering，而不是 Queue 内的优先级。
+
+**使用现有尽力而为的 `agent.steer()` 行为。** 不予采纳，因为关闭的 next-step 窗口会静默地把选中行重新变成 queued 工作，而且位置和标识可能不同。严格失败会保留原单次入队项，并让这项语义竞态明确可见。
+
+**让每个调用方使用的 `agent.steer()` 都采用严格语义。** 不予采纳，因为 TUI 和插件调用方会针对新提交的输入使用其安全的后续轮次回退。queued 行具有这些调用方不具备的可恢复状态。
+
+**改变投递方式时保留同一个 `InboxItemId`。** 不予采纳，因为 `InboxItemId` 标识一次 FIFO 接受，而 `placement` 记录该次接受解析出的投递方式。结束一个 queued 单次入队项并接受一个 steering 单次入队项，能够使生命周期事实保持如实，并让守恒不变量保持不变。
+
+**在 `session/queue` 中暴露待处理 steering。** 暂缓，因为现有产品设计没有为待处理 steering 提供行状态或操作。权威的 Queue 退役加上持久的已消费气泡，足以支撑首个交互阶段；如果产品测试表明这一缺口影响显著，可以通过专用投影增加重连可见性。
+
+**取消活动轮次并运行选中的 Queue 项。** 不予采纳，因为这会破坏无关的进行中工作，并且会启动新轮次，而不是 steering 当前轮次。
+
+## 后果
+
+操作成功后，从 Queue 行退役到 `steering/message` 提交之间，对应消息可能仍处于待处理状态，却不会出现在 Web 中；如果在此期间刷新，界面不会显示待处理 steering。严格 next-step 窗口关闭后，running 标志位仍可能短暂保持为 true，因此按钮可能会为一个最终正确返回 `steer-unavailable` 的操作保持启用。
+
+这项显式操作会把投递方式从经独立接纳的轮次改为当前轮次 steering，因此提示词接纳插件不会处理转换后的消息。为保证可重入取消安全，生命周期事件仍必须先发布 enqueue 再发布 discard；有针对性的回归覆盖会保护这一顺序。

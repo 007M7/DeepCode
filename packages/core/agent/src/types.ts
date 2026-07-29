@@ -54,9 +54,10 @@ export interface InboxItem {
 export type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
 
 /** Result of applying an inbox action at the synchronous ownership boundary. */
-export type InboxActionResult = 'applied' | 'not-found'
+export type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
 
 /** Final admission outcome for one call to {@link Agent.steer}. */
 export type SteeringOutcome =
@@ -209,10 +210,13 @@ export interface Agent {
   /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
    * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 

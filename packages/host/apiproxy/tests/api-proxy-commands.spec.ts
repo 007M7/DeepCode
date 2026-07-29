@@ -291,13 +291,14 @@ function inboxItem(id: string, message: UserMessage, placement: InboxPlacement):
 }
 
 describe('session.updateQueue', () => {
-  it('routes an addressable action and reports a lost claim race', async () => {
+  it('routes addressable actions and reports strict steer races', async () => {
     const ctx = await harness()
     const agent = stubAgent(ctx)
     const seen: unknown[] = []
     agent.updateInbox = (id, action) => {
       seen.push({ id, action })
-      return id === InboxItemId('present') ? 'applied' : 'not-found'
+      if (id === InboxItemId('present')) return 'applied'
+      return id === InboxItemId('closed') ? 'steer-unavailable' : 'not-found'
     }
     const api = createApiProxy(ctx, DEFAULTS)
 
@@ -319,9 +320,22 @@ describe('session.updateQueue', () => {
       },
     })
     expect(expectErr(missing)).toMatchObject({ code: 'queue-item-not-found' })
+    const closed = await api.sessions.updateQueue({
+      rpcId: RpcId('q-closed'),
+      payload: {
+        sessionId: agent.id,
+        itemId: InboxItemId('closed'),
+        action: { kind: 'steer' },
+      },
+    })
+    expect(expectErr(closed)).toMatchObject({
+      code: 'steer-unavailable',
+      details: { itemId: 'closed' },
+    })
     expect(seen).toEqual([
       { id: 'present', action: { kind: 'edit', content: [{ type: 'text', text: 'edited' }] } },
       { id: 'claimed', action: { kind: 'remove' } },
+      { id: 'closed', action: { kind: 'steer' } },
     ])
   })
 

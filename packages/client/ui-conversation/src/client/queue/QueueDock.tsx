@@ -9,7 +9,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
-  IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
+  IconCloseOutline16, IconEditOutline16, IconRightUpOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -30,6 +30,7 @@ export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDock
  */
 export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps) {
   const queue = useSession(s => s.queue)
+  const running = useSession(s => s.running)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
   const [collapsed, setCollapsed] = useState(true)
@@ -169,6 +170,22 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                         }}
                       >
                         <IconTrashOutline16 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className={css.action}
+                        aria-label={t('queue.steer')}
+                        title={running ? t('queue.steer') : t('queue.steer.unavailable')}
+                        disabled={busy !== null || !running}
+                        onClick={() => {
+                          void applyAction(
+                            row.id,
+                            { kind: 'steer' },
+                            t('queue.steerFailed'),
+                          )
+                        }}
+                      >
+                        <IconRightUpOutline16 size={14} />
                       </button>
                     </>
                   )}

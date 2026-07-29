@@ -1847,10 +1847,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (agent !== undefined && hasSubagentOwner(agent.session, agent)) {
           return Promise.resolve(err(request, subagentOwnershipError(sessionId)))
         }
-        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+        if (agent === undefined) {
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        const result = agent.updateInbox(itemId, action)
+        if (result === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        if (result === 'steer-unavailable') {
+          return Promise.resolve(err(request, {
+            code: 'steer-unavailable',
+            message: 'current turn no longer accepts steering',
             details: { itemId },
           }))
         }

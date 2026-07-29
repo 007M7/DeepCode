@@ -77,6 +77,7 @@ describe('rpcErrorSchema', () => {
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({ code: 'steer-unavailable', message: 'm', details: { itemId: 'i' } }).code).toBe('steer-unavailable')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
@@ -280,6 +281,9 @@ describe('sessions domain schemas', () => {
     expect(sessionUpdateQueueRequestSchema.parse({
       sessionId: 's1', itemId: 'i1', action: { kind: 'remove' },
     }).action.kind).toBe('remove')
+    expect(sessionUpdateQueueRequestSchema.parse({
+      sessionId: 's1', itemId: 'i1', action: { kind: 'steer' },
+    }).action.kind).toBe('steer')
     expect(() => sessionUpdateQueueRequestSchema.parse({
       sessionId: 's1', itemId: 'i1', action: { kind: 'promote' },
     })).toThrow()
