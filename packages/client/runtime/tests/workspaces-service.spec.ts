@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionsService } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
-import { WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
+import { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -234,6 +234,40 @@ describe('WorkspacesService', () => {
     api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
     await expect(workspaces.pickDirectory()).resolves.toBeNull()
     expect(api.callsOf('host.pickDirectory')).toEqual([{}, {}])
+    api.onPickDirectory = () => Promise.resolve(err({ code: 'internal', message: 'no chooser', details: {} }))
+    await expect(workspaces.pickDirectory()).rejects.toThrow(/no chooser/)
+  })
+
+  it('passes listings and creation through the browse wire, wrapping business failures', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api))
+    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }], truncated: false }
+    api.onListDirectory = () => Promise.resolve(ok(listing))
+    await expect(workspaces.listDirectory()).resolves.toEqual(listing)
+    await expect(workspaces.listDirectory('/home/u')).resolves.toEqual(listing)
+    // The optional path is omitted from the payload, not sent as undefined.
+    expect(api.callsOf('host.listDirectory')).toEqual([{}, { path: '/home/u' }])
+    api.onListDirectory = () => Promise.resolve(err({ code: 'directory-unreadable', message: 'denied', details: { path: '/x' } }))
+    const listFailure = workspaces.listDirectory('/x')
+    await expect(listFailure).rejects.toBeInstanceOf(DirectoryBrowseError)
+    await expect(listFailure).rejects.toMatchObject({ rpcError: { code: 'directory-unreadable' } })
+
+    await expect(workspaces.createDirectory('/home/u', 'fresh')).resolves.toBe('/home/fake/new')
+    expect(api.callsOf('host.createDirectory')).toEqual([{ path: '/home/u', name: 'fresh' }])
+    api.onCreateDirectory = () => Promise.resolve(err({ code: 'directory-exists', message: 'taken', details: { path: '/home/u/fresh' } }))
+    await expect(workspaces.createDirectory('/home/u', 'fresh')).rejects.toMatchObject({ rpcError: { code: 'directory-exists' } })
+  })
+
+  it('opens a filesystem path through the host without local state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    await expect(workspaces.openPath('/w/alpha/a.ts')).resolves.toBeUndefined()
+    expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
+    api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
+    await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
   })
 
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {

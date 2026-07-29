@@ -74,7 +74,8 @@ export const Config: z<Config> = z.object({
   agentOptions: z.object({
     provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { provider: string; model: string }),
+    maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+  }).default(undefined as unknown as { provider: string; model: string; maxTokens: number }),
   persona: z.string(),
   // Preserve omission; Schemastery's `{ allow: [] }` default would deny every tool.
   toolFilter: z.object({

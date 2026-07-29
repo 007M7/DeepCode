@@ -25,6 +25,7 @@ export class DeepSeekHarness implements AsyncDisposable {
   private readonly cwd: string
   private readonly provider: string
   private readonly model: string
+  private readonly maxTokens: number | undefined
   private initialized: Promise<void> | undefined
   private closed = false
 
@@ -38,6 +39,7 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.cwd = resolve(options.cwd ?? options.launch.cwd ?? process.cwd())
     this.provider = options.provider ?? 'deepseek'
     this.model = options.model ?? 'deepseek-v4-flash'
+    this.maxTokens = options.maxTokens
   }
 
   /**
@@ -61,7 +63,12 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.initialized ??= (async () => {
       try {
         this.clientInstance.start()
-        await this.clientInstance.initialize({ cwd: this.cwd, provider: this.provider, model: this.model })
+        await this.clientInstance.initialize({
+          cwd: this.cwd,
+          provider: this.provider,
+          model: this.model,
+          ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+        })
       } catch (error) {
         this.initialized = undefined
         await this.clientInstance.close()
@@ -216,7 +223,8 @@ function validatedSessionEvent(value: unknown): SessionEvent {
   // kind-tagged content blocks; other variants pass through under their
   // envelope shape.
   if (value.type === 'assistant/message') {
-    const content = isRecord(value.data) ? value.data.content : undefined
+    const message = isRecord(value.data) ? value.data.message : undefined
+    const content = isRecord(message) ? message.content : undefined
     if (!Array.isArray(content) || !content.every(block => isRecord(block) && typeof block.type === 'string')) {
       throw new SdkProtocolError(`assistant/message event carried malformed content: ${JSON.stringify(value)}`)
     }
@@ -242,7 +250,7 @@ export function finalResponse(events: SessionEvent[]): string {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
     if (event?.type !== 'assistant/message') continue
-    return event.data.content
+    return event.data.message.content
       .filter((block): block is ContentBlock & { type: 'text' } => block.type === 'text')
       .map(block => block.text)
       .join('')

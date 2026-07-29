@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type StreamChunk  } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
@@ -49,7 +49,7 @@ describe('ACP automation output boundary', () => {
       sessionId: SessionId('foreign'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    agent.followup({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await agent.whenIdle()
     expect(harness.updates).toHaveLength(0)
   })

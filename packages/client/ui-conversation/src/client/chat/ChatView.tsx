@@ -20,23 +20,22 @@ import {
   memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CodeSubCall, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import type { SelectionTarget } from '../contract/views.ts'
 import { deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem } from './MessageItem.tsx'
-import { PendingCard } from './PendingCard.tsx'
 import { StatsLine } from './StatsLine.tsx'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
 
-type OpenDetails = (target: SelectionTarget) => void
+type OpenFile = (path: string) => void
 
 /** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
 type RenderToolRow = ChatViewSlotProps['renderSlot']
@@ -49,20 +48,18 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected, cwd }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   selected: boolean
   cwd: string | undefined
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
-  const seq = settled ? node.seq : node.time
   const owner = useMemo(() => ({
-    callId: node.callId, toolName, block: node, cwd,
-    openDetails: () => { onOpenDetails({ turnSeq: seq, callId: node.callId, toolName }) },
-  }), [node, toolName, seq, cwd, onOpenDetails])
+    callId: node.callId, toolName, block: node, openFile, cwd,
+  }), [node, toolName, openFile, cwd])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -79,15 +76,13 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, s
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
 const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, seq, onOpenDetails, selected, subCalls, selectedCallId, cwd,
+  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd,
 }: {
   renderSlot: RenderToolRow
   callId: string
   toolName: string
   block: ToolResultNode | RunningToolCall
-  /** Surface seq for finalized results; the call's turn for running calls. */
-  seq: number
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   selected: boolean
   /** `run_code` sub-dispatches in dispatch order (reference-stable per
    *  parent; running entries settle in place); undefined for ordinary calls. */
@@ -98,9 +93,8 @@ const CallRow = memo(function CallRow({
   cwd: string | undefined
 }) {
   const owner = useMemo(() => ({
-    callId, toolName, block, cwd,
-    openDetails: () => { onOpenDetails({ turnSeq: seq, callId, toolName }) },
-  }), [callId, toolName, block, seq, cwd, onOpenDetails])
+    callId, toolName, block, openFile, cwd,
+  }), [callId, toolName, block, openFile, cwd])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -114,7 +108,7 @@ const CallRow = memo(function CallRow({
               key={node.callId}
               renderSlot={renderSlot}
               node={node}
-              onOpenDetails={onOpenDetails}
+              openFile={openFile}
               selected={node.callId === selectedCallId}
               cwd={cwd}
             />
@@ -126,10 +120,10 @@ const CallRow = memo(function CallRow({
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId, codeDispatches, cwd }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
   selectedCallId: string | undefined
   /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
@@ -146,14 +140,31 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
           callId={node.callId}
           toolName={node.call?.name ?? ''}
           block={node}
-          seq={node.seq}
-          onOpenDetails={onOpenDetails}
+          openFile={openFile}
           selected={node.callId === selectedCallId}
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
         />
       ))}
+    </div>
+  )
+})
+
+/** One command lifecycle row: keyed dispatch on the command name with the
+ *  generic card as the render-site fallback (zero registration required). A
+ *  run-less cross-window node has no name and always lands on the fallback. */
+const CommandRow = memo(function CommandRow({ renderSlot, node }: {
+  renderSlot: RenderToolRow
+  node: CommandNode
+}) {
+  const owner = useMemo(() => ({ node }), [node])
+  return (
+    <div className={css.callRow}>
+      {renderSlot('conversation.chat.commandview', owner, {
+        entryKey: node.name ?? '',
+        fallback: <GenericCommandCard {...owner} />,
+      })}
     </div>
   )
 })
@@ -210,14 +221,13 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openDetails, loadOlder }: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
-  const pending = useSession(s => s.pending)
   const openState = useSession(s => s.openState)
   const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
   const hasMore = useSession(s => s.hasMore)
@@ -311,7 +321,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           key={item.key}
           renderSlot={renderSlot}
           results={item.results}
-          onOpenDetails={openDetails}
+          openFile={openFile}
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
           cwd={cwd}
@@ -320,7 +330,18 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     }
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
-      return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} />
+      return (
+        <AssistantMarkdown
+          key={item.key}
+          blocks={node.blocks}
+          streaming={false}
+          interrupted={node.interrupted}
+          time={node.time}
+        />
+      )
+    }
+    if (node.kind === 'command') {
+      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
@@ -351,8 +372,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
                   callId={call.callId}
                   toolName={call.name}
                   block={call}
-                  seq={call.turn}
-                  onOpenDetails={openDetails}
+                  openFile={openFile}
                   selected={call.callId === selectedCallId}
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
@@ -361,7 +381,9 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
               ))}
             </div>
           )}
-          {pending.map(item => <PendingCard key={item.key} item={item} />)}
+          {/* No pending placeholders: questions (ui-question) and approvals
+              (ApprovalPanel) both take over the composer, so a flow card would
+              double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnDots />}

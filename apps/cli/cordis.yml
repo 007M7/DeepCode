@@ -19,6 +19,13 @@
 - id: session
   name: '@deepseek-ai/dsh-session'
 
+# Projection registry: drives every registered domain unit over committed
+# session events and serves finished values (history-tail projections block +
+# session/projection frames). Without this row every domain's optional unit
+# injection stays silent — no block, no frames, no titles/todos on the web.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 - id: session-title
   name: '@deepseek-ai/dsh-session-title'
   config:
@@ -79,6 +86,19 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
+# Common pi-ai provider routes read credentials and endpoint overrides from the
+# boot's layered environment.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        baseURL: !!js process.env.ANTHROPIC_BASE_URL
+
 # Transient-failure recovery around the loop's model calls (same policy as
 # the TUI's agent-spine composition; defaults: 2 retries, 500ms→10s backoff).
 - id: llm-retry
@@ -109,12 +129,59 @@
 - id: workspace
   name: '@deepseek-ai/dsh-workspace'
 
+# Persisted projection cache: durable per-session checkpoints of every
+# registered projection unit (json backend → ./.storages/session_projcache.json,
+# beside workspace.json), throttled between the two mandatory points
+# (turn/end + detach), serving cold listings without full-log loads.
+- id: session-projection-cache
+  name: '@deepseek-ai/dsh-session-projection-cache'
+  config:
+    writeEveryEvents: 200
+    writeIntervalMs: 5000
+
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-- id: bash-local
-  name: '@deepseek-ai/dsh-bash-local'
+# The sandboxed product path (the acp-agent composition): per-platform
+# runner provider, the shared policy home, the confined bash executor, and
+# the approval seam its escalation asks through. The web deployment default
+# is danger-full-access + never (same behavior as the former bash-local
+# rows); DSH_PERMISSION_MODE opts a process into a confined default, and
+# per-session switches ride the /permission command's knob events.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'danger-full-access'
+    workspaceRoot: !!js process.cwd()
+
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') === 'danger-full-access' ? 'never' : 'ask'"
+
+# Presets over the two knobs (requires the confining executor + approval):
+# the web permission chip's table, served through the permissions projection
+# and switched through /permission.
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
@@ -126,9 +193,11 @@
   name: '@deepseek-ai/dsh-tool-tasks'
 
 # fs cwd stays the package default (process.cwd()) — the same value the
-# gateway injects into session.cwd, so paths and sessions agree.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
+# gateway injects into session.cwd, so paths and sessions agree. The
+# sandboxed backend rides the SAME policy as bash: write/edit fence by the
+# effective mode, so read/write/edit stay available under every mode.
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
 
 - id: fs-policy
   name: '@deepseek-ai/dsh-fs-policy'
@@ -157,6 +226,18 @@
 # command.execute; the web '/' menu is a pure projection of this registry.
 - id: commands
   name: '@deepseek-ai/dsh-commands'
+
+# Goal service + automatic same-session continuation + the /goal command.
+# The GoalService registers the 'goal' session projection unit; the web
+# GoalBar reads it through useProjection.
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+
+- id: goal-session
+  name: '@deepseek-ai/dsh-goal-session'
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
 
 # Plan mode registers /plan (the first real command on the web surface).
 # Section text mirrors examples/tui-agent/cordis.yml (the reference
@@ -233,6 +314,13 @@
 # The API gateway: the transport-agnostic dispatch face every client shape
 # shares. provider/model are the host default routing — the profile json's
 # mapping target (user config overrides these engineering defaults).
+# Directory-picking package, dual-face: the node half serves the gateway's
+# host.* picker RPCs, the browser half fills ui-workspace's directory-flow
+# slots — one row composes the whole interaction. Swap point: mount
+# '-native' instead for the host-display OS chooser.
+- id: directory-picker
+  name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'
   config:
@@ -309,9 +397,21 @@
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
 
+# Goal surface: GoalBar in the input dock over the goal session projection.
+- id: ui-goal
+  name: '@deepseek-ai/dsh-client-ui-goal'
+
 # Model selection: the /model popupSelect + composer seat over session.models.
 - id: ui-model
   name: '@deepseek-ai/dsh-client-ui-model'
+
+# The /permission popup picker (hostBacked over the host /permission command).
+- id: ui-permission
+  name: '@deepseek-ai/dsh-client-ui-permission'
+
+# Plan control: the composer plan seat over the plan projection + /plan channel.
+- id: ui-plan
+  name: '@deepseek-ai/dsh-client-ui-plan'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'

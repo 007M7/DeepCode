@@ -3,12 +3,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { agentEvents, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -46,12 +46,11 @@ function agentForCwd(cwd: string): Agent {
     session,
     status: 'idle',
     acceptsNextStep: false,
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
-      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle: () => Promise.resolve(),
@@ -66,12 +65,11 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     status: 'running',
     acceptsNextStep: false,
     ctx: new Context(),
-    send: () => AgentMessageId('stub'),
-    followup: () => AgentMessageId('stub'),
-    steer: () => AgentMessageId('stub'),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
-      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle: () => Promise.resolve(),
@@ -80,10 +78,10 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
 
 function openMessageTurn(session: Session, turn = 1): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 async function fireStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
@@ -93,7 +91,7 @@ async function fireStep(ctx: Context, agent: Agent, turn: number, step: number):
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
   return session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
     && event.data.source.kind === 'plugin'
-    && event.data.source.plugin === 'tool-skill')
+    && event.data.source.plugin === 'dsh-tool-skill')
 }
 
 function catalogContent(entries: string[]): Message['content'] {
@@ -190,14 +188,16 @@ describe('dsh-tool-skill', () => {
       content: 'A body.',
     })
     ctx.on('agent/step', (agent) => {
-      agent.inject({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } })
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } }))
     })
 
     const prefix = await composePrefix(ctx, '/workspace')
 
     expect(prefix).toEqual([
       {
+        id: expect.any(String) as unknown,
         role: 'user',
+        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
         content: [{
           type: 'text',
           text: [
@@ -214,7 +214,12 @@ describe('dsh-tool-skill', () => {
           ].join('\n'),
         }],
       },
-      { role: 'user', content: [{ type: 'text', text: 'later contribution' }] },
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      },
     ])
     const rendered = JSON.stringify(prefix[0])
     expect(rendered).not.toContain('whenToUse')
@@ -329,26 +334,26 @@ describe('dsh-tool-skill', () => {
     const session = new Session(SessionId('catalog-resume'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: catalogContent(['- `old-skill`: Old skill']),
-      source: { kind: 'plugin', plugin: 'tool-skill' },
-    }, { surfaceOp: 'append' })
-    session.append('user/message', {
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'missing catalog markers' }],
-      source: { kind: 'plugin', plugin: 'tool-skill' },
-    }, { surfaceOp: 'append' })
-    session.append('user/message', {
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<available_skills>\nmissing closing marker' }],
-      source: { kind: 'plugin', plugin: 'tool-skill' },
-    }, { surfaceOp: 'append' })
-    session.append('user/message', {
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }],
-      source: { kind: 'plugin', plugin: 'tool-skill' },
-    }, { surfaceOp: 'append' })
-    session.append('user/message', {
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
       content: [{ type: 'reasoning', text: 'not a user-role catalog block' }],
-      source: { kind: 'plugin', plugin: 'tool-skill' },
-    }, { surfaceOp: 'append' })
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
 
     await fireStep(ctx, agent, 1, 1)
 
@@ -371,10 +376,10 @@ describe('dsh-tool-skill', () => {
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
     const initial = catalogMessages(session)[0]
     if (initial === undefined) throw new Error('expected initial catalog')
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted history' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start: initial.seq, end: initial.seq },
       sourceEventSeqs: [initial.seq],
     })

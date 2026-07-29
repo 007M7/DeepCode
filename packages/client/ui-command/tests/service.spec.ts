@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
-import type { CommandContribution, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
+import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
 import type { CommandDescriptor } from '../src/client/directory.ts'
 import { CommandService } from '../src/client/service.ts'
 
@@ -31,7 +31,7 @@ const S2_CMDS: CommandDescriptor[] = [
   { name: 'attach', description: 'scoped shadow', input: { hint: 'path' } },
 ]
 
-type ExecuteValue = { matched: boolean; result?: { kind: 'success' | 'error'; text?: string } }
+type ExecuteValue = { matched: boolean }
 
 interface BenchOptions {
   /** Scripted catalog per list payload; default serves the fixed catalogs by session. */
@@ -197,6 +197,68 @@ describe('candidates', () => {
     command.register(themeContribution({ name: 'plan' }))
     await expect(source.candidates(proj('s1'), req(''))).rejects.toThrow('collides with a host command')
   })
+
+})
+
+describe('decorations (bare-invocation UI on host commands)', () => {
+  const goalDecoration = (over: Partial<CommandDecoration> = {}): CommandDecoration => ({
+    name: 'goal',
+    available: () => true,
+    ui: themeUi(),
+    ...over,
+  })
+
+  it('adds no catalog row: the host row stands alone', async () => {
+    const { command, source } = await bench()
+    command.decorate(goalDecoration())
+    const names = (await source.candidates(proj('s1'), req(''))).map(c => c.name)
+    expect(names).toEqual(['plan', 'goal'])
+  })
+
+  it('bare enter opens the popup; an argued line never consults the decoration (host claim)', async () => {
+    const { command, source, mint, warm } = await bench()
+    command.decorate(goalDecoration())
+    const scope = mint('s1')
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/goal', new AbortController().signal)).toBe('handled')
+    expect(command.popupFor(scope.ctx).state.getSnapshot()).toMatchObject({ open: true, command: 'goal' })
+    const argued = await source.matchEnter!(proj('s1'), '/goal ship it', new AbortController().signal)
+    if (argued === undefined || argued === 'handled' || !('claim' in argued)) throw new Error('expected the host claim')
+    expect(argued.claim.token).toBe('/goal ')
+  })
+
+  it('space never consults the decoration (host claim)', async () => {
+    const { command, source, warm } = await bench()
+    command.decorate(goalDecoration())
+    await warm(proj('s1'))
+    const outcome = source.matchSpace!(proj('s1'), '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected the host claim')
+    expect(outcome.claim.token).toBe('/goal ')
+  })
+
+  it('a decoration with no host row never fires (bare enter misses; menu pick misses)', async () => {
+    const { command, source, mint, warm } = await bench()
+    command.decorate(goalDecoration({ name: 'phantom' }))
+    const scope = mint('s1')
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/phantom', new AbortController().signal)).toBeUndefined()
+    expect(menuPick(source, 'phantom', proj('s1'))).toBeUndefined()
+    expect(command.popupFor(scope.ctx).state.getSnapshot().open).toBe(false)
+  })
+
+  it('an unavailable decoration falls through to the host bare path (detached execute)', async () => {
+    const { command, source, warm, executeCalls } = await bench()
+    command.decorate(goalDecoration({ name: 'plan', available: () => false }))
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/plan', new AbortController().signal)).toBe('handled')
+    expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/plan' }])
+  })
+
+  it('duplicate decoration names fail loud', async () => {
+    const { command } = await bench()
+    command.decorate(goalDecoration())
+    expect(() => { command.decorate(goalDecoration()) }).toThrow('duplicate decoration for /goal')
+  })
 })
 
 describe('dispatch (menu column)', () => {
@@ -361,16 +423,18 @@ describe('matchEnter (enter column)', () => {
 })
 
 describe('execute payload', () => {
-  it('claim.submit addresses the session and maps the detached result', async () => {
+  it('claim.submit addresses the session; admitted outcomes stay off the composer (flow card owns them)', async () => {
     const { source, warm, executeCalls } = await bench({
-      execute: () => Promise.resolve({ matched: true, result: { kind: 'success', text: 'goal set' } }),
+      execute: () => Promise.resolve({ matched: true }),
     })
     await warm(proj('s1'))
     const outcome = source.matchSpace!(proj('s1'), '/goal')
     if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
     const settled = await outcome.claim.submit('ship it', new Context())
     expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/goal ship it' }])
-    expect(settled).toEqual({ kind: 'success', text: 'goal set' })
+    // Pure admission: no outcome text ever rides the submit result — the
+    // durable command lifecycle events render the outcome in the flow.
+    expect(settled).toEqual({ kind: 'success' })
   })
 
   it('maps matched:false to an error outcome and a matched bare result to success', async () => {
@@ -389,33 +453,29 @@ describe('execute payload', () => {
   })
 })
 
-describe('detached result notices', () => {
+describe('detached admission notices', () => {
   const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
-  it('success text → info; error result → error; rejection → error, all on the triggering session', async () => {
-    let mode: 'info' | 'error' | 'reject' = 'info'
+  it('admitted outcomes stay silent; admission miss and transport rejection notice as errors', async () => {
+    let mode: 'admitted' | 'miss' | 'reject' = 'admitted'
     const { source, mint, warm, notices } = await bench({
       execute: () => {
         if (mode === 'reject') return Promise.reject(new Error('network down'))
-        return Promise.resolve({
-          matched: true,
-          result: mode === 'info'
-            ? { kind: 'success' as const, text: 'compacted 12 messages' }
-            : { kind: 'error' as const, text: 'plan mode refused' },
-        })
+        return Promise.resolve({ matched: mode === 'admitted' })
       },
     })
     mint('s1')
     await warm(proj('s1'))
+    // Admitted: the durable lifecycle events own the outcome — no notice.
     menuPick(source, 'plan', proj('s1'))
     await flush()
-    expect(notices).toEqual([{ scope: sid('s1'), level: 'info', text: 'compacted 12 messages' }])
+    expect(notices).toEqual([])
 
-    notices.length = 0
-    mode = 'error'
+    // Admission miss (matched:false): immediate composer feedback stays.
+    mode = 'miss'
     await source.matchEnter!(proj('s1'), '/plan', new AbortController().signal)
     await flush()
-    expect(notices).toEqual([{ scope: sid('s1'), level: 'error', text: 'plan mode refused' }])
+    expect(notices).toEqual([{ scope: sid('s1'), level: 'error', text: 'unknown or malformed command: /plan' }])
 
     notices.length = 0
     mode = 'reject'
@@ -424,9 +484,9 @@ describe('detached result notices', () => {
     expect(notices).toEqual([{ scope: sid('s1'), level: 'error', text: 'network down' }])
   })
 
-  it('success without text stays silent; a torn-down scope drops the notice', async () => {
+  it('a torn-down scope drops the failure notice', async () => {
     const { source, warm, notices } = await bench({
-      execute: () => Promise.resolve({ matched: true, result: { kind: 'success' as const, text: 'orphan' } }),
+      execute: () => Promise.reject(new Error('orphan failure')),
     })
     await warm(proj('ghost')) // never minted: scopeFor misses
     menuPick(source, 'plan', proj('ghost'))

@@ -7,7 +7,7 @@
 //
 // Selector convention: CSS Modules hash as [hash]_[local], so class-substring
 // selectors are unreliable — anchor on data-* attributes (data-variant /
-// data-clickable / data-sample) or visible text. The one [class*=] use below
+// data-sample) or visible text. The one [class*=] use below
 // (frame/handle) rides local names that survive hashing as suffixes; prefer
 // data-* for anything new.
 //
@@ -89,8 +89,10 @@ function providerTitle(page: HistoryPage): string | undefined {
 
 function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
   return page.events.some(({ event }) => {
-    if (event.type !== 'assistant/message' || !isRecord(event.data) || !Array.isArray(event.data.content)) return false
-    return event.data.content.some(block =>
+    if (event.type !== 'assistant/message' || !isRecord(event.data) || !isRecord(event.data.message)) return false
+    const content = event.data.message.content
+    if (!Array.isArray(content)) return false
+    return content.some(block =>
       isRecord(block) && block.type === 'text' && typeof block.text === 'string' && block.text.includes(marker))
   })
 }
@@ -448,7 +450,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click opens the details column', async () => {
+  it('5 bash differential rendering: tool row click leaves the details column collapsed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -462,16 +464,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Selection channel: click writes selection + layout.openDetails.
-    await page.waitForFunction(() => {
-      const frame = document.querySelector('[class*="frame"]')
-      if (frame === null) return false
-      return Number(getComputedStyle(frame).gridTemplateColumns.split(' ').pop()!.replace('px', '')) > 0
-    }, undefined, { timeout: 10_000 })
-    await screen(page, '09-details-open')
+    // Tool rows no longer drive layout.openDetails; the column stays closed.
+    expect(await detailsTrack(page)).toBe(0)
+    await screen(page, '09-details-closed')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and persists across reload', async () => {
+  it('6 sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -486,7 +484,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '10-sidebar-dragged')
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    expect(await firstTrack(page)).toBe(after)
+    expect(await firstTrack(page)).toBe(before)
   })
 
   it('7 dark mode: the body attribute cascades the token sheets', async () => {

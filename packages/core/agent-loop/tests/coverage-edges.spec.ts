@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, LlmError, StreamChunk, errorChain } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, LlmError, StreamChunk, errorChain  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -38,7 +38,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
 describe('tool JSON parse', () => {
@@ -249,7 +249,7 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
     await waitForIdle(ctx, agent)
 
     const toolResult = agent.session.events.find(e => e.type === 'tool/result')
-    expect(toolResult?.type === 'tool/result' && toolResult.data.isError).toBe(true)
+    expect(toolResult?.type === 'tool/result' && toolResult.data.message.content[0].isError).toBe(true)
     expect(toolResult?.type === 'tool/result' && toolResult.data.error)
       .toEqual({ name: 'HarnessError', code: 'BOOM' })
   })

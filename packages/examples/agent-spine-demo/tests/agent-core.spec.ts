@@ -13,6 +13,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
+  createUserMessage,
   CallId,
   LlmAdapter,
   LlmError,
@@ -167,10 +168,10 @@ describe('dsh-agent-spine-demo bundle', () => {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(ctx.sessionTitle.get(session)?.title).toBe('One')
@@ -237,7 +238,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    handle.agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
@@ -337,7 +338,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
       const agent = handle.agent
 
-      agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
@@ -366,10 +367,15 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+      expect(adapter.requests[0]?.messages).toEqual([{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'user' },
+      }])
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {
@@ -441,10 +447,10 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({
+      handle.agent.followup(createUserMessage({
         content: [{ type: 'text', text: 'Create and load the project skill.' }],
         source: { kind: 'user' },
-      })
+      }))
       await waitForIdle(ctx, handle.agent)
 
       expect(adapter.requests).toHaveLength(4)
@@ -463,19 +469,21 @@ describe('dsh-agent-spine-demo bundle', () => {
       const transcript = handle.agent.session.events.flatMap<Record<string, unknown>>((event) => {
         if (event.type === 'user/message'
           && event.data.source.kind === 'plugin'
-          && event.data.source.plugin === 'tool-skill') {
+          && event.data.source.plugin === 'dsh-tool-skill') {
           return [{
             type: event.type,
             source: event.data.source,
             text: event.data.content.map(block => block.type === 'text' ? block.text : '').join('\n'),
           }]
         }
-        if (event.type === 'tool/result' && ['write-skill', 'load-skill'].includes(event.data.callId)) {
+        if (event.type === 'tool/result'
+          && ['write-skill', 'load-skill'].includes(event.data.message.source.callId)) {
+          const result = event.data.message.content[0]
           return [{
             type: event.type,
-            callId: event.data.callId,
-            isError: event.data.isError,
-            text: event.data.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+            callId: event.data.message.source.callId,
+            isError: result.isError,
+            text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
               .replaceAll(root, '{{cwd}}'),
           }]
         }
@@ -496,7 +504,7 @@ describe('dsh-agent-spine-demo bundle', () => {
           {
             "source": {
               "kind": "plugin",
-              "plugin": "tool-skill",
+              "plugin": "dsh-tool-skill",
             },
             "text": "<system-reminder>
         A skill is a reusable set of task-specific instructions. The following skills are available in this session:
@@ -590,7 +598,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')

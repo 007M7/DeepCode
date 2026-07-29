@@ -9,7 +9,8 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
@@ -18,7 +19,7 @@ export const inject = ['agents', 'tools', 'skills']
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 const CATALOG_ENTRIES_START = '<available_skills>\n'
 const CATALOG_ENTRIES_END = '\n</available_skills>'
-const PLUGIN_SOURCE = { kind: 'plugin', plugin: name } as const
+const PLUGIN_SOURCE = { kind: 'plugin', plugin: 'dsh-tool-skill' } as const
 
 /** Model-facing skill catalog configuration. */
 export interface Config {
@@ -134,10 +135,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const catalog = history.published
       ? renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength)
       : renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength)
-    agent.inject({
-      content: catalog.content,
-      source: PLUGIN_SOURCE,
-    })
+    agent.inject(catalog)
   })
 }
 
@@ -187,10 +185,9 @@ function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceB
   }
 }
 
-function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): Message {
+function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
   const entries = renderCatalogEntries(skills, descriptionMaxLength)
-  return {
-    role: 'user',
+  return createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -205,10 +202,11 @@ function renderCatalogMessage(skills: SkillSummary[], descriptionMaxLength: numb
         '</system-reminder>',
       ].join('\n'),
     }],
-  }
+    source: PLUGIN_SOURCE,
+  })
 }
 
-function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: number): Message {
+function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: number): UserMessage {
   const entries = renderCatalogEntries(skills, descriptionMaxLength)
   const availability = skills.length === 0
     ? [
@@ -217,8 +215,7 @@ function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: numbe
     : [
       'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
     ]
-  return {
-    role: 'user',
+  return createUserMessage({
     content: [{
       type: 'text',
       text: [
@@ -233,7 +230,8 @@ function renderCatalogUpdate(skills: SkillSummary[], descriptionMaxLength: numbe
         '</system-reminder>',
       ].join('\n'),
     }],
-  }
+    source: PLUGIN_SOURCE,
+  })
 }
 
 function renderCatalogEntries(skills: SkillSummary[], descriptionMaxLength: number): string[] {
@@ -260,7 +258,7 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
     const event = events[index]!
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
-      || event.data.source.plugin !== name) continue
+      || event.data.source.plugin !== PLUGIN_SOURCE.plugin) continue
     const digest = catalogContentDigest(event.data.content)
     if (digest === undefined) continue
     published = true
@@ -269,7 +267,7 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
   return { published }
 }
 
-function catalogContentDigest(content: Message['content']): string | undefined {
+function catalogContentDigest(content: UserMessage['content']): string | undefined {
   if (content.length !== 1 || content[0]?.type !== 'text') return undefined
   const text = content[0].text
   const start = text.indexOf(CATALOG_ENTRIES_START)

@@ -105,17 +105,22 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
-  it('initializes the child with the configured provider/model and the parent cwd', async () => {
+  it('initializes the child with the configured provider/model/maxTokens and the parent cwd', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'subagent-dsh-sdk-init-'))
     const recordFile = join(tmp, 'init.jsonl')
     try {
-      const ctx = await setup({ FAKE_RECORD_INIT: recordFile })
+      const ctx = await setup({ FAKE_RECORD_INIT: recordFile }, { maxTokens: 4096 })
       const run = await ctx.subagents.start('dsh-sdk', request())
       await run.result
       await run.dispose()
       const { readFileSync } = await import('node:fs')
       const records = readFileSync(recordFile, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-      expect(records).toEqual([{ cwd: process.cwd(), provider: 'fake-provider', model: 'fake-model' }])
+      expect(records).toEqual([{
+        cwd: process.cwd(),
+        provider: 'fake-provider',
+        model: 'fake-model',
+        maxTokens: 4096,
+      }])
       await ctx.fiber.dispose()
     } finally {
       rmSync(tmp, { recursive: true, force: true })
@@ -363,6 +368,45 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await expect(ctx.plugin(sdk, { ...base, disposeGraceMs: Number.NaN })).rejects.toThrow('disposeGraceMs must be a positive finite number')
     await ctx.fiber.dispose()
   })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid maxTokens %s at load',
+    async (maxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      await expect(ctx.plugin(sdk, {
+        providerName: 'sdk',
+        command: 'true',
+        args: [],
+        provider: 'p',
+        model: 'm',
+        maxTokens,
+        env: {},
+      })).rejects.toThrow('maxTokens')
+      await ctx.fiber.dispose()
+    },
+  )
+
+  it.each([0, 1.5])(
+    'defensively rejects invalid maxTokens %s when apply is called directly',
+    async (maxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      expect(() => { sdk.apply(ctx, {
+        providerName: 'sdk',
+        command: 'true',
+        args: [],
+        provider: 'p',
+        model: 'm',
+        maxTokens,
+        env: {},
+        shutdownTimeoutMs: DEFAULT_SHUTDOWN_TIMEOUT_MS,
+        disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+        disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+      }) }).toThrow('maxTokens must be a positive safe integer')
+      await ctx.fiber.dispose()
+    },
+  )
 
   it('rejects an empty config cwd at load', async () => {
     const ctx = new Context()

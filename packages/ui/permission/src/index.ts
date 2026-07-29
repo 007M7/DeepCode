@@ -3,13 +3,16 @@
  * approval-policy knobs. A switch records the selected preset, then writes
  * changed knobs through their canonical setters. Execution, prompt narration,
  * and replay keep reading their knob folds. The preset event preserves user
- * intent when two presets share a bundle.
+ * intent when two presets share a bundle. The read side ships as the
+ * `permissions` session projection; the write side ships as the
+ * `/permission` command — both optional children over the same service.
  *
  * @module dsh-permission
  */
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { z as zod } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -18,6 +21,16 @@ import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-a
 import type {} from '@deepseek-ai/dsh-bash'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+// Type-only: resolves ctx.sessionProjections / ctx.commands for the optional children.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-commands'
+import type { PermissionSelect, PresetOption } from './types.ts'
+
+// The `permissions` projection-key declaration lives in src/types.ts (its one
+// home); this re-export projects the type face onto the package root AND
+// keeps the module edge in the emitted index.d.ts, so aggregate programs
+// consuming the declarations still receive the SessionProjectionMap merge.
+export type * from './types.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -49,16 +62,6 @@ export interface PresetSpec {
   description?: string
 }
 
-/** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
-export interface PresetOption {
-  /** Stable option value: the table key, or `custom`. */
-  value: string
-  /** The display label. */
-  name: string
-  /** One user-facing sentence on what the value means. */
-  description?: string
-}
-
 /**
  * Returned when effective knob values match no table entry. Clients may show
  * it as the current value, but it is never a switch target or event payload.
@@ -77,6 +80,50 @@ export function effectivePermissionPreset(events: readonly SessionEvent[]): stri
     if (event.type === 'permission/preset') return event.data.preset
   }
   return undefined
+}
+
+/**
+ * The projection unit's state: the last seen value of each knob event, null
+ * before an override (composition defaults apply at view time). Plain JSON
+ * (persisted-cache precondition).
+ */
+export interface KnobState {
+  /** Last `permission/preset` payload, or null. */
+  preset: string | null
+  /** Last `sandbox/mode` payload, or null. */
+  sandbox: SandboxMode | null
+  /** Last `approval/policy` payload, or null. */
+  approval: ApprovalPolicy | null
+}
+
+/** State for the empty log: every knob at its composition default. */
+const EMPTY_KNOBS: KnobState = { preset: null, sandbox: null, approval: null }
+
+/**
+ * One-event knob transition (the projection unit's `apply`). Uninterested
+ * events return the same reference — the registry's change gate.
+ * @param state - the folded knob state before `event`.
+ * @param event - one committed session event.
+ * @returns the next state; the same reference when the event is not a knob.
+ */
+export function applyKnobEvent(state: KnobState, event: SessionEvent): KnobState {
+  switch (event.type) {
+    case 'permission/preset':
+      return { ...state, preset: event.data.preset }
+    case 'sandbox/mode':
+      return { ...state, sandbox: event.data.mode }
+    case 'approval/policy':
+      return { ...state, approval: event.data.policy }
+    default:
+      return state
+  }
+}
+
+/** Whole-log knob fold (the cold-read parallel of {@link applyKnobEvent}). */
+function foldKnobs(events: readonly SessionEvent[]): KnobState {
+  let state = EMPTY_KNOBS
+  for (const event of events) state = applyKnobEvent(state, event)
+  return state
 }
 
 /** The {@link PermissionService} config: the deployment's preset table. */
@@ -128,6 +175,55 @@ export class PermissionService extends Service {
     if (ctx.bash.sandboxMode === undefined) {
       throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) — presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
     }
+
+    // The permissions projection unit: fold the three whole-value knob
+    // events; view derives the select over the composition defaults this
+    // service already owns. The unit child activates only when a projection
+    // registry is composed (headless assemblies stay unaffected).
+    // zod `.optional()` types the key `string | undefined` while the domain
+    // says `description?: string`; on the JSON wire the two serialize
+    // identically (absent), so the cast records exactly that
+    // exactOptionalPropertyTypes widening (the Wire<T> precedent).
+    const selectSchema = zod.object({
+      options: zod.array(zod.object({
+        value: zod.string().min(1),
+        name: zod.string().min(1),
+        description: zod.string().optional(),
+      })),
+      currentValue: zod.string().min(1),
+    }) as unknown as zod.ZodType<PermissionSelect>
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register<'permissions', KnobState>({
+        key: 'permissions',
+        schema: selectSchema,
+        init: () => EMPTY_KNOBS,
+        apply: applyKnobEvent,
+        view: state => this.selectFor(state),
+        stateVersion: 1,
+      })
+    })
+
+    // The /permission command: the one write path a web client uses (the
+    // popup contribution submits the picked preset as this line). The child
+    // activates only when a command registry is composed.
+    ctx.inject(['commands'], (commandCtx) => {
+      commandCtx.commands.register({
+        name: 'permission',
+        description: 'Switch the permission preset (sandbox mode + approval policy)',
+        input: { hint: '<preset>' },
+        handler: ({ agent, rawInput }) => {
+          const name = rawInput.trim()
+          if (name === '') {
+            return { kind: 'success', text: `Current permission preset: ${this.current(agent.session.events)}. Available: ${this.names.join(', ')}.` }
+          }
+          if (!this.names.includes(name)) {
+            return { kind: 'error', text: `unknown permission preset "${name}" (available: ${this.names.join(', ')})` }
+          }
+          this.set(agent.session, name)
+          return { kind: 'success', text: `Permission preset: ${name}.` }
+        },
+      })
+    })
   }
 
   /**
@@ -146,18 +242,39 @@ export class PermissionService extends Service {
    * @returns the effective preset name, or `custom` when nothing matches.
    */
   current(events: readonly SessionEvent[]): string {
-    const sandbox = effectiveSandboxMode(events) ?? this.ctx.bash.sandboxMode
-    const approval = effectiveApprovalPolicy(events) ?? this.ctx.approval.config.policy ?? 'ask'
+    return this.derive(foldKnobs(events))
+  }
+
+  /** Resolve the preset for one folded knob state (the shared mathematics of `current` and the projection unit). */
+  private derive(state: KnobState): string {
+    const sandbox = state.sandbox ?? this.ctx.bash.sandboxMode
+    const approval = state.approval ?? this.ctx.approval.config.policy ?? 'ask'
     const matches = (spec: PresetSpec): boolean => spec.sandbox === sandbox && spec.approval === approval
-    const folded = effectivePermissionPreset(events)
-    if (folded !== undefined) {
-      const spec = this.presets[folded]
-      if (spec !== undefined && matches(spec)) return folded
+    if (state.preset !== null) {
+      const spec = this.presets[state.preset]
+      if (spec !== undefined && matches(spec)) return state.preset
     }
     for (const [name, spec] of Object.entries(this.presets)) {
       if (matches(spec)) return name
     }
     return CUSTOM_PRESET
+  }
+
+  /**
+   * Build the whole select value for one folded knob state: every table
+   * option in declaration order, `custom` appended exactly while derived.
+   * @param state - the folded knob overrides.
+   * @returns the `permissions` projection payload.
+   */
+  selectFor(state: KnobState): PermissionSelect {
+    const currentValue = this.derive(state)
+    return {
+      options: [
+        ...this.names.map(name => this.optionOf(name)),
+        ...currentValue === CUSTOM_PRESET ? [this.optionOf(CUSTOM_PRESET)] : [],
+      ],
+      currentValue,
+    }
   }
 
   /**

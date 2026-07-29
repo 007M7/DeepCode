@@ -45,7 +45,7 @@ declare module 'cordis' {
 /**
  * Severity of a telemetry record, pre-mapped at capture so a receiver can
  * alert with zero configuration: `error` for events whose own outcome flag
- * says so (`tool/result.isError`, `turn/end` error reasons) and for
+ * says so (the tool-result block's `isError`, `turn/end` error reasons) and for
  * `agent-error` operational records. Captured events otherwise default to
  * `info`; `warn` remains available to `telemetry/record` policies and
  * backends.

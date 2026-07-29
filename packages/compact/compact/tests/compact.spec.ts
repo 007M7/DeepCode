@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
@@ -52,10 +53,10 @@ class StubCompactService extends CompactService {
       provider: 'mock',
       model: 'stub',
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: summary,
       source: COMPACT_CHECKPOINT_SOURCE,
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
@@ -103,10 +104,10 @@ describe('CompactService seam', () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
-    const original = session.append('user/message', {
+    const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     const result = await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'))
 
@@ -135,10 +136,10 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
     const controller = new AbortController()
-    const original = session.append('user/message', {
+    const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)

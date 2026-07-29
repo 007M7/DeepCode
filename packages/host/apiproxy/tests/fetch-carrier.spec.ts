@@ -1,3 +1,4 @@
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
@@ -25,10 +26,10 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
       async history(request) {
-        if (request.payload.sessionId === ('with-todos' as never)) {
+        if (request.payload.sessionId === ('with-projections' as never)) {
           return {
             rpcId: request.rpcId,
-            result: { ok: true, value: { events: [], hasMore: false, todos: [{ content: 'current', status: 'in_progress' as const }] } },
+            result: { ok: true, value: { events: [], hasMore: false, projections: { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' as const }] } } } },
           }
         }
         return {
@@ -80,6 +81,15 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
       },
+      async listDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false } } }
+      },
+      async createDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w/new' } } }
+      },
+      async openPath(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+      },
     },
     workspace: {
       async list(request) {
@@ -121,7 +131,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           return { rpcId: request.rpcId, result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } } }
         }
         if (request.payload.line.startsWith('/plan')) {
-          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, result: { kind: 'success' as const, text: 'plan set' } } } }
+          return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, commandId: CommandId('cmd-x') } } }
         }
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
@@ -129,6 +139,26 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     skills: {
       async list(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
+      },
+    },
+    goals: {
+      async create(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+      async edit(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+      async pause(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+      async resume(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+      async complete(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+      async clear(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
     events: {
@@ -158,10 +188,14 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.rpcId).toMatch(/[0-9a-f-]{36}/)
   })
 
-  it('carries the tail-page todos projection through the wire schema (Zod must not strip it)', async () => {
-    const response = await client().sessions.history({ sessionId: 'with-todos' as never })
+  it('carries the tail-page projections block through the wire schema (Zod must not strip it)', async () => {
+    const response = await client().sessions.history({ sessionId: 'with-projections' as never })
     expect(response.result.ok).toBe(true)
-    if (response.result.ok) expect(response.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
+    if (response.result.ok) {
+      expect(response.result.value.projections).toEqual(
+        { asOfSeq: 9, values: { todos: [{ content: 'current', status: 'in_progress' }] } },
+      )
+    }
   })
 
   it('carries a business error as 200 + error result', async () => {
@@ -205,12 +239,37 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
   })
 
+  it('round-trips the browse listing and creation calls through the wire form', async () => {
+    const c = client()
+    const listed = await c.host.listDirectory({ path: '/w' })
+    expect(listed.result).toEqual({
+      ok: true,
+      value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false },
+    })
+    const home = await c.host.listDirectory({})
+    expect(home.result).toMatchObject({ ok: true, value: { home: '/w' } })
+    const created = await c.host.createDirectory({ path: '/w', name: 'fresh' })
+    expect(created.result).toEqual({ ok: true, value: { path: '/w/new' } })
+  })
+
+  it('round-trips host.openPath through the wire form', async () => {
+    const api = fakeApi()
+    let opened: string | undefined
+    api.host.openPath = async (request) => {
+      opened = request.payload.path
+      return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+    }
+    const response = await client(api).host.openPath({ path: '/tmp/a.txt' })
+    expect(opened).toBe('/tmp/a.txt')
+    expect(response.result).toEqual({ ok: true, value: { opened: true } })
+  })
+
   it('round-trips command.list / command.execute / skill.list through the wire form', async () => {
     const c = client()
     const list = await c.commands.list({ sessionId: 's' as never })
     expect(list.result).toEqual({ ok: true, value: { commands: [{ name: 'plan', description: 'Toggle plan mode', input: { hint: 'on|off' } }] } })
     const hit = await c.commands.execute({ sessionId: 's' as never, line: '/plan off' })
-    expect(hit.result).toEqual({ ok: true, value: { matched: true, result: { kind: 'success', text: 'plan set' } } })
+    expect(hit.result).toEqual({ ok: true, value: { matched: true, commandId: 'cmd-x' } })
     const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })
@@ -223,7 +282,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
     // The fake's /hang settles only when the invoke-level signal aborts: a
     // completed response with the cancelled error proves req.signal reached it.
-    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', body, signal: controller.signal }))
+    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal }))
     controller.abort()
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
@@ -248,7 +307,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const controller = new AbortController()
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
     const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
-      method: 'POST', body, signal: controller.signal,
+      method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal,
     }))
     controller.abort()
     const parsed = await (await pending).json() as { result: { error?: { code: string } } }
@@ -260,18 +319,18 @@ describe('handler carrier-layer statuses', () => {
   const handler = toFetchHandler(fakeApi())
 
   it('404s unknown paths and non-POST non-stream methods', async () => {
-    expect((await handler.fetch(new Request('http://x/other', { method: 'POST', body: '{}' }))).status).toBe(404)
+    expect((await handler.fetch(new Request('http://x/other', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }))).status).toBe(404)
     expect((await handler.fetch(new Request('http://x/api/session.list', { method: 'GET' }))).status).toBe(404)
-    expect((await handler.fetch(new Request('http://x/api/no.such', { method: 'POST', body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'no.such', payload: {} }) }))).status).toBe(404)
+    expect((await handler.fetch(new Request('http://x/api/no.such', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'no.such', payload: {} }) }))).status).toBe(404)
   })
 
   it('400s a non-JSON body', async () => {
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body: 'not json' }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json' }))
     expect(response.status).toBe(400)
   })
 
   it('rejects a malformed envelope with bad-request and the invalid-request sentinel rpcId', async () => {
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body: JSON.stringify({ nope: true }) }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nope: true }) }))
     expect(response.status).toBe(200)
     const body = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(body.rpcId).toBe('invalid-request')
@@ -280,7 +339,7 @@ describe('handler carrier-layer statuses', () => {
 
   it('rejects a method/path mismatch echoing the envelope rpcId', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-9', method: 'session.cancel', payload: {} })
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     const parsed = await response.json() as { rpcId: string; result: { error?: { message: string } } }
     expect(parsed.rpcId).toBe('r-9')
     expect(parsed.result.error?.message).toContain('does not match path')
@@ -288,7 +347,7 @@ describe('handler carrier-layer statuses', () => {
 
   it('rejects an invalid payload with the zod issues attached', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-10', method: 'session.cancel', payload: {} })
-    const response = await handler.fetch(new Request('http://x/api/session.cancel', { method: 'POST', body }))
+    const response = await handler.fetch(new Request('http://x/api/session.cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     const parsed = await response.json() as { result: { error?: { code: string; details: { issues: unknown[] } } } }
     expect(parsed.result.error?.code).toBe('bad-request')
     expect(parsed.result.error?.details.issues.length).toBeGreaterThan(0)
@@ -297,23 +356,23 @@ describe('handler carrier-layer statuses', () => {
   it('500s when the impl itself throws', async () => {
     const crashing = toFetchHandler(fakeApi({ crashOn: 'session.list' }))
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-11', method: 'session.list', payload: {} })
-    const response = await crashing.fetch(new Request('http://x/api/session.list', { method: 'POST', body }))
+    const response = await crashing.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     expect(response.status).toBe(500)
     expect(await response.text()).toContain('impl crashed')
   })
 
   it('routes /api/respond, rejecting malformed client-responses as a receipt', async () => {
     const good = JSON.stringify({ type: 'client-response', rpcId: 'known', result: { ok: true, value: null } })
-    const goodReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', body: good }))).json()
+    const goodReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: good }))).json()
     expect(goodReceipt).toEqual({ accepted: true })
     const bad = JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'x', payload: {} })
-    const badReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', body: bad }))).json()
+    const badReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: bad }))).json()
     expect(badReceipt).toEqual({ accepted: false, reason: 'bad-response' })
   })
 
   it('accepts (url, init) form fetch invocation', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-12', method: 'session.list', payload: {} })
-    const response = await handler.fetch('http://x/api/session.list', { method: 'POST', body })
+    const response = await handler.fetch('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body })
     expect(response.status).toBe(200)
   })
 })

@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../goal/goal"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -33,7 +36,10 @@
       "path": "../../session-persistence/session-persistence"
     },
     {
-      "path": "../../session-title/session-title"
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../session-projection/session-projection-cache"
     },
     {
       "path": "../../skill/skill"
@@ -51,7 +57,13 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../directory-picker"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/native-command"
     }
   ]
 }

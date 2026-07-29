@@ -24,6 +24,15 @@
       "path": "../runtime"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../plan/plan-mode"
+    },
+    {
+      "path": "../../todo/tool-todo"
+    },
+    {
       "path": "../ui-slash"
     },
     {
@@ -34,6 +43,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../ui/permission"
     }
   ],
   "exclude": [
