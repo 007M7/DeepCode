@@ -9,6 +9,11 @@
 import { Context, Service } from 'cordis'
 import type z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import { redactSecrets } from './redact.ts'
+import type { RedactedSecret } from './redact.ts'
+
+export { redactSecrets } from './redact.ts'
+export type { RedactedSecret, RedactedValue } from './redact.ts'
 
 /** Nominal id of one registered settings namespace. */
 export type SettingsNamespace = Branded<'SettingsNamespace'>
@@ -49,8 +54,27 @@ export interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /** Registrant's composition `base` layer (detached), when one was declared. */
+  base?: unknown
+  /**
+   * Raw user section from the stored document (detached), when one exists and
+   * is well-formed; a field's presence here is what marks it user-overridden.
+   */
+  user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Schema-declared secret positions; present only under `redactSecrets`. */
+  secrets?: RedactedSecret[]
+}
+
+/** Options for {@link Settings.describe}. */
+export interface SettingsDescribeOptions {
+  /**
+   * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
+   * them in each descriptor's `secrets`. Every wire surface MUST pass this;
+   * the verbatim default exists for same-process configuration UIs only.
+   */
+  redactSecrets?: boolean
 }
 
 /** Owner-facing handle for one registered namespace. */
@@ -262,16 +286,44 @@ export abstract class Settings extends Service {
   }
 
   /**
-   * Describe every registered namespace for configuration surfaces.
+   * Describe every registered namespace for configuration surfaces, including
+   * the composition `base` and raw user layers so a form can mark which fields
+   * the user overrode (presence in `user`) and what a reset returns to.
+   * @param options - redaction switch; wire surfaces must redact.
    * @returns one descriptor per registered namespace, in registration order.
    */
-  describe(): SettingsDescriptor[] {
-    return [...this.registrations.values()].map(registration => ({
-      ns: registration.ns,
-      schema: registration.schema.toJSON(),
-      value: registration.resolved,
-      applies: registration.applies,
-    }))
+  describe(options?: SettingsDescribeOptions): SettingsDescriptor[] {
+    return [...this.registrations.values()].map((registration) => {
+      let user: Record<string, unknown> | undefined
+      try {
+        user = this.section(registration.ns)
+      } catch {
+        // A malformed stored section already warned at publish and kept the
+        // last good resolved value; only that malformed shape can throw here,
+        // and describing it as "no user layer" keeps this read total.
+        user = undefined
+      }
+      const base = registration.base === undefined ? undefined : structuredClone(registration.base)
+      const detachedUser = user === undefined ? undefined : structuredClone(user)
+      const descriptor: SettingsDescriptor = {
+        ns: registration.ns,
+        schema: registration.schema.toJSON(),
+        value: registration.resolved,
+        ...base === undefined ? {} : { base },
+        ...detachedUser === undefined ? {} : { user: detachedUser },
+        applies: registration.applies,
+      }
+      if (options?.redactSecrets !== true) return descriptor
+      const schema = registration.schema as z<never>
+      const redacted = redactSecrets(schema, registration.resolved)
+      return {
+        ...descriptor,
+        value: redacted.value,
+        ...base === undefined ? {} : { base: redactSecrets(schema, base).value },
+        ...detachedUser === undefined ? {} : { user: redactSecrets(schema, detachedUser).value },
+        secrets: redacted.secrets,
+      }
+    })
   }
 
   /**

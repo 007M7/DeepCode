@@ -7,7 +7,7 @@ Abstract user-settings seam (`ctx.settings`). One provider holds a raw document 
 ## Service API
 
 - `register(ns, schema, { base?, applies? })` — returns the owner `SettingsScope` (`get`/`watch`/`update`). The registration is an effect on the calling plugin's fiber: disposing that fiber removes the namespace and its observers. A stored section the schema rejects fails the registration itself; a duplicate namespace fails loud.
-- `describe()` — one descriptor per namespace (`schema.toJSON()` envelope, resolved value, `applies`) for configuration surfaces.
+- `describe(options?)` — one descriptor per namespace (`schema.toJSON()` envelope, resolved value, detached `base`/`user` layers, `applies`) for configuration surfaces; a field's presence in `user` is what marks it user-overridden. `describe({ redactSecrets: true })` strips `role('secret')` fields from every layer and adds the `secrets` slot list (`{ path, set }`); every wire surface MUST pass it, and the pure `redactSecrets(schema, value)` walker is exported for other wires.
 - `get(ns)` — resolved value, `undefined` while unregistered.
 - `update(ns, patch)` — deep-merges the plain-object patch into the user section only (never the `base`), validates the resolved candidate, persists through the provider, then commits. Validation failure rejects before anything is persisted; a read-only provider (`writable: false`) rejects every write. Writes to one namespace are serialized in call order.
 - `replace(ns, section)` — sets the user section wholesale: the removal/reset path a merge cannot express (`replace({})` re-inherits `base` and schema defaults).
@@ -34,4 +34,3 @@ No direct invalidation; a consumer that folds a settings value into the request 
 
 - **Single user layer** — resolution knows schema defaults, one composition `base`, and one user document; there is no project/managed layering or per-value provenance yet.
 - **Cross-process concurrency is provider-defined** — the seam serializes writes per namespace in-process only; concurrent processes converge by provider behavior (the local file provider is last-write-wins).
-- **No secret-field redaction** — `describe()` returns resolved values verbatim; a wire surface (RPC/UI) must redact `role('secret')` fields before exposure.
