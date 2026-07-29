@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"3f78454d-3fa3-438c-b788-968a644a42e5","createdAt":1785016210496,"cwd":"/tmp/acp-snap-cwd-hVg513","delegationDepth":0}
+{"type":"session","version":0,"id":"3f78454d-3fa3-438c-b788-968a644a42e5","createdAt":1785016210496,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1785016210501,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785016210502,"data":{"content":[{"type":"text","text":"Use the todo_write tool to record a plan with exactly three todos for work running in parallel: \"read the code\" (in_progress), \"watch the background build\" (in_progress), \"write the fix\" (pending). Send all three in one todo_write call. Then reply with the single word DONE and stop."}],"source":{"kind":"user"},"role":"user","id":"c54096e4-65eb-41db-8ca7-9fb38a217f1f"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785016210504,"data":{"title":"Use the todo_write tool to","messageSeqs":[1],"source":{"kind":"fallback"}}}
