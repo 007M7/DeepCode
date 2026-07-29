@@ -33,7 +33,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   guard/       loop-hygiene plugins
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
-  session-persistence/  persistence seam + JSONL/SQLite backends
+  session/     durable session data plane: persistence, projection, titles, reporting
   settings/    user-settings seam + file-backed provider
   credentials/ credential-reference seam + env-over-.env provider
   acp/         automation-only Agent Client Protocol server

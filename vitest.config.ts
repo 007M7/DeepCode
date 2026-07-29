@@ -224,7 +224,7 @@ export default defineConfig({
         // cover and remove with the client test lane above.
         'packages/ui/commands/src/index.ts',
         'packages/ui/commands/src/invariant.ts',
-        'packages/session-projection/session-projection/src/index.ts',
+        'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
         ...pwshCoverageExclusions,

@@ -19,10 +19,10 @@
       "path": "../../hooks/hooks-codex"
     },
     {
-      "path": "../../session-persistence/session-persistence-jsonl"
+      "path": "../../session/session-persistence-jsonl"
     },
     {
-      "path": "../../session-persistence/session-persistence-sqlite"
+      "path": "../../session/session-persistence-sqlite"
     },
     {
       "path": "../../subagent/tool-subagent"

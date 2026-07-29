@@ -27,7 +27,7 @@
       "path": "../../core/scope"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
       "path": "../../session-projection/session-projection"

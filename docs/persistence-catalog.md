@@ -557,7 +557,7 @@ Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -568,7 +568,7 @@ Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/se
 
 Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
 ### `step/*`
 

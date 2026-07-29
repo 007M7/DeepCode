@@ -30,7 +30,7 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../session-projection"
     }
   ]
 }

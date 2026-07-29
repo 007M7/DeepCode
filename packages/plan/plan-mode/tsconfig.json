@@ -33,7 +33,7 @@
       "path": "../../ui/commands"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../support/invariants"

@@ -42,19 +42,19 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
     },
     {
-      "path": "../../session-projection/session-projection-cache"
+      "path": "../../session/session-projection-cache"
     },
     {
       "path": "../../session-query/session-query"
     },
     {
-      "path": "../../session-title/session-title"
+      "path": "../../session/session-title"
     },
     {
       "path": "../../session-query/session-query"

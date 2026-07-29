@@ -19,7 +19,7 @@ ACP `session/load` 可以将先前的 assistant 消息作为完整内容块回�
 ## 验收标准
 
 - `SessionEventMap` 移除 `assistant/chunk`，或在需要过渡性实时事件时将其标记为非持久化。
-- [会话持久化文档](../../../../packages/session-persistence/session-persistence/README.md)不再要求逐字存储每个流式分片。
+- [会话持久化文档](../../../../packages/session/session-persistence/README.md)不再要求逐字存储每个流式分片。
 - `llm-replay` 和 ACP 快照使用显式的回放 fixture 格式或伴随文件来存储模型分片。
 - `session/load` 从 `assistant/message` 渲染已完成的 assistant 消息。
 - 存储的日志大幅缩小，且删除分片后仍保持 `seq` 连续，不留下序号缺口。

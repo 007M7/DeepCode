@@ -36,7 +36,7 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../settings/settings"

@@ -312,7 +312,7 @@ function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
     pnpmExec('jsonl-zstd-smoke', [
       'vitest',
       'run',
-      'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+      'packages/session/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
     pnpmExec('dsh-source-launch-smoke', [
       'vitest',

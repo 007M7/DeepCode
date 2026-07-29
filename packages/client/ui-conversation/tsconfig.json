@@ -24,7 +24,7 @@
       "path": "../runtime"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../llm/token-meter"

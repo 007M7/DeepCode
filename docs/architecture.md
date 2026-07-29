@@ -41,9 +41,9 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
-| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
+| `ctx.sessionPersistence` | [`session/`](../packages/session/README.md) | durable session-log storage |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
-| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks, one optional asynchronous provider |
+| `ctx.sessionTitle` | [`session/session-title`](../packages/session/README.md) | log-backed fallbacks, one optional asynchronous provider |
 | `ctx.settings` | [`settings/`](../packages/settings/README.md) | per-plugin user-settings namespaces layered over composition entries |
 | `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |

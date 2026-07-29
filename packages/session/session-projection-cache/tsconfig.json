@@ -21,7 +21,7 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../session-persistence"
     },
     {
       "path": "../session-projection"

@@ -6,7 +6,7 @@ English | [中文](2026-07-24-domain-kv-storage-and-workspace.zh.md)
 
 ## Problem
 
-The host's only persistence surface is the session event log (`packages/session-persistence`: append-only, one file per session). Anything that does not belong to a single session has nowhere to live, and two real needs exist today:
+The host's only persistence surface is the session event log (`packages/session/session-persistence`: append-only, one file per session). Anything that does not belong to a single session has nowhere to live, and two real needs exist today:
 
 - **The workspace entity.** The GUI needs workspace as a real object: path, title, and the list of owned sessions. Ownership belongs to the workspace — "which sessions belong to this workspace" is not any single session's fact, so writing it into the session log is semantically wrong. Until now workspace was only a sidebar visual grouping derived from cwd, with no entity (that conclusion has been overturned).
 - **Dynamic session metadata** (the foreseeable second consumer). Cold session listings read only the first log line (an immutable creation-time snapshot); title, terminal status, and anything that evolves with the session is unavailable. The fix direction is a sidecar metadata table — exactly a KV table with high-frequency per-key updates.
@@ -26,7 +26,7 @@ Create the `packages/storage/` group — the `ctx.storage` hub (backend registry
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | registers backend `sqlite` | ✓ |
 | `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | mounts `ctx.storage.domain` | ✓ |
 | `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
-| `SessionPersistence.delete` extension + cascade orchestration | `packages/session-persistence/*` | new method on the existing seam | ✗ future work (session side untouched this phase) |
+| `SessionPersistence.delete` extension + cascade orchestration | `packages/session/session-persistence*` | new method on the existing seam | ✗ future work (session side untouched this phase) |
 | `workspace.*` / `session.delete` RPC, GUI wiring, boot assembly | — | — | ✗ next phase |
 
 (workspace lives in its own group rather than `packages/host/`: the host group's naming rule requires the `dsh-host-*` prefix while this package is named `dsh-workspace`; and the workspace entity is a domain concept, not bound to the host assembly tier. Unrelated to the existing `workspace-context` package — that is an AGENTS.md instruction loader.)
