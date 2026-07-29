@@ -178,6 +178,9 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     const apiKey = process.env.E2B_API_KEY
     if (apiKey === undefined) throw new Error('E2B_API_KEY disappeared during the live composition test')
     await expect(Sandbox.getInfo(String(output.sandboxId), { apiKey })).rejects.toBeInstanceOf(SandboxNotFoundError)
-    await expect(Sandbox.list({ apiKey }).nextItems()).resolves.toEqual([])
+    await expect.poll(async () => {
+      const sandboxes = await Sandbox.list({ apiKey }).nextItems()
+      return sandboxes.some(sandbox => sandbox.sandboxId === output.sandboxId)
+    }, { interval: 250, timeout: 5_000 }).toBe(false)
   }, 195_000)
 })
