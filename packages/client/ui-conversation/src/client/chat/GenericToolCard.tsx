@@ -10,6 +10,7 @@ import {
   IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
+import { terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
 
@@ -27,6 +28,7 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
 
 export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
+  const terminal = terminalCardModel(block, cwd)
   const singleFile = model.filePath !== undefined
   return (
     <ToolRow
@@ -34,9 +36,12 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       toolName={toolName}
       icon={VARIANT_ICONS[model.variant]}
       title={model.title}
-      summary={model.summary}
+      // A terminal presenter's description is the contract's above-card text, so
+      // it outranks the args-derived summary here exactly as it does in BashRow.
+      summary={terminal?.description ?? model.summary}
       // Single-file tools never expose an args body — the path link is the only action.
       body={singleFile ? null : model.body}
+      terminal={terminal}
       state={model.state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}

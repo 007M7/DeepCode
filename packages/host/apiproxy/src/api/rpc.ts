@@ -39,6 +39,10 @@ export interface RpcErrorDetailsMap {
   'workspace-invalid-path': { path: string }
   'workspace-name-conflict': { name: string }
   'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
+  'directory-unreadable': { path: string }
+  'directory-exists': { path: string }
+  'directory-create-failed': { path: string }
+  'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}

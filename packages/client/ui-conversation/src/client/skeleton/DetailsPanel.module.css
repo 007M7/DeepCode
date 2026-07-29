@@ -92,3 +92,17 @@
 .code[data-error] {
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* Above the card, which is where the render-intent contract puts a terminal
+   call's description; the panel has no summary row to carry it. */
+.terminalDescription {
+  margin: 0 0 6px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* The terminal card sits directly under its section label, so it drops the
+   primitive's standalone vertical margin; the section owns the spacing. */
+.terminal {
+  margin: 0;
+}

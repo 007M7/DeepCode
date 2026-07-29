@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard approval wait, bash sample state dots, the node-half empty
+// bash sample state dots, the node-half empty
 // apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,10 @@ import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RunningToolCall, SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as nodeApply } from '../src/index.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
-import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
@@ -31,13 +28,6 @@ describe('tails', () => {
     )
     expect(view.queryByTestId('icon')).toBeNull()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-  })
-
-  it('PendingCard renders the approval wait with its tool name', () => {
-    const view = render(
-      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())} />,
-    )
-    expect(view.getByText(/等待审批/)).toBeTruthy()
   })
 
   it('AssistantMarkdown renders reasoning as a Think row and unknown blocks as JSON fallback', () => {
@@ -94,7 +84,7 @@ describe('tails', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
     })

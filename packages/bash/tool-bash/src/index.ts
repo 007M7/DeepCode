@@ -296,7 +296,9 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
+  // The exit marker becomes the card's exit pill, so it leaves the output body.
+  const { body, ...exit } = parseExitStatus(raw)
+  return { card: 'terminal', output: body, ...exit }
 }
 
 /**
