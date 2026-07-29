@@ -18,7 +18,7 @@ import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeM
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
-import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider } from '@deepseek-ai/dsh-skill'
+import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -3828,10 +3828,30 @@ describe('skill slash command', () => {
     if (skills === undefined) throw new Error('skills service not mounted')
     skills.register({ name: 'demo-skill', description: 'Demo skill for tests', source: 'runtime', provider: 'runtime', content: 'Demo instructions body.' })
     skills.register({ name: 'project-skill', description: 'Project skill for tests', source: 'project-dsh', provider: 'runtime', content: 'Project instructions body.' })
-    skills.register({ name: 'hidden-skill', description: 'Model-hidden skill', source: 'runtime', provider: 'runtime', content: 'Hidden instructions body.', disableModelInvocation: true })
+    skills.register({
+      name: 'user-only-skill',
+      description: 'User-only skill',
+      invocation: { modelInvocable: false, userInvocable: true },
+      source: 'runtime',
+      content: 'User-only instructions body.',
+    })
+    skills.register({
+      name: 'model-only-skill',
+      description: 'Model-only skill',
+      invocation: { modelInvocable: true, userInvocable: false },
+      source: 'runtime',
+      content: 'Model-only instructions body.',
+    })
+    skills.register({
+      name: 'trusted-only-skill',
+      description: 'Trusted-only skill',
+      invocation: { modelInvocable: false, userInvocable: false },
+      source: 'runtime',
+      content: 'Trusted-only instructions body.',
+    })
   }
 
-  it('labels slash completions by scope and hides model-disabled skills', async () => {
+  it('labels slash completions by scope and applies user invocation policy', async () => {
     const result = await setup({ configureContext: withSkills })
     result.terminal.send('/skill')
     await tick()
@@ -3839,8 +3859,10 @@ describe('skill slash command', () => {
     expect(result.terminal.output).toContain('(user)')
     expect(result.terminal.output).toContain('project-skill')
     expect(result.terminal.output).toContain('(project)')
+    expect(result.terminal.output).toContain('user-only-skill')
     expect(result.terminal.output).not.toContain('[instructions]')
-    expect(result.terminal.output).not.toContain('hidden-skill')
+    expect(result.terminal.output).not.toContain('model-only-skill')
+    expect(result.terminal.output).not.toContain('trusted-only-skill')
     await dispose(result)
   })
 
@@ -3894,6 +3916,7 @@ describe('skill slash command', () => {
             return [{
               name: 'stable-skill',
               description: 'STABLE_COMPLETION_MARKER',
+              invocation: { modelInvocable: true, userInvocable: true },
               source: 'test',
               provider: 'flaky-completion',
               rank: 1,
@@ -3946,6 +3969,7 @@ describe('skill slash command', () => {
       skills: [{
         name: 'latest-skill',
         description: 'LATEST_COMPLETION_MARKER',
+        invocation: { modelInvocable: true, userInvocable: true },
         source: 'runtime',
         provider: 'runtime',
       }],
@@ -3953,11 +3977,11 @@ describe('skill slash command', () => {
     })
     await tick()
     pendingSnapshots[0]?.resolve({
-      skills: [{ name: 'stale-first', description: 'STALE_FIRST', source: 'runtime', provider: 'runtime' }],
+      skills: [{ name: 'stale-first', description: 'STALE_FIRST', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
       complete: true,
     })
     pendingSnapshots[1]?.resolve({
-      skills: [{ name: 'stale-second', description: 'STALE_SECOND', source: 'runtime', provider: 'runtime' }],
+      skills: [{ name: 'stale-second', description: 'STALE_SECOND', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
       complete: true,
     })
     await tick()
@@ -3986,12 +4010,62 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
-  it('invokes a model-disabled skill by its exact name', async () => {
+  it('invokes a user-only skill by its exact name', async () => {
     const result = await setup({ configureContext: withSkills })
-    result.terminal.send('/skill:hidden-skill')
+    result.terminal.send('/skill:user-only-skill')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="hidden-skill">\nHidden instructions body.\n</skill>' }]])
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="user-only-skill">\nUser-only instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('checks user policy before loading and rechecks the loaded definition', async () => {
+    const summaries: SkillSummary[] = [
+      {
+        name: 'model-only-skill',
+        description: 'Model-only skill',
+        invocation: { modelInvocable: true, userInvocable: false },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+      {
+        name: 'policy-race-skill',
+        description: 'Policy race skill',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+    ]
+    const get = vi.fn((name: string) => Promise.resolve<SkillDefinition | undefined>({
+      name,
+      description: 'Policy race skill',
+      invocation: { modelInvocable: true, userInvocable: false },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'Instructions must not be delivered.',
+    }))
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          snapshot: () => Promise.resolve({ skills: summaries, complete: true }),
+          list: () => Promise.resolve(summaries),
+          get,
+        } as never)
+      },
+    })
+    result.terminal.send('/skill:model-only-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:policy-race-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([])
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('policy-race-skill', expect.objectContaining({ cwd: '/workspace' }))
+    expect(result.terminal.output).toContain('Skill "model-only-skill" is not available for user invocation.')
+    expect(result.terminal.output).toContain('Skill "policy-race-skill" is not available for user invocation.')
+    expect(result.terminal.output).not.toContain('Instructions must not be delivered.')
     await dispose(result)
   })
 
@@ -4047,6 +4121,7 @@ describe('skill slash command', () => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
           snapshot: () => Promise.reject(new Error('list boom')),
+          list: () => Promise.reject(new Error('list boom')),
           get: () => Promise.reject(new Error('get boom')),
         } as never)
       },
@@ -4055,11 +4130,13 @@ describe('skill slash command', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('failed to load')
-    expect(result.terminal.output).toContain('get boom')
+    expect(result.terminal.output).toContain('list boom')
     await dispose(result)
   })
 
   it('drops skill list and lookup results that settle after disposal', async () => {
+    let listCalls = 0
+    let resolvePendingList: ((value: SkillSummary[]) => void) | undefined
     const pendingSnapshots: Array<(value: SkillCatalogSnapshot) => void> = []
     const pendingGet: Array<{ resolve: (value: SkillDefinition | undefined) => void; reject: (error: unknown) => void }> = []
     const result = await setup({
@@ -4067,11 +4144,29 @@ describe('skill slash command', () => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
           snapshot: () => new Promise<SkillCatalogSnapshot>((resolve) => { pendingSnapshots.push(resolve) }),
+          list: () => {
+            listCalls += 1
+            if (listCalls === 1 || listCalls === 2) {
+              const name = listCalls === 1 ? 'demo-skill' : 'error-skill'
+              return Promise.resolve<SkillSummary[]>([{
+                name,
+                description: 'demo',
+                invocation: { modelInvocable: true, userInvocable: true },
+                source: 'runtime',
+                provider: 'runtime',
+              }])
+            }
+            return new Promise<SkillSummary[]>((resolve) => { resolvePendingList = resolve })
+          },
           get: () => new Promise<SkillDefinition | undefined>((resolve, reject) => { pendingGet.push({ resolve, reject }) }),
         } as never)
       },
     })
+    await tick()
     result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:error-skill')
     result.terminal.send('\r')
     await tick()
     result.terminal.send('/skill:other-skill')
@@ -4083,16 +4178,36 @@ describe('skill slash command', () => {
     expect(pendingSnapshots).toHaveLength(1)
     for (const resolve of pendingSnapshots) {
       resolve({
-        skills: [{ name: 'late', description: 'late', source: 'runtime', provider: 'runtime' }],
+        skills: [{
+          name: 'late',
+          description: 'late',
+          invocation: { modelInvocable: true, userInvocable: true },
+          source: 'runtime',
+          provider: 'runtime',
+        }],
         complete: true,
       })
     }
-    pendingGet[0]?.resolve({ name: 'demo-skill', description: 'late', source: 'runtime', provider: 'runtime', content: 'late body' })
+    resolvePendingList?.([{
+      name: 'other-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+    }])
+    pendingGet[0]?.resolve({
+      name: 'demo-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'late body',
+    })
     pendingGet[1]?.reject(new Error('late failure'))
     await tick()
     expect(result.agent.sent).toEqual([])
-    expect(result.terminal.output).not.toContain('late failure')
     expect(result.terminal.output).not.toContain('late body')
+    expect(result.terminal.output).not.toContain('late failure')
   })
 })
 
@@ -4100,6 +4215,7 @@ describe('renderSkillInvocation', () => {
   const skill: SkillDefinition = {
     name: 'demo-skill',
     description: 'Demo skill',
+    invocation: { modelInvocable: true, userInvocable: true },
     source: 'runtime',
     provider: 'runtime',
     content: 'Body text.',
