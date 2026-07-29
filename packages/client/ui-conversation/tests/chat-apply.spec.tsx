@@ -10,6 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
@@ -22,6 +23,7 @@ async function bench() {
   await runtime.sessions.add(
     { id: CHILD, summary: { title: 'C', displayTitle: 'C', parentId: ROOT } }, { current: false })
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+  runtime.provide('locale', new LocaleService(runtime.ctx))
 
   // Declared by ui-layout's root entry in production; the test root declares
   // them here so the contributions land.

@@ -87,7 +87,7 @@ export class SlashService extends Service implements SlashServiceContract {
       actx,
       sessionId: id,
       roster: {
-        sources: trigger => live.sources.filter(s => s.trigger === trigger),
+        sources: trigger => live.sources.filter(s => s.trigger === trigger).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
         all: () => live.sources,
       },
     })

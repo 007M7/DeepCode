@@ -100,6 +100,7 @@ export function apply(ctx: ClientContext): void {
   const source: SlashSource = {
     trigger: '/',
     name: 'skill',
+    order: 2,
     async candidates(session, { query, signal }) {
       const skills = await fetchCatalog(session.sessionId)
       // Superseded keystroke: the shared fetch stays warm, this caller yields.
