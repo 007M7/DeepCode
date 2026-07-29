@@ -31,6 +31,7 @@
     "tests/settings-chrome.e2e.ts",
     "tests/workspace-management.e2e.ts",
     "tests/replay-round-trip.e2e.ts",
+    "tests/hmr-live.e2e.ts",
     "tests/seeded-history.e2e.ts",
     "tests/code-mode-round.e2e.ts",
     "tests/cordis-tool-round.e2e.ts"

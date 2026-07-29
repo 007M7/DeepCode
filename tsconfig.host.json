@@ -18,6 +18,7 @@
     "apps/web/tests/settings-chrome.e2e.ts",
     "apps/web/tests/workspace-management.e2e.ts",
     "apps/web/tests/replay-round-trip.e2e.ts",
+    "apps/web/tests/hmr-live.e2e.ts",
     "apps/web/tests/seeded-history.e2e.ts",
     "apps/web/tests/code-mode-round.e2e.ts",
     "apps/web/tests/cordis-tool-round.e2e.ts",

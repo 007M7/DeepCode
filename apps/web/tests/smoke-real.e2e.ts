@@ -20,11 +20,13 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+
+const DEVELOPMENT_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/development-prompt.expected.md', import.meta.url))
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -180,7 +182,7 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
-  it('injects the invoking workspace AGENTS.md into the provider request', async () => {
+  it('routes --dev runtime context and workspace instructions through the real CLI request', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
     mkdirSync(join(workspace, '.git'))
@@ -212,7 +214,7 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0', '--dev'],
       {
         cwd: workspace,
         env: {
@@ -241,6 +243,10 @@ describe('dsh web keyless CLI smoke', () => {
       ])
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      const expectedWebSection = readFileSync(DEVELOPMENT_PROMPT, 'utf8').trimEnd()
+        .replace('{{webUrl}}', baseUrl)
+      expect(systemMessage?.content).toContain(expectedWebSection)
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "content": "<system-reminder>

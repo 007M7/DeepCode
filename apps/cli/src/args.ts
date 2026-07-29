@@ -115,7 +115,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
   web
     .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
     .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
-    .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
+    .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--workspace-root <path>', 'parent directory for name-created workspaces')
     .action((options: WebOptions) => {
       // Commander parses the parent (default-surface) options on either side of
