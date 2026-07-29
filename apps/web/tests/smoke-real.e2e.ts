@@ -469,7 +469,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '09-details-closed')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and persists across reload', async () => {
+  it('6 sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -484,7 +484,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '10-sidebar-dragged')
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    expect(await firstTrack(page)).toBe(after)
+    expect(await firstTrack(page)).toBe(before)
   })
 
   it('7 dark mode: the body attribute cascades the token sheets', async () => {

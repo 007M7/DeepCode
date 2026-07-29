@@ -341,6 +341,7 @@ export function ChatView({
           streaming={false}
           interrupted={node.interrupted}
           loadImage={loadImage}
+          time={node.time}
         />
       )
     }

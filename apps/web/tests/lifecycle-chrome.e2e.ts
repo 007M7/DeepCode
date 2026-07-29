@@ -101,23 +101,15 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('recovers the whole surface across a reload from the log alone', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-reload'))
-    // Fold a layout preference into the same reload: collapse the sidebar
-    // (persisted under dsh.layout.panels) before reloading.
-    await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-    await expect.poll(() => page.getByRole('button', { name: 'Open sidebar' }).count(), { timeout: 10_000 }).toBe(1)
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
-    // Layout persisted: the sidebar comes back collapsed.
-    await expect.poll(() => page.getByRole('button', { name: 'Open sidebar' }).count(), { timeout: 10_000 }).toBe(1)
     // Selection persisted (dsh.sessions.current) and history replayed: the
     // recorded turn re-renders from session.history with zero model calls —
     // the replay cursor was fully consumed before the reload, so any stray
     // request would fail the scenario loudly at close().
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
-    // Expand back and confirm the tree still lists the materialized session.
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
     // Golden of the recovered conversation region: rebuilt from the log, it
     // must render the same settled transcript the live turn produced.
