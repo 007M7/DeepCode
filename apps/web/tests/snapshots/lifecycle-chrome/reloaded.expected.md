@@ -5,7 +5,7 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
-- text: Reply with the single word LIGHTHOUSE and stop.
+- text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -17,7 +17,11 @@
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
-- text: cache hit 99% · 7,810 tokens · 1 turns · 1 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} cache hit 99% · 7,810 tokens · 1 turns · 1 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
