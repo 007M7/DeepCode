@@ -1,7 +1,6 @@
 /** Test-owned sessions face: the SlotsService host contract over declarative fixtures. */
 import type { Context } from 'cordis'
 import type { AttachmentIdType } from '@deepseek-ai/dsh-attachment'
-import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -195,14 +194,6 @@ export class TestSessions implements ISessions {
     this.currentProvideInfo = this.channel.currentProvideInfo
     // The projection follows every current write, as in production.
     this.list.subscribe(() => { this.channel.publishCurrent() })
-  }
-
-  /**
-   * Test runtime has no host handshake unless a fixture explicitly supplies one.
-   * @returns undefined.
-   */
-  hostDescription(): HostDescription | undefined {
-    return undefined
   }
 
   /**

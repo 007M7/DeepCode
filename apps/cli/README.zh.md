@@ -14,7 +14,7 @@ TUI 界面：
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
 - 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`.env` 填补环境缺口（环境中已有的值 > 项目 `.env` > 个人 `.env`），`config.yaml` 则修补已启动的树。
 
-Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。`dsh web --provider <name> --model <id>` 选择对应路由：出货清单内的 provider（openai/anthropic）由 yml 中已挂载的 pi-ai row 以提供方原生环境凭据直接服务，只有该 row 之外的 pi-ai catalog provider 才会动态挂载；默认 DeepSeek 路由仍仅支持文本。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
+Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 

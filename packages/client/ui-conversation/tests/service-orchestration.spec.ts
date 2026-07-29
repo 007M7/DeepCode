@@ -69,6 +69,31 @@ describe('ConversationService', () => {
     await b.runtime.dispose()
   })
 
+  it('checks media type before preview allocation and leaves deployment limits to the host', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockImplementation(file => `blob:${(file as File).name}`)
+    try {
+      const files = Array.from(
+        { length: 11 },
+        (_, index) => new File([Uint8Array.of(index)], `${index}.png`, { type: 'image/png' }),
+      )
+      expect(b.root.createDraftImages(files)).toHaveLength(11)
+      expect(created).toHaveBeenCalledTimes(11)
+
+      const beforeRejectedBatch = created.mock.calls.length
+      expect(() => {
+        b.root.createDraftImages([
+          new File([Uint8Array.of(1)], 'valid.png', { type: 'image/png' }),
+          new File([Uint8Array.of(2)], 'invalid.svg', { type: 'image/svg+xml' }),
+        ])
+      }).toThrow('不支持的图片格式：image/svg+xml')
+      expect(created).toHaveBeenCalledTimes(beforeRejectedBatch)
+    } finally {
+      created.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('releases in-flight send images when the scope dies before the failure lands', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:inflight-1')

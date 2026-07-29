@@ -4,8 +4,6 @@
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
-import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
-import type { LlmModelInfo } from '@deepseek-ai/dsh-llm/types'
 
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
 export interface DirectoryEntry {
@@ -49,10 +47,6 @@ export interface HostApi {
     cwd: string
     provider?: string
     model?: string
-    /** Catalog entry for the active route; absent means its capabilities are unknown. */
-    activeModel?: LlmModelInfo
-    /** Resolved authoritative image-upload limits. */
-    imageLimits?: ImageAttachmentLimits
     attachedSessions: number
   }>>
 

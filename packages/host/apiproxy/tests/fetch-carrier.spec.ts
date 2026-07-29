@@ -259,40 +259,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 
-  it('round-trips a declaration-merged model modality through host.describe', async () => {
-    const c = client(fakeApi({
-      hostDescription: {
-        version: 'v',
-        cwd: '/w',
-        activeModel: {
-          provider: 'future',
-          id: 'audio-model',
-          name: 'Audio Model',
-          inputModalities: ['text', 'audio'],
-          outputModalities: ['audio'],
-        },
-        attachedSessions: 0,
-      },
-    }))
-
-    const response = await c.host.describe({})
-    expect(response.result).toEqual({
-      ok: true,
-      value: {
-        version: 'v',
-        cwd: '/w',
-        activeModel: {
-          provider: 'future',
-          id: 'audio-model',
-          name: 'Audio Model',
-          inputModalities: ['text', 'audio'],
-          outputModalities: ['audio'],
-        },
-        attachedSessions: 0,
-      },
-    })
-  })
-
   it('round-trips the native picker without the default unary timeout', async () => {
     const api = fakeApi()
     api.host.pickDirectory = async (request) => {

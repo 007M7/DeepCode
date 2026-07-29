@@ -35,8 +35,6 @@ switch (invocation.mode) {
       invocation.port,
       invocation.dev,
       invocation.workspaceRoot,
-      invocation.provider,
-      invocation.model,
       invocation.trustedHosts,
     )
     break

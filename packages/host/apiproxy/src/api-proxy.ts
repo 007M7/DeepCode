@@ -1419,24 +1419,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     host: {
-      async describe(request) {
-        const activeModel = (await ctx.llm.listModels(defaults.provider))
-          .find(model => model.id === defaults.model)
+      describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
-        return ok(request, {
+        return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
           provider: defaults.provider,
           model: defaults.model,
-          ...activeModel === undefined ? {} : { activeModel },
-          imageLimits: {
-            ...ctx.attachments.imageLimits,
-            mediaTypes: [...ctx.attachments.imageLimits.mediaTypes],
-          },
           attachedSessions: ctx.agents.list().length,
-        })
+        }))
       },
 
       async pickDirectory(request, signal) {

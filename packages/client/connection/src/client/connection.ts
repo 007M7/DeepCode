@@ -1,4 +1,4 @@
-import type { HostDescription, IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
+import type { IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
 
 /** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; web-cordis §B.1 lists
  *  these as the future `ctx.connection` plugin Config). All fields optional; defaults below. */
@@ -44,8 +44,6 @@ export type ConnectionState = 'connected' | 'reconnecting'
 export interface ConnectionSinks {
   onMuxEnvelope?: (envelope: RpcRequest<MuxFrame>) => void
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
-  /** Latest successful host capability snapshot for this connection generation. */
-  onDescription?: (description: HostDescription) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
   onConnected?: () => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
@@ -144,7 +142,6 @@ export class ConnectionController {
         }
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
         this.attempt = 0
-        this.callSink(() => { this.sinks.onDescription?.(descriptionResult.value) })
         this.emitState('connected')
         this.callSink(this.sinks.onConnected)
       } catch {

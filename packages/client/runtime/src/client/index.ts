@@ -178,7 +178,6 @@ export function apply(ctx: Context): void {
         console.error('[web-runtime] history host-frame routing failed:', error)
       }
     },
-    onDescription: (description) => { sessions.handleDescription(description) },
     onConnected: () => {
       sessions.handleConnected()
       workspaces.handleConnected()

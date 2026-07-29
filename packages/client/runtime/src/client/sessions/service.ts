@@ -17,7 +17,7 @@
  */
 import type { Context, Fiber } from 'cordis'
 import type {
-  HostDescription, IApiClient, RpcError, SessionId, WorkspaceId,
+  IApiClient, RpcError, SessionId, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
@@ -191,7 +191,6 @@ export class SessionsService implements ISessions {
   private watched: SessionId | undefined
   /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
   private readonly deferredRemovals = new Set<SessionId>()
-  private description: HostDescription | undefined
 
   /**
    * @param ctx - client root context (scope fibers mount under it).
@@ -229,22 +228,6 @@ export class SessionsService implements ISessions {
     })
     this.currentProvideInfo = this.provideChannel.currentProvideInfo
     rootCtx.reflect.provide('sessions', this, undefined)
-  }
-
-  /**
-   * Store the latest successful connection-generation host description.
-   * @param description - capability and deployment snapshot from `host.describe`.
-   */
-  handleDescription(description: HostDescription): void {
-    this.description = description
-  }
-
-  /**
-   * Read the latest host capability snapshot.
-   * @returns the last successful description, or undefined before connection.
-   */
-  hostDescription(): HostDescription | undefined {
-    return this.description
   }
 
   /**
