@@ -48,10 +48,10 @@ function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'u
   return createUserMessage({ content, source })
 }
 
-function assistantMessage(content: ContentBlock[]): AssistantMessage {
+function assistantMessage(content: ContentBlock[], model = 'fx-1'): AssistantMessage {
   return createAssistantMessage({
     content,
-    source: { provider: 'fixture', model: 'fx-1' },
+    source: { provider: 'fixture', model },
   })
 }
 
@@ -228,7 +228,30 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 65: multimodal image sample — image blocks in a user message and an
+  // assistant message, both referencing the fixture attachment (the log
+  // reference authorizes the sessions.attachment fetch). Ordered BEFORE the
+  // todo turn: the plan projection retires at the next turn/start, so the
+  // todo_write turn must stay the log tail for the TodoPanel strip to show.
+  push({ type: 'turn/start', data: { turn: 65, trigger: { kind: 'message', source: { kind: 'user' } } } })
+  push({
+    type: 'user/message',
+    surfaceOp: 'append',
+    data: userMessage([{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')]),
+  })
+  push({ type: 'step/start', data: { turn: 65, step: 0 } })
+  push({
+    type: 'assistant/message',
+    surfaceOp: 'append',
+    data: {
+      turn: 65,
+      step: 0,
+      message: assistantMessage([...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }], 'fx-vision'),
+    },
+  })
+  push({ type: 'step/end', data: { turn: 65, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 65, reason: { kind: 'completed' } } })
+  // Turn 66: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
@@ -236,35 +259,13 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '浏览器验收', status: 'pending' },
   ]
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
   const callIndex = events.length - 4
   const callTime = events[callIndex]?.time as number
   events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
-  push({ type: 'turn/start', data: { turn: 66, trigger: { kind: 'message', source: { kind: 'user' } } } })
-  push({
-    type: 'user/message',
-    surfaceOp: 'append',
-    data: {
-      content: [{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')],
-      source: { kind: 'user' },
-    },
-  })
-  push({ type: 'step/start', data: { turn: 66, step: 0 } })
-  push({
-    type: 'assistant/message',
-    surfaceOp: 'append',
-    data: {
-      turn: 66,
-      step: 0,
-      content: [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }],
-      provenance: { provider: 'fixture', model: 'fx-vision' },
-    },
-  })
-  push({ type: 'step/end', data: { turn: 66, step: 0 } })
-  push({ type: 'turn/end', data: { turn: 66, reason: { kind: 'completed' } } })
   events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }

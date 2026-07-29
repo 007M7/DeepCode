@@ -215,9 +215,9 @@ it('trajectory and waterfall surface the run_code sub-calls with real timing', a
   }).toMatchInlineSnapshot(`
     {
       "subCells": [
-        "#51Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
-        "#52Subread · {"path":"notes/demo.txt"}+0.8s",
-        "#53Subread · {"path":"notes/missing.txt"}+0.8s",
+        "#49Subbash · {"command":"ls notes","description":"List notes"}+0.8s",
+        "#50Subread · {"path":"notes/demo.txt"}+0.8s",
+        "#51Subread · {"path":"notes/missing.txt"}+0.8s",
       ],
     }
   `)
